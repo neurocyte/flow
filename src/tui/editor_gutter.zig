@@ -175,9 +175,12 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_style(theme.editor_gutter);
     _ = self.plane.fill(" ");
     switch (self.get_numbering_mode()) {
-        .none => self.render_none(theme),
+        .only_current => self.render_current(theme),
+        .multiples_of_five => self.render_multiples_of_n(theme, 5),
+        .multiples_of_ten => self.render_multiples_of_n(theme, 10),
         .relative => self.render_relative(theme),
         .absolute => self.render_linear(theme),
+        .none => self.render_none(theme),
     }
     if (self.symbols)
         self.render_diagnostics(theme);
@@ -248,6 +251,53 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
         pos += 1;
         linenum += 1;
         abs_linenum += 1;
+    }
+}
+
+pub fn render_current(self: *Self, theme: *const Widget.Theme) void {
+    var pos: usize = 0;
+    var linenum = self.view_top + 1;
+    var rows = self.view_rows;
+    var diff_symbols = self.editor.changes.items;
+    while (rows > 0) : (rows -= 1) {
+        if (linenum > self.lines) return;
+        if (linenum == self.line + 1) {
+            self.plane.cursor_move_yx(@intCast(pos), 0);
+            self.plane.set_style(.{ .fg = theme.editor_gutter_active.fg });
+            self.plane.on_styles(styles.bold);
+            try self.print_digits(linenum, self.line_number_style);
+            if (self.highlight) self.render_line_highlight(pos, theme);
+        }
+        self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
+        pos += 1;
+        linenum += 1;
+    }
+}
+
+pub fn render_multiples_of_n(self: *Self, theme: *const Widget.Theme, n: u32) void {
+    var pos: usize = 0;
+    var linenum = self.view_top + 1;
+    var rows = self.view_rows;
+    var diff_symbols = self.editor.changes.items;
+    while (rows > 0) : (rows -= 1) {
+        if (linenum > self.lines) return;
+        const multiple_of_n = linenum % n == 0;
+        const current_line = linenum == self.line + 1;
+        if (current_line or multiple_of_n) {
+            self.plane.cursor_move_yx(@intCast(pos), 0);
+            if (current_line) {
+                self.plane.set_style(.{ .fg = theme.editor_gutter_active.fg });
+                self.plane.on_styles(styles.bold);
+            } else {
+                self.plane.set_style(.{ .fg = theme.editor_gutter.fg });
+                self.plane.off_styles(styles.bold);
+            }
+            try self.print_digits(linenum, self.line_number_style);
+            if (current_line and self.highlight) self.render_line_highlight(pos, theme);
+        }
+        self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
+        pos += 1;
+        linenum += 1;
     }
 }
 

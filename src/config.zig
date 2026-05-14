@@ -121,9 +121,12 @@ pub const DigitStyle = enum {
 };
 
 pub const LineNumberMode = enum {
-    none,
-    relative,
+    only_current,
+    multiples_of_five,
+    multiples_of_ten,
     absolute,
+    relative,
+    none,
 };
 
 pub const GutterWidthMode = enum {
