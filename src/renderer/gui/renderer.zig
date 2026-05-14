@@ -45,6 +45,8 @@ pub const Error = error{
     WriteFailed,
 } || std.Thread.SpawnError;
 
+const keepalive = std.time.us_per_day * 365; // one year
+
 allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
 cache_storage: GraphemeCache.Storage = .{},
@@ -108,6 +110,7 @@ const RenderActor = struct {
     parent: tp.pid,
     receiver: tp.Receiver(*@This()),
     initialized: bool = false,
+    keepalive_timer: ?tp.Cancellable = null,
 
     const StartArgs = struct {
         allocator: std.mem.Allocator,
@@ -123,10 +126,12 @@ const RenderActor = struct {
             .receiver = undefined,
         };
         self.receiver = .init(receive, dtor, self);
+        self.keepalive_timer = tp.self_pid().delay_send_cancellable(self.allocator, "render.keepalive", keepalive, .{"keepalive"}) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }
 
     fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
+        errdefer self.deinit();
         if (try m.match(.{ "tick", tp.more })) {
             if (self.initialized) app.renderActorTick();
             return;
@@ -160,6 +165,14 @@ const RenderActor = struct {
 
     fn dtor(self: *@This()) void {
         self.parent.deinit();
+    }
+
+    fn deinit(self: *@This()) void {
+        if (self.keepalive_timer) |*t| {
+            t.cancel() catch {};
+            t.deinit();
+            self.keepalive_timer = null;
+        }
     }
 };
 
