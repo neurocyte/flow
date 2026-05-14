@@ -188,7 +188,8 @@ fn build_release(
         const os = triple.next() orelse unreachable;
         const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
         const target_path_debug = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch, "debug" }) catch unreachable;
-        const use_llvm = if (target.result.os.tag == .linux) true else null;
+        // const use_llvm = if (target.result.os.tag == .linux) true else null;
+        const use_llvm = true;
 
         build_exe(
             b,
