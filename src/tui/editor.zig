@@ -4139,7 +4139,7 @@ pub const Editor = struct {
         try self.with_cursels_const(root, &move_to_match_bracket, self.metrics);
         self.clamp(ctx.now);
     }
-    pub const goto_bracket_meta: Meta = .{ .description = "Goto matching bracket" };
+    pub const goto_bracket_meta: Meta = .{ .description = "Go to matching bracket" };
 
     const QuoteRole = enum { opening, closing };
 
@@ -6601,7 +6601,7 @@ pub const Editor = struct {
             self.clamp(ctx.now);
         }
     }
-    pub const move_cursor_next_match_meta: Meta = .{ .description = "Move cursor to next hightlighted match" };
+    pub const move_cursor_next_match_meta: Meta = .{ .description = "Move cursor to next highlighted match" };
 
     pub fn repeat_last_find(self: *Self, not_a_command: ?void, ctx: Context) Result {
         _ = not_a_command;
@@ -6625,7 +6625,7 @@ pub const Editor = struct {
         try self.move_cursor_next_match(ctx);
         try self.send_editor_jump_destination();
     }
-    pub const goto_next_match_meta: Meta = .{ .description = "Goto to next hightlighted match" };
+    pub const goto_next_match_meta: Meta = .{ .description = "Go to next highlighted match" };
 
     pub fn move_cursor_prev_match(self: *Self, ctx: Context) Result {
         const primary = self.get_primary();
@@ -6640,7 +6640,7 @@ pub const Editor = struct {
             self.clamp(ctx.now);
         }
     }
-    pub const move_cursor_prev_match_meta: Meta = .{ .description = "Move cursor to previous hightlighted match" };
+    pub const move_cursor_prev_match_meta: Meta = .{ .description = "Move cursor to previous highlighted match" };
 
     pub fn goto_prev_match(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
@@ -6659,7 +6659,7 @@ pub const Editor = struct {
         try self.move_cursor_prev_match(ctx);
         try self.send_editor_jump_destination();
     }
-    pub const goto_prev_match_meta: Meta = .{ .description = "Goto to previous hightlighted match" };
+    pub const goto_prev_match_meta: Meta = .{ .description = "Go to previous highlighted match" };
 
     pub fn goto_next_diagnostic(self: *Self, ctx: Context) Result {
         if (self.diagnostics.items.len == 0) {
@@ -6675,7 +6675,7 @@ pub const Editor = struct {
         }
         return self.goto_diagnostic(&self.diagnostics.items[0], ctx.now);
     }
-    pub const goto_next_diagnostic_meta: Meta = .{ .description = "Goto to next diagnostic" };
+    pub const goto_next_diagnostic_meta: Meta = .{ .description = "Go to next diagnostic" };
 
     pub fn goto_prev_diagnostic(self: *Self, ctx: Context) Result {
         if (self.diagnostics.items.len == 0) {
@@ -6693,7 +6693,7 @@ pub const Editor = struct {
             if (i == 0) return self.goto_diagnostic(&self.diagnostics.items[self.diagnostics.items.len - 1], ctx.now);
         }
     }
-    pub const goto_prev_diagnostic_meta: Meta = .{ .description = "Goto to previous diagnostic" };
+    pub const goto_prev_diagnostic_meta: Meta = .{ .description = "Go to previous diagnostic" };
 
     fn goto_diagnostic(self: *Self, diag: *const Diagnostic, now: std.Io.Timestamp) !void {
         const root = self.buf_root() catch return;
@@ -6756,12 +6756,12 @@ pub const Editor = struct {
     pub fn goto_next_change(self: *Self, ctx: Context) Result {
         return self.goto_change(.right, ctx.now);
     }
-    pub const goto_next_change_meta: Meta = .{ .description = "Goto to next change" };
+    pub const goto_next_change_meta: Meta = .{ .description = "Go to next change" };
 
     pub fn goto_prev_change(self: *Self, ctx: Context) Result {
         return self.goto_change(.left, ctx.now);
     }
-    pub const goto_prev_change_meta: Meta = .{ .description = "Goto to previous change" };
+    pub const goto_prev_change_meta: Meta = .{ .description = "Go to previous change" };
 
     pub fn goto_line(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
@@ -6796,7 +6796,7 @@ pub const Editor = struct {
         self.clamp(ctx.now);
         try self.send_editor_jump_destination();
     }
-    pub const goto_line_vim_meta: Meta = .{ .description = "Goto line (vim)", .arguments = &.{.integer} };
+    pub const goto_line_vim_meta: Meta = .{ .description = "Go to line (vim)", .arguments = &.{.integer} };
 
     pub fn select_to_line_vim(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
@@ -7006,22 +7006,22 @@ pub const Editor = struct {
     pub fn goto_definition(self: *Self, _: Context) Result {
         return self.pm_with_primary_cursor_pos_alt(project_manager.goto_definition);
     }
-    pub const goto_definition_meta: Meta = .{ .description = "Language: Goto definition" };
+    pub const goto_definition_meta: Meta = .{ .description = "Language: Go to definition" };
 
     pub fn goto_declaration(self: *Self, _: Context) Result {
         return self.pm_with_primary_cursor_pos_alt(project_manager.goto_declaration);
     }
-    pub const goto_declaration_meta: Meta = .{ .description = "Language: Goto declaration" };
+    pub const goto_declaration_meta: Meta = .{ .description = "Language: Go to declaration" };
 
     pub fn goto_implementation(self: *Self, _: Context) Result {
         return self.pm_with_primary_cursor_pos_alt(project_manager.goto_implementation);
     }
-    pub const goto_implementation_meta: Meta = .{ .description = "Language: Goto implementation" };
+    pub const goto_implementation_meta: Meta = .{ .description = "Language: Go to implementation" };
 
     pub fn goto_type_definition(self: *Self, _: Context) Result {
         return self.pm_with_primary_cursor_pos_alt(project_manager.goto_type_definition);
     }
-    pub const goto_type_definition_meta: Meta = .{ .description = "Language: Goto type definition" };
+    pub const goto_type_definition_meta: Meta = .{ .description = "Language: Go to type definition" };
 
     pub fn references(self: *Self, _: Context) Result {
         return self.pm_with_primary_cursor_pos(project_manager.references);

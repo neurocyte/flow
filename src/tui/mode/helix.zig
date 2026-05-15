@@ -216,7 +216,7 @@ const cmds_ = struct {
         try ed.with_cursels_const_once_arg(root, &match_bracket, ctx);
         ed.clamp(ctx.now);
     }
-    pub const match_brackets_meta: Meta = .{ .description = "Goto matching bracket" };
+    pub const match_brackets_meta: Meta = .{ .description = "Go to matching bracket" };
 
     pub fn extend_line_below(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;

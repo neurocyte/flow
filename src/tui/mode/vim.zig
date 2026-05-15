@@ -135,7 +135,7 @@ const cmds_ = struct {
         return undefined;
     }
 
-    pub const enter_mode_at_line_begin_meta: Meta = .{ .description = "Goto line begin and change mode" };
+    pub const enter_mode_at_line_begin_meta: Meta = .{ .description = "Go to line begin and change mode" };
 
     pub fn enter_mode_at_line_end(self: *void, ctx: Ctx) Result {
         _ = self; // autofix
@@ -143,7 +143,7 @@ const cmds_ = struct {
         //TODO
         return undefined;
     }
-    pub const enter_mode_at_line_end_meta: Meta = .{ .description = "Goto line end and change mode" };
+    pub const enter_mode_at_line_end_meta: Meta = .{ .description = "Go to line end and change mode" };
 
     pub fn copy_line(self: *void, ctx: Ctx) Result {
         _ = self; // autofix
