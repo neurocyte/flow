@@ -219,7 +219,7 @@ pub fn get_namespace() []const u8 {
     return current_namespace().name;
 }
 
-fn current_namespace() *const Namespace {
+pub fn current_namespace() *const Namespace {
     return globals.current_namespace orelse @panic("no keybind namespace set");
 }
 
@@ -267,6 +267,9 @@ const Namespace = struct {
 
     init_command: ?Command = null,
     deinit_command: ?Command = null,
+
+    toggle_hints_text: []const u8 = "toggle_keybind_hints command",
+    scroll_hints_text: []const u8 = "scroll_keybind_hints command",
 
     fn load(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
         var free_json_string = true;
@@ -330,6 +333,24 @@ const Namespace = struct {
         const mode_name = try allocator.dupe(u8, mode_name_);
         const fallback_mode = if (self.fallback) |fallback| fallback.get_mode(mode_name) orelse fallback.get_mode(default_mode) else null;
         try self.modes.put(allocator, mode_name, try BindingSet.load(allocator, self.name, mode_name, mode_value, fallback_mode, self));
+
+        if (!std.mem.eql(u8, mode_name, default_mode)) return;
+        for (self.modes.get(default_mode).?.press.items) |b| {
+            if (b.commands.len != 1) continue;
+            if (std.mem.eql(u8, b.commands[0].command, "toggle_keybind_hints")) {
+                var content: std.Io.Writer.Allocating = .init(allocator);
+                defer content.deinit();
+                const writer = &content.writer;
+                writer.print("press {f}", .{key_event_sequence_fmt(b.key_events)}) catch break;
+                self.toggle_hints_text = try content.toOwnedSlice();
+            } else if (std.mem.eql(u8, b.commands[0].command, "scroll_keybind_hints")) {
+                var content: std.Io.Writer.Allocating = .init(allocator);
+                defer content.deinit();
+                const writer = &content.writer;
+                writer.print("press {f}", .{key_event_sequence_fmt(b.key_events)}) catch break;
+                self.scroll_hints_text = try content.toOwnedSlice();
+            }
+        }
     }
 
     fn copy_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, fallback_mode: *const BindingSet) !void {
@@ -833,7 +854,10 @@ const BindingSet = struct {
             input.key.iso_level_3_shift, input.key.iso_level_5_shift => return,
             else => {},
         };
-        log.info("{f} is unbound, press A-f1 or C-? for key hints", .{current_key_event_sequence_fmt()});
+        log.info("{f} is unbound, {s} for key hints", .{
+            current_key_event_sequence_fmt(),
+            current_namespace().toggle_hints_text,
+        });
     }
 
     /// Retrieve bindings that will match a key event sequence
