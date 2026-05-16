@@ -2594,14 +2594,13 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
     if (root.read_theme(allocator, theme_name)) |content| {
         allocator.free(content);
     } else {
+        var custom_theme = try Widget.CustomTheme.fromTheme(allocator, self.current_theme().*, Widget.scopes);
+        defer custom_theme.deinit(allocator);
         var buf: std.Io.Writer.Allocating = .init(self.allocator);
         defer buf.deinit();
         var s: std.json.Stringify = .{ .writer = &buf.writer, .options = .{ .whitespace = .indent_2 } };
-        try s.write(self.current_theme().*);
-        try root.write_theme(
-            theme_name,
-            buf.written(),
-        );
+        try s.write(custom_theme);
+        try root.write_theme(theme_name, buf.written());
     }
     return try root.get_theme_file_name(theme_name);
 }
