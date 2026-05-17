@@ -379,6 +379,7 @@
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"],
             ["<CR>", "smart_insert_line"],
+            ["<Tab>", "indent_at"],
 
             ["<C-BS>", "delete_word_left"],
             ["<C-Del", "delete_word_right"]
