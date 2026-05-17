@@ -39,6 +39,11 @@
             ["l", "move_right_vim"],
             ["h", "move_left_vim"],
 
+            ["<Down>", "move_down_vim"],
+            ["<Up>", "move_up_vim"],
+            ["<Right>", "move_right_vim"],
+            ["<Left>", "move_left_vim"],
+
             ["J", "join_next_line"],
 
             ["i", "enter_mode", "insert"],
@@ -227,6 +232,11 @@
             ["j", "select_down"],
             ["h", "select_left"],
             ["l", "select_right"],
+
+            ["<Up>", "select_up"],
+            ["<Down>", "select_down"],
+            ["<Left>", "select_left"],
+            ["<Right>", "select_right"],
 
             ["gg", "select_buffer_begin"],
             ["G", "select_buffer_end"],
