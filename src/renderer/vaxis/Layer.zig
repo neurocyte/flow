@@ -78,31 +78,4 @@ pub const Target = struct {
         replace, // dst = src
         src_over, // dst = src·a + dst·(1−a)
     };
-
-    pub fn draw(self: *const @This()) void {
-        if (self.x >= self.dst.width) return;
-        if (self.y >= self.dst.height) return;
-
-        const src_y = 0;
-        const src_x = 0;
-        const src_h: usize = self.src.screen.height;
-        const src_w = self.src.screen.width;
-
-        const dst_dim_y: i32 = @intCast(self.dst.height);
-        const dst_dim_x: i32 = @intCast(self.dst.width);
-        const dst_y = self.y;
-        const dst_x = self.x;
-        const dst_w = @min(src_w, dst_dim_x - dst_x);
-
-        for (src_y..src_h) |src_row_| {
-            const src_row: i32 = @intCast(src_row_);
-            const src_row_offset = src_row * src_w;
-            const dst_row_offset = (dst_y + src_row) * self.dst.screen.width;
-            if (dst_y + src_row >= dst_dim_y) return;
-            @memcpy(
-                self.dst.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)],
-                self.src.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
-            );
-        }
-    }
 };

@@ -246,13 +246,40 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
     return self.event_buffer.written();
 }
 
+fn draw_target(target: *const Layer.Target) void {
+    if (target.x >= target.dst.width) return;
+    if (target.y >= target.dst.height) return;
+
+    const src_y = 0;
+    const src_x = 0;
+    const src_h: usize = target.src.screen.height;
+    const src_w = target.src.screen.width;
+
+    const dst_dim_y: i32 = @intCast(target.dst.height);
+    const dst_dim_x: i32 = @intCast(target.dst.width);
+    const dst_y = target.y;
+    const dst_x = target.x;
+    const dst_w = @min(src_w, dst_dim_x - dst_x);
+
+    for (src_y..src_h) |src_row_| {
+        const src_row: i32 = @intCast(src_row_);
+        const src_row_offset = src_row * src_w;
+        const dst_row_offset = (dst_y + src_row) * target.dst.screen.width;
+        if (dst_y + src_row >= dst_dim_y) return;
+        @memcpy(
+            target.dst.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)],
+            target.src.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
+        );
+    }
+}
+
 pub fn render(self: *Self) error{}!?i64 {
     if (!self.window_ready) return null;
 
     var i = self.targets.items.len;
     while (i > 0) {
         i -= 1;
-        self.targets.items[i].draw();
+        draw_target(&self.targets.items[i]);
     }
     self.targets.clearRetainingCapacity();
 
