@@ -87,8 +87,11 @@ const global = struct {
     var init_called: bool = false;
     var rasterizer: Rasterizer = undefined;
     var pip: sg.Pipeline = .{};
+    var composite_replace_pip: sg.Pipeline = .{};
+    var composite_srcover_pip: sg.Pipeline = .{};
     var glyph_sampler: sg.Sampler = .{};
     var cell_sampler: sg.Sampler = .{};
+    var src_sampler: sg.Sampler = .{};
     var glyph_cache_arena: std.heap.ArenaAllocator = undefined;
     var background: RGBA = .init(0, 255, 255, 255); // default is warning yellow
 };
@@ -100,13 +103,34 @@ pub fn init(allocator: std.mem.Allocator) !void {
     global.rasterizer = try Rasterizer.init(allocator);
     global.glyph_cache_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 
-    // Build shader + pipeline
-    const shd = sg.makeShader(shader.builtinShaderDesc(sg.queryBackend()));
-
-    var pip_desc: sg.PipelineDesc = .{ .shader = shd };
+    // Build shader + pipelines
+    const builtin_shd = sg.makeShader(shader.builtinShaderDesc(sg.queryBackend()));
+    var pip_desc: sg.PipelineDesc = .{ .shader = builtin_shd };
     pip_desc.primitive_type = .TRIANGLE_STRIP;
     pip_desc.color_count = 1;
     global.pip = sg.makePipeline(pip_desc);
+
+    const composite_shd = sg.makeShader(shader.compositeShaderDesc(sg.queryBackend()));
+
+    var composite_replace_desc: sg.PipelineDesc = .{ .shader = composite_shd };
+    composite_replace_desc.primitive_type = .TRIANGLE_STRIP;
+    composite_replace_desc.color_count = 1;
+    global.composite_replace_pip = sg.makePipeline(composite_replace_desc);
+
+    var composite_srcover_desc: sg.PipelineDesc = .{ .shader = composite_shd };
+    composite_srcover_desc.primitive_type = .TRIANGLE_STRIP;
+    composite_srcover_desc.color_count = 1;
+    // Premultiplied source-over: dst = src + dst * (1 - src.a)
+    composite_srcover_desc.colors[0].blend = .{
+        .enabled = true,
+        .src_factor_rgb = .ONE,
+        .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
+        .op_rgb = .ADD,
+        .src_factor_alpha = .ONE,
+        .dst_factor_alpha = .ONE_MINUS_SRC_ALPHA,
+        .op_alpha = .ADD,
+    };
+    global.composite_srcover_pip = sg.makePipeline(composite_srcover_desc);
 
     // Nearest-neighbour samplers (no filtering)
     global.glyph_sampler = sg.makeSampler(.{
@@ -123,14 +147,24 @@ pub fn init(allocator: std.mem.Allocator) !void {
         .wrap_u = .CLAMP_TO_EDGE,
         .wrap_v = .CLAMP_TO_EDGE,
     });
+    global.src_sampler = sg.makeSampler(.{
+        .min_filter = .NEAREST,
+        .mag_filter = .NEAREST,
+        .mipmap_filter = .NEAREST,
+        .wrap_u = .CLAMP_TO_EDGE,
+        .wrap_v = .CLAMP_TO_EDGE,
+    });
 }
 
 pub fn deinit() void {
     std.debug.assert(global.init_called);
     global.init_called = false;
     sg.destroyPipeline(global.pip);
+    sg.destroyPipeline(global.composite_replace_pip);
+    sg.destroyPipeline(global.composite_srcover_pip);
     sg.destroySampler(global.glyph_sampler);
     sg.destroySampler(global.cell_sampler);
+    sg.destroySampler(global.src_sampler);
     global.glyph_cache_arena.deinit();
     global.rasterizer.deinit();
 }
@@ -538,6 +572,122 @@ pub fn paintLayerOffscreen(
     sg.applyUniforms(shader.UB_fs_params, .{
         .ptr = &fs_params,
         .size = @sizeOf(shader.FsParams),
+    });
+
+    sg.draw(0, 4, 1);
+    sg.endPass();
+}
+
+pub const CompositeOp = struct {
+    /// pixel-space top-left of the source quad inside the destination
+    /// attachment. (Caller-resolved from `Target.dst_{x,y}_off + Target.{x,y}`
+    /// times cell_size, plus sub-cell `xoffset/yoffset`.)
+    dst_x: i32,
+    dst_y: i32,
+    /// pixel-space size of the source quad. Usually `src_layer.pixel_size`
+    dst_w: u16,
+    dst_h: u16,
+    blend: BlendMode,
+    /// global alpha multiplier
+    alpha: u8,
+
+    pub const BlendMode = enum { replace, src_over };
+};
+
+/// Composite one layer's offscreen pixel buffer into another's, using the
+/// `composite_{replace,srcover}_pip` pipeline and a sub-rect viewport.
+pub fn compositeLayer(
+    dst_layer_state: *const LayerGpuState,
+    src_layer_state: *const LayerGpuState,
+    op: CompositeOp,
+) void {
+    if (dst_layer_state.pixel_image.id == 0 or src_layer_state.pixel_image.id == 0) return;
+    if (op.dst_w == 0 or op.dst_h == 0) return;
+
+    var pass_action: sg.PassAction = .{};
+    pass_action.colors[0] = .{ .load_action = .LOAD };
+
+    sg.beginPass(.{
+        .attachments = dst_layer_state.attachments(),
+        .action = pass_action,
+    });
+
+    sg.applyViewport(op.dst_x, op.dst_y, op.dst_w, op.dst_h, true);
+
+    const pipeline = switch (op.blend) {
+        .replace => global.composite_replace_pip,
+        .src_over => global.composite_srcover_pip,
+    };
+    sg.applyPipeline(pipeline);
+
+    var bindings: sg.Bindings = .{};
+    bindings.views[shader.VIEW_src_tex] = src_layer_state.pixel_view;
+    bindings.samplers[shader.SMP_src_smp] = global.src_sampler;
+    sg.applyBindings(bindings);
+
+    const fs_params = shader.FsCompositeParams{
+        .composite_alpha = .{ @as(f32, @floatFromInt(op.alpha)) / 255.0, 0, 0, 0 },
+    };
+    sg.applyUniforms(shader.UB_fs_composite_params, .{
+        .ptr = &fs_params,
+        .size = @sizeOf(shader.FsCompositeParams),
+    });
+
+    sg.draw(0, 4, 1);
+    sg.endPass();
+}
+
+/// Blit a layer's offscreen pixel buffer to the swapchain
+pub fn presentLayerToSwapchain(
+    src_layer_state: *const LayerGpuState,
+    client_size: XY(u32),
+    swapchain_render_view: ?*const anyopaque, // windows only
+) void {
+    if (src_layer_state.pixel_image.id == 0) return;
+
+    var pass_action: sg.PassAction = .{};
+    pass_action.colors[0] = .{
+        .load_action = .CLEAR,
+        .clear_value = .{
+            .r = @as(f32, @floatFromInt(global.background.r)) / 255.0,
+            .g = @as(f32, @floatFromInt(global.background.g)) / 255.0,
+            .b = @as(f32, @floatFromInt(global.background.b)) / 255.0,
+            .a = 1.0,
+        },
+    };
+
+    sg.beginPass(.{
+        .swapchain = if (builtin.os.tag == .windows) .{
+            .width = @intCast(client_size.x),
+            .height = @intCast(client_size.y),
+            .sample_count = 1,
+            .color_format = .RGBA8,
+            .depth_format = .NONE,
+            .d3d11 = .{ .render_view = swapchain_render_view },
+        } else .{
+            .width = @intCast(client_size.x),
+            .height = @intCast(client_size.y),
+            .sample_count = 1,
+            .color_format = .RGBA8,
+            .depth_format = .NONE,
+            .gl = .{ .framebuffer = 0 },
+        },
+        .action = pass_action,
+    });
+
+    sg.applyPipeline(global.composite_replace_pip);
+
+    var bindings: sg.Bindings = .{};
+    bindings.views[shader.VIEW_src_tex] = src_layer_state.pixel_view;
+    bindings.samplers[shader.SMP_src_smp] = global.src_sampler;
+    sg.applyBindings(bindings);
+
+    const fs_params = shader.FsCompositeParams{
+        .composite_alpha = .{ 1.0, 0, 0, 0 },
+    };
+    sg.applyUniforms(shader.UB_fs_composite_params, .{
+        .ptr = &fs_params,
+        .size = @sizeOf(shader.FsCompositeParams),
     });
 
     sg.draw(0, 4, 1);

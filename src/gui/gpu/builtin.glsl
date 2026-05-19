@@ -209,3 +209,34 @@ void main() {
 @end
 
 @program builtin vs fs
+
+// compositing program
+// sample a source pixel buffer into the destination attachment, with
+// global alpha. The destination region is selected by sg.applyViewport();
+// this shader emits a full-viewport quad and lets the caller decide where
+// it lands.
+
+@fs fs_composite
+in vec2 v_uv;
+
+layout(binding=1) uniform fs_composite_params {
+    vec4 composite_alpha;  // .x = global alpha multiplier, .yzw pad
+};
+
+layout(binding=2) uniform texture2D src_tex;
+layout(binding=2) uniform sampler src_smp;
+
+@image_sample_type src_tex float
+@sampler_type src_smp filtering
+
+out vec4 frag_color;
+
+void main() {
+    vec4 s = texture(sampler2D(src_tex, src_smp), v_uv);
+    // Premultiplied-alpha output
+    float a = s.a * composite_alpha.x;
+    frag_color = vec4(s.rgb * composite_alpha.x, a);
+}
+@end
+
+@program composite vs fs_composite

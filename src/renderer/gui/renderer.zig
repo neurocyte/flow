@@ -248,42 +248,8 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
     return self.event_buffer.written();
 }
 
-fn draw_target(target: *const Layer.Target) void {
-    if (target.x >= target.dst.width) return;
-    if (target.y >= target.dst.height) return;
-
-    const src_y = 0;
-    const src_x = 0;
-    const src_h: usize = target.src.screen.height;
-    const src_w = target.src.screen.width;
-
-    const dst_dim_y: i32 = @intCast(target.dst.height);
-    const dst_dim_x: i32 = @intCast(target.dst.width);
-    const dst_y = target.y;
-    const dst_x = target.x;
-    const dst_w = @min(src_w, dst_dim_x - dst_x);
-
-    for (src_y..src_h) |src_row_| {
-        const src_row: i32 = @intCast(src_row_);
-        const src_row_offset = src_row * src_w;
-        const dst_row_offset = (dst_y + src_row) * target.dst.screen.width;
-        if (dst_y + src_row >= dst_dim_y) return;
-        @memcpy(
-            target.dst.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)],
-            target.src.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
-        );
-    }
-}
-
 pub fn render(self: *Self) error{}!?i64 {
     if (!self.window_ready) return null;
-
-    var i = self.targets.items.len;
-    while (i > 0) {
-        i -= 1;
-        draw_target(&self.targets.items[i]);
-    }
-    self.targets.clearRetainingCapacity();
 
     var cursor = self.cursor_info;
 
@@ -324,7 +290,52 @@ pub fn render(self: *Self) error{}!?i64 {
         .cursor = cursor,
         .secondary_cursors = self.secondary_cursors.items,
     };
-    app.updateScreen(&.{stdplane_view}, &.{});
+
+    // build a layer list and matching TargetView list
+    var layers_buf: std.ArrayList(app.LayerView) = .empty;
+    defer layers_buf.deinit(self.allocator);
+    var targets_buf: std.ArrayList(app.TargetView) = .empty;
+    defer targets_buf.deinit(self.allocator);
+    var layer_index_by_ptr: std.AutoHashMap(*Layer, u32) = .init(self.allocator);
+    defer layer_index_by_ptr.deinit();
+
+    layers_buf.append(self.allocator, stdplane_view) catch @panic("OOM render");
+
+    for (self.targets.items) |*t| {
+        const src_gop = layer_index_by_ptr.getOrPut(t.src) catch @panic("OOM render");
+        if (!src_gop.found_existing) {
+            src_gop.value_ptr.* = @intCast(layers_buf.items.len);
+            layers_buf.append(self.allocator, .{
+                .id = t.src.id,
+                .screen = &t.src.screen,
+                .cursor = .{},
+                .secondary_cursors = &.{},
+            }) catch @panic("OOM render");
+        }
+
+        const parent_idx: u32 = if (t.parent) |h| blk: {
+            const parent_target = &self.targets.items[@intFromEnum(h)];
+            break :blk layer_index_by_ptr.get(parent_target.src) orelse @panic("parent layer not registered");
+        } else 0; // stdplane
+
+        targets_buf.append(self.allocator, .{
+            .src_index = src_gop.value_ptr.*,
+            .parent = parent_idx,
+            .y = t.y,
+            .x = t.x,
+            .yoffset = t.yoffset,
+            .xoffset = t.xoffset,
+            .blend = t.blend,
+            .alpha = t.alpha,
+            .dst_x_off = t.dst.x_off,
+            .dst_y_off = t.dst.y_off,
+            .dst_width = t.dst.width,
+            .dst_height = t.dst.height,
+        }) catch @panic("OOM render");
+    }
+
+    app.updateScreen(layers_buf.items, targets_buf.items);
+    self.targets.clearRetainingCapacity();
 
     if (!self.cursor_info.vis or !self.cursor_blink) return null;
     const now_check = root.get_now().toMicroseconds();
@@ -336,7 +347,6 @@ pub fn render(self: *Self) error{}!?i64 {
 
 pub fn sigwinch(self: *Self) !void {
     _ = self;
-    // TODO: implement
 }
 
 pub fn stop(self: *Self) void {

@@ -962,9 +962,6 @@ pub fn renderActorTick() void {
     var snap = snap_opt orelse return;
     defer freeScreenSnapshot(allocator, &snap);
 
-    // TODO: actually composite the remaining layers
-    const root_layer = &snap.layers[0];
-
     ctx.state.size = .{ .x = ctx.win_size.width, .y = ctx.win_size.height };
     const font_set = wio_font_set;
 
@@ -1035,35 +1032,40 @@ pub fn renderActorTick() void {
         }
     }
 
-    const cells_with_glyphs = allocator.alloc(gpu.Cell, root_layer.cells.len) catch return;
-    defer allocator.free(cells_with_glyphs);
-    @memcpy(cells_with_glyphs, root_layer.cells);
-
-    var prev_cp: u21 = ' ';
-    for (cells_with_glyphs, root_layer.codepoints, root_layer.widths) |*cell, cp, w| {
-        const split: gpu.GlyphSplit = switch (w) {
-            2 => .left,
-            0 => .right,
-            else => .single,
-        };
-        const glyph_cp = if (w == 0) prev_cp else cp;
-        const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
-        const per_face = font_set.faces[@intFromEnum(face)];
-        cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
-        if (w != 0) prev_cp = cp;
+    // composite every target onto its parent in reverse submission order
+    {
+        const cell_w: i32 = font_set.cell_size.x;
+        const cell_h: i32 = font_set.cell_size.y;
+        var i = snap.targets.len;
+        while (i > 0) {
+            i -= 1;
+            const t = &snap.targets[i];
+            const src_id = snap.layers[t.src_index].id;
+            const dst_id = snap.layers[t.parent].id;
+            const src_state = ctx.layers.getPtr(src_id) orelse continue;
+            const dst_state = ctx.layers.getPtr(dst_id) orelse continue;
+            const dst_x: i32 = (t.dst_x_off + t.x) * cell_w + @as(i32, t.xoffset);
+            const dst_y: i32 = (t.dst_y_off + t.y) * cell_h + @as(i32, t.yoffset);
+            gpu.compositeLayer(dst_state, src_state, .{
+                .dst_x = dst_x,
+                .dst_y = dst_y,
+                .dst_w = src_state.pixel_size.x,
+                .dst_h = src_state.pixel_size.y,
+                .blend = switch (t.blend) {
+                    .replace => .replace,
+                    .src_over => .src_over,
+                },
+                .alpha = t.alpha,
+            });
+        }
     }
 
+    // present the root offscreen pixel buffer to the swapchain
+    const root_state = ctx.layers.getPtr(snap.layers[0].id) orelse return;
     const render_view: ?*const anyopaque = if (builtin.os.tag == .windows) ctx.swapchain.rtv else null;
-    gpu.paint(
-        &ctx.state,
+    gpu.presentLayerToSwapchain(
+        root_state,
         .{ .x = ctx.win_size.width, .y = ctx.win_size.height },
-        font_set,
-        root_layer.height,
-        root_layer.width,
-        0,
-        cells_with_glyphs,
-        root_layer.cursor,
-        root_layer.secondary_cursors,
         render_view,
     );
     sg.commit();
