@@ -94,6 +94,7 @@ const global = struct {
     var src_sampler: sg.Sampler = .{};
     var glyph_cache_arena: std.heap.ArenaAllocator = undefined;
     var background: RGBA = .init(0, 255, 255, 255); // default is warning yellow
+    var composite_sample_flip_y: f32 = 0.0;
 };
 
 pub fn init(allocator: std.mem.Allocator) !void {
@@ -131,6 +132,8 @@ pub fn init(allocator: std.mem.Allocator) !void {
         .op_alpha = .ADD,
     };
     global.composite_srcover_pip = sg.makePipeline(composite_srcover_desc);
+
+    global.composite_sample_flip_y = if (sg.queryFeatures().origin_top_left) 0.0 else 1.0;
 
     // Nearest-neighbour samplers (no filtering)
     global.glyph_sampler = sg.makeSampler(.{
@@ -627,6 +630,7 @@ pub fn compositeLayer(
 
     const fs_params = shader.FsCompositeParams{
         .composite_alpha = .{ @as(f32, @floatFromInt(op.alpha)) / 255.0, 0, 0, 0 },
+        .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
     };
     sg.applyUniforms(shader.UB_fs_composite_params, .{
         .ptr = &fs_params,
@@ -684,6 +688,7 @@ pub fn presentLayerToSwapchain(
 
     const fs_params = shader.FsCompositeParams{
         .composite_alpha = .{ 1.0, 0, 0, 0 },
+        .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
     };
     sg.applyUniforms(shader.UB_fs_composite_params, .{
         .ptr = &fs_params,

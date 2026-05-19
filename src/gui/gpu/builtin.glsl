@@ -221,6 +221,9 @@ in vec2 v_uv;
 
 layout(binding=1) uniform fs_composite_params {
     vec4 composite_alpha;  // .x = global alpha multiplier, .yzw pad
+    vec4 sample_flip;      // .x = 1.0 to flip Y on sample (GL offscreen
+                           // textures store bottom-origin); 0.0 otherwise.
+                           // .yzw pad
 };
 
 layout(binding=2) uniform texture2D src_tex;
@@ -232,7 +235,12 @@ layout(binding=2) uniform sampler src_smp;
 out vec4 frag_color;
 
 void main() {
-    vec4 s = texture(sampler2D(src_tex, src_smp), v_uv);
+    // Render-to-texture on GL stores the framebuffer bottom-up relative to
+    // sampling. Sampling with v_uv directly would yield the source upside
+    // down on GL; sample_flip.x is set by the host based on
+    // sg.queryFeatures().origin_top_left.
+    vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, sample_flip.x));
+    vec4 s = texture(sampler2D(src_tex, src_smp), uv);
     // Premultiplied-alpha output
     float a = s.a * composite_alpha.x;
     frag_color = vec4(s.rgb * composite_alpha.x, a);
