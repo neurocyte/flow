@@ -6,37 +6,12 @@ const GraphemeCache = @import("GraphemeCache.zig");
 
 const Layer = @This();
 
-view: View,
+allocator: std.mem.Allocator,
+screen: vaxis.Screen,
+cache_storage: GraphemeCache.Storage = .{},
 y_off: i32 = 0,
 x_off: i32 = 0,
 plane_: Plane,
-
-const View = struct {
-    allocator: std.mem.Allocator,
-    screen: vaxis.Screen,
-    cache_storage: GraphemeCache.Storage = .{},
-
-    pub const Config = struct {
-        h: u16,
-        w: u16,
-    };
-
-    pub fn init(allocator: std.mem.Allocator, config: Config) std.mem.Allocator.Error!View {
-        return .{
-            .allocator = allocator,
-            .screen = try vaxis.Screen.init(allocator, .{
-                .rows = config.h,
-                .cols = config.w,
-                .x_pixel = 0,
-                .y_pixel = 0,
-            }),
-        };
-    }
-
-    pub fn deinit(self: *View) void {
-        self.screen.deinit(self.allocator);
-    }
-};
 
 pub const Options = struct {
     y: i32 = 0,
@@ -48,9 +23,12 @@ pub const Options = struct {
 pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error!*Layer {
     const self = try allocator.create(Layer);
     self.* = .{
-        .view = try View.init(allocator, .{
-            .h = opts.h,
-            .w = opts.w,
+        .allocator = allocator,
+        .screen = try vaxis.Screen.init(allocator, .{
+            .rows = opts.h,
+            .cols = opts.w,
+            .x_pixel = 0,
+            .y_pixel = 0,
         }),
         .y_off = opts.y,
         .x_off = opts.x,
@@ -59,7 +37,7 @@ pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error
     const name = "layer";
     self.plane_ = .{
         .window = self.window(),
-        .cache = self.view.cache_storage.cache(),
+        .cache = self.cache_storage.cache(),
         .name_buf = undefined,
         .name_len = name.len,
     };
@@ -68,9 +46,8 @@ pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error
 }
 
 pub fn deinit(self: *Layer) void {
-    const allocator = self.view.allocator;
-    self.view.deinit();
-    allocator.destroy(self);
+    self.screen.deinit(self.allocator);
+    self.allocator.destroy(self);
 }
 
 fn window(self: *Layer) vaxis.Window {
@@ -79,9 +56,9 @@ fn window(self: *Layer) vaxis.Window {
         .y_off = 0,
         .parent_x_off = 0,
         .parent_y_off = 0,
-        .width = self.view.screen.width,
-        .height = self.view.screen.height,
-        .screen = &self.view.screen,
+        .width = self.screen.width,
+        .height = self.screen.height,
+        .screen = &self.screen,
     };
 }
 
@@ -95,8 +72,8 @@ pub fn draw(self: *const Layer, plane_: Plane) void {
 
     const src_y = 0;
     const src_x = 0;
-    const src_h: usize = self.view.screen.height;
-    const src_w = self.view.screen.width;
+    const src_h: usize = self.screen.height;
+    const src_w = self.screen.width;
 
     const dst_dim_y: i32 = @intCast(plane_.dim_y());
     const dst_dim_x: i32 = @intCast(plane_.dim_x());
@@ -111,7 +88,7 @@ pub fn draw(self: *const Layer, plane_: Plane) void {
         if (dst_y + src_row >= dst_dim_y) return;
         @memcpy(
             plane_.window.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)],
-            self.view.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
+            self.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
         );
     }
 }
