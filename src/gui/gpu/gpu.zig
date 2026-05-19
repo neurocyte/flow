@@ -483,13 +483,15 @@ pub fn paintLayerOffscreen(
     cells: []const Cell,
     cols: u16,
     rows: u16,
+    pixel_size: XY(u16),
     cursor: CursorInfo,
     secondary_cursors: []const CursorInfo,
 ) void {
     if (cols == 0 or rows == 0) return;
+    if (pixel_size.x == 0 or pixel_size.y == 0) return;
 
-    const pixel_w: u16 = cols * font_set.cell_size.x;
-    const pixel_h: u16 = rows * font_set.cell_size.y;
+    const pixel_w: u16 = pixel_size.x;
+    const pixel_h: u16 = pixel_size.y;
 
     layer_state.updateCellImage(allocator, cols, rows);
     layer_state.updatePixelImage(pixel_w, pixel_h);

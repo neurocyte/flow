@@ -978,7 +978,7 @@ pub fn renderActorTick() void {
     ctx.frame_counter += 1;
 
     // rasterise every layer into its own offscreen pixel buffer
-    for (snap.layers) |*ls| {
+    for (snap.layers, 0..) |*ls, idx| {
         const gop = ctx.layers.getOrPut(allocator, ls.id) catch return;
         if (!gop.found_existing) gop.value_ptr.* = .{};
         gop.value_ptr.last_seen_frame = ctx.frame_counter;
@@ -1001,6 +1001,15 @@ pub fn renderActorTick() void {
             if (w != 0) layer_prev_cp = cp;
         }
 
+        // layers[0] size the full window
+        const pixel_size: @TypeOf(gop.value_ptr.pixel_size) = if (idx == 0) .{
+            .x = @intCast(ctx.win_size.width),
+            .y = @intCast(ctx.win_size.height),
+        } else .{
+            .x = ls.width * font_set.cell_size.x,
+            .y = ls.height * font_set.cell_size.y,
+        };
+
         gpu.paintLayerOffscreen(
             &ctx.state,
             gop.value_ptr,
@@ -1009,6 +1018,7 @@ pub fn renderActorTick() void {
             layer_cells,
             ls.width,
             ls.height,
+            pixel_size,
             ls.cursor,
             ls.secondary_cursors,
         );
