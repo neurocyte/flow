@@ -479,9 +479,11 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         };
 
     if (try m.match(.{"resize"})) {
+        const old_box = screen();
         resize();
         const box = screen();
-        message("{d}x{d}", .{ box.w, box.h });
+        if (box.w != old_box.w and box.h != old_box.h)
+            message("{d}x{d}", .{ box.w, box.h });
         return;
     }
 
