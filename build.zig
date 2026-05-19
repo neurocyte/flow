@@ -643,6 +643,7 @@ pub fn build_exe(
                         .{ .name = "xterm", .module = gui_xterm_mod },
                         .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
+                        .{ .name = "tuirenderer", .module = tui_renderer_mod },
                     },
                 });
 

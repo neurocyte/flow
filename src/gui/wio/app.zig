@@ -28,6 +28,7 @@ const RGBA = @import("color").RGBA;
 const input_translate = @import("input.zig");
 const root = @import("soft_root").root;
 const gui_config = @import("gui_config");
+const Layer = @import("tuirenderer").Layer;
 
 const D3D11Swapchain = if (builtin.os.tag == .windows) @import("d3d11_swapchain") else void;
 const win32 = if (builtin.os.tag == .windows) @import("win32").everything else void;
@@ -47,24 +48,47 @@ const press: u8 = 1;
 const repeat: u8 = 2;
 const release: u8 = 3;
 
-// Re-export cursor types so renderer.zig (which imports 'app' but not 'gpu')
-// can use them without a direct dependency on the gpu module.
 pub const CursorInfo = gpu.CursorInfo;
 pub const CursorShape = gpu.CursorShape;
 pub const SymbolRasterizer = gpu.SymbolRasterizer;
 
-// ── Shared state (protected by screen_mutex) ──────────────────────────────
+pub const LayerView = struct {
+    id: Layer.Id,
+    screen: *const vaxis.Screen,
+    cursor: gpu.CursorInfo = .{},
+    secondary_cursors: []const gpu.CursorInfo = &.{},
+};
 
-const ScreenSnapshot = struct {
+pub const TargetView = struct {
+    src_index: u32,
+    parent: u32,
+    y: i32 = 0,
+    x: i32 = 0,
+    yoffset: i16 = 0,
+    xoffset: i16 = 0,
+    blend: Layer.Target.Blend = .src_over,
+    alpha: u8 = 0xFF,
+    dst_x_off: i32 = 0,
+    dst_y_off: i32 = 0,
+    dst_width: u16 = 0,
+    dst_height: u16 = 0,
+};
+
+const LayerSnapshot = struct {
+    id: Layer.Id,
     cells: []gpu.Cell,
     codepoints: []u21,
     // vaxis char.width per cell: 1=normal, 2=double-wide start, 0=continuation
     widths: []u8,
     width: u16,
     height: u16,
-    // Cursor state (set by renderer thread, consumed by wio thread)
     cursor: gpu.CursorInfo,
-    secondary_cursors: []gpu.CursorInfo, // heap-allocated, freed with snapshot
+    secondary_cursors: []gpu.CursorInfo,
+};
+
+const ScreenSnapshot = struct {
+    layers: []LayerSnapshot,
+    targets: []TargetView,
 };
 
 var screen_mutex: std.Io.Mutex = .init;
@@ -174,33 +198,57 @@ pub fn stop() void {
 
 /// Called from the tui thread to push a new screen to the GPU thread.
 pub fn updateScreen(
-    vx_screen: *const vaxis.Screen,
-    cursor: gpu.CursorInfo,
-    secondary_cursors: []const gpu.CursorInfo,
+    layers: []const LayerView,
+    targets: []const TargetView,
 ) void {
+    std.debug.assert(layers.len >= 1);
     const allocator = root.get_init().gpa;
-    const cell_count: usize = @as(usize, vx_screen.width) * @as(usize, vx_screen.height);
 
-    const new_cells = allocator.alloc(gpu.Cell, cell_count) catch return;
-    const new_codepoints = allocator.alloc(u21, cell_count) catch {
-        allocator.free(new_cells);
-        return;
-    };
-    const new_widths = allocator.alloc(u8, cell_count) catch {
-        allocator.free(new_cells);
-        allocator.free(new_codepoints);
-        return;
-    };
-    const new_sec = allocator.alloc(gpu.CursorInfo, secondary_cursors.len) catch {
-        allocator.free(new_cells);
-        allocator.free(new_codepoints);
-        allocator.free(new_widths);
-        return;
-    };
-    @memcpy(new_sec, secondary_cursors);
+    var snapshot_layers = allocator.alloc(LayerSnapshot, layers.len) catch return;
+    var built: usize = 0;
+    errdefer {
+        for (snapshot_layers[0..built]) |*ls| freeLayerSnapshot(allocator, ls);
+        allocator.free(snapshot_layers);
+    }
 
-    // Convert vaxis cells → gpu.Cell (colours only; glyph indices filled on GPU thread).
-    for (vx_screen.buf[0..cell_count], new_cells, new_codepoints, new_widths) |*vc, *gc, *cp, *wt| {
+    for (layers, snapshot_layers) |*lv, *ls| {
+        ls.* = buildLayerSnapshot(allocator, lv) catch return;
+        built += 1;
+    }
+
+    const snapshot_targets = allocator.alloc(TargetView, targets.len) catch return;
+    @memcpy(snapshot_targets, targets);
+
+    const io = root.get_io();
+    screen_mutex.lockUncancelable(io);
+    defer screen_mutex.unlock(io);
+
+    if (screen_snap) |*old| freeScreenSnapshot(allocator, old);
+    screen_snap = .{
+        .layers = snapshot_layers,
+        .targets = snapshot_targets,
+    };
+
+    screen_pending.store(true, .release);
+    if (render_pid) |*rp| rp.send(.{ "tick", @as(usize, 0) }) catch {};
+}
+
+fn buildLayerSnapshot(
+    allocator: std.mem.Allocator,
+    lv: *const LayerView,
+) std.mem.Allocator.Error!LayerSnapshot {
+    const cell_count: usize = @as(usize, lv.screen.width) * @as(usize, lv.screen.height);
+    const cells = try allocator.alloc(gpu.Cell, cell_count);
+    errdefer allocator.free(cells);
+    const codepoints = try allocator.alloc(u21, cell_count);
+    errdefer allocator.free(codepoints);
+    const widths = try allocator.alloc(u8, cell_count);
+    errdefer allocator.free(widths);
+    const sec = try allocator.alloc(gpu.CursorInfo, lv.secondary_cursors.len);
+    @memcpy(sec, lv.secondary_cursors);
+
+    // Convert vaxis cells to gpu.Cell (colours only; glyph indices filled on GPU thread).
+    for (lv.screen.buf[0..cell_count], cells, codepoints, widths) |*vc, *gc, *cp, *wt| {
         const ul_color: RGBA = switch (vc.style.ul) {
             .default => RGBA.init(0, 0, 0, 0),
             else => colorFromVaxis(vc.style.ul),
@@ -225,29 +273,29 @@ pub fn updateScreen(
         wt.* = vc.char.width;
     }
 
-    const io = root.get_io();
-    screen_mutex.lockUncancelable(io);
-    defer screen_mutex.unlock(io);
-
-    // Free the previous snapshot
-    if (screen_snap) |old| {
-        allocator.free(old.cells);
-        allocator.free(old.codepoints);
-        allocator.free(old.widths);
-        allocator.free(old.secondary_cursors);
-    }
-    screen_snap = .{
-        .cells = new_cells,
-        .codepoints = new_codepoints,
-        .widths = new_widths,
-        .width = vx_screen.width,
-        .height = vx_screen.height,
-        .cursor = cursor,
-        .secondary_cursors = new_sec,
+    return .{
+        .id = lv.id,
+        .cells = cells,
+        .codepoints = codepoints,
+        .widths = widths,
+        .width = lv.screen.width,
+        .height = lv.screen.height,
+        .cursor = lv.cursor,
+        .secondary_cursors = sec,
     };
+}
 
-    screen_pending.store(true, .release);
-    if (render_pid) |*rp| rp.send(.{ "tick", @as(usize, 0) }) catch {};
+fn freeLayerSnapshot(allocator: std.mem.Allocator, ls: *LayerSnapshot) void {
+    allocator.free(ls.cells);
+    allocator.free(ls.codepoints);
+    allocator.free(ls.widths);
+    allocator.free(ls.secondary_cursors);
+}
+
+fn freeScreenSnapshot(allocator: std.mem.Allocator, snap: *ScreenSnapshot) void {
+    for (snap.layers) |*ls| freeLayerSnapshot(allocator, ls);
+    allocator.free(snap.layers);
+    allocator.free(snap.targets);
 }
 
 pub fn requestRender() void {
@@ -907,13 +955,11 @@ pub fn renderActorTick() void {
     screen_snap = null;
     screen_mutex.unlock(io);
 
-    const s = snap_opt orelse return;
-    defer {
-        allocator.free(s.cells);
-        allocator.free(s.codepoints);
-        allocator.free(s.widths);
-        allocator.free(s.secondary_cursors);
-    }
+    var snap = snap_opt orelse return;
+    defer freeScreenSnapshot(allocator, &snap);
+
+    // TODO: actually composite the remaining layers
+    const root_layer = &snap.layers[0];
 
     ctx.state.size = .{ .x = ctx.win_size.width, .y = ctx.win_size.height };
     const font_set = wio_font_set;
@@ -928,12 +974,12 @@ pub fn renderActorTick() void {
         });
     }
 
-    const cells_with_glyphs = allocator.alloc(gpu.Cell, s.cells.len) catch return;
+    const cells_with_glyphs = allocator.alloc(gpu.Cell, root_layer.cells.len) catch return;
     defer allocator.free(cells_with_glyphs);
-    @memcpy(cells_with_glyphs, s.cells);
+    @memcpy(cells_with_glyphs, root_layer.cells);
 
     var prev_cp: u21 = ' ';
-    for (cells_with_glyphs, s.codepoints, s.widths) |*cell, cp, w| {
+    for (cells_with_glyphs, root_layer.codepoints, root_layer.widths) |*cell, cp, w| {
         const split: gpu.GlyphSplit = switch (w) {
             2 => .left,
             0 => .right,
@@ -951,12 +997,12 @@ pub fn renderActorTick() void {
         &ctx.state,
         .{ .x = ctx.win_size.width, .y = ctx.win_size.height },
         font_set,
-        s.height,
-        s.width,
+        root_layer.height,
+        root_layer.width,
         0,
         cells_with_glyphs,
-        s.cursor,
-        s.secondary_cursors,
+        root_layer.cursor,
+        root_layer.secondary_cursors,
         render_view,
     );
     sg.commit();

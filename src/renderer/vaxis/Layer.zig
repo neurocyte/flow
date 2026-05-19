@@ -7,7 +7,17 @@ const GraphemeCache = @import("GraphemeCache.zig");
 
 const Layer = @This();
 
+pub const Id = TypedInt.Tagged(u64, "LYID"); // LaYer ID
+
+var next_id_counter: u64 = 1;
+
+pub fn next_id() Id {
+    defer next_id_counter += 1;
+    return @enumFromInt(next_id_counter);
+}
+
 allocator: std.mem.Allocator,
+id: Id,
 screen: vaxis.Screen,
 cache_storage: GraphemeCache.Storage = .{},
 
@@ -20,6 +30,7 @@ pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error
     const self = try allocator.create(Layer);
     self.* = .{
         .allocator = allocator,
+        .id = next_id(),
         .screen = try vaxis.Screen.init(allocator, .{
             .rows = opts.h,
             .cols = opts.w,

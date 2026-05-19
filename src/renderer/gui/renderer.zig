@@ -52,6 +52,7 @@ vx: vaxis.Vaxis,
 cache_storage: GraphemeCache.Storage = .{},
 event_buffer: std.Io.Writer.Allocating,
 targets: std.ArrayList(Layer.Target) = .empty,
+stdplane_id: Layer.Id,
 
 handler_ctx: *anyopaque,
 dispatch_initialized: *const fn (ctx: *anyopaque) void,
@@ -203,6 +204,7 @@ pub fn init(
         .event_buffer = .init(allocator),
         .handler_ctx = handler_ctx,
         .dispatch_initialized = dispatch_initialized,
+        .stdplane_id = Layer.next_id(),
     };
     result.vx.caps.unicode = .unicode;
     result.vx.caps.multi_cursor = true;
@@ -316,7 +318,13 @@ pub fn render(self: *Self) error{}!?i64 {
         }
     }
 
-    app.updateScreen(&self.vx.screen, cursor, self.secondary_cursors.items);
+    const stdplane_view: app.LayerView = .{
+        .id = self.stdplane_id,
+        .screen = &self.vx.screen,
+        .cursor = cursor,
+        .secondary_cursors = self.secondary_cursors.items,
+    };
+    app.updateScreen(&.{stdplane_view}, &.{});
 
     if (!self.cursor_info.vis or !self.cursor_blink) return null;
     const now_check = root.get_now().toMicroseconds();
