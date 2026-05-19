@@ -61,15 +61,6 @@ pub fn to_client_box(self: Self, padding: WidgetStyle.Margin) Self {
     return box;
 }
 
-pub fn to_layer(self: Self) Layer.Options {
-    return .{
-        .y = @intCast(self.y),
-        .x = @intCast(self.x),
-        .h = @intCast(self.h),
-        .w = @intCast(self.w),
-    };
-}
-
 pub fn is_abs_coord_inside(self: Self, y: usize, x: usize) bool {
     return y >= self.y and y < self.y + self.h and x >= self.x and x < self.x + self.w;
 }

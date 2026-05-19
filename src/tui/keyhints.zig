@@ -70,8 +70,8 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
     };
     const deco_box = box.from_client_box(widget_style.padding);
 
-    const top_layer_ = tui.top_layer(deco_box.to_layer()) orelse return;
-    widget_style.render_decoration(deco_box, widget_type, top_layer_, theme);
+    var top_layer_ = tui.top_layer(deco_box) orelse return;
+    widget_style.render_decoration(deco_box, widget_type, &top_layer_, theme);
 
     if (bindings.len > max_items) {
         if (widget_style.padding.bottom > 0) {
@@ -123,7 +123,7 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
     top_layer_.window.height -= widget_style.padding.top + widget_style.padding.bottom;
     top_layer_.window.width -= widget_style.padding.left + widget_style.padding.right;
 
-    const plane = top_layer_;
+    const plane = &top_layer_;
 
     const style_base = theme.editor_widget;
     const style_label = theme.editor_widget;
