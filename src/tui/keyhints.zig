@@ -70,7 +70,7 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
     };
     const deco_box = box.from_client_box(widget_style.padding);
 
-    var top_layer_ = tui.top_layer(deco_box) orelse return;
+    var top_layer_ = tui.top_layer(deco_box, 0, 0) orelse return;
     widget_style.render_decoration(deco_box, widget_type, &top_layer_, theme);
 
     if (bindings.len > max_items) {

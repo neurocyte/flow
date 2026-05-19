@@ -742,9 +742,11 @@ const Tab = struct {
             var box = Widget.Box.from(btn.plane);
             box.y = @intCast(@max(pos.y, anchor.y) - anchor.y);
             box.x = @intCast(@max(pos.x, anchor.x) - anchor.x);
-            if (tui.top_layer(box)) |top_layer_| {
+            const xoffset, const yoffset = if (btn.drag_offset) |offset| .{ offset.x, offset.y } else .{ 0, 0 };
+            if (tui.top_layer(box, xoffset, yoffset)) |top_layer_| {
                 var top_layer = top_layer_;
                 self.render_selected(&top_layer, btn.opts.label, false, theme, self.is_active());
+                tui.rdr().request_mouse_cursor_pointer(true);
             }
         } else {
             const active = self.is_active();

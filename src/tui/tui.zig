@@ -2113,7 +2113,7 @@ fn stdplane(self: *Self) renderer.Plane {
     return self.rdr_.stdplane();
 }
 
-pub fn top_layer(box: @import("Box.zig")) ?renderer.Plane {
+pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.Plane {
     const self = current();
     if (self.top_layer_) |_| return null;
     self.top_layer_ = renderer.Layer.init(self.allocator, .{
@@ -2125,6 +2125,8 @@ pub fn top_layer(box: @import("Box.zig")) ?renderer.Plane {
         .dst = self.rdr_.stdplane().window,
         .y = @intCast(box.y),
         .x = @intCast(box.x),
+        .yoffset = @intCast(yoffset),
+        .xoffset = @intCast(xoffset),
     });
     return self.top_layer_.?.plane();
 }
