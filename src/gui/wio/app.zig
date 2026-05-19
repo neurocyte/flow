@@ -823,7 +823,11 @@ const RenderCtx = struct {
     target_size: wio.Size,
     cell_width: u16,
     cell_height: u16,
+    layers: std.AutoHashMapUnmanaged(Layer.Id, gpu.LayerGpuState) = .empty,
+    frame_counter: u64 = 0,
 };
+
+const layer_gc_grace_frames: u64 = 60;
 
 var render_ctx: ?RenderCtx = null;
 
@@ -974,6 +978,63 @@ pub fn renderActorTick() void {
         });
     }
 
+    ctx.frame_counter += 1;
+
+    // rasterise every layer into its own offscreen pixel buffer
+    for (snap.layers) |*ls| {
+        const gop = ctx.layers.getOrPut(allocator, ls.id) catch return;
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        gop.value_ptr.last_seen_frame = ctx.frame_counter;
+
+        const layer_cells = allocator.alloc(gpu.Cell, ls.cells.len) catch return;
+        defer allocator.free(layer_cells);
+        @memcpy(layer_cells, ls.cells);
+
+        var layer_prev_cp: u21 = ' ';
+        for (layer_cells, ls.codepoints, ls.widths) |*cell, cp, w| {
+            const split: gpu.GlyphSplit = switch (w) {
+                2 => .left,
+                0 => .right,
+                else => .single,
+            };
+            const glyph_cp = if (w == 0) layer_prev_cp else cp;
+            const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
+            const per_face = font_set.faces[@intFromEnum(face)];
+            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
+            if (w != 0) layer_prev_cp = cp;
+        }
+
+        gpu.paintLayerOffscreen(
+            &ctx.state,
+            gop.value_ptr,
+            allocator,
+            font_set,
+            layer_cells,
+            ls.width,
+            ls.height,
+            ls.cursor,
+            ls.secondary_cursors,
+        );
+    }
+
+    // GC layer state not seen for layer_gc_grace_frames
+    {
+        var stale: std.ArrayList(Layer.Id) = .empty;
+        defer stale.deinit(allocator);
+        var it = ctx.layers.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.last_seen_frame + layer_gc_grace_frames < ctx.frame_counter) {
+                stale.append(allocator, entry.key_ptr.*) catch break;
+            }
+        }
+        for (stale.items) |id| {
+            if (ctx.layers.fetchRemove(id)) |kv| {
+                var state = kv.value;
+                state.deinit(allocator);
+            }
+        }
+    }
+
     const cells_with_glyphs = allocator.alloc(gpu.Cell, root_layer.cells.len) catch return;
     defer allocator.free(cells_with_glyphs);
     @memcpy(cells_with_glyphs, root_layer.cells);
@@ -1015,6 +1076,12 @@ pub fn renderActorTick() void {
 
 pub fn renderActorShutdown() void {
     if (render_ctx) |*ctx| {
+        const allocator = root.get_init().gpa;
+        {
+            var it = ctx.layers.iterator();
+            while (it.next()) |entry| entry.value_ptr.deinit(allocator);
+            ctx.layers.deinit(allocator);
+        }
         ctx.state.deinit();
         if (builtin.os.tag == .windows) ctx.swapchain.deinit();
         gpu.deinit();

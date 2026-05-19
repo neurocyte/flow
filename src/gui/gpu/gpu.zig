@@ -357,6 +357,193 @@ pub const WindowState = struct {
     }
 };
 
+pub const LayerGpuState = struct {
+    // cell texture
+    cell_image: sg.Image = .{},
+    cell_view: sg.View = .{},
+    cell_image_size: XY(u16) = .{ .x = 0, .y = 0 },
+    cell_buf: std.ArrayList(ShaderCell) = .empty,
+
+    // offscreen pixel render target
+    pixel_image: sg.Image = .{},
+    pixel_view: sg.View = .{},
+    pixel_color_attachment_view: sg.View = .{},
+    pixel_size: XY(u16) = .{ .x = 0, .y = 0 },
+
+    // GC bookkeeping
+    last_seen_frame: u64 = 0,
+
+    pub fn deinit(self: *LayerGpuState, allocator: std.mem.Allocator) void {
+        if (self.pixel_color_attachment_view.id != 0) sg.destroyView(self.pixel_color_attachment_view);
+        if (self.pixel_view.id != 0) sg.destroyView(self.pixel_view);
+        if (self.pixel_image.id != 0) sg.destroyImage(self.pixel_image);
+        if (self.cell_view.id != 0) sg.destroyView(self.cell_view);
+        if (self.cell_image.id != 0) sg.destroyImage(self.cell_image);
+        self.cell_buf.deinit(allocator);
+        self.* = .{};
+    }
+
+    fn updateCellImage(self: *LayerGpuState, allocator: std.mem.Allocator, cols: u16, rows: u16) void {
+        const needed: u32 = @as(u32, cols) * @as(u32, rows);
+        const sz: XY(u16) = .{ .x = cols, .y = rows };
+
+        if (!self.cell_image_size.eql(sz)) {
+            if (self.cell_view.id != 0) sg.destroyView(self.cell_view);
+            if (self.cell_image.id != 0) sg.destroyImage(self.cell_image);
+
+            self.cell_image = sg.makeImage(.{
+                .width = @as(i32, cols) * 4,
+                .height = rows,
+                .pixel_format = .RGBA8,
+                .usage = .{ .dynamic_update = true },
+            });
+            self.cell_view = sg.makeView(.{
+                .texture = .{ .image = self.cell_image },
+            });
+            self.cell_image_size = sz;
+        }
+
+        if (self.cell_buf.items.len < needed) {
+            self.cell_buf.resize(allocator, needed) catch |e| oom(e);
+        }
+    }
+
+    fn updatePixelImage(self: *LayerGpuState, pixel_w: u16, pixel_h: u16) void {
+        const sz: XY(u16) = .{ .x = pixel_w, .y = pixel_h };
+        if (self.pixel_size.eql(sz) and self.pixel_image.id != 0) return;
+
+        if (self.pixel_color_attachment_view.id != 0) sg.destroyView(self.pixel_color_attachment_view);
+        if (self.pixel_view.id != 0) sg.destroyView(self.pixel_view);
+        if (self.pixel_image.id != 0) sg.destroyImage(self.pixel_image);
+
+        self.pixel_image = sg.makeImage(.{
+            .width = pixel_w,
+            .height = pixel_h,
+            .pixel_format = .RGBA8,
+            .usage = .{ .color_attachment = true },
+        });
+        self.pixel_view = sg.makeView(.{
+            .texture = .{ .image = self.pixel_image },
+        });
+        self.pixel_color_attachment_view = sg.makeView(.{
+            .color_attachment = .{ .image = self.pixel_image },
+        });
+        self.pixel_size = sz;
+    }
+
+    fn attachments(self: *const LayerGpuState) sg.Attachments {
+        var att: sg.Attachments = .{};
+        att.colors[0] = self.pixel_color_attachment_view;
+        return att;
+    }
+};
+
+pub fn paintLayerOffscreen(
+    window_state: *WindowState,
+    layer_state: *LayerGpuState,
+    allocator: std.mem.Allocator, // for layer_state.cell_buf
+    font_set: FontSet,
+    cells: []const Cell,
+    cols: u16,
+    rows: u16,
+    cursor: CursorInfo,
+    secondary_cursors: []const CursorInfo,
+) void {
+    if (cols == 0 or rows == 0) return;
+
+    const pixel_w: u16 = cols * font_set.cell_size.x;
+    const pixel_h: u16 = rows * font_set.cell_size.y;
+
+    layer_state.updateCellImage(allocator, cols, rows);
+    layer_state.updatePixelImage(pixel_w, pixel_h);
+
+    const total: u32 = @as(u32, cols) * @as(u32, rows);
+    const shader_cells = layer_state.cell_buf.items[0..total];
+    const cache_nodes: ?[]GlyphIndexCache.Node = if (window_state.glyph_index_cache) |*c| c.nodes else null;
+
+    for (cells[0..total], shader_cells) |src, *dst| {
+        const kind: u2 = if (cache_nodes) |nodes|
+            (if (src.glyph_index < nodes.len) nodes[src.glyph_index].kind else 0)
+        else
+            0;
+        dst.* = .{
+            .glyph_index = src.glyph_index,
+            .bg = src.background.to_u32(),
+            .fg = src.foreground.to_u32(),
+            .deco = packDeco(src, kind),
+        };
+    }
+
+    for (secondary_cursors) |sc| {
+        if (!sc.vis) continue;
+        if (sc.row >= rows or sc.col >= cols) continue;
+        shader_cells[@as(usize, sc.row) * cols + sc.col].deco |= 1;
+    }
+
+    if (window_state.glyph_atlas_dirty) flushGlyphAtlas(window_state);
+
+    var cell_data: sg.ImageData = .{};
+    const cell_bytes = std.mem.sliceAsBytes(shader_cells);
+    cell_data.mip_levels[0] = .{ .ptr = cell_bytes.ptr, .size = cell_bytes.len };
+    sg.updateImage(layer_state.cell_image, cell_data);
+
+    var pass_action: sg.PassAction = .{};
+    pass_action.colors[0] = .{
+        .load_action = .CLEAR,
+        .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+    };
+
+    sg.beginPass(.{
+        .attachments = layer_state.attachments(),
+        .action = pass_action,
+    });
+    sg.applyPipeline(global.pip);
+
+    var bindings: sg.Bindings = .{};
+    bindings.views[0] = window_state.glyph_view;
+    bindings.views[1] = layer_state.cell_view;
+    bindings.samplers[0] = global.glyph_sampler;
+    bindings.samplers[1] = global.cell_sampler;
+    sg.applyBindings(bindings);
+
+    const sec_color: RGBA = if (secondary_cursors.len > 0)
+        secondary_cursors[0].color
+    else
+        .init(255, 255, 255, 255);
+
+    const fs_params = shader.FsParams{
+        .cell_size = .{
+            font_set.cell_size.x,
+            font_set.cell_size.y,
+            cols,
+            rows,
+        },
+        .viewport = .{ pixel_h, pixel_w, 0, 0 },
+        .cursor_pos = .{
+            cursor.col,
+            cursor.row,
+            @intFromEnum(cursor.shape),
+            if (cursor.vis) 1 else 0,
+        },
+        .underline_info = .{
+            font_set.underline_position,
+            font_set.underline_thickness,
+            0,
+            0,
+        },
+        .cursor_color = cursor.color.to_vec4(),
+        .sec_cursor_color = sec_color.to_vec4(),
+        .bg_color = global.background.to_vec4(),
+    };
+    sg.applyUniforms(shader.UB_fs_params, .{
+        .ptr = &fs_params,
+        .size = @sizeOf(shader.FsParams),
+    });
+
+    sg.draw(0, 4, 1);
+    sg.endPass();
+}
+
 // CPU-side shadow copy of the glyph atlas (RGBA8, row-major).
 // Kept alive for the process lifetime; resized when the atlas image grows.
 var atlas_cpu: ?[]u8 = null;
