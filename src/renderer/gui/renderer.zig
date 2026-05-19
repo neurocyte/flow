@@ -51,6 +51,7 @@ allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
 cache_storage: GraphemeCache.Storage = .{},
 event_buffer: std.Io.Writer.Allocating,
+targets: std.ArrayList(Layer.Target) = .empty,
 
 handler_ctx: *anyopaque,
 dispatch_initialized: *const fn (ctx: *anyopaque) void,
@@ -215,6 +216,16 @@ pub fn deinit(self: *Self) void {
     self.vx.deinit(self.allocator, &drop.writer);
     self.event_buffer.deinit();
     self.secondary_cursors.deinit(self.allocator);
+    self.targets.deinit(self.allocator);
+}
+
+pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
+    const handle: Layer.Handle = @enumFromInt(self.targets.items.len);
+    if (target.parent) |p| std.debug.assert(@intFromEnum(p) < @intFromEnum(handle));
+    self.targets.append(self.allocator, target) catch |e| switch (e) {
+        error.OutOfMemory => @panic("OOM gui.submit_layer"),
+    };
+    return handle;
 }
 
 pub fn run(self: *Self, render_pid: ?tp.pid_ref) Error!void {
@@ -237,6 +248,13 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
 
 pub fn render(self: *Self) error{}!?i64 {
     if (!self.window_ready) return null;
+
+    var i = self.targets.items.len;
+    while (i > 0) {
+        i -= 1;
+        self.targets.items[i].draw();
+    }
+    self.targets.clearRetainingCapacity();
 
     var cursor = self.cursor_info;
 

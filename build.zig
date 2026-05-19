@@ -494,6 +494,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "color", .module = color_mod },
+            .{ .name = "TypedInt", .module = TypedInt_mod },
         },
     });
 

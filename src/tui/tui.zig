@@ -36,7 +36,7 @@ allocator: Allocator,
 rdr_: renderer,
 render_pid: ?tp.pid = null,
 top_layer_: ?*renderer.Layer = null,
-top_layer_target: ?renderer.Layer.Target = null,
+top_layer_handle: ?renderer.Layer.Handle = null,
 config_: @import("config"),
 config_bufs: [][]const u8,
 session_tab_width: ?usize = null,
@@ -712,12 +712,6 @@ fn render(self: *Self) void {
 
         break :ret continue_mainview;
     };
-
-    if (self.top_layer_target) |*target| {
-        const frame = tracy.initZone(@src(), .{ .name = "tui blit top layer" });
-        defer frame.deinit();
-        target.draw();
-    }
 
     if (self.render_deadline_timer) |*t| {
         t.cancel() catch {};
@@ -2126,12 +2120,12 @@ pub fn top_layer(box: @import("Box.zig")) ?renderer.Plane {
         .h = @intCast(box.h),
         .w = @intCast(box.w),
     }) catch @panic("OOM toplayer");
-    self.top_layer_target = .{
+    self.top_layer_handle = self.rdr_.submit_layer(.{
         .src = self.top_layer_.?,
         .dst = self.rdr_.stdplane().window,
         .y = @intCast(box.y),
         .x = @intCast(box.x),
-    };
+    });
     return self.top_layer_.?.plane();
 }
 
@@ -2144,7 +2138,7 @@ fn top_layer_reset(self: *Self) void {
     if (self.top_layer_) |top_layer_| {
         top_layer_.deinit();
         self.top_layer_ = null;
-        self.top_layer_target = null;
+        self.top_layer_handle = null;
     }
 }
 

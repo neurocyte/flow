@@ -1,5 +1,6 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
+const TypedInt = @import("TypedInt");
 
 pub const Plane = @import("Plane.zig");
 const GraphemeCache = @import("GraphemeCache.zig");
@@ -58,10 +59,12 @@ pub fn plane(self: *Layer) Plane {
     return result;
 }
 
+pub const Handle = TypedInt.Tagged(u32, "LHDL"); // Layer HanDL
+
 pub const Target = struct {
     src: *Layer,
     dst: vaxis.Window,
-    parent: ?*Layer = null,
+    parent: ?Handle = null,
 
     y: i32 = 0, // row offset into `dst`
     x: i32 = 0, // col offset into `dst`

@@ -29,6 +29,7 @@ tty: vaxis.Tty,
 vx: vaxis.Vaxis,
 tty_buffer: []u8,
 cache_storage: GraphemeCache.Storage = .{},
+targets: std.ArrayList(Layer.Target) = .empty,
 
 no_alternate: bool,
 enable_sgr_pixel_mode_support: bool = true,
@@ -115,6 +116,16 @@ pub fn deinit(self: *Self) void {
     self.bracketed_paste_buffer.deinit();
     self.input_buffer.deinit();
     self.event_buffer.deinit();
+    self.targets.deinit(self.allocator);
+}
+
+pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
+    const handle: Layer.Handle = @enumFromInt(self.targets.items.len);
+    if (target.parent) |p| std.debug.assert(@intFromEnum(p) < @intFromEnum(handle));
+    self.targets.append(self.allocator, target) catch |e| switch (e) {
+        error.OutOfMemory => @panic("OOM vaxis.submit_layer"),
+    };
+    return handle;
 }
 
 var in_panic: std.atomic.Value(bool) = .init(false);
@@ -222,6 +233,12 @@ pub fn run(self: *Self, render_pid: ?@import("thespian").pid_ref) Error!void {
 
 pub fn render(self: *Self) !?i64 {
     if (in_panic.load(.acquire)) return null;
+    var i = self.targets.items.len;
+    while (i > 0) {
+        i -= 1;
+        self.targets.items[i].draw();
+    }
+    self.targets.clearRetainingCapacity();
     try self.vx.render(self.tty.writer());
     try self.tty.writer().flush();
     return null;
