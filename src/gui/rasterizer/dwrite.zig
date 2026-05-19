@@ -10,6 +10,7 @@ const Self = @This();
 
 pub const GlyphSplit = enum { single, left, right };
 pub const Hinting = @import("gui_config").Hinting;
+const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 
 pub const RasterFormat = enum(u2) {
     alpha = 0,
@@ -60,6 +61,7 @@ allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
 factory: *win32.IDWriteFactory,
 cache: std.AutoHashMapUnmanaged(FaceKey, *win32.IDWriteFontFace) = .empty,
+block_and_line_symbols: SymbolRasterizer = .geometric,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var factory: *win32.IDWriteFactory = undefined;
