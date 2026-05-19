@@ -22,6 +22,7 @@ pub const font_finder = Primary.font_finder;
 
 pub const Backend = @import("gui_config").RasterizerBackend;
 pub const Hinting = @import("gui_config").Hinting;
+pub const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 
 pub const Face = enum(u2) {
     regular = 0,
@@ -147,6 +148,15 @@ pub fn setHinting(self: *Self, h: Hinting) void {
         self.dw.hinting = h;
     } else {
         self.ft.hinting = h;
+    }
+}
+
+pub fn setSymbolRasterizer(self: *Self, sr: SymbolRasterizer) void {
+    if (is_windows) {
+        self.dw.block_and_line_symbols = sr;
+    } else {
+        self.tt.block_and_line_symbols = sr;
+        self.ft.block_and_line_symbols = sr;
     }
 }
 

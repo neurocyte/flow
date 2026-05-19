@@ -541,6 +541,16 @@ pub fn reset_fontface(self: *Self) void {
     app.resetFontFace();
 }
 
+pub fn set_symbol_rasterizer(self: *Self, sr: app.SymbolRasterizer) void {
+    _ = self;
+    app.setSymbolRasterizer(sr);
+}
+
+pub fn get_symbol_rasterizer(self: *Self) app.SymbolRasterizer {
+    _ = self;
+    return app.getSymbolRasterizer();
+}
+
 pub fn get_fontfaces(self: *Self) void {
     const font_finder = @import("rasterizer").font_finder;
     const dispatch = self.dispatch_event orelse return;

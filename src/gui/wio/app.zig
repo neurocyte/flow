@@ -51,6 +51,7 @@ const release: u8 = 3;
 // can use them without a direct dependency on the gpu module.
 pub const CursorInfo = gpu.CursorInfo;
 pub const CursorShape = gpu.CursorShape;
+pub const SymbolRasterizer = gpu.SymbolRasterizer;
 
 // ── Shared state (protected by screen_mutex) ──────────────────────────────
 
@@ -79,6 +80,7 @@ var font_weight: u16 = 400;
 var font_weight_bold_offset: u16 = 300;
 var font_backend: gpu.RasterizerBackend = default_rasterizer;
 var font_hinting: gpu.Hinting = .normal;
+var block_and_line_symbols: gpu.SymbolRasterizer = .geometric;
 var font_line_height: u8 = 100;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
@@ -336,6 +338,17 @@ pub fn getHinting() gpu.Hinting {
     return font_hinting;
 }
 
+pub fn setSymbolRasterizer(sr: gpu.SymbolRasterizer) void {
+    block_and_line_symbols = sr;
+    saveConfig();
+    font_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getSymbolRasterizer() gpu.SymbolRasterizer {
+    return block_and_line_symbols;
+}
+
 pub fn setLineHeight(pct: u8) void {
     font_line_height = pct;
     saveConfig();
@@ -405,6 +418,7 @@ pub fn loadConfig() void {
     font_backend = conf.fontbackend;
     font_hinting = conf.fonthinting;
     font_line_height = if (conf.lineheight == 0) 100 else conf.lineheight;
+    block_and_line_symbols = conf.block_and_line_symbols;
     const name = conf.fontface;
     const copy_len = @min(name.len, font_name_buf.len);
     @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
@@ -419,6 +433,7 @@ fn saveConfig() void {
     conf.fontbackend = font_backend;
     conf.fonthinting = font_hinting;
     conf.lineheight = font_line_height;
+    conf.block_and_line_symbols = block_and_line_symbols;
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
@@ -477,6 +492,7 @@ fn reloadFont() void {
     const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_pt)) * (4.0 / 3.0) * dpi_scale));
     gpu.setRasterizerBackend(font_backend);
     gpu.setHinting(font_hinting);
+    gpu.setSymbolRasterizer(block_and_line_symbols);
     const set = gpu.loadFontSet(.{
         .name = name,
         .size_px = @max(size_physical, 4),
@@ -873,6 +889,7 @@ pub fn renderActorTick() void {
     // Reload font if settings changed (font_dirty set from any thread).
     if (font_dirty.swap(false, .acq_rel)) {
         reloadFont();
+        gpu.invalidateGlyphCache(&ctx.state);
         sendResize(ctx.win_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
     }
 

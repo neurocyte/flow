@@ -12,7 +12,8 @@ pub const font_finder = @import("font_finder");
 const Self = @This();
 
 pub const GlyphSplit = enum { single, left, right };
-pub const Hinting = @import("gui_config").Hinting;
+const Hinting = @import("gui_config").Hinting;
+const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 
 pub const RasterFormat = enum(u2) {
     alpha = 0,
@@ -60,6 +61,7 @@ library: c.FT_Library,
 allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
 regular_path: ?[]u8 = null,
+block_and_line_symbols: SymbolRasterizer = .geometric,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var library: c.FT_Library = undefined;
@@ -189,9 +191,11 @@ pub fn render(
     const cw: i32 = @intCast(font.cell_size.x);
     const ch: i32 = @intCast(font.cell_size.y);
 
-    if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-    if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-    if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (self.block_and_line_symbols == .geometric) {
+        if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+        if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+        if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    }
 
     const face = font.face orelse return .{ .format = .alpha };
 

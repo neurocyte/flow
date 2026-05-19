@@ -4,6 +4,7 @@ const XY = @import("xy").XY;
 pub const font_finder = @import("font_finder");
 const geometric = @import("geometric");
 const root = @import("soft_root").root;
+const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 
 const Self = @This();
 
@@ -59,6 +60,7 @@ pub const FaceResolution = struct {
 allocator: std.mem.Allocator,
 font_data: std.ArrayListUnmanaged([]u8),
 regular_path: ?[]u8 = null,
+block_and_line_symbols: SymbolRasterizer = .geometric,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     return .{
@@ -197,9 +199,11 @@ pub fn render(
     const cw: i32 = @intCast(font.cell_size.x);
     const ch: i32 = @intCast(font.cell_size.y);
 
-    if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-    if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-    if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (self.block_and_line_symbols == .geometric) {
+        if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+        if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+        if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    }
 
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();

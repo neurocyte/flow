@@ -19,6 +19,7 @@ pub const GlyphSplit = Rasterizer.GlyphSplit;
 pub const RasterFormat = Rasterizer.RasterFormat;
 pub const RasterizerBackend = Rasterizer.Backend;
 pub const Hinting = Rasterizer.Hinting;
+pub const SymbolRasterizer = Rasterizer.SymbolRasterizer;
 pub const Cell = @import("cell").Cell;
 pub const RGBA = @import("color").RGBA;
 
@@ -148,6 +149,15 @@ pub fn setRasterizerBackend(backend: RasterizerBackend) void {
 
 pub fn setHinting(h: Hinting) void {
     global.rasterizer.setHinting(h);
+}
+
+pub fn setSymbolRasterizer(h: SymbolRasterizer) void {
+    global.rasterizer.setSymbolRasterizer(h);
+}
+
+/// Force the glyph index cache to be rebuilt
+pub fn invalidateGlyphCache(state: *WindowState) void {
+    state.glyph_cache_cell_size = null;
 }
 
 pub fn setBackground(color: RGBA) void {

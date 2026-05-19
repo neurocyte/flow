@@ -10,6 +10,7 @@ fontweight_bold_offset: u16 = 300,
 fontbackend: RasterizerBackend = default_backend,
 fonthinting: Hinting = .normal,
 lineheight: u8 = 100,
+block_and_line_symbols: SymbolRasterizer = .geometric,
 
 initial_window_x: u16 = 1087,
 initial_window_y: u16 = 1014,
@@ -28,4 +29,9 @@ pub const Hinting = enum {
     slight,
     normal,
     mono,
+};
+
+pub const SymbolRasterizer = enum {
+    font,
+    geometric,
 };
