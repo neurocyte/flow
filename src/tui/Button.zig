@@ -80,6 +80,7 @@ fn State(ctx_type: type) type {
         hover: bool = false,
         drag_anchor: ?Widget.Pos = null,
         drag_pos: ?Widget.Pos = null,
+        drag_offset: ?Widget.Pos = null,
         opts: Options(ctx_type),
 
         const Self = @This();
@@ -118,6 +119,8 @@ fn State(ctx_type: type) type {
             var btn: input.MouseType = 0;
             var x: c_int = undefined;
             var y: c_int = undefined;
+            var xoffset: c_int = undefined;
+            var yoffset: c_int = undefined;
             if (try m.match(.{ "B", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
                 const btn_enum: input.Mouse = @enumFromInt(btn);
                 switch (btn_enum) {
@@ -136,11 +139,13 @@ fn State(ctx_type: type) type {
             } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
                 self.drag_anchor = null;
                 self.drag_pos = null;
+                self.drag_offset = null;
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 tui.need_render(@src());
                 return true;
-            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
+            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xoffset), tp.extract(&yoffset) })) {
                 self.drag_pos = .{ .x = x, .y = y };
+                self.drag_offset = .{ .x = xoffset, .y = yoffset };
                 if (self.opts.on_event) |h| {
                     self.active = false;
                     h.send(from, m) catch {};
@@ -153,6 +158,7 @@ fn State(ctx_type: type) type {
                 }
                 self.drag_anchor = null;
                 self.drag_pos = null;
+                self.drag_offset = null;
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 tui.need_render(@src());
                 return true;
@@ -163,6 +169,7 @@ fn State(ctx_type: type) type {
             }
             self.drag_anchor = null;
             self.drag_pos = null;
+            self.drag_offset = null;
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
         }
 
