@@ -1646,6 +1646,23 @@ const cmds = struct {
     }
     pub const reset_fontface_meta: Meta = .{ .description = "Reset font to configured face" };
 
+    pub fn toggle_symbol_rasterizer(_: *Self, _: Ctx) Result {
+        const logger = log.logger("gui");
+        defer logger.deinit();
+        if (comptime !@hasDecl(tui.renderer, "set_symbol_rasterizer")) {
+            logger.print("block and line symbols fixed", .{});
+            return;
+        }
+        const gui_config = @import("gui_config");
+        const next: gui_config.SymbolRasterizer = switch (tui.rdr().get_symbol_rasterizer()) {
+            .font => .geometric,
+            .geometric => .font,
+        };
+        tui.rdr().set_symbol_rasterizer(next);
+        logger.print("block and line symbols {t}", .{next});
+    }
+    pub const toggle_symbol_rasterizer_meta: Meta = .{ .description = "Toggle block and line symbol rasterizer" };
+
     pub fn next_tab(self: *Self, _: Ctx) Result {
         _ = try self.widgets_widget.msg(.{"next_tab"});
     }
