@@ -94,10 +94,21 @@ pub inline fn dim_x(self: Plane) u31 {
     return self.window.width;
 }
 
-pub fn abs_yx_to_rel_nearest_x(self: Plane, y: i32, x: i32, xoffset: i32) struct { i32, i32 } {
-    if (self.window.screen.width == 0 or self.window.screen.height == 0) return self.abs_yx_to_rel(y, x);
+pub inline fn cell_x(self: Plane) u16 {
     const xextra = self.window.screen.width_pix % self.window.screen.width;
     const xcell = (self.window.screen.width_pix - xextra) / self.window.screen.width;
+    return xcell;
+}
+
+pub inline fn cell_y(self: Plane) u16 {
+    const yextra = self.window.screen.height_pix % self.window.screen.height;
+    const ycell = (self.window.screen.height_pix - yextra) / self.window.screen.height;
+    return ycell;
+}
+
+pub fn abs_yx_to_rel_nearest_x(self: Plane, y: i32, x: i32, xoffset: i32) struct { i32, i32 } {
+    if (self.window.screen.width == 0 or self.window.screen.height == 0) return self.abs_yx_to_rel(y, x);
+    const xcell = self.cell_x();
     if (xcell == 0)
         return self.abs_yx_to_rel(y, x);
     if (xoffset > xcell / 2)
