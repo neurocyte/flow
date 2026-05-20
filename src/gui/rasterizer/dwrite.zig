@@ -61,7 +61,7 @@ allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
 factory: *win32.IDWriteFactory,
 cache: std.AutoHashMapUnmanaged(FaceKey, *win32.IDWriteFontFace) = .empty,
-block_and_line_symbols: SymbolRasterizer = .geometric,
+block_and_line_symbols: SymbolRasterizer = .default,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var factory: *win32.IDWriteFactory = undefined;

@@ -61,7 +61,7 @@ library: c.FT_Library,
 allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
 regular_path: ?[]u8 = null,
-block_and_line_symbols: SymbolRasterizer = .geometric,
+block_and_line_symbols: SymbolRasterizer = .default,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var library: c.FT_Library = undefined;

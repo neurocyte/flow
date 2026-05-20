@@ -60,7 +60,7 @@ pub const FaceResolution = struct {
 allocator: std.mem.Allocator,
 font_data: std.ArrayListUnmanaged([]u8),
 regular_path: ?[]u8 = null,
-block_and_line_symbols: SymbolRasterizer = .geometric,
+block_and_line_symbols: SymbolRasterizer = .default,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     return .{
