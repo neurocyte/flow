@@ -79,8 +79,9 @@ fn State(ctx_type: type) type {
         active: bool = false,
         hover: bool = false,
         drag_anchor: ?Widget.Pos = null,
+        drag_anchor_offset: ?Widget.Pos = null,
         drag_pos: ?Widget.Pos = null,
-        drag_offset: ?Widget.Pos = null,
+        drag_pos_offset: ?Widget.Pos = null,
         opts: Options(ctx_type),
 
         const Self = @This();
@@ -121,12 +122,13 @@ fn State(ctx_type: type) type {
             var y: c_int = undefined;
             var xoffset: c_int = undefined;
             var yoffset: c_int = undefined;
-            if (try m.match(.{ "B", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
+            if (try m.match(.{ "B", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xoffset), tp.extract(&yoffset) })) {
                 const btn_enum: input.Mouse = @enumFromInt(btn);
                 switch (btn_enum) {
                     input.mouse.BUTTON1 => {
                         self.active = true;
                         self.drag_anchor = self.to_rel_cursor(x, y);
+                        self.drag_anchor_offset = .{ .x = xoffset, .y = yoffset };
                         tui.need_render(@src());
                     },
                     input.mouse.BUTTON4, input.mouse.BUTTON5 => {
@@ -138,14 +140,15 @@ fn State(ctx_type: type) type {
                 return true;
             } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
                 self.drag_anchor = null;
+                self.drag_anchor_offset = null;
                 self.drag_pos = null;
-                self.drag_offset = null;
+                self.drag_pos_offset = null;
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xoffset), tp.extract(&yoffset) })) {
                 self.drag_pos = .{ .x = x, .y = y };
-                self.drag_offset = .{ .x = xoffset, .y = yoffset };
+                self.drag_pos_offset = .{ .x = xoffset, .y = yoffset };
                 if (self.opts.on_event) |h| {
                     self.active = false;
                     h.send(from, m) catch {};
@@ -157,8 +160,9 @@ fn State(ctx_type: type) type {
                     h.send(from, m) catch {};
                 }
                 self.drag_anchor = null;
+                self.drag_anchor_offset = null;
                 self.drag_pos = null;
-                self.drag_offset = null;
+                self.drag_pos_offset = null;
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 tui.need_render(@src());
                 return true;
@@ -168,8 +172,9 @@ fn State(ctx_type: type) type {
                 return true;
             }
             self.drag_anchor = null;
+            self.drag_anchor_offset = null;
             self.drag_pos = null;
-            self.drag_offset = null;
+            self.drag_pos_offset = null;
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
         }
 
