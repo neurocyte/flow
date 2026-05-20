@@ -35,5 +35,5 @@ pub const SymbolRasterizer = enum {
     font,
     geometric,
 
-    pub const default = .geometric;
+    pub const default = .font;
 };
