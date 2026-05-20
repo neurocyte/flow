@@ -984,6 +984,7 @@ const cmds = struct {
             self.panel_maximized = true;
             panels.layout_ = .{ .static = max_h };
         }
+        if (self.get_panel_view(terminal_view)) |vt| if (self.panel_maximized) vt.focus() else vt.unfocus();
         tui.resize();
     }
     pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
