@@ -249,7 +249,6 @@ pub fn build_exe(
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
-    options.addOption(bool, "strip", strip);
     options.addOption(bool, "gui", renderer != .terminal);
 
     const options_mod = options.createModule();
