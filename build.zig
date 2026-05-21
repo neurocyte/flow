@@ -239,12 +239,13 @@ pub fn build_exe(
     tracy_enabled: bool,
     use_tree_sitter: bool,
     strip: bool,
-    use_llvm: ?bool,
+    use_llvm_: ?bool,
     pie: ?bool,
     renderer: Renderer,
     version: []const u8,
     test_filters: []const []const u8,
 ) void {
+    const use_llvm = if (target.result.os.tag == .linux) true else use_llvm_;
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
@@ -335,7 +336,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
-        .@"use-llvm" = use_llvm,
+        .@"use-llvm" = if (builtin.os.tag == .linux) true else use_llvm,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
@@ -859,10 +860,8 @@ pub fn build_exe(
             null,
     });
 
-    if (use_llvm) |value| {
-        exe.use_llvm = value;
-        exe.use_lld = use_lld;
-    }
+    exe.use_llvm = use_llvm;
+    exe.use_lld = use_lld;
 
     if (pie) |value| exe.pie = value;
     exe.root_module.addImport("build_options", options_mod);
