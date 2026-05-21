@@ -245,7 +245,7 @@ pub fn build_exe(
     version: []const u8,
     test_filters: []const []const u8,
 ) void {
-    const use_lld = if(target.result.os.tag.isDarwin()) null else use_llvm;
+    const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
