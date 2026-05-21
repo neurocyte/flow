@@ -84,7 +84,7 @@ zig build test
 
 echo building...
 
-zig build -Dall_targets --release --prefix "$DESTDIR/build"
+zig build -Dall-targets --release --prefix "$DESTDIR/build"
 
 VERSION=$(/bin/cat "$DESTDIR/build/version")
 

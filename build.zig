@@ -6,9 +6,9 @@ const optimize_deps = .ReleaseFast;
 pub const Renderer = enum { terminal, gui };
 
 pub fn build(b: *std.Build) void {
-    const all_targets = b.option(bool, "all_targets", "Build all known good targets during release builds (default: no)") orelse false;
-    const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
-    const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
+    const all_targets = b.option(bool, "all-targets", "Build all known good targets during release builds (default: no)") orelse false;
+    const tracy_enabled = b.option(bool, "enable-tracy", "Enable tracy client library (default: no)") orelse false;
+    const use_tree_sitter = b.option(bool, "use-tree-sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
     const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
