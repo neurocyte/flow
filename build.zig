@@ -10,9 +10,7 @@ pub fn build(b: *std.Build) void {
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
-    // workaround for arch linux relocation type R_X86_64_PC64 linker issue, revert when we move to zig-0.17-dev - CJ 2026-05-02
-    // const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
-    const use_llvm: ?bool = true;
+    const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
     const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (default), gui") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
@@ -109,7 +107,7 @@ fn build_release(
     tracy_enabled: bool,
     use_tree_sitter: bool,
     _: ?bool, //release builds control strip
-    _: ?bool, //use_llvm
+    use_llvm: ?bool,
     pie: ?bool,
     _: Renderer, //renderer
     version: []const u8,
@@ -188,8 +186,6 @@ fn build_release(
         const os = triple.next() orelse unreachable;
         const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
         const target_path_debug = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch, "debug" }) catch unreachable;
-        // const use_llvm = if (target.result.os.tag == .linux) true else null;
-        const use_llvm = true;
 
         build_exe(
             b,
