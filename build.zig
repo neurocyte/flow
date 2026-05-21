@@ -339,7 +339,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
-        .@"use-llvm" = use_llvm,
+        .@"use-llvm" = if (b.graph.host.result.os.tag.isDarwin()) null else use_llvm,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
@@ -865,7 +865,7 @@ pub fn build_exe(
 
     if (use_llvm) |value| {
         exe.use_llvm = value;
-        exe.use_lld = value;
+        exe.use_lld = value and !target.result.os.tag.isDarwin();
     }
 
     if (pie) |value| exe.pie = value;
@@ -966,7 +966,7 @@ pub fn build_exe(
             .strip = strip,
         }),
         .use_llvm = use_llvm,
-        .use_lld = use_llvm,
+        .use_lld = if (use_llvm) |value| value and !target.result.os.tag.isDarwin() else null,
         .filters = test_filters,
     });
 
