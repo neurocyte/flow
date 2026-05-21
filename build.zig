@@ -245,6 +245,7 @@ pub fn build_exe(
     version: []const u8,
     test_filters: []const []const u8,
 ) void {
+    const use_lld = if(target.result.os.tag.isDarwin()) null else use_llvm;
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
@@ -861,7 +862,7 @@ pub fn build_exe(
 
     if (use_llvm) |value| {
         exe.use_llvm = value;
-        exe.use_lld = value;
+        exe.use_lld = use_lld;
     }
 
     if (pie) |value| exe.pie = value;
@@ -962,7 +963,7 @@ pub fn build_exe(
             .strip = strip,
         }),
         .use_llvm = use_llvm,
-        .use_lld = use_llvm,
+        .use_lld = use_lld,
         .filters = test_filters,
     });
 
