@@ -189,7 +189,7 @@ fn show_color(self: *Self, tag: []const u8, c_: ?Widget.Theme.Color) void {
             (theme.panel.fg orelse Widget.Theme.Color{ .color = 0xFFFFFF }).color,
             (theme.panel.bg orelse Widget.Theme.Color{ .color = 0x000000 }).color,
         ) }) catch {};
-        _ = self.plane.print("#{x}", .{c.color}) catch return;
+        _ = self.plane.print("#{x:0>6}", .{c.color}) catch return;
         self.reset_style();
         if (c.alpha != 0xff)
             _ = self.plane.print(" ɑ{x}", .{c.alpha}) catch return;
