@@ -946,6 +946,14 @@ pub const Editor = struct {
         return self.get_cursor_abs(self.get_primary().cursor);
     }
 
+    pub fn get_cursor_scr(self: *const Self, cursor: Cursor) ?Cursor {
+        return self.screen_cursor(&cursor);
+    }
+
+    pub fn get_primary_scr(self: *const Self) ?Cursor {
+        return self.get_cursor_scr(self.get_primary().cursor);
+    }
+
     fn store_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
         var meta: std.Io.Writer.Allocating = .init(allocator);
         defer meta.deinit();
@@ -1321,7 +1329,7 @@ pub const Editor = struct {
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
         if (focused and !self.software_rendered_cursor and tui.rdr().vx.caps.multi_cursor)
-            tui.rdr().clear_all_multi_cursors() catch {};
+            self.plane.clear_multi_cursors(self.allocator);
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
             const cursor = cursel.cursor;
             try self.render_cursor_secondary(&cursor, theme, cell_map, focused);
@@ -1349,7 +1357,7 @@ pub const Editor = struct {
             if (screen_pos) |pos| {
                 self.render_term_cursor(pos, cursor_shape);
             } else if (tui.is_mainview_focused() and tui.rdr().vx.caps.multi_cursor and self.has_secondary_cursors()) {
-                self.hide_term_cursor(theme.statusbar.bg.?, cursor_shape);
+                self.hide_term_cursor(cursor_shape);
             }
         } else if (screen_pos) |pos|
             self.render_soft_cursor(pos, if (focused) theme.editor_cursor else theme.editor_cursor_secondary);
@@ -1365,18 +1373,15 @@ pub const Editor = struct {
     }
 
     inline fn render_term_cursor(self: *Self, pos: Cursor, shape: anytype) void {
-        const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-        tui.rdr().cursor_enable(y, x, shape) catch {};
+        self.plane.cursor_enable(@intCast(pos.row), @intCast(pos.col), shape);
     }
 
     inline fn render_term_cursor_secondary(self: *Self, pos: Cursor) void {
-        const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-        tui.rdr().show_multi_cursor_yx(y, x) catch return;
+        self.plane.show_multi_cursor_yx(self.allocator, @intCast(pos.row), @intCast(pos.col)) catch return;
     }
 
-    inline fn hide_term_cursor(_: *Self, color: Widget.Theme.Color, shape: anytype) void {
-        tui.rdr().set_terminal_cursor_color(color);
-        tui.rdr().cursor_enable(-1, -1, shape) catch {};
+    inline fn hide_term_cursor(self: *Self, shape: anytype) void {
+        self.plane.cursor_hide(shape);
     }
 
     inline fn render_soft_cursor(self: *Self, pos: Cursor, style: Widget.Theme.Style) void {

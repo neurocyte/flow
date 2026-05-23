@@ -64,12 +64,10 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 thread: ?std.Thread = null,
 window_ready: bool = false,
 
-cursor_info: app.CursorInfo = .{},
 cursor_color: RGBA = .init(255, 255, 255, 255),
-secondary_cursors: std.ArrayList(app.CursorInfo) = .empty,
 secondary_color: RGBA = .init(255, 255, 255, 255),
+secondary_cursors_buf: std.ArrayList(app.CursorInfo) = .empty,
 
-cursor_blink: bool = false,
 blink_on: bool = true,
 blink_epoch: i64 = 0,
 blink_period_us: i64 = 500_000,
@@ -217,7 +215,7 @@ pub fn deinit(self: *Self) void {
     var drop: std.Io.Writer.Discarding = .init(&.{});
     self.vx.deinit(self.allocator, &drop.writer);
     self.event_buffer.deinit();
-    self.secondary_cursors.deinit(self.allocator);
+    self.secondary_cursors_buf.deinit(self.allocator);
     self.targets.deinit(self.allocator);
 }
 
@@ -251,15 +249,24 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
 pub fn render(self: *Self) error{}!?i64 {
     if (!self.window_ready) return null;
 
-    var cursor = self.cursor_info;
+    const active_screen: ?*vaxis.Screen = &self.vx.screen;
+    var cursor: app.CursorInfo = .{};
+    if (active_screen) |s| if (s.cursor_vis) {
+        cursor = .{
+            .vis = true,
+            .row = s.cursor.row,
+            .col = s.cursor.col,
+            .shape = vaxisCursorShape(s.cursor_shape),
+            .color = self.cursor_color,
+        };
+    };
+    const cursor_blink: bool = if (active_screen) |s| isBlink(s.cursor_shape) else false;
 
-    // Detect changes since the last rendered frame. Reset blink epoch and idle
-    // timer on any meaningful change so the cursor snaps to visible immediately.
     if (cursor.vis != self.prev_cursor.vis or
         cursor.row != self.prev_cursor.row or
         cursor.col != self.prev_cursor.col or
         cursor.shape != self.prev_cursor.shape or
-        self.cursor_blink != self.prev_cursor_blink)
+        cursor_blink != self.prev_cursor_blink)
     {
         const now = root.get_now().toMicroseconds();
         if (cursor.vis) {
@@ -269,10 +276,9 @@ pub fn render(self: *Self) error{}!?i64 {
         self.blink_last_change = now;
     }
     self.prev_cursor = cursor;
-    self.prev_cursor_blink = self.cursor_blink;
+    self.prev_cursor_blink = cursor_blink;
 
-    // Apply blink unless the cursor has been idle for too long.
-    if (cursor.vis and self.cursor_blink) {
+    if (cursor.vis and cursor_blink) {
         const now = root.get_now().toMicroseconds();
         const idle = now - self.blink_last_change;
         if (idle < self.blink_idle_us) {
@@ -305,11 +311,12 @@ pub fn render(self: *Self) error{}!?i64 {
         const src_gop = layer_index_by_ptr.getOrPut(t.src) catch @panic("OOM render");
         if (!src_gop.found_existing) {
             src_gop.value_ptr.* = @intCast(layers_buf.items.len);
+            const is_cursor_layer = active_screen == &t.src.screen;
             layers_buf.append(self.allocator, .{
                 .id = t.src.id,
                 .screen = &t.src.screen,
-                .cursor = .{},
-                .secondary_cursors = &.{},
+                .cursor = if (is_cursor_layer) cursor else .{},
+                .secondary_cursors = if (is_cursor_layer) self.secondary_cursors_buf.items else &.{},
             }) catch @panic("OOM render");
         }
 
@@ -337,7 +344,8 @@ pub fn render(self: *Self) error{}!?i64 {
     app.updateScreen(layers_buf.items, targets_buf.items);
     self.targets.clearRetainingCapacity();
 
-    if (!self.cursor_info.vis or !self.cursor_blink) return null;
+    const blink_active: bool = if (active_screen) |s| s.cursor_vis and isBlink(s.cursor_shape) else false;
+    if (!blink_active) return null;
     const now_check = root.get_now().toMicroseconds();
     if (now_check - self.blink_last_change >= self.blink_idle_us) return null;
     const elapsed = @mod(now_check - self.blink_epoch, self.blink_period_us * 2);
@@ -685,35 +693,6 @@ pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
     _ = self;
     _ = push_or_pop;
     app.setMouseCursor(.default);
-}
-
-pub fn cursor_enable(self: *Self, y: i32, x: i32, shape: CursorShape) !void {
-    self.cursor_blink = isBlink(shape);
-    self.cursor_info = .{
-        .vis = true,
-        .row = if (y < 0) 0 else @intCast(y),
-        .col = if (x < 0) 0 else @intCast(x),
-        .shape = vaxisCursorShape(shape),
-        .color = self.cursor_color,
-    };
-}
-
-pub fn cursor_disable(self: *Self) void {
-    self.cursor_info.vis = false;
-}
-
-pub fn clear_all_multi_cursors(self: *Self) !void {
-    self.secondary_cursors.clearRetainingCapacity();
-}
-
-pub fn show_multi_cursor_yx(self: *Self, y: i32, x: i32) !void {
-    try self.secondary_cursors.append(self.allocator, .{
-        .vis = true,
-        .row = if (y < 0) 0 else @intCast(y),
-        .col = if (x < 0) 0 else @intCast(x),
-        .shape = self.cursor_info.shape,
-        .color = self.secondary_color,
-    });
 }
 
 fn themeColorToGpu(color: Color) RGBA {

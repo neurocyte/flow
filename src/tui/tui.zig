@@ -697,8 +697,7 @@ fn render(self: *Self) void {
         self.rdr_.stdplane().erase();
         const theme_ = self.current_theme();
         if (has_native_cursor()) {
-            self.rdr_.cursor_disable();
-            if (self.rdr_.vx.caps.multi_cursor) self.rdr_.clear_all_multi_cursors() catch {};
+            self.rdr_.stdplane().reset_all_cursors(self.allocator);
             self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
         }
         const continue_mainview = if (self.mainview_) |mv| mv.render(theme_) else false;

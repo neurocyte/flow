@@ -256,6 +256,20 @@ fn draw_target(target: *const Layer.Target) void {
             target.src.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
         );
     }
+
+    // propagate the layer cursors
+    if (target.src.screen.cursor_vis) {
+        const cur_row: i32 = @intCast(target.src.screen.cursor.row);
+        const cur_col: i32 = @intCast(target.src.screen.cursor.col);
+        const abs_row = dst_y + cur_row;
+        const abs_col = dst_x + cur_col;
+        if (abs_row >= 0 and abs_row < dst_dim_y and abs_col >= 0 and abs_col < dst_dim_x) {
+            target.dst.screen.cursor_vis = true;
+            target.dst.screen.cursor.row = @intCast(abs_row);
+            target.dst.screen.cursor.col = @intCast(abs_col);
+            target.dst.screen.cursor_shape = target.src.screen.cursor_shape;
+        }
+    }
 }
 
 pub fn render(self: *Self) !?i64 {
@@ -627,27 +641,6 @@ pub fn request_mouse_cursor_pointer(self: *Self, push_or_pop: bool) void {
 
 pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
     if (push_or_pop) self.vx.setMouseShape(.default) else self.vx.setMouseShape(.default);
-}
-
-pub fn cursor_enable(self: *Self, y_: c_int, x_: c_int, shape: CursorShape) !void {
-    const y: u16 = if (y_ < 0) 9999 else @intCast(y_);
-    const x: u16 = if (x_ < 0) 9999 else @intCast(x_);
-    self.vx.screen.cursor_vis = true;
-    self.vx.screen.cursor.row = y;
-    self.vx.screen.cursor.col = x;
-    self.vx.screen.cursor_shape = shape;
-}
-
-pub fn cursor_disable(self: *Self) void {
-    self.vx.screen.cursor_vis = false;
-}
-
-pub fn clear_all_multi_cursors(self: *Self) !void {
-    try self.vx.resetAllTerminalSecondaryCursors(self.allocator);
-}
-
-pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
-    try self.vx.addTerminalSecondaryCursor(self.allocator, @intCast(y), @intCast(x));
 }
 
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {

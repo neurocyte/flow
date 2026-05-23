@@ -201,8 +201,8 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
     const color: u24 = 0x0;
 
     if (tui.has_native_cursor()) blk: {
-        const cursor = self.value.editor.get_primary_abs() orelse break :blk;
-        tui.rdr().cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape()) catch {};
+        const cursor = self.value.editor.get_primary_scr() orelse break :blk;
+        self.value.editor.plane.cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape());
     }
 
     defer if (selected) if (self.value.info_box) |w| {

@@ -414,7 +414,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     if (!software_cursor and self.focused and tui.terminal_has_focus() and self.vt.vt.mode.cursor) {
         const scr = &tui.rdr().vx.screen;
-        tui.rdr().cursor_enable(@intCast(scr.cursor.row), @intCast(scr.cursor.col), scr.cursor_shape) catch {};
+        const local_y, const local_x = self.plane.abs_yx_to_rel(@intCast(scr.cursor.row), @intCast(scr.cursor.col));
+        self.plane.cursor_enable(local_y, local_x, scr.cursor_shape);
     }
 
     return false;

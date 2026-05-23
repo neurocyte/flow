@@ -130,6 +130,46 @@ pub fn rel_yx_to_abs(self: Plane, y: i32, x: i32) struct { i32, i32 } {
 
 pub fn hide(_: Plane) void {}
 
+pub fn cursor_enable(self: *const Plane, y: i32, x: i32, shape: vaxis.Cell.CursorShape) void {
+    if (y < 0 or x < 0) {
+        self.window.screen.cursor_vis = false;
+        self.window.screen.cursor_shape = shape;
+        return;
+    }
+    self.window.screen.cursor_vis = true;
+    self.window.screen.cursor.row = @intCast(self.window.y_off + y);
+    self.window.screen.cursor.col = @intCast(self.window.x_off + x);
+    self.window.screen.cursor_shape = shape;
+}
+
+pub fn cursor_disable(self: *const Plane) void {
+    self.window.screen.cursor_vis = false;
+}
+
+pub fn cursor_hide(self: *const Plane, shape: anytype) void {
+    self.window.screen.cursor_vis = false;
+    self.window.screen.cursor_shape = shape;
+}
+
+pub fn show_multi_cursor_yx(self: *const Plane, allocator: std.mem.Allocator, y: i32, x: i32) std.mem.Allocator.Error!void {
+    const new_len = self.window.screen.cursor_secondary.len + 1;
+    self.window.screen.cursor_secondary = try allocator.realloc(self.window.screen.cursor_secondary, new_len);
+    self.window.screen.cursor_secondary[new_len - 1] = .{
+        .row = @intCast(self.window.y_off + y),
+        .col = @intCast(self.window.x_off + x),
+    };
+}
+
+pub fn clear_multi_cursors(self: *const Plane, allocator: std.mem.Allocator) void {
+    allocator.free(self.window.screen.cursor_secondary);
+    self.window.screen.cursor_secondary = &.{};
+}
+
+pub fn reset_all_cursors(self: *const Plane, allocator: std.mem.Allocator) void {
+    self.cursor_disable();
+    self.clear_multi_cursors(allocator);
+}
+
 pub fn move_yx(self: *Plane, y: i32, x: i32) !void {
     self.window.y_off = @intCast(y);
     self.window.x_off = @intCast(x);
