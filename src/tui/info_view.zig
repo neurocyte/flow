@@ -86,7 +86,7 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(theme.panel);
+    self.plane.set_base_style(if (tui.config().hover_info_mode == .box) theme.editor_widget else theme.panel);
     self.plane.erase();
     self.plane.home();
     for (self.lines.items) |line| {
