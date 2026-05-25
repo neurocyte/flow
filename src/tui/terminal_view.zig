@@ -322,11 +322,13 @@ pub fn toggle_focus(self: *Self) void {
 }
 
 pub fn focus(self: *Self) void {
+    if (self.focused) return;
     self.focused = true;
     tui.set_keyboard_focus(Widget.to(self));
 }
 
 pub fn unfocus(self: *Self) void {
+    if (!self.focused) return;
     self.focused = false;
     self.reset_hover_pos();
     self.reset_file_link();
