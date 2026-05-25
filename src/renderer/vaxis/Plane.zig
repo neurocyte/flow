@@ -9,6 +9,7 @@ const Buffer = @import("Buffer");
 const color = @import("color");
 const RGB = @import("color").RGB;
 const GraphemeCache = @import("GraphemeCache.zig");
+pub const Surface = @import("Surface.zig");
 
 const Plane = @This();
 
@@ -24,6 +25,14 @@ style: vaxis.Cell.Style = .{},
 style_base: vaxis.Cell.Style = .{},
 scrolling: bool = false,
 transparent: bool = false,
+parent_surface: ?*const Surface = null,
+
+pub const Coord = struct {
+    col: i32 = 0,
+    row: i32 = 0,
+    xoffset: i16 = 0,
+    yoffset: i16 = 0,
+};
 
 pub const Options = struct {
     y: usize = 0,
@@ -54,6 +63,7 @@ pub fn init(nopts: *const Options, parent_: Plane) !Plane {
         .name_buf = undefined,
         .name_len = len,
         .scrolling = nopts.flags == .VSCROLL,
+        .parent_surface = parent_.parent_surface,
     };
     @memcpy(plane.name_buf[0..len], nopts.name[0..len]);
     return plane;
@@ -84,6 +94,18 @@ pub inline fn abs_y(self: Plane) i32 {
 
 pub inline fn abs_x(self: Plane) i32 {
     return self.window.x_off;
+}
+
+pub fn global_yx(self: Plane) struct { i32, i32 } {
+    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
+    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    var ox: i32 = 0;
+    var oy: i32 = 0;
+    if (self.parent_surface) |s| {
+        ox = @divFloor(s.origin_px_x, cw);
+        oy = @divFloor(s.origin_px_y, ch);
+    }
+    return .{ oy + self.window.y_off, ox + self.window.x_off };
 }
 
 pub inline fn dim_y(self: Plane) u31 {
@@ -117,15 +139,56 @@ pub fn abs_yx_to_rel_nearest_x(self: Plane, y: i32, x: i32, xoffset: i32) struct
 }
 
 pub fn abs_yx_to_rel(self: Plane, y: i32, x: i32) struct { i32, i32 } {
-    return .{ y - self.abs_y(), x - self.abs_x() };
+    const gy, const gx = self.global_yx();
+    return .{ y - gy, x - gx };
 }
 
 pub fn abs_y_to_rel(self: Plane, y: i32) i32 {
-    return y - self.abs_y();
+    const gy, _ = self.global_yx();
+    return y - gy;
 }
 
 pub fn rel_yx_to_abs(self: Plane, y: i32, x: i32) struct { i32, i32 } {
-    return .{ self.abs_y() + y, self.abs_x() + x };
+    const gy, const gx = self.global_yx();
+    return .{ gy + y, gx + x };
+}
+
+pub fn global_origin_px(self: Plane) struct { i32, i32 } {
+    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
+    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    var ox: i32 = 0;
+    var oy: i32 = 0;
+    if (self.parent_surface) |s| {
+        ox, oy = s.global_origin_px();
+    }
+    return .{
+        ox + @as(i32, self.window.x_off) * cw,
+        oy + @as(i32, self.window.y_off) * ch,
+    };
+}
+
+pub fn to_window(self: Plane, local: Coord) struct { i32, i32 } {
+    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
+    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    const ox, const oy = self.global_origin_px();
+    return .{
+        ox + local.col * cw + @as(i32, local.xoffset),
+        oy + local.row * ch + @as(i32, local.yoffset),
+    };
+}
+
+pub fn from_window(self: Plane, win_x: i32, win_y: i32) Coord {
+    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
+    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    const ox, const oy = self.global_origin_px();
+    const dx = win_x - ox;
+    const dy = win_y - oy;
+    return .{
+        .col = @divFloor(dx, cw),
+        .row = @divFloor(dy, ch),
+        .xoffset = @intCast(@mod(dx, cw)),
+        .yoffset = @intCast(@mod(dy, ch)),
+    };
 }
 
 pub fn hide(_: Plane) void {}

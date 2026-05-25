@@ -222,10 +222,24 @@ pub fn deinit(self: *Self) void {
 pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
     const handle: Layer.Handle = @enumFromInt(self.targets.items.len);
     if (target.parent) |p| std.debug.assert(@intFromEnum(p) < @intFromEnum(handle));
+    resolve_layer_origin(self.stdplane(), &target.src.surface, target, self.targets.items);
     self.targets.append(self.allocator, target) catch |e| switch (e) {
         error.OutOfMemory => @panic("OOM gui.submit_layer"),
     };
     return handle;
+}
+
+fn resolve_layer_origin(std_plane: Plane, surface: *Layer.Surface, target: Layer.Target, prior_targets: []const Layer.Target) void {
+    const cw: i32 = @max(@as(i32, @intCast(std_plane.cell_x())), 1);
+    const ch: i32 = @max(@as(i32, @intCast(std_plane.cell_y())), 1);
+    var dst_x: i32 = 0;
+    var dst_y: i32 = 0;
+    if (target.parent) |h| {
+        const parent_layer = prior_targets[@intFromEnum(h)].src;
+        dst_x, dst_y = parent_layer.global_origin_px();
+    }
+    surface.origin_px_x = dst_x + target.x * cw + @as(i32, target.xoffset);
+    surface.origin_px_y = dst_y + target.y * ch + @as(i32, target.yoffset);
 }
 
 pub fn run(self: *Self, render_pid: ?tp.pid_ref) Error!void {
@@ -290,14 +304,6 @@ pub fn render(self: *Self) error{}!?i64 {
         }
     }
 
-    const stdplane_view: app.LayerView = .{
-        .id = self.stdplane_id,
-        .screen = &self.vx.screen,
-        .cursor = cursor,
-        .secondary_cursors = self.secondary_cursors.items,
-    };
-
-    // build a layer list and matching TargetView list
     var layers_buf: std.ArrayList(app.LayerView) = .empty;
     defer layers_buf.deinit(self.allocator);
     var targets_buf: std.ArrayList(app.TargetView) = .empty;
@@ -305,7 +311,23 @@ pub fn render(self: *Self) error{}!?i64 {
     var layer_index_by_ptr: std.AutoHashMap(*Layer, u32) = .init(self.allocator);
     defer layer_index_by_ptr.deinit();
 
-    layers_buf.append(self.allocator, stdplane_view) catch @panic("OOM render");
+    self.secondary_cursors_buf.clearRetainingCapacity();
+    if (active_screen) |s| if (s.cursor_vis) for (s.cursor_secondary) |sc| {
+        self.secondary_cursors_buf.append(self.allocator, .{
+            .vis = true,
+            .row = sc.row,
+            .col = sc.col,
+            .shape = vaxisCursorShape(s.cursor_shape),
+            .color = self.secondary_color,
+        }) catch break;
+    };
+
+    layers_buf.append(self.allocator, .{
+        .id = self.stdplane_id,
+        .screen = &self.vx.screen,
+        .cursor = if (active_screen == &self.vx.screen) cursor else .{},
+        .secondary_cursors = if (active_screen == &self.vx.screen) self.secondary_cursors_buf.items else &.{},
+    }) catch @panic("OOM render");
 
     for (self.targets.items) |*t| {
         const src_gop = layer_index_by_ptr.getOrPut(t.src) catch @panic("OOM render");

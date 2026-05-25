@@ -853,13 +853,15 @@ fn handle_system_clipboard(self: *Self, text: []const u8) !void {
 }
 
 fn find_coord_widget(self: *Self, y: usize, x: usize) ?Widget {
+    if (self.find_coord_widget_layered(y, x)) |w| return w;
+
     const Ctx = struct {
         widget: ?Widget = null,
         y: usize,
         x: usize,
         fn find(ctx_: *anyopaque, w: Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            if (w.box().is_abs_coord_inside(ctx.y, ctx.x)) {
+            if (is_abs_coord_in_widget(&w, ctx.y, ctx.x)) {
                 ctx.widget = w;
                 return true;
             }
@@ -871,8 +873,36 @@ fn find_coord_widget(self: *Self, y: usize, x: usize) ?Widget {
     return ctx.widget;
 }
 
+fn find_coord_widget_layered(self: *Self, y: usize, x: usize) ?Widget {
+    const Ctx = struct {
+        best: ?Widget = null,
+        best_area: usize = 0,
+        y: usize,
+        x: usize,
+        fn find(ctx_: *anyopaque, w: Widget) bool {
+            const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+            if (w.plane.parent_surface == null) return false;
+            if (!is_abs_coord_in_widget(&w, ctx.y, ctx.x)) return false;
+            const area: usize = @as(usize, w.plane.dim_y()) * @as(usize, w.plane.dim_x());
+            if (ctx.best == null or area < ctx.best_area) {
+                ctx.best = w;
+                ctx.best_area = area;
+            }
+            return false;
+        }
+    };
+    var ctx: Ctx = .{ .y = y, .x = x };
+    if (self.mainview_) |*mv| _ = mv.walk(&ctx, Ctx.find);
+    return ctx.best;
+}
+
 pub fn is_abs_coord_in_widget(w: *const Widget, y: usize, x: usize) bool {
-    return w.box().is_abs_coord_inside(y, x);
+    const gy, const gx = w.plane.global_yx();
+    const h: i32 = @intCast(w.plane.dim_y());
+    const wd: i32 = @intCast(w.plane.dim_x());
+    const iy: i32 = @intCast(y);
+    const ix: i32 = @intCast(x);
+    return iy >= gy and iy < gy + h and ix >= gx and ix < gx + wd;
 }
 
 fn is_live_widget_ptr(self: *Self, w_: Widget) bool {
@@ -2110,6 +2140,10 @@ pub fn plane() renderer.Plane {
 
 fn stdplane(self: *Self) renderer.Plane {
     return self.rdr_.stdplane();
+}
+
+pub fn submit_layer(target: renderer.Layer.Target) renderer.Layer.Handle {
+    return current().rdr_.submit_layer(target);
 }
 
 pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.Plane {

@@ -3,6 +3,7 @@ const vaxis = @import("vaxis");
 const TypedInt = @import("TypedInt");
 
 pub const Plane = @import("Plane.zig");
+pub const Surface = @import("Surface.zig");
 const GraphemeCache = @import("GraphemeCache.zig");
 
 const Layer = @This();
@@ -20,6 +21,7 @@ allocator: std.mem.Allocator,
 id: Id,
 screen: vaxis.Screen,
 cache_storage: GraphemeCache.Storage = .{},
+surface: Surface = .{},
 
 pub const Options = struct {
     h: u16 = 0,
@@ -46,6 +48,19 @@ pub fn deinit(self: *Layer) void {
     self.allocator.destroy(self);
 }
 
+pub fn resize(self: *Layer, w: u16, h: u16, w_pix: u16, h_pix: u16) std.mem.Allocator.Error!void {
+    if (self.screen.width == w and self.screen.height == h and
+        self.screen.width_pix == w_pix and self.screen.height_pix == h_pix) return;
+    self.screen.deinit(self.allocator);
+    self.screen = try vaxis.Screen.init(self.allocator, .{
+        .rows = h,
+        .cols = w,
+        .x_pixel = w_pix,
+        .y_pixel = h_pix,
+    });
+    self.cache_storage = .{};
+}
+
 fn window(self: *Layer) vaxis.Window {
     return .{
         .x_off = 0,
@@ -65,9 +80,14 @@ pub fn plane(self: *Layer) Plane {
         .cache = self.cache_storage.cache(),
         .name_buf = undefined,
         .name_len = name.len,
+        .parent_surface = &self.surface,
     };
     @memcpy(result.name_buf[0..name.len], name);
     return result;
+}
+
+pub fn global_origin_px(self: *const Layer) struct { i32, i32 } {
+    return self.surface.global_origin_px();
 }
 
 pub const Handle = TypedInt.Tagged(u32, "LHDL"); // Layer HanDL
