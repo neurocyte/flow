@@ -7913,7 +7913,10 @@ pub const EditorWidget = struct {
                 if (tui.jump_mode()) {
                     self.update_hover_timer(.init);
                     self.hover_mouse_event = true;
-                    self.editor.update_hover_pos(@intCast(hover_y), @intCast(hover_x));
+                    if (hover_y >= 0 and hover_x >= 0)
+                        self.editor.update_hover_pos(@intCast(hover_y), @intCast(hover_x))
+                    else
+                        self.editor.reset_hover_pos();
                 } else {
                     self.editor.reset_hover_pos();
                 }
