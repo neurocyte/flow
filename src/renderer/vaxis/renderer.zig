@@ -28,7 +28,7 @@ allocator: std.mem.Allocator,
 tty: vaxis.Tty,
 vx: vaxis.Vaxis,
 tty_buffer: []u8,
-cache_storage: GraphemeCache.Storage = .{},
+cache_storage: *GraphemeCache.Storage,
 targets: std.ArrayList(Layer.Target) = .empty,
 
 no_alternate: bool,
@@ -95,6 +95,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
             return error.TtyInitError;
         },
         .tty_buffer = tty_buffer,
+        .cache_storage = try allocator.create(GraphemeCache.Storage),
         .vx = try vaxis.init(root.get_io(), allocator, root.get_init().environ_map, opts),
         .no_alternate = no_alternate,
         .event_buffer = .init(allocator),
@@ -108,6 +109,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
 }
 
 pub fn deinit(self: *Self) void {
+    self.allocator.destroy(self.cache_storage);
     panic_cleanup = null;
     self.loop.stop();
     self.vx.deinit(self.allocator, self.tty.writer());
