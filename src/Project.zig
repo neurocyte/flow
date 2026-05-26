@@ -594,6 +594,82 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query_: []c
     return @min(max, matches.items.len);
 }
 
+pub fn query_tree_files(self: *Self, from: tp.pid_ref, max: usize, query_: []const u8) RequestError!usize {
+    const query = try self.strip_non_search_chars(query_);
+    defer self.allocator.free(query);
+    if (query.len < 3)
+        return self.simple_query_tree_files(from, max, query);
+    defer from.send(.{ "PRJ", "tree_search_done", self.longest_file_path, query, self.files.items.len }) catch {};
+
+    var searcher = try fuzzig.Ascii.init(
+        self.allocator,
+        4096,
+        4096,
+        .{ .case_sensitive = false },
+    );
+    defer searcher.deinit();
+
+    const Match = struct {
+        path: []const u8,
+        type: []const u8,
+        icon: []const u8,
+        color: u24,
+        score: i32,
+        matches: []const usize,
+    };
+    var matches: std.ArrayList(Match) = .empty;
+
+    for (self.files.items) |file| {
+        const match = searcher.scoreMatches(file.path, query);
+        if (match.score) |score| {
+            (try matches.addOne(self.allocator)).* = .{
+                .path = file.path,
+                .type = file.type,
+                .icon = file.icon,
+                .color = file.color,
+                .score = score,
+                .matches = try self.allocator.dupe(usize, match.matches),
+            };
+        }
+    }
+    if (matches.items.len == 0) return 0;
+
+    const less_fn = struct {
+        fn less_fn(_: void, lhs: Match, rhs: Match) bool {
+            return lhs.score > rhs.score;
+        }
+    }.less_fn;
+    std.mem.sort(Match, matches.items, {}, less_fn);
+
+    for (matches.items[0..@min(max, matches.items.len)]) |match|
+        from.send(.{ "PRJ", "tree_search", self.longest_file_path, match.path, match.type, match.icon, match.color, match.matches }) catch |e| {
+            std.log.err("send tree_search failed: {t}", .{e});
+            return error.InvalidQueryRecentFilesRequest;
+        };
+    return @min(max, matches.items.len);
+}
+
+fn simple_query_tree_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
+    var i: usize = 0;
+    defer from.send(.{ "PRJ", "tree_search_done", self.longest_file_path, query, self.files.items.len }) catch {};
+    for (self.files.items) |file| {
+        if (file.path.len < query.len) continue;
+        if (std.mem.indexOf(u8, file.path, query)) |idx| {
+            var matches = try self.allocator.alloc(usize, query.len);
+            defer self.allocator.free(matches);
+            var n: usize = 0;
+            while (n < query.len) : (n += 1) matches[n] = idx + n;
+            from.send(.{ "PRJ", "tree_search", self.longest_file_path, file.path, file.type, file.icon, file.color, matches }) catch |e| {
+                std.log.err("send tree_search failed: {t}", .{e});
+                return error.InvalidRecentFilesRequest;
+            };
+            i += 1;
+            if (i >= max) return i;
+        }
+    }
+    return i;
+}
+
 fn walk_tree_entry_callback(parent: tp.pid_ref, root_path: []const u8, file_path: []const u8, mtime_high: i64, mtime_low: i64) error{Exit}!void {
     const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(file_path);
     try parent.send(.{ "walk_tree_entry", root_path, file_path, mtime_high, mtime_low, file_type, file_icon, file_color });
