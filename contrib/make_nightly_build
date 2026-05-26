@@ -7,7 +7,13 @@ for arg in "$@"; do
     --no-codeberg) NO_CODEBERG=1 ;;
     --no-flowcontrol) NO_FLOWCONTROL=1 ;;
     --no-aur) NO_AUR=1 ;;
-    --allow-dirty) ALLOW_DIRTY=1 ;;
+    --allow-dirty)
+        ALLOW_DIRTY=1
+        NO_GITHUB=1
+        NO_CODEBERG=1
+        NO_FLOWCONTROL=1
+        NO_AUR=1
+        ;;
     esac
 done
 
@@ -53,7 +59,7 @@ fi
 
 # get latest version tag
 
-if [ -z "$NO_FLOWCONTROL" ]; then
+if [ -z "$NO_FLOWCONTROL" ] || [ -n "$ALLOW_DIRTY" ]; then
     last_nightly_version=$(tea api --login flow-control "repos/neurocyte/flow-nightly/releases/latest" | jq -r .tag_name)
 elif [ -z "$NO_GITHUB" ]; then
     last_nightly_version=$(tea api --login codeberg "repos/neurocyte/flow-nightly/releases/latest" | jq -r .tag_name)
@@ -148,6 +154,13 @@ cd ..
 cat "$release_notes"
 
 ASSETS=""
+
+if [ -n "$ALLOW_DIRTY" ]; then
+    ls -la "$DESTDIR"/*
+    echo
+    echo build complete, no uploading for --allow-dirty builds.
+    exit 0
+fi
 
 if [ -z "$NO_FLOWCONTROL" ]; then
     ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz"
