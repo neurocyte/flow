@@ -96,6 +96,7 @@ VERSION=$(/bin/cat "$DESTDIR/build/version")
 
 git archive --format=tar.gz --output="$DESTDIR/flow-$VERSION-source.tar.gz" HEAD
 git archive --format=zip --output="$DESTDIR/flow-$VERSION-source.zip" HEAD
+tar -zcf "$DESTDIR/flow-$VERSION-source-dependecies.tar.gz" zig-pkg
 
 cd "$DESTDIR/build"
 
