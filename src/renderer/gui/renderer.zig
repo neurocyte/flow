@@ -230,8 +230,8 @@ pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
 }
 
 fn resolve_layer_origin(std_plane: Plane, surface: *Layer.Surface, target: Layer.Target, prior_targets: []const Layer.Target) void {
-    const cw: i32 = @max(@as(i32, @intCast(std_plane.cell_x())), 1);
-    const ch: i32 = @max(@as(i32, @intCast(std_plane.cell_y())), 1);
+    const cw = std_plane.cell_x();
+    const ch = std_plane.cell_y();
     var dst_x: i32 = 0;
     var dst_y: i32 = 0;
     if (target.parent) |h| {

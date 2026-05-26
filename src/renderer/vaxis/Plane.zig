@@ -97,8 +97,8 @@ pub inline fn abs_x(self: Plane) i32 {
 }
 
 pub fn global_yx(self: Plane) struct { i32, i32 } {
-    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
-    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    const cw = self.cell_x();
+    const ch = self.cell_y();
     var ox: i32 = 0;
     var oy: i32 = 0;
     if (self.parent_surface) |s| {
@@ -108,26 +108,26 @@ pub fn global_yx(self: Plane) struct { i32, i32 } {
     return .{ oy + self.window.y_off, ox + self.window.x_off };
 }
 
-pub inline fn dim_y(self: Plane) u31 {
-    return self.window.height;
+pub inline fn dim_y(self: Plane) u15 {
+    return @intCast(self.window.height);
 }
 
-pub inline fn dim_x(self: Plane) u31 {
-    return self.window.width;
+pub inline fn dim_x(self: Plane) u15 {
+    return @intCast(self.window.width);
 }
 
-pub inline fn cell_x(self: Plane) u16 {
-    if (self.window.screen.width == 0) return 0;
+pub inline fn cell_x(self: Plane) u15 {
+    if (self.window.screen.width == 0) return 1;
     const xextra = self.window.screen.width_pix % self.window.screen.width;
     const xcell = (self.window.screen.width_pix - xextra) / self.window.screen.width;
-    return xcell;
+    return @intCast(@max(1, xcell));
 }
 
-pub inline fn cell_y(self: Plane) u16 {
-    if (self.window.screen.height == 0) return 0;
+pub inline fn cell_y(self: Plane) u15 {
+    if (self.window.screen.height == 0) return 1;
     const yextra = self.window.screen.height_pix % self.window.screen.height;
     const ycell = (self.window.screen.height_pix - yextra) / self.window.screen.height;
-    return ycell;
+    return @intCast(@max(1, ycell));
 }
 
 pub fn abs_yx_to_rel_nearest_x(self: Plane, y: i32, x: i32, xoffset: i32) struct { i32, i32 } {
@@ -156,8 +156,8 @@ pub fn rel_yx_to_abs(self: Plane, y: i32, x: i32) struct { i32, i32 } {
 }
 
 pub fn global_origin_px(self: Plane) struct { i32, i32 } {
-    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
-    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    const cw = self.cell_x();
+    const ch = self.cell_y();
     var ox: i32 = 0;
     var oy: i32 = 0;
     if (self.parent_surface) |s| {
@@ -170,8 +170,8 @@ pub fn global_origin_px(self: Plane) struct { i32, i32 } {
 }
 
 pub fn to_window(self: Plane, local: Coord) struct { i32, i32 } {
-    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
-    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    const cw = self.cell_x();
+    const ch = self.cell_y();
     const ox, const oy = self.global_origin_px();
     return .{
         ox + local.col * cw + @as(i32, local.xoffset),
@@ -180,8 +180,8 @@ pub fn to_window(self: Plane, local: Coord) struct { i32, i32 } {
 }
 
 pub fn from_window(self: Plane, win_x: i32, win_y: i32) Coord {
-    const cw: i32 = @max(@as(i32, @intCast(self.cell_x())), 1);
-    const ch: i32 = @max(@as(i32, @intCast(self.cell_y())), 1);
+    const cw = self.cell_x();
+    const ch = self.cell_y();
     const ox, const oy = self.global_origin_px();
     const dx = win_x - ox;
     const dy = win_y - oy;

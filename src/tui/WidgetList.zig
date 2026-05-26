@@ -244,8 +244,8 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
         .dst = tui.plane().window,
     };
 
-    const cw: i32 = @max(@as(i32, @intCast(self.plane.cell_x())), 1);
-    const ch: i32 = @max(@as(i32, @intCast(self.plane.cell_y())), 1);
+    const cw = self.plane.cell_x();
+    const ch = self.plane.cell_y();
     var parent_ox: i32 = 0;
     var parent_oy: i32 = 0;
     if (self.plane.parent_surface) |s| parent_ox, parent_oy = s.global_origin_px();
