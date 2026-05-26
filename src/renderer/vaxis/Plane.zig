@@ -117,12 +117,14 @@ pub inline fn dim_x(self: Plane) u31 {
 }
 
 pub inline fn cell_x(self: Plane) u16 {
+    if (self.window.screen.width == 0) return 0;
     const xextra = self.window.screen.width_pix % self.window.screen.width;
     const xcell = (self.window.screen.width_pix - xextra) / self.window.screen.width;
     return xcell;
 }
 
 pub inline fn cell_y(self: Plane) u16 {
+    if (self.window.screen.height == 0) return 0;
     const yextra = self.window.screen.height_pix % self.window.screen.height;
     const ycell = (self.window.screen.height_pix - yextra) / self.window.screen.height;
     return ycell;
