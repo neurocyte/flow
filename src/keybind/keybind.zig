@@ -846,6 +846,7 @@ const BindingSet = struct {
     }
 
     fn log_keyhints_message() void {
+        const namespace = globals.current_namespace orelse return;
         for (globals.current_sequence.items) |item| switch (item.key) {
             input.key.left_control, input.key.right_control => return,
             input.key.left_alt, input.key.right_alt => return,
@@ -856,7 +857,7 @@ const BindingSet = struct {
         };
         log.info("{f} is unbound, {s} for key hints", .{
             current_key_event_sequence_fmt(),
-            current_namespace().toggle_hints_text,
+            namespace.toggle_hints_text,
         });
     }
 
