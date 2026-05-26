@@ -2292,6 +2292,8 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "keyword.function", .tm = "storage.type.function" },
     .{ .ts = "constant.builtin", .tm = "keyword.constant" },
     .{ .ts = "text.title", .tm = "entity.name.section" },
+    .{ .ts = "diff.minus", .tm = "markup.deleted" },
+    .{ .ts = "diff.plus", .tm = "markup.inserted" },
 };
 
 fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
