@@ -985,7 +985,9 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners_.send(from, m) catch {};
     _ = try self.update_hover(y, x);
-    if (self.drag_source) |w| _ = try w.send(from, m);
+    if (self.drag_source) |w| if (self.is_live_widget_ptr(w)) {
+        _ = try w.send(from, m);
+    };
 }
 
 fn update_hover(self: *Self, y: c_int, x: c_int) !?Widget {
