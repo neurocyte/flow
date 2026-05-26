@@ -213,22 +213,24 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const main_count = widget_count - trailing_count;
     const use_layer = trailing_count > 0 and self.subcell_remainder_a() > 0;
 
+    const trailing_target = if (trailing_count > 0 and use_layer) if (self.trailing_layer) |layer|
+        self.build_trailing_target(layer, &client_box, trailing_count)
+    else
+        null else null;
+
     var more = false;
-    for (self.widgets.items[0..main_count]) |*w| {
-        const widget_box = w.widget.box();
-        if (client_box.y + client_box.h <= widget_box.y) break;
-        if (client_box.x + client_box.w <= widget_box.x) break;
+    var i: usize = 0;
+    for (self.widgets.items[0..]) |*w| {
+        if (i < main_count) {
+            const widget_box = w.widget.box();
+            if (client_box.y + client_box.h <= widget_box.y) break;
+            if (client_box.x + client_box.w <= widget_box.x) break;
+        }
         if (w.widget.render(theme)) more = true;
+        i += 1;
     }
 
-    if (trailing_count > 0) {
-        if (use_layer) if (self.trailing_layer) |layer| {
-            _ = tui.submit_layer(self.build_trailing_target(layer, &client_box, trailing_count));
-        };
-        for (self.widgets.items[main_count..]) |*w| {
-            if (w.widget.render(theme)) more = true;
-        }
-    }
+    if (trailing_target) |target| _ = tui.submit_layer(target);
 
     self.after_render(self.ctx, theme);
     return more;
