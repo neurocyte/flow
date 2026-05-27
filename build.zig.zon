@@ -57,6 +57,11 @@
             .hash = "TrueType-0.0.0-Ne-mWMxxAQDit1oHfxlK2lkZAX8P7Wsa2SBPaR_xSpc8",
             .lazy = true,
         },
+        .nerd_fonts = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/NerdFontsSymbolsOnly.tar.xz",
+            .hash = "N-V-__8AAI9HTABr_zPUAKuMp_GR5p_z-kjPIX_e3EtLjOqI",
+            .lazy = true,
+        },
         .diffz = .{
             .url = "git+https://github.com/ziglibs/diffz.git?ref=main#b39fe07e7fdbcf56e43ba2890b9f484f16969f90",
             .hash = "diffz-0.0.1-G2tlISzNAQCldmOcINavGmF1zdt20NFPXeM8d07jp_68",

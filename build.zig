@@ -555,6 +555,13 @@ pub fn build_exe(
                     },
                 });
 
+                const nerd_font_mod = blk2: {
+                    const nerd_dep = b.lazyDependency("nerd_fonts", .{}) orelse break :blk2 null;
+                    break :blk2 b.createModule(.{
+                        .root_source_file = nerd_dep.path("SymbolsNerdFontMono-Regular.ttf"),
+                    });
+                };
+
                 if (target.result.os.tag == .windows) {
                     const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
                     const win32_mod = win32_dep.module("win32");
@@ -567,6 +574,7 @@ pub fn build_exe(
                             .{ .name = "win32", .module = win32_mod },
                         },
                     });
+                    if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
                     combined_rasterizer_mod.addImport("dw_rasterizer", dwrite_rasterizer_mod);
                 } else {
                     const tt_dep = b.lazyDependency("TrueType", .{
@@ -595,6 +603,7 @@ pub fn build_exe(
                             .{ .name = "gui_config", .module = gui_config_mod },
                         },
                     });
+                    if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);
 
                     const freetype_rasterizer_mod = b.createModule(.{
                         .root_source_file = b.path("src/gui/rasterizer/freetype.zig"),
@@ -607,6 +616,7 @@ pub fn build_exe(
                             .{ .name = "vaxis", .module = vaxis_mod },
                         },
                     });
+                    if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
                     freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
                     freetype_rasterizer_mod.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
                     freetype_rasterizer_mod.link_libc = true;

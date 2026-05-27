@@ -303,6 +303,8 @@ fn renderFromFace(
     return .{ .format = .alpha };
 }
 
+const nerd_font_data = @embedFile("nerd_font");
+
 const FallbackResolver = struct {
     const FallbackFace = struct {
         ft_face: c.FT_Face,
@@ -316,12 +318,35 @@ const FallbackResolver = struct {
     cache: std.AutoHashMapUnmanaged(u21, CacheEntry) = .empty,
     faces: std.ArrayList(FallbackFace) = .empty,
     current_size_px: u16 = 0,
+    embedded_loaded: bool = false,
 
     fn deinit(self: *FallbackResolver, allocator: std.mem.Allocator, library: c.FT_Library) void {
         _ = library;
         for (self.faces.items) |f| _ = c.FT_Done_Face(f.ft_face);
         self.faces.deinit(allocator);
         self.cache.deinit(allocator);
+    }
+
+    fn loadEmbeddedFonts(self: *FallbackResolver, library: c.FT_Library, allocator: std.mem.Allocator, size_px: u16) void {
+        if (self.embedded_loaded) return;
+        self.embedded_loaded = true;
+
+        const data = nerd_font_data;
+        var face: c.FT_Face = undefined;
+        if (c.FT_New_Memory_Face(library, data.ptr, @intCast(data.len), 0, &face) != 0) return;
+        if (c.FT_Set_Pixel_Sizes(face, 0, size_px) != 0) {
+            _ = c.FT_Done_Face(face);
+            return;
+        }
+        const face_ascent: i32 = @intCast((face.*.size.*.metrics.ascender + 32) >> 6);
+        self.faces.append(allocator, .{
+            .ft_face = face,
+            .has_color = false,
+            .ascent_px = face_ascent,
+            .path_hash = std.hash.Wyhash.hash(0, "<embedded:nerd_font>"),
+        }) catch {
+            _ = c.FT_Done_Face(face);
+        };
     }
 
     fn resolve(
@@ -335,13 +360,24 @@ const FallbackResolver = struct {
             for (self.faces.items) |f| _ = c.FT_Done_Face(f.ft_face);
             self.faces.clearRetainingCapacity();
             self.cache.clearRetainingCapacity();
+            self.embedded_loaded = false;
         }
         self.current_size_px = size_px;
+        self.loadEmbeddedFonts(library, allocator, size_px);
 
         if (self.cache.get(codepoint)) |entry| {
             return if (entry.found) &self.faces.items[entry.index] else null;
         }
 
+        // Check embedded fonts first
+        for (self.faces.items, 0..) |existing, idx| {
+            if (c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0) {
+                self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
+                return &self.faces.items[idx];
+            }
+        }
+
+        // Then try system font discovery
         const prefer_color = uucode.get(.is_emoji_presentation, @intCast(codepoint));
         const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color) catch return self.cacheNegative(allocator, codepoint);
         defer {
