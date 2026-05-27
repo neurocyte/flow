@@ -62,6 +62,7 @@ hinting: Hinting = .normal,
 factory: *win32.IDWriteFactory,
 cache: std.AutoHashMapUnmanaged(FaceKey, *win32.IDWriteFontFace) = .empty,
 block_and_line_symbols: SymbolRasterizer = .default,
+fallback: ?*FallbackResolver = null,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var factory: *win32.IDWriteFactory = undefined;
@@ -78,6 +79,11 @@ pub fn init(allocator: std.mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.fallback) |fb| {
+        fb.deinit(self.allocator);
+        self.allocator.destroy(fb);
+    }
+    self.fallback = null;
     var it = self.cache.valueIterator();
     while (it.next()) |face| _ = face.*.IUnknown.Release();
     self.cache.deinit(self.allocator);
@@ -257,14 +263,53 @@ pub fn render(
     staging_buf: []u8,
 ) RenderResult {
     const face = font.face orelse return .{ .format = .alpha };
-    const buf_w: i32 = @as(i32, @intCast(font.cell_size.x)) * 2;
-    const buf_h: i32 = @intCast(font.cell_size.y);
+
+    // Check if primary face has the glyph
+    var gi_check: [2]u16 = .{ 0, 0 };
+    const cps_check = [_]u32{@intCast(codepoint)};
+    const has_glyph = (face.GetGlyphIndices(@ptrCast(&cps_check), 1, @ptrCast(&gi_check)) >= 0 and gi_check[0] != 0);
+
+    if (has_glyph) {
+        return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+    }
+
+    // Try fallback
+    if (self.fallback) |fb| {
+        if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+        }
+    } else {
+        const fb = self.allocator.create(FallbackResolver) catch
+            return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        fb.* = FallbackResolver.initResolver(self.factory);
+        @constCast(&self.fallback).* = fb;
+        if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+        }
+    }
+
+    // .notdef
+    return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+}
+
+fn renderFromFace(
+    self: *const Self,
+    face: *win32.IDWriteFontFace,
+    size_px: u16,
+    ascent_px: i32,
+    synth: SynthFlags,
+    codepoint: u21,
+    split: GlyphSplit,
+    cell_size: XY(u16),
+    staging_buf: []u8,
+) RenderResult {
+    const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
+    const buf_h: i32 = @intCast(cell_size.y);
     const x_offset: i32 = switch (split) {
         .single, .left => 0,
-        .right => @intCast(font.cell_size.x),
+        .right => @intCast(cell_size.x),
     };
 
-    // Map codepoint to glyph index
     var gi: [2]u16 = .{ 0, 0 };
     const cps = [_]u32{@intCast(codepoint)};
     if (face.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) < 0)
@@ -277,7 +322,7 @@ pub fn render(
 
     const run = win32.DWRITE_GLYPH_RUN{
         .fontFace = face,
-        .fontEmSize = @floatFromInt(font.size_px),
+        .fontEmSize = @floatFromInt(size_px),
         .glyphCount = 1,
         .glyphIndices = @ptrCast(&indices),
         .glyphAdvances = @ptrCast(&advances),
@@ -296,7 +341,7 @@ pub fn render(
         .dy = 0,
     };
     const transform_ptr: ?*const win32.DWRITE_MATRIX =
-        if (font.synth.italic) &shear_matrix else null;
+        if (synth.italic) &shear_matrix else null;
 
     const rmode = pickRenderingMode(self.hinting);
     const tex_type: win32.DWRITE_TEXTURE_TYPE = if (rmode == .ALIASED)
@@ -314,7 +359,7 @@ pub fn render(
         rmode,
         .NATURAL,
         0.0,
-        @floatFromInt(font.ascent_px),
+        @floatFromInt(ascent_px),
         &analysis,
     ) < 0) return .{ .format = result_fmt };
     defer _ = analysis.IUnknown.Release();
@@ -358,6 +403,223 @@ pub fn render(
 
     return .{ .format = result_fmt };
 }
+
+const HRESULT = win32.HRESULT;
+const S_OK: HRESULT = 0;
+
+const FallbackResolver = struct {
+    const FallbackFace = struct {
+        face: *win32.IDWriteFontFace,
+        ascent_px: i32,
+    };
+
+    const CacheEntry = struct { found: bool, index: u8 };
+
+    cache: std.AutoHashMapUnmanaged(u21, CacheEntry) = .empty,
+    faces: std.ArrayList(FallbackFace) = .empty,
+    font_fallback: ?*win32.IDWriteFontFallback = null,
+    system_collection: ?*win32.IDWriteFontCollection = null,
+    current_size_px: u16 = 0,
+
+    fn initResolver(factory: *win32.IDWriteFactory) FallbackResolver {
+        var result: FallbackResolver = .{};
+        var factory2: *win32.IDWriteFactory2 = undefined;
+        if (factory.IUnknown.QueryInterface(win32.IID_IDWriteFactory2, @ptrCast(&factory2)) >= 0) {
+            var fb: *win32.IDWriteFontFallback = undefined;
+            if (factory2.GetSystemFontFallback(&fb) >= 0) {
+                result.font_fallback = fb;
+            }
+            _ = factory2.IUnknown.Release();
+        }
+        var coll: *win32.IDWriteFontCollection = undefined;
+        if (factory.GetSystemFontCollection(&coll, 0) >= 0) {
+            result.system_collection = coll;
+        }
+        return result;
+    }
+
+    fn deinit(self: *FallbackResolver, allocator: std.mem.Allocator) void {
+        for (self.faces.items) |f| _ = f.face.IUnknown.Release();
+        if (self.font_fallback) |fb| _ = fb.IUnknown.Release();
+        if (self.system_collection) |coll| _ = coll.IUnknown.Release();
+        self.faces.deinit(allocator);
+        self.cache.deinit(allocator);
+    }
+
+    fn resolve(
+        self: *FallbackResolver,
+        allocator: std.mem.Allocator,
+        codepoint: u21,
+        size_px: u16,
+    ) ?*const FallbackFace {
+        const fb = self.font_fallback orelse return null;
+
+        if (self.current_size_px != 0 and self.current_size_px != size_px) {
+            for (self.faces.items) |f| _ = f.face.IUnknown.Release();
+            self.faces.clearRetainingCapacity();
+            self.cache.clearRetainingCapacity();
+        }
+        self.current_size_px = size_px;
+
+        if (self.cache.get(codepoint)) |entry| {
+            return if (entry.found) &self.faces.items[entry.index] else null;
+        }
+
+        // Encode codepoint as UTF-16 for MapCharacters
+        var text_buf: [2]u16 = undefined;
+        const text_len: u32 = if (codepoint >= 0x10000) blk: {
+            const hi: u16 = @intCast(((codepoint - 0x10000) >> 10) + 0xD800);
+            const lo: u16 = @intCast(((codepoint - 0x10000) & 0x3FF) + 0xDC00);
+            text_buf = .{ hi, lo };
+            break :blk 2;
+        } else blk: {
+            text_buf = .{ @intCast(codepoint), 0 };
+            break :blk 1;
+        };
+
+        // Set up the text analysis source on the stack
+        var source = TextAnalysisSource.init(&text_buf, text_len);
+
+        var mapped_length: u32 = 0;
+        var mapped_font: *win32.IDWriteFont = undefined;
+        var scale: f32 = 1.0;
+
+        const hr = fb.MapCharacters(
+            @ptrCast(&source),
+            0,
+            text_len,
+            self.system_collection,
+            null,
+            .NORMAL,
+            .NORMAL,
+            .NORMAL,
+            &mapped_length,
+            @ptrCast(&mapped_font),
+            &scale,
+        );
+
+        if (hr < 0 or mapped_length == 0) {
+            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+            return null;
+        }
+
+        // Check if MapCharacters actually returned a font (it can return S_OK with null)
+        const font_ptr: ?*win32.IDWriteFont = @ptrCast(mapped_font);
+        const mapped = font_ptr orelse {
+            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+            return null;
+        };
+        defer _ = mapped.IUnknown.Release();
+
+        var face: *win32.IDWriteFontFace = undefined;
+        if (mapped.CreateFontFace(&face) < 0) {
+            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+            return null;
+        }
+
+        // Compute ascent for the fallback face
+        var metrics: win32.DWRITE_FONT_METRICS = undefined;
+        face.GetMetrics(&metrics);
+        const face_ascent: i32 = if (metrics.designUnitsPerEm != 0) blk: {
+            const em: f32 = @floatFromInt(size_px);
+            const s: f32 = em / @as(f32, @floatFromInt(metrics.designUnitsPerEm));
+            break :blk @intFromFloat(@round(@as(f32, @floatFromInt(metrics.ascent)) * s));
+        } else @intCast(size_px);
+
+        if (self.faces.items.len >= 255) {
+            _ = face.IUnknown.Release();
+            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+            return null;
+        }
+
+        const idx: u8 = @intCast(self.faces.items.len);
+        self.faces.append(allocator, .{
+            .face = face,
+            .ascent_px = face_ascent,
+        }) catch {
+            _ = face.IUnknown.Release();
+            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+            return null;
+        };
+
+        self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
+        return &self.faces.items[idx];
+    }
+};
+
+/// Minimal IDWriteTextAnalysisSource implementation for MapCharacters.
+/// Lives on the stack so no COM ref counting needed.
+const TextAnalysisSource = extern struct {
+    vtable: *const win32.IDWriteTextAnalysisSource.VTable,
+    text: *const [2]u16,
+    text_len: u32,
+    locale: [6]u16 = .{ 'e', 'n', '-', 'U', 'S', 0 },
+
+    const source_vtable: win32.IDWriteTextAnalysisSource.VTable = .{
+        .base = .{
+            .QueryInterface = @ptrCast(&queryInterface),
+            .AddRef = @ptrCast(&addRef),
+            .Release = @ptrCast(&release),
+        },
+        .GetTextAtPosition = @ptrCast(&getTextAtPosition),
+        .GetTextBeforePosition = @ptrCast(&getTextBeforePosition),
+        .GetParagraphReadingDirection = @ptrCast(&getParagraphReadingDirection),
+        .GetLocaleName = @ptrCast(&getLocaleName),
+        .GetNumberSubstitution = @ptrCast(&getNumberSubstitution),
+    };
+
+    fn init(text: *const [2]u16, text_len: u32) TextAnalysisSource {
+        return .{ .vtable = &source_vtable, .text = text, .text_len = text_len };
+    }
+
+    fn queryInterface(_: *const TextAnalysisSource, _: *const win32.Guid, _: *?*anyopaque) callconv(.winapi) HRESULT {
+        return @bitCast(@as(u32, 0x80004002)); // E_NOINTERFACE
+    }
+
+    fn addRef(_: *const TextAnalysisSource) callconv(.winapi) u32 {
+        return 1;
+    }
+
+    fn release(_: *const TextAnalysisSource) callconv(.winapi) u32 {
+        return 1;
+    }
+
+    fn getTextAtPosition(self: *const TextAnalysisSource, pos: u32, text_out: *?[*]const u16, len_out: *u32) callconv(.winapi) HRESULT {
+        if (pos < self.text_len) {
+            text_out.* = @ptrCast(&self.text[pos]);
+            len_out.* = self.text_len - pos;
+        } else {
+            text_out.* = null;
+            len_out.* = 0;
+        }
+        return S_OK;
+    }
+
+    fn getTextBeforePosition(self: *const TextAnalysisSource, pos: u32, text_out: *?[*]const u16, len_out: *u32) callconv(.winapi) HRESULT {
+        if (pos > 0 and pos <= self.text_len) {
+            text_out.* = @ptrCast(&self.text[0]);
+            len_out.* = pos;
+        } else {
+            text_out.* = null;
+            len_out.* = 0;
+        }
+        return S_OK;
+    }
+
+    fn getParagraphReadingDirection(_: *const TextAnalysisSource) callconv(.winapi) win32.DWRITE_READING_DIRECTION {
+        return .LEFT_TO_RIGHT;
+    }
+
+    fn getLocaleName(self: *const TextAnalysisSource, _: u32, len_out: *u32, locale_out: *?[*]const u16) callconv(.winapi) HRESULT {
+        locale_out.* = @ptrCast(&self.locale);
+        len_out.* = self.text_len;
+        return S_OK;
+    }
+
+    fn getNumberSubstitution(_: *const TextAnalysisSource, _: u32, _: *u32, _: *?*win32.IDWriteNumberSubstitution) callconv(.winapi) HRESULT {
+        return S_OK;
+    }
+};
 
 pub const font_finder = struct {
     pub const FontFinderError = error{ FontFinderNotSupported, OutOfMemory };
