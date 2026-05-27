@@ -404,6 +404,8 @@ fn renderFromFace(
     return .{ .format = result_fmt };
 }
 
+const nerd_font_data = @embedFile("nerd_font");
+
 const HRESULT = win32.HRESULT;
 const S_OK: HRESULT = 0;
 
@@ -419,6 +421,8 @@ const FallbackResolver = struct {
     faces: std.ArrayList(FallbackFace) = .empty,
     font_fallback: ?*win32.IDWriteFontFallback = null,
     system_collection: ?*win32.IDWriteFontCollection = null,
+    embedded_face: ?*win32.IDWriteFontFace = null,
+    embedded_ascent: i32 = 0,
     current_size_px: u16 = 0,
 
     fn initResolver(factory: *win32.IDWriteFactory) FallbackResolver {
@@ -435,10 +439,44 @@ const FallbackResolver = struct {
         if (factory.GetSystemFontCollection(&coll, 0) >= 0) {
             result.system_collection = coll;
         }
+        result.loadEmbeddedFont(factory);
         return result;
     }
 
+    fn loadEmbeddedFont(self: *FallbackResolver, factory: *win32.IDWriteFactory) void {
+        const data = nerd_font_data;
+
+        var loader = EmbeddedFontFileLoader.init(data);
+        if (factory.RegisterFontFileLoader(@ptrCast(&loader)) < 0) return;
+        defer _ = factory.UnregisterFontFileLoader(@ptrCast(&loader));
+
+        var font_file: *win32.IDWriteFontFile = undefined;
+        const key: u32 = 0;
+        if (factory.CreateCustomFontFileReference(
+            @ptrCast(&key),
+            @sizeOf(u32),
+            @ptrCast(&loader),
+            &font_file,
+        ) < 0) return;
+        defer _ = font_file.IUnknown.Release();
+
+        var files = [_]*win32.IDWriteFontFile{font_file};
+        var face: *win32.IDWriteFontFace = undefined;
+        if (factory.CreateFontFace(.TRUETYPE, 1, @ptrCast(@constCast(&files)), 0, .{}, &face) < 0) return;
+
+        var metrics: win32.DWRITE_FONT_METRICS = undefined;
+        face.GetMetrics(&metrics);
+        self.embedded_face = face;
+        if (metrics.designUnitsPerEm != 0) {
+            self.embedded_ascent = @intFromFloat(@round(
+                @as(f32, @floatFromInt(metrics.ascent)) /
+                    @as(f32, @floatFromInt(metrics.designUnitsPerEm)) * 16.0,
+            ));
+        }
+    }
+
     fn deinit(self: *FallbackResolver, allocator: std.mem.Allocator) void {
+        if (self.embedded_face) |ef| _ = ef.IUnknown.Release();
         for (self.faces.items) |f| _ = f.face.IUnknown.Release();
         if (self.font_fallback) |fb| _ = fb.IUnknown.Release();
         if (self.system_collection) |coll| _ = coll.IUnknown.Release();
@@ -452,8 +490,6 @@ const FallbackResolver = struct {
         codepoint: u21,
         size_px: u16,
     ) ?*const FallbackFace {
-        const fb = self.font_fallback orelse return null;
-
         if (self.current_size_px != 0 and self.current_size_px != size_px) {
             for (self.faces.items) |f| _ = f.face.IUnknown.Release();
             self.faces.clearRetainingCapacity();
@@ -464,6 +500,9 @@ const FallbackResolver = struct {
         if (self.cache.get(codepoint)) |entry| {
             return if (entry.found) &self.faces.items[entry.index] else null;
         }
+
+        // Try system font fallback first
+        const fb = self.font_fallback orelse return self.resolveEmbedded(allocator, codepoint, size_px);
 
         // Encode codepoint as UTF-16 for MapCharacters
         var text_buf: [2]u16 = undefined;
@@ -498,24 +537,18 @@ const FallbackResolver = struct {
             &scale,
         );
 
-        if (hr < 0 or mapped_length == 0) {
-            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
-            return null;
-        }
+        if (hr < 0 or mapped_length == 0)
+            return self.resolveEmbedded(allocator, codepoint, size_px);
 
         // Check if MapCharacters actually returned a font (it can return S_OK with null)
         const font_ptr: ?*win32.IDWriteFont = @ptrCast(mapped_font);
-        const mapped = font_ptr orelse {
-            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
-            return null;
-        };
+        const mapped = font_ptr orelse
+            return self.resolveEmbedded(allocator, codepoint, size_px);
         defer _ = mapped.IUnknown.Release();
 
         var face: *win32.IDWriteFontFace = undefined;
-        if (mapped.CreateFontFace(&face) < 0) {
-            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
-            return null;
-        }
+        if (mapped.CreateFontFace(&face) < 0)
+            return self.resolveEmbedded(allocator, codepoint, size_px);
 
         // Compute ascent for the fallback face
         var metrics: win32.DWRITE_FONT_METRICS = undefined;
@@ -545,7 +578,117 @@ const FallbackResolver = struct {
         self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
         return &self.faces.items[idx];
     }
+
+    fn resolveEmbedded(
+        self: *FallbackResolver,
+        allocator: std.mem.Allocator,
+        codepoint: u21,
+        size_px: u16,
+    ) ?*const FallbackFace {
+        if (self.embedded_face) |ef| {
+            var gi: [2]u16 = .{ 0, 0 };
+            const cps = [_]u32{@intCast(codepoint)};
+            if (ef.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) >= 0 and gi[0] != 0) {
+                var m: win32.DWRITE_FONT_METRICS = undefined;
+                ef.GetMetrics(&m);
+                const ascent: i32 = if (m.designUnitsPerEm != 0) blk: {
+                    const em: f32 = @floatFromInt(size_px);
+                    const s: f32 = em / @as(f32, @floatFromInt(m.designUnitsPerEm));
+                    break :blk @intFromFloat(@round(@as(f32, @floatFromInt(m.ascent)) * s));
+                } else @intCast(size_px);
+
+                const idx: u8 = @intCast(self.faces.items.len);
+                self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent }) catch {};
+                self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
+                return &self.faces.items[idx];
+            }
+        }
+        self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+        return null;
+    }
 };
+
+/// Minimal IDWriteFontFileLoader that serves a single embedded font from memory.
+const EmbeddedFontFileLoader = extern struct {
+    vtable: *const win32.IDWriteFontFileLoader.VTable,
+    data: [*]const u8,
+    data_len: u32,
+
+    const loader_vtable: win32.IDWriteFontFileLoader.VTable = .{
+        .base = .{
+            .QueryInterface = @ptrCast(&loaderQueryInterface),
+            .AddRef = @ptrCast(&loaderAddRef),
+            .Release = @ptrCast(&loaderRelease),
+        },
+        .CreateStreamFromKey = @ptrCast(&loaderCreateStream),
+    };
+
+    fn init(data: []const u8) EmbeddedFontFileLoader {
+        return .{ .vtable = &loader_vtable, .data = data.ptr, .data_len = @intCast(data.len) };
+    }
+
+    fn loaderQueryInterface(_: *const EmbeddedFontFileLoader, _: *const win32.Guid, _: *?*anyopaque) callconv(.winapi) HRESULT {
+        return @bitCast(@as(u32, 0x80004002)); // E_NOINTERFACE
+    }
+    fn loaderAddRef(_: *const EmbeddedFontFileLoader) callconv(.winapi) u32 {
+        return 1;
+    }
+    fn loaderRelease(_: *const EmbeddedFontFileLoader) callconv(.winapi) u32 {
+        return 1;
+    }
+
+    fn loaderCreateStream(self: *const EmbeddedFontFileLoader, _: ?*const anyopaque, _: u32, stream_out: **win32.IDWriteFontFileStream) callconv(.winapi) HRESULT {
+        stream_out.* = @ptrCast(&embedded_stream_instance);
+        _ = self;
+        return S_OK;
+    }
+};
+
+/// Static IDWriteFontFileStream that serves from the compile-time embedded nerd font data.
+const EmbeddedFontFileStream = extern struct {
+    vtable: *const win32.IDWriteFontFileStream.VTable,
+
+    const stream_vtable: win32.IDWriteFontFileStream.VTable = .{
+        .base = .{
+            .QueryInterface = @ptrCast(&streamQueryInterface),
+            .AddRef = @ptrCast(&streamAddRef),
+            .Release = @ptrCast(&streamRelease),
+        },
+        .ReadFileFragment = @ptrCast(&streamReadFileFragment),
+        .ReleaseFileFragment = @ptrCast(&streamReleaseFileFragment),
+        .GetFileSize = @ptrCast(&streamGetFileSize),
+        .GetLastWriteTime = @ptrCast(&streamGetLastWriteTime),
+    };
+
+    fn streamQueryInterface(_: *const EmbeddedFontFileStream, _: *const win32.Guid, _: *?*anyopaque) callconv(.winapi) HRESULT {
+        return @bitCast(@as(u32, 0x80004002));
+    }
+    fn streamAddRef(_: *const EmbeddedFontFileStream) callconv(.winapi) u32 {
+        return 1;
+    }
+    fn streamRelease(_: *const EmbeddedFontFileStream) callconv(.winapi) u32 {
+        return 1;
+    }
+
+    fn streamReadFileFragment(_: *const EmbeddedFontFileStream, fragment_start: *?*const anyopaque, offset: u64, size: u64, ctx: *?*anyopaque) callconv(.winapi) HRESULT {
+        const data = nerd_font_data;
+        if (offset + size > data.len) return @bitCast(@as(u32, 0x80070057)); // E_INVALIDARG
+        fragment_start.* = @ptrCast(data.ptr + @as(usize, @intCast(offset)));
+        ctx.* = null;
+        return S_OK;
+    }
+    fn streamReleaseFileFragment(_: *const EmbeddedFontFileStream, _: ?*anyopaque) callconv(.winapi) void {}
+    fn streamGetFileSize(_: *const EmbeddedFontFileStream, size: *u64) callconv(.winapi) HRESULT {
+        size.* = nerd_font_data.len;
+        return S_OK;
+    }
+    fn streamGetLastWriteTime(_: *const EmbeddedFontFileStream, time: *u64) callconv(.winapi) HRESULT {
+        time.* = 0;
+        return S_OK;
+    }
+};
+
+var embedded_stream_instance: EmbeddedFontFileStream = .{ .vtable = &EmbeddedFontFileStream.stream_vtable };
 
 /// Minimal IDWriteTextAnalysisSource implementation for MapCharacters.
 /// Lives on the stack so no COM ref counting needed.
