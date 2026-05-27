@@ -369,15 +369,7 @@ const FallbackResolver = struct {
             return if (entry.found) &self.faces.items[entry.index] else null;
         }
 
-        // Check embedded fonts first
-        for (self.faces.items, 0..) |existing, idx| {
-            if (c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0) {
-                self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
-                return &self.faces.items[idx];
-            }
-        }
-
-        // Then try system font discovery
+        // Try system font discovery first
         const prefer_color = uucode.get(.is_emoji_presentation, @intCast(codepoint));
         const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color) catch return self.cacheNegative(allocator, codepoint);
         defer {
@@ -434,6 +426,16 @@ const FallbackResolver = struct {
 
             self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
             return &self.faces.items[idx];
+        }
+
+        // Last resort: check embedded fonts
+        for (self.faces.items, 0..) |existing, idx| {
+            if (existing.path_hash == std.hash.Wyhash.hash(0, "<embedded:nerd_font>") and
+                c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0)
+            {
+                self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
+                return &self.faces.items[idx];
+            }
         }
 
         return self.cacheNegative(allocator, codepoint);
