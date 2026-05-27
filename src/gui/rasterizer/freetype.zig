@@ -14,6 +14,7 @@ const Self = @This();
 pub const GlyphSplit = enum { single, left, right };
 const Hinting = @import("gui_config").Hinting;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
+const uucode = @import("vaxis").uucode;
 
 pub const RasterFormat = enum(u2) {
     alpha = 0,
@@ -62,6 +63,7 @@ allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,
+fallback: ?*FallbackResolver = null,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var library: c.FT_Library = undefined;
@@ -70,6 +72,11 @@ pub fn init(allocator: std.mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.fallback) |fb| {
+        fb.deinit(self.allocator, self.library);
+        self.allocator.destroy(fb);
+    }
+    self.fallback = null;
     if (self.regular_path) |p| self.allocator.free(p);
     self.regular_path = null;
     _ = c.FT_Done_FreeType(self.library);
@@ -199,8 +206,43 @@ pub fn render(
 
     const face = font.face orelse return .{ .format = .alpha };
 
-    // FT_LOAD_NO_BITMAP forces an outline (needed for italic-synth shearing,
-    // and avoids embedded bitmap strikes that may not match our cell metrics).
+    if (c.FT_Get_Char_Index(face, codepoint) != 0) {
+        return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+    }
+
+    if (self.fallback) |fb| {
+        if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
+            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+        }
+    } else {
+        const fb = self.allocator.create(FallbackResolver) catch return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        fb.* = .{};
+        @constCast(&self.fallback).* = fb;
+        if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
+            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+        }
+    }
+
+    return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+}
+
+fn renderFromFace(
+    self: *const Self,
+    face: c.FT_Face,
+    ascent_px: i32,
+    synth: SynthFlags,
+    codepoint: u21,
+    split: GlyphSplit,
+    cell_size: XY(u16),
+    staging_buf: []u8,
+) RenderResult {
+    const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
+    const buf_h: i32 = @intCast(cell_size.y);
+    const x_offset: i32 = switch (split) {
+        .single, .left => 0,
+        .right => @intCast(cell_size.x),
+    };
+
     const hint_flags: c_long = switch (self.hinting) {
         .none => c.FT_LOAD_NO_HINTING,
         .slight => c.FT_LOAD_TARGET_LIGHT,
@@ -211,7 +253,7 @@ pub fn render(
     if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return .{ .format = .alpha };
 
     // Synthetic italic: 12 degree shear of the outline
-    if (font.synth.italic) {
+    if (synth.italic) {
         var shear: c.FT_Matrix = .{
             .xx = 0x10000,
             .xy = 13932,
@@ -229,11 +271,11 @@ pub fn render(
 
     const bm = face.*.glyph.*.bitmap;
     if (bm.rows == 0 or bm.width == 0) return .{ .format = .alpha };
-    if (bm.pitch <= 0) return .{ .format = .alpha }; // skip bottom-up bitmaps (unusual for normal mode)
+    if (bm.pitch <= 0) return .{ .format = .alpha };
 
     const pitch: u32 = @intCast(bm.pitch);
     const off_x: i32 = face.*.glyph.*.bitmap_left;
-    const off_y: i32 = font.ascent_px - face.*.glyph.*.bitmap_top;
+    const off_y: i32 = ascent_px - face.*.glyph.*.bitmap_top;
     const is_mono = bm.pixel_mode == c.FT_PIXEL_MODE_MONO;
 
     var row: u32 = 0;
@@ -260,3 +302,109 @@ pub fn render(
     }
     return .{ .format = .alpha };
 }
+
+const FallbackResolver = struct {
+    const FallbackFace = struct {
+        ft_face: c.FT_Face,
+        has_color: bool,
+        ascent_px: i32,
+        path_hash: u64,
+    };
+
+    const CacheEntry = struct { found: bool, index: u8 };
+
+    cache: std.AutoHashMapUnmanaged(u21, CacheEntry) = .empty,
+    faces: std.ArrayList(FallbackFace) = .empty,
+    current_size_px: u16 = 0,
+
+    fn deinit(self: *FallbackResolver, allocator: std.mem.Allocator, library: c.FT_Library) void {
+        _ = library;
+        for (self.faces.items) |f| _ = c.FT_Done_Face(f.ft_face);
+        self.faces.deinit(allocator);
+        self.cache.deinit(allocator);
+    }
+
+    fn resolve(
+        self: *FallbackResolver,
+        library: c.FT_Library,
+        allocator: std.mem.Allocator,
+        codepoint: u21,
+        size_px: u16,
+    ) ?*const FallbackFace {
+        if (self.current_size_px != 0 and self.current_size_px != size_px) {
+            for (self.faces.items) |f| _ = c.FT_Done_Face(f.ft_face);
+            self.faces.clearRetainingCapacity();
+            self.cache.clearRetainingCapacity();
+        }
+        self.current_size_px = size_px;
+
+        if (self.cache.get(codepoint)) |entry| {
+            return if (entry.found) &self.faces.items[entry.index] else null;
+        }
+
+        const prefer_color = uucode.get(.is_emoji_presentation, @intCast(codepoint));
+        const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color) catch return self.cacheNegative(allocator, codepoint);
+        defer {
+            for (candidates) |cand| allocator.free(cand.path);
+            allocator.free(candidates);
+        }
+
+        for (candidates) |cand| {
+            const path_hash = std.hash.Wyhash.hash(0, cand.path);
+
+            for (self.faces.items, 0..) |existing, idx| {
+                if (existing.path_hash == path_hash) {
+                    if (c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0) {
+                        self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
+                        return &self.faces.items[idx];
+                    }
+                    break;
+                }
+            }
+
+            const path_z = allocator.dupeZ(u8, cand.path) catch continue;
+            defer allocator.free(path_z);
+
+            var face: c.FT_Face = undefined;
+            if (c.FT_New_Face(library, path_z.ptr, cand.face_index, &face) != 0) continue;
+
+            if (c.FT_Set_Pixel_Sizes(face, 0, size_px) != 0) {
+                _ = c.FT_Done_Face(face);
+                continue;
+            }
+
+            if (c.FT_Get_Char_Index(face, codepoint) == 0) {
+                _ = c.FT_Done_Face(face);
+                continue;
+            }
+
+            const face_ascent: i32 = @intCast((face.*.size.*.metrics.ascender + 32) >> 6);
+
+            if (self.faces.items.len >= 255) {
+                _ = c.FT_Done_Face(face);
+                return self.cacheNegative(allocator, codepoint);
+            }
+
+            const idx: u8 = @intCast(self.faces.items.len);
+            self.faces.append(allocator, .{
+                .ft_face = face,
+                .has_color = cand.has_color,
+                .ascent_px = face_ascent,
+                .path_hash = path_hash,
+            }) catch {
+                _ = c.FT_Done_Face(face);
+                return self.cacheNegative(allocator, codepoint);
+            };
+
+            self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
+            return &self.faces.items[idx];
+        }
+
+        return self.cacheNegative(allocator, codepoint);
+    }
+
+    fn cacheNegative(self: *FallbackResolver, allocator: std.mem.Allocator, codepoint: u21) ?*const FallbackFace {
+        self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+        return null;
+    }
+};
