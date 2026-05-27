@@ -248,6 +248,15 @@ pub const font_test_text: []const u8 =
     \\ "IosevkaTerm Nerd Font" => https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/IosevkaTerm.zip
     \\ "Cascadia Code NF" => https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip
     \\
+    \\
+    \\Font fallback tests:
+    \\  CJK fallback: 你好世界 龍鳳麟龜
+    \\  Emoji: 🎉😀✅🎊🌈🦄🍕🚀
+    \\  Emoji sequences: 👨‍👩‍👧‍👦 🏳️‍🌈 👩‍🔬
+    \\  Symbols: ⌘ ⌥ ⇧ ⌃ ⎋ ␣
+    \\  Math: ∀∃∅∈∉∋∏∑√∞∫≈≠≤≥
+    \\  Arrows: ← → ↑ ↓ ↔ ↕ ⇐ ⇒ ⇑ ⇓
+    \\
 ;
 
 pub const DigitStyle = @import("config").DigitStyle;
