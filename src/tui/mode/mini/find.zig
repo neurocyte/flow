@@ -12,6 +12,7 @@ const ed = @import("../../editor.zig");
 
 const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;
+const lastIndexOfAny = @import("std").mem.lastIndexOfAny;
 const ArrayList = @import("std").ArrayList;
 const Writer = @import("std").Io.Writer;
 const Timestamp = @import("std").Io.Timestamp;
@@ -257,6 +258,16 @@ const cmds = struct {
         self.update_mini_mode_text();
     }
     pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
+
+    pub fn mini_mode_delete_word_left(self: *Self, _: Ctx) Result {
+        if (lastIndexOfAny(u8, self.input_.items, "/\\. -_")) |pos| {
+            self.input_.shrinkRetainingCapacity(pos);
+        } else {
+            self.input_.shrinkRetainingCapacity(0);
+        }
+        self.update_mini_mode_text();
+    }
+    pub const mini_mode_delete_word_left_meta: Meta = .{ .description = "Delete word to the left" };
 
     pub fn mini_mode_history_prev(self: *Self, _: Ctx) Result {
         self.find_history_prev();
