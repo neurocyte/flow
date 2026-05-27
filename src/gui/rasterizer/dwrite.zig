@@ -255,6 +255,23 @@ fn pickRenderingMode(hinting: Hinting) RenderingMode {
     };
 }
 
+pub fn glyphAdvance(_: *const Self, font: Font, codepoint: u21) ?u16 {
+    const face = font.face orelse return null;
+    var gi: [2]u16 = .{ 0, 0 };
+    const cps = [_]u32{@intCast(codepoint)};
+    if (face.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) < 0) return null;
+    if (gi[0] == 0) return null;
+    var m: win32.DWRITE_FONT_METRICS = undefined;
+    face.GetMetrics(&m);
+    if (m.designUnitsPerEm == 0) return null;
+    const scale: f32 = @as(f32, @floatFromInt(font.size_px)) / @as(f32, @floatFromInt(m.designUnitsPerEm));
+    var gm: [1]win32.DWRITE_GLYPH_METRICS = undefined;
+    const gi_arr: [2]u16 = .{ gi[0], 0 };
+    if (face.GetDesignGlyphMetrics(@ptrCast(&gi_arr), 1, &gm, 0) < 0) return null;
+    const adv: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(gm[0].advanceWidth)) * scale));
+    return if (adv > 0) @intCast(adv) else null;
+}
+
 pub fn render(
     self: *const Self,
     font: Font,
@@ -305,10 +322,6 @@ fn renderFromFace(
 ) RenderResult {
     const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
     const buf_h: i32 = @intCast(cell_size.y);
-    const x_offset: i32 = switch (split) {
-        .single, .left => 0,
-        .right => @intCast(cell_size.x),
-    };
 
     var gi: [2]u16 = .{ 0, 0 };
     const cps = [_]u32{@intCast(codepoint)};
@@ -378,13 +391,19 @@ fn renderFromFace(
     if (analysis.CreateAlphaTexture(tex_type, &bounds, @ptrCast(tex.ptr), @intCast(buf_size)) < 0)
         return .{ .format = result_fmt };
 
+    const glyph_extent: i32 = bounds.right;
+    const center_offset: i32 = if (split != .single and glyph_extent < buf_w)
+        @divTrunc(buf_w - glyph_extent, 2)
+    else
+        0;
+
     var row: i32 = 0;
     while (row < src_h) : (row += 1) {
         const dst_y = bounds.top + row;
         if (dst_y < 0 or dst_y >= buf_h) continue;
         var col: i32 = 0;
         while (col < src_w) : (col += 1) {
-            const dst_x = x_offset + bounds.left + col;
+            const dst_x = center_offset + bounds.left + col;
             if (dst_x < 0 or dst_x >= buf_w) continue;
 
             const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;

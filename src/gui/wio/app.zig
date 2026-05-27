@@ -42,7 +42,27 @@ const rasterizer_font: gpu.RasterizerFont = if (builtin.os.tag == .windows)
 else
     .{ .freetype = .{} };
 
+const uucode = vaxis.uucode;
 const log = std.log.scoped(.wio_app);
+
+fn isWideCandidate(cp: u21) bool {
+    // PUA ranges
+    if ((cp >= 0xE000 and cp <= 0xF8FF) or
+        (cp >= 0xF0000 and cp <= 0xFFFFD) or
+        (cp >= 0x100000 and cp <= 0x10FFFD)) return true;
+
+    // Non-emoji dingbats (U+2700–U+27BF) and enclosed alphanumeric supplement (U+1F100–U+1F1FF)
+    if ((cp >= 0x2700 and cp <= 0x27BF) or (cp >= 0x1F100 and cp <= 0x1F1FF)) {
+        return !uucode.get(.is_emoji_presentation, @intCast(cp));
+    }
+
+    // Symbols from general categories So, Sm, Sk, Sc
+    const gc = uucode.get(.general_category, @intCast(cp));
+    return switch (gc) {
+        .symbol_math, .symbol_currency, .symbol_modifier, .symbol_other => true,
+        else => false,
+    };
+}
 
 const press: u8 = 1;
 const repeat: u8 = 2;
@@ -988,7 +1008,12 @@ pub fn renderActorTick() void {
         @memcpy(layer_cells, ls.cells);
 
         var layer_prev_cp: u21 = ' ';
-        for (layer_cells, ls.codepoints, ls.widths) |*cell, cp, w| {
+        const cell_w = font_set.cell_size.x;
+        var ci: usize = 0;
+        while (ci < layer_cells.len) : (ci += 1) {
+            const cell = &layer_cells[ci];
+            const cp = ls.codepoints[ci];
+            const w = ls.widths[ci];
             const split: gpu.GlyphSplit = switch (w) {
                 2 => .left,
                 0 => .right,
@@ -997,6 +1022,54 @@ pub fn renderActorTick() void {
             const glyph_cp = if (w == 0) layer_prev_cp else cp;
             const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
             const per_face = font_set.faces[@intFromEnum(face)];
+
+            // Terminal-assigned double-width: generate both halves now
+            if (w == 2) {
+                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .left);
+                if (ci + 1 < layer_cells.len and ls.widths[ci + 1] == 0) {
+                    layer_cells[ci + 1].glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
+                    layer_prev_cp = cp;
+                    ci += 1;
+                    continue;
+                }
+                layer_prev_cp = cp;
+                continue;
+            }
+
+            // Opportunistic wide rendering for PUA / symbol glyphs
+            if (w == 1 and isWideCandidate(glyph_cp)) {
+                if (gpu.glyphAdvance(per_face, glyph_cp)) |advance| {
+                    const desired: usize = @intCast((@as(u32, advance) + cell_w - 1) / cell_w);
+                    if (desired > 1) {
+                        const col = ci % ls.width;
+                        const max_extra = @min(desired - 1, 4);
+                        var num_spaces: usize = 0;
+                        while (num_spaces < max_extra and
+                            col + 1 + num_spaces < ls.width and
+                            ci + 1 + num_spaces < layer_cells.len and
+                            (ls.codepoints[ci + 1 + num_spaces] == ' ' or
+                                ls.codepoints[ci + 1 + num_spaces] == 0x2002) and
+                            ls.widths[ci + 1 + num_spaces] == 1)
+                        {
+                            num_spaces += 1;
+                        }
+                        if (num_spaces > 0) {
+                            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .left);
+                            const fg_color = cell.foreground;
+                            var s: usize = 0;
+                            while (s < num_spaces) : (s += 1) {
+                                const sc = &layer_cells[ci + 1 + s];
+                                sc.foreground = fg_color;
+                                sc.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
+                            }
+                            layer_prev_cp = cp;
+                            ci += num_spaces;
+                            continue;
+                        }
+                    }
+                }
+            }
+
             cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
             if (w != 0) layer_prev_cp = cp;
         }

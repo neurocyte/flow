@@ -179,9 +179,25 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
     return .{ .font = font, .is_real_match = is_real };
 }
 
-/// Rasterize a glyph into the staging buffer
-/// The staging buffer is RGBA8
-/// alpha format is written into the red channel
+pub fn glyphAdvance(self: *const Self, font: Font, codepoint: u21) ?u16 {
+    const face = font.face orelse return null;
+    if (c.FT_Get_Char_Index(face, codepoint) == 0) {
+        // Check fallback faces
+        if (self.fallback) |fb| {
+            if (fb.resolveExisting(codepoint)) |fb_face| {
+                if (c.FT_Load_Char(fb_face.ft_face, codepoint, c.FT_LOAD_DEFAULT) == 0) {
+                    const adv: i32 = @intCast((fb_face.ft_face.*.glyph.*.advance.x + 32) >> 6);
+                    return if (adv > 0) @intCast(adv) else null;
+                }
+            }
+        }
+        return null;
+    }
+    if (c.FT_Load_Char(face, codepoint, c.FT_LOAD_DEFAULT) != 0) return null;
+    const adv: i32 = @intCast((face.*.glyph.*.advance.x + 32) >> 6);
+    return if (adv > 0) @intCast(adv) else null;
+}
+
 pub fn render(
     self: *const Self,
     font: Font,
@@ -238,10 +254,6 @@ fn renderFromFace(
 ) RenderResult {
     const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
     const buf_h: i32 = @intCast(cell_size.y);
-    const x_offset: i32 = switch (split) {
-        .single, .left => 0,
-        .right => @intCast(cell_size.x),
-    };
 
     const hint_flags: c_long = switch (self.hinting) {
         .none => c.FT_LOAD_NO_HINTING,
@@ -252,7 +264,6 @@ fn renderFromFace(
     const load_flags: c.FT_Int32 = @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP | hint_flags);
     if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return .{ .format = .alpha };
 
-    // Synthetic italic: 12 degree shear of the outline
     if (synth.italic) {
         var shear: c.FT_Matrix = .{
             .xx = 0x10000,
@@ -278,6 +289,12 @@ fn renderFromFace(
     const off_y: i32 = ascent_px - face.*.glyph.*.bitmap_top;
     const is_mono = bm.pixel_mode == c.FT_PIXEL_MODE_MONO;
 
+    const glyph_extent: i32 = off_x + @as(i32, @intCast(bm.width));
+    const center_offset: i32 = if (split != .single and glyph_extent < buf_w)
+        @divTrunc(buf_w - glyph_extent, 2)
+    else
+        0;
+
     var row: u32 = 0;
     while (row < bm.rows) : (row += 1) {
         const dst_y = off_y + @as(i32, @intCast(row));
@@ -285,7 +302,7 @@ fn renderFromFace(
 
         var col: u32 = 0;
         while (col < bm.width) : (col += 1) {
-            const dst_x = x_offset + off_x + @as(i32, @intCast(col));
+            const dst_x = center_offset + off_x + @as(i32, @intCast(col));
             if (dst_x < 0 or dst_x >= buf_w) continue;
 
             const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;
@@ -439,6 +456,11 @@ const FallbackResolver = struct {
         }
 
         return self.cacheNegative(allocator, codepoint);
+    }
+
+    fn resolveExisting(self: *FallbackResolver, codepoint: u21) ?*const FallbackFace {
+        const entry = self.cache.get(codepoint) orelse return null;
+        return if (entry.found) &self.faces.items[entry.index] else null;
     }
 
     fn cacheNegative(self: *FallbackResolver, allocator: std.mem.Allocator, codepoint: u21) ?*const FallbackFace {

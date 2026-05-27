@@ -218,12 +218,18 @@ pub fn render(
 
     if (dims.width == 0 or dims.height == 0) return .{ .format = .alpha };
 
+    const glyph_extent: i32 = @as(i32, dims.off_x) + @as(i32, @intCast(dims.width));
+    const center_offset: i32 = if (split != .single and glyph_extent < buf_w)
+        @divTrunc(buf_w - glyph_extent, 2)
+    else
+        0;
+
     for (0..dims.height) |row| {
         const dst_y: i32 = font.ascent_px + @as(i32, dims.off_y) + @as(i32, @intCast(row));
         if (dst_y < 0 or dst_y >= buf_h) continue;
 
         for (0..dims.width) |col| {
-            const dst_x: i32 = x_offset + @as(i32, dims.off_x) + @as(i32, @intCast(col));
+            const dst_x: i32 = center_offset + @as(i32, dims.off_x) + @as(i32, @intCast(col));
             if (dst_x < 0 or dst_x >= buf_w) continue;
 
             const src_idx = row * dims.width + col;

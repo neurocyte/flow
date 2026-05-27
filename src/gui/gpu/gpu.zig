@@ -192,7 +192,10 @@ pub fn setSymbolRasterizer(h: SymbolRasterizer) void {
     global.rasterizer.setSymbolRasterizer(h);
 }
 
-/// Force the glyph index cache to be rebuilt
+pub fn glyphAdvance(font: Font, codepoint: u21) ?u16 {
+    return global.rasterizer.glyphAdvance(font, codepoint);
+}
+
 pub fn invalidateGlyphCache(state: *WindowState) void {
     state.glyph_cache_cell_size = null;
 }
