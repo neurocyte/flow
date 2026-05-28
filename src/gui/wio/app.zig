@@ -1026,11 +1026,12 @@ pub fn renderActorTick() void {
             // Terminal-assigned double-width: generate both halves now
             if (w == 2) {
                 cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .left);
-                if (ci + 1 < layer_cells.len and ls.widths[ci + 1] == 0) {
-                    layer_cells[ci + 1].glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
-                    layer_prev_cp = cp;
+                const same_row = (ci % ls.width) + 1 < ls.width;
+                if (same_row and ci + 1 < layer_cells.len) {
+                    const placeholder = &layer_cells[ci + 1];
+                    placeholder.* = cell.*;
+                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
                     ci += 1;
-                    continue;
                 }
                 layer_prev_cp = cp;
                 continue;
@@ -1038,7 +1039,10 @@ pub fn renderActorTick() void {
 
             // Opportunistic wide rendering for PUA / symbol glyphs
             if (w == 1 and isWideCandidate(glyph_cp)) {
-                if (gpu.glyphAdvance(per_face, glyph_cp)) |advance| {
+                const same_row = (ci % ls.width) + 1 < ls.width;
+                const next_cp = if (!same_row) null else if (ci + 1 < layer_cells.len) ls.codepoints[ci + 1] else null;
+                const next_is_space = next_cp == ' ';
+                if (same_row and next_is_space) if (gpu.glyphAdvance(per_face, glyph_cp)) |advance| {
                     const desired: usize = @intCast((@as(u32, advance) + cell_w - 1) / cell_w);
                     if (desired > 1) {
                         const col = ci % ls.width;
@@ -1067,7 +1071,7 @@ pub fn renderActorTick() void {
                             continue;
                         }
                     }
-                }
+                };
             }
 
             cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
