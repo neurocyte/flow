@@ -31,6 +31,7 @@ pub const SynthFlags = packed struct(u8) {
 pub const Font = struct {
     cell_size: XY(u16) = .{ .x = 8, .y = 16 },
     ascent_px: i32 = 0,
+    cap_height_px: i32 = 0,
     underline_position: i32 = 0,
     underline_thickness: u16 = 1,
     size_px: u16 = 16,
@@ -183,6 +184,8 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
     const descent_f: f32 = @as(f32, @floatFromInt(m.descent)) * scale;
     const linegap_f: f32 = @as(f32, @floatFromInt(m.lineGap)) * scale;
     const ascent_px: i32 = @intFromFloat(@round(ascent_f));
+    const cap_raw: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(m.capHeight)) * scale));
+    const cap_height_px: i32 = if (cap_raw > 0) cap_raw else @divTrunc(ascent_px * 7, 10);
     const cell_h_f: f32 = ascent_f + descent_f + @max(0.0, linegap_f);
     const cell_h: u16 = @intCast(@max(1, @as(i32, @intFromFloat(@ceil(cell_h_f)))));
 
@@ -212,6 +215,7 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
     out.* = .{
         .cell_size = .{ .x = cell_w, .y = cell_h },
         .ascent_px = ascent_px,
+        .cap_height_px = cap_height_px,
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
         .size_px = size_px,
@@ -287,26 +291,26 @@ pub fn render(
     const has_glyph = (face.GetGlyphIndices(@ptrCast(&cps_check), 1, @ptrCast(&gi_check)) >= 0 and gi_check[0] != 0);
 
     if (has_glyph) {
-        return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
     }
 
     // Try fallback
     if (self.fallback) |fb| {
         if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
         }
     } else {
         const fb = self.allocator.create(FallbackResolver) catch
-            return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
         fb.* = FallbackResolver.initResolver(self.factory);
         @constCast(&self.fallback).* = fb;
         if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
         }
     }
 
     // .notdef
-    return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+    return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
 }
 
 fn renderFromFace(
@@ -314,6 +318,8 @@ fn renderFromFace(
     face: *win32.IDWriteFontFace,
     size_px: u16,
     ascent_px: i32,
+    cell_ascent_px: i32,
+    cap_height_px: i32,
     synth: SynthFlags,
     codepoint: u21,
     split: GlyphSplit,
@@ -391,6 +397,16 @@ fn renderFromFace(
     if (analysis.CreateAlphaTexture(tex_type, &bounds, @ptrCast(tex.ptr), @intCast(buf_size)) < 0)
         return .{ .format = result_fmt };
 
+    const off_x: i32 = bounds.left;
+    const off_y: i32 = bounds.top;
+    const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
+
+    const overflows = src_w > target_w or src_h > buf_h or off_y < 0 or off_y + src_h > buf_h;
+    if (overflows) {
+        blitScaledChannels(staging_buf, buf_w, buf_h, tex, src_w, src_h, bytes_per_texel, target_w, cell_ascent_px, cap_height_px);
+        return .{ .format = result_fmt };
+    }
+
     const glyph_extent: i32 = bounds.right;
     const center_offset: i32 = if (split != .single and glyph_extent < buf_w)
         @divTrunc(buf_w - glyph_extent, 2)
@@ -399,11 +415,11 @@ fn renderFromFace(
 
     var row: i32 = 0;
     while (row < src_h) : (row += 1) {
-        const dst_y = bounds.top + row;
+        const dst_y = off_y + row;
         if (dst_y < 0 or dst_y >= buf_h) continue;
         var col: i32 = 0;
         while (col < src_w) : (col += 1) {
-            const dst_x = center_offset + bounds.left + col;
+            const dst_x = center_offset + off_x + col;
             if (dst_x < 0 or dst_x >= buf_w) continue;
 
             const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;
@@ -421,6 +437,72 @@ fn renderFromFace(
     }
 
     return .{ .format = result_fmt };
+}
+
+fn srcChannel(src: []const u8, gw: i32, gh: i32, channels: i32, ch: i32, x: i32, y: i32) u8 {
+    const cx: i32 = std.math.clamp(x, 0, gw - 1);
+    const cy: i32 = std.math.clamp(y, 0, gh - 1);
+    const idx: usize = @intCast((cy * gw + cx) * channels + ch);
+    if (idx >= src.len) return 0;
+    return src[idx];
+}
+
+fn sampleChannelBilinear(src: []const u8, gw: i32, gh: i32, channels: i32, ch: i32, fx: f32, fy: f32) u8 {
+    const x0: i32 = @intFromFloat(@floor(fx));
+    const y0: i32 = @intFromFloat(@floor(fy));
+    const tx: f32 = fx - @floor(fx);
+    const ty: f32 = fy - @floor(fy);
+    const c00: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0, y0));
+    const c10: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0 + 1, y0));
+    const c01: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0, y0 + 1));
+    const c11: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0 + 1, y0 + 1));
+    const top = c00 * (1 - tx) + c10 * tx;
+    const bot = c01 * (1 - tx) + c11 * tx;
+    return @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
+}
+
+fn blitScaledChannels(
+    staging_buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    src: []const u8,
+    gw: i32,
+    gh: i32,
+    channels: i32,
+    target_w: i32,
+    cell_ascent_px: i32,
+    cap_height_px: i32,
+) void {
+    if (gw <= 0 or gh <= 0) return;
+    const baseline: i32 = if (cell_ascent_px > 0 and cell_ascent_px <= buf_h) cell_ascent_px else buf_h;
+    const cap: i32 = if (cap_height_px > 0 and cap_height_px <= baseline) cap_height_px else baseline;
+    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
+    const sy: f32 = @as(f32, @floatFromInt(cap)) / @as(f32, @floatFromInt(gh));
+    const s: f32 = @min(@min(sx, sy), 1.0);
+    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
+    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
+    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
+    const dst_y0: i32 = (baseline - cap) + @divTrunc(cap - sh, 2);
+    const inv_s: f32 = 1.0 / s;
+
+    var dy: i32 = 0;
+    while (dy < sh) : (dy += 1) {
+        const py = dst_y0 + dy;
+        if (py < 0 or py >= buf_h) continue;
+        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
+        var dx: i32 = 0;
+        while (dx < sw) : (dx += 1) {
+            const px = dst_x0 + dx;
+            if (px < 0 or px >= buf_w) continue;
+            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (dst_idx + 3 >= staging_buf.len) continue;
+            var ch: i32 = 0;
+            while (ch < channels) : (ch += 1)
+                staging_buf[dst_idx + @as(usize, @intCast(ch))] =
+                    sampleChannelBilinear(src, gw, gh, channels, ch, fsx, fsy);
+        }
+    }
 }
 
 const nerd_font_data = @embedFile("nerd_font");

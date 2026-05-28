@@ -35,9 +35,8 @@ pub const SynthFlags = packed struct(u8) {
 pub const Font = struct {
     cell_size: XY(u16) = .{ .x = 8, .y = 16 },
     ascent_px: i32 = 0,
-    /// Top edge of the underline bar, in pixels from the top of the cell.
+    cap_height_px: i32 = 0,
     underline_position: i32 = 0,
-    /// Thickness of the underline bar, in pixels (>= 1).
     underline_thickness: u16 = 1,
     face: c.FT_Face = null,
     synth: SynthFlags = .{},
@@ -112,11 +111,14 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         }
     }
 
-    // Cell width from advance of 'M'.
+    // Cell width from advance of 'M', cap height from its top bearing
     var cell_w: u16 = @max(1, size_px / 2);
+    var cap_height_px: i32 = @divTrunc(ascent_px * 7, 10); // fallback
     if (c.FT_Load_Char(face, 'M', c.FT_LOAD_DEFAULT) == 0) {
         const adv: i32 = @intCast((face.*.glyph.*.advance.x + 32) >> 6);
         if (adv > 0) cell_w = @intCast(adv);
+        const cap: i32 = @intCast((face.*.glyph.*.metrics.horiBearingY + 32) >> 6);
+        if (cap > 0) cap_height_px = cap;
     }
 
     // Underline metrics: face fields are in font units. y_scale is 16.16 fixed
@@ -140,6 +142,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     return .{
         .cell_size = .{ .x = cell_w, .y = cell_h },
         .ascent_px = ascent_px,
+        .cap_height_px = cap_height_px,
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
         .face = face,
@@ -223,29 +226,31 @@ pub fn render(
     const face = font.face orelse return .{ .format = .alpha };
 
     if (c.FT_Get_Char_Index(face, codepoint) != 0) {
-        return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
     }
 
     if (self.fallback) |fb| {
         if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
-            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
         }
     } else {
-        const fb = self.allocator.create(FallbackResolver) catch return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        const fb = self.allocator.create(FallbackResolver) catch return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
         fb.* = .{};
         @constCast(&self.fallback).* = fb;
         if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
-            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
         }
     }
 
-    return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+    return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
 }
 
 fn renderFromFace(
     self: *const Self,
     face: c.FT_Face,
     ascent_px: i32,
+    cell_ascent_px: i32,
+    cap_height_px: i32,
     synth: SynthFlags,
     codepoint: u21,
     split: GlyphSplit,
@@ -288,8 +293,17 @@ fn renderFromFace(
     const off_x: i32 = face.*.glyph.*.bitmap_left;
     const off_y: i32 = ascent_px - face.*.glyph.*.bitmap_top;
     const is_mono = bm.pixel_mode == c.FT_PIXEL_MODE_MONO;
+    const gw: i32 = @intCast(bm.width);
+    const gh: i32 = @intCast(bm.rows);
+    const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
-    const glyph_extent: i32 = off_x + @as(i32, @intCast(bm.width));
+    const overflows = gw > target_w or gh > buf_h or off_y < 0 or off_y + gh > buf_h;
+    if (overflows) {
+        blitScaledAlpha(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w, cell_ascent_px, cap_height_px);
+        return .{ .format = .alpha };
+    }
+
+    const glyph_extent: i32 = off_x + gw;
     const center_offset: i32 = if (split != .single and glyph_extent < buf_w)
         @divTrunc(buf_w - glyph_extent, 2)
     else
@@ -318,6 +332,74 @@ fn renderFromFace(
         }
     }
     return .{ .format = .alpha };
+}
+
+fn srcCoverage(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, is_mono: bool, x: i32, y: i32) u8 {
+    const cx: u32 = @intCast(std.math.clamp(x, 0, gw - 1));
+    const cy: u32 = @intCast(std.math.clamp(y, 0, gh - 1));
+    if (is_mono) {
+        const byte = src[cy * pitch + (cx >> 3)];
+        const bit: u3 = @intCast(7 - (cx & 7));
+        return if ((byte >> bit) & 1 != 0) 0xFF else 0x00;
+    }
+    return src[cy * pitch + cx];
+}
+
+fn sampleBilinear(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, is_mono: bool, fx: f32, fy: f32) u8 {
+    const x0: i32 = @intFromFloat(@floor(fx));
+    const y0: i32 = @intFromFloat(@floor(fy));
+    const tx: f32 = fx - @floor(fx);
+    const ty: f32 = fy - @floor(fy);
+    const c00: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0, y0));
+    const c10: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0 + 1, y0));
+    const c01: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0, y0 + 1));
+    const c11: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0 + 1, y0 + 1));
+    const top = c00 * (1 - tx) + c10 * tx;
+    const bot = c01 * (1 - tx) + c11 * tx;
+    return @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
+}
+
+fn blitScaledAlpha(
+    staging_buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    src: [*c]const u8,
+    gw: i32,
+    gh: i32,
+    pitch: u32,
+    is_mono: bool,
+    target_w: i32,
+    cell_ascent_px: i32,
+    cap_height_px: i32,
+) void {
+    if (gw <= 0 or gh <= 0) return;
+    const baseline: i32 = if (cell_ascent_px > 0 and cell_ascent_px <= buf_h) cell_ascent_px else buf_h;
+    const cap: i32 = if (cap_height_px > 0 and cap_height_px <= baseline) cap_height_px else baseline;
+    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
+    const sy: f32 = @as(f32, @floatFromInt(cap)) / @as(f32, @floatFromInt(gh));
+    const s: f32 = @min(@min(sx, sy), 1.0);
+    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
+    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
+    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
+    const dst_y0: i32 = (baseline - cap) + @divTrunc(cap - sh, 2);
+    const inv_s: f32 = 1.0 / s;
+
+    var dy: i32 = 0;
+    while (dy < sh) : (dy += 1) {
+        const py = dst_y0 + dy;
+        if (py < 0 or py >= buf_h) continue;
+        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
+        var dx: i32 = 0;
+        while (dx < sw) : (dx += 1) {
+            const px = dst_x0 + dx;
+            if (px < 0 or px >= buf_w) continue;
+            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
+            const cov = sampleBilinear(src, gw, gh, pitch, is_mono, fsx, fsy);
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (dst_idx >= staging_buf.len) continue;
+            staging_buf[dst_idx] = cov;
+        }
+    }
 }
 
 const nerd_font_data = @embedFile("nerd_font");
