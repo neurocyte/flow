@@ -334,15 +334,14 @@ pub const WindowState = struct {
             break :blk &(state.glyph_index_cache.?);
         };
 
-        const right_half: bool = switch (split) {
-            .single, .left => false,
-            .right => true,
-        };
+        const right_half: bool = split == .right;
+        const wide: bool = split != .single;
 
         switch (cache.reserve(
             global.glyph_cache_arena.allocator(),
             codepoint,
             right_half,
+            wide,
             @intFromEnum(face),
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
