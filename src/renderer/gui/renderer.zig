@@ -314,7 +314,7 @@ pub fn render(self: *Self) error{}!?i64 {
     self.secondary_cursors_buf.clearRetainingCapacity();
     if (active_screen) |s| if (s.cursor_vis) for (s.cursor_secondary) |sc| {
         self.secondary_cursors_buf.append(self.allocator, .{
-            .vis = true,
+            .vis = cursor.vis, // blink in sync with the primary cursor
             .row = sc.row,
             .col = sc.col,
             .shape = vaxisCursorShape(s.cursor_shape),
