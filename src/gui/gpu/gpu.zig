@@ -29,9 +29,30 @@ pub const CursorInfo = struct {
     vis: bool = false,
     row: u16 = 0,
     col: u16 = 0,
+    width: u8 = 1,
     shape: CursorShape = .block,
     color: RGBA = .init(255, 255, 255, 255),
 };
+
+fn packCursor(c: CursorInfo) u32 {
+    const shape: u32 = @as(u32, @intCast(@intFromEnum(c.shape))) + 1;
+    return shape |
+        (@as(u32, c.color.r) << 8) |
+        (@as(u32, c.color.g) << 16) |
+        (@as(u32, c.color.b) << 24);
+}
+
+fn markCursors(shader_cells: []ShaderCell, cursors: []const CursorInfo, cols: u16, rows: u16) void {
+    for (cursors) |cur| {
+        if (!cur.vis or cur.row >= rows or cur.col >= cols) continue;
+        const packed_cursor = packCursor(cur);
+        const row_off = @as(usize, cur.row) * cols;
+        const width = if (cur.shape == .beam) 1 else cur.width;
+        var c: u16 = 0;
+        while (c < width and cur.col + c < cols) : (c += 1)
+            shader_cells[row_off + cur.col + c].cursor = packed_cursor;
+    }
+}
 
 const log = std.log.scoped(.gpu);
 
@@ -46,28 +67,28 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
     };
 }
 
-// Shader cell layout. Stored on the GPU as 4 RGBA8 texels per cell:
+// Shader cell layout. Stored on the GPU as 5 RGBA8 texels per cell:
 //   texel 0 = glyph_index bytes (LE),
 //   texel 1 = bg color (r,g,b,a),
 //   texel 2 = fg color,
-//   texel 3 = deco bytes (LE).
-// Each texel encodes one terminal cell:
-//   .r = glyph_index  (u32)
-//   .g = bg packed    (RGBA bit-cast to u32: r<<24|g<<16|b<<8|a)
-//   .b = fg packed    (same)
-//   .a = decoration field
+//   texel 3 = deco bytes (LE),
+//   texel 4 = cursor bytes (LE).
 //
 // Decoration field bit layout:
 //   31..8 : underline color RRGGBB (24 bits, 0 → use fg)
 //    7..5 : ul_style (3 bits, 0=off..5=dashed)
 //    4    : strikethrough flag
 //    3..2 : glyph_kind (00=alpha, 01=subpixel, 10=color, 11=reserved)
-//    0    : secondary-cursor flag
+//
+// Cursor field bit layout (0 → no cursor on this cell):
+//    7..0 : shape+1 (1=block, 2=beam, 3=underline)
+//   31..8 : cursor color RRGGBB
 const ShaderCell = extern struct {
     glyph_index: u32,
     bg: u32,
     fg: u32,
     deco: u32 = 0,
+    cursor: u32 = 0,
 };
 
 fn packDeco(src: Cell, kind: u2) u32 {
@@ -279,7 +300,7 @@ pub const WindowState = struct {
             if (state.cell_image.id != 0) sg.destroyImage(state.cell_image);
 
             state.cell_image = sg.makeImage(.{
-                .width = cols * 4,
+                .width = cols * 5,
                 .height = rows,
                 .pixel_format = .RGBA8,
                 .usage = .{ .dynamic_update = true },
@@ -431,7 +452,7 @@ pub const LayerGpuState = struct {
             if (self.cell_image.id != 0) sg.destroyImage(self.cell_image);
 
             self.cell_image = sg.makeImage(.{
-                .width = @as(i32, cols) * 4,
+                .width = @as(i32, cols) * 5,
                 .height = rows,
                 .pixel_format = .RGBA8,
                 .usage = .{ .dynamic_update = true },
@@ -486,8 +507,7 @@ pub fn paintLayerOffscreen(
     cols: u16,
     rows: u16,
     pixel_size: XY(u16),
-    cursor: CursorInfo,
-    secondary_cursors: []const CursorInfo,
+    cursors: []const CursorInfo,
 ) void {
     if (cols == 0 or rows == 0) return;
     if (pixel_size.x == 0 or pixel_size.y == 0) return;
@@ -515,11 +535,7 @@ pub fn paintLayerOffscreen(
         };
     }
 
-    for (secondary_cursors) |sc| {
-        if (!sc.vis) continue;
-        if (sc.row >= rows or sc.col >= cols) continue;
-        shader_cells[@as(usize, sc.row) * cols + sc.col].deco |= 1;
-    }
+    markCursors(shader_cells, cursors, cols, rows);
 
     if (window_state.glyph_atlas_dirty) flushGlyphAtlas(window_state);
 
@@ -547,11 +563,6 @@ pub fn paintLayerOffscreen(
     bindings.samplers[1] = global.cell_sampler;
     sg.applyBindings(bindings);
 
-    const sec_color: RGBA = if (secondary_cursors.len > 0)
-        secondary_cursors[0].color
-    else
-        .init(255, 255, 255, 255);
-
     const fs_params = shader.FsParams{
         .cell_size = .{
             font_set.cell_size.x,
@@ -560,20 +571,12 @@ pub fn paintLayerOffscreen(
             rows,
         },
         .viewport = .{ pixel_h, pixel_w, 0, 0 },
-        .cursor_pos = .{
-            cursor.col,
-            cursor.row,
-            @intFromEnum(cursor.shape),
-            if (cursor.vis) 1 else 0,
-        },
         .underline_info = .{
             font_set.underline_position,
             font_set.underline_thickness,
             0,
             0,
         },
-        .cursor_color = cursor.color.to_vec4(),
-        .sec_cursor_color = sec_color.to_vec4(),
         .bg_color = global.background.to_vec4(),
     };
     sg.applyUniforms(shader.UB_fs_params, .{
@@ -759,8 +762,7 @@ pub fn paint(
     col_count: u16,
     top: u16,
     cells: []const Cell,
-    cursor: CursorInfo,
-    secondary_cursors: []const CursorInfo,
+    cursors: []const CursorInfo,
     swapchain_render_view: ?*const anyopaque, // windows only
 ) void {
     const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font_set.cell_size.x));
@@ -808,12 +810,7 @@ pub fn paint(
         }
     }
 
-    // Mark secondary cursor cells (bit 0 of deco field, read by fragment shader).
-    for (secondary_cursors) |sc| {
-        if (!sc.vis) continue;
-        if (sc.row >= shader_row_count or sc.col >= shader_col_count) continue;
-        shader_cells[@as(usize, sc.row) * shader_col_count + sc.col].deco |= 1;
-    }
+    markCursors(shader_cells, cursors, shader_col_count, shader_row_count);
 
     // Upload glyph atlas to GPU if any new glyphs were rasterized this frame.
     if (state.glyph_atlas_dirty) flushGlyphAtlas(state);
@@ -863,11 +860,6 @@ pub fn paint(
     bindings.samplers[1] = global.cell_sampler;
     sg.applyBindings(bindings);
 
-    const sec_color: RGBA = if (secondary_cursors.len > 0)
-        secondary_cursors[0].color
-    else
-        .init(255, 255, 255, 255);
-
     const fs_params = shader.FsParams{
         .cell_size = .{
             font_set.cell_size.x,
@@ -876,20 +868,12 @@ pub fn paint(
             shader_row_count,
         },
         .viewport = .{ @intCast(client_size.y), @intCast(client_size.x), 0, 0 },
-        .cursor_pos = .{
-            cursor.col,
-            cursor.row,
-            @intFromEnum(cursor.shape),
-            if (cursor.vis) 1 else 0,
-        },
         .underline_info = .{
             font_set.underline_position,
             font_set.underline_thickness,
             0,
             0,
         },
-        .cursor_color = cursor.color.to_vec4(),
-        .sec_cursor_color = sec_color.to_vec4(),
         .bg_color = global.background.to_vec4(),
     };
     sg.applyUniforms(shader.UB_fs_params, .{

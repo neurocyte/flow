@@ -31,10 +31,7 @@ in vec2 v_uv;
 layout(binding=0) uniform fs_params {
     ivec4 cell_size;      // .xy = cell px size, .zw = col_count, row_count
     ivec4 viewport;       // .x = viewport_height, .y = viewport_width, .zw = pad
-    ivec4 cursor_pos;     // .x = col, .y = row, .z = shape, .w = vis
     ivec4 underline_info; // .x = position, .y = thickness, .zw = pad
-    vec4 cursor_color;
-    vec4 sec_cursor_color;
     vec4 bg_color;
 };
 
@@ -57,10 +54,6 @@ void main() {
     int row_count = cell_size.w;
     int viewport_height = viewport.x;
     int viewport_width = viewport.y;
-    int cursor_col = cursor_pos.x;
-    int cursor_row = cursor_pos.y;
-    int cursor_shape = cursor_pos.z;
-    int cursor_vis = cursor_pos.w;
     int underline_position = underline_info.x;
     int underline_thickness = underline_info.y;
 
@@ -81,11 +74,12 @@ void main() {
     //          packed-struct layout, so swizzle with .abgr to recover RGBA)
     //   fg   = fg color (same .abgr swizzle)
     //   t_dc = deco bytes (little-endian)
-    ivec2 cell_base = ivec2(col * 4, row);
+    ivec2 cell_base = ivec2(col * 5, row);
     vec4 t_gi = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(0, 0), 0);
     vec4 bg   = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(1, 0), 0).abgr;
     vec4 fg   = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(2, 0), 0).abgr;
     vec4 t_dc = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(3, 0), 0);
+    vec4 t_cur = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(4, 0), 0);
 
     // Reassemble u32 fields from RGBA8 byte channels
     uint gi_u =  uint(t_gi.r * 255.0 + 0.5)
@@ -96,6 +90,10 @@ void main() {
               | (uint(t_dc.g * 255.0 + 0.5) << 8u)
               | (uint(t_dc.b * 255.0 + 0.5) << 16u)
               | (uint(t_dc.a * 255.0 + 0.5) << 24u);
+    uint cur_packed =  uint(t_cur.r * 255.0 + 0.5)
+                    | (uint(t_cur.g * 255.0 + 0.5) << 8u)
+                    | (uint(t_cur.b * 255.0 + 0.5) << 16u)
+                    | (uint(t_cur.a * 255.0 + 0.5) << 24u);
 
     // Pixel coordinates within the cell
     int cell_px_x = px % cell_size_x;
@@ -118,27 +116,29 @@ void main() {
     uint glyph_kind = (deco >> 2u) & 3u;
     uint ul_packed = deco >> 8u;
 
-    // Cursor detection
-    bool is_primary   = (cursor_vis != 0) && (col == cursor_col) && (row == cursor_row);
-    bool is_secondary = (deco & 1u) != 0u;
+    // Per-cell cursor (0 = none; low byte = shape+1, high 24 bits = RRGGBB)
+    uint cur_shape = cur_packed & 255u;
 
     vec3 final_bg = bg.rgb;
     vec3 final_fg = fg.rgb;
 
-    if (is_primary || is_secondary) {
-        vec4 cur = is_primary ? cursor_color : sec_cursor_color;
-        int shape = cursor_shape;
+    if (cur_shape != 0u) {
+        vec3 cur = vec3(
+            float((cur_packed >>  8u) & 255u) / 255.0,
+            float((cur_packed >> 16u) & 255u) / 255.0,
+            float((cur_packed >> 24u) & 255u) / 255.0
+        );
 
-        if (shape == 1) {
+        if (cur_shape == 2u) {
             // Beam: 2px vertical bar at left edge of cell
-            if (cell_px_x < 2) { frag_color = vec4(cur.rgb, 1.0); return; }
-        } else if (shape == 2) {
+            if (cell_px_x < 2) { frag_color = vec4(cur, 1.0); return; }
+        } else if (cur_shape == 3u) {
             // Underline: 2px horizontal bar at bottom of cell
-            if (cell_px_y >= cell_size_y - 2) { frag_color = vec4(cur.rgb, 1.0); return; }
+            if (cell_px_y >= cell_size_y - 2) { frag_color = vec4(cur, 1.0); return; }
         } else {
             // Block: cursor colour as bg, inverted for glyph contrast
-            final_bg = cur.rgb;
-            final_fg = vec3(1.0) - cur.rgb;
+            final_bg = cur;
+            final_fg = vec3(1.0) - cur;
         }
     }
 

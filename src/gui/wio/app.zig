@@ -98,12 +98,10 @@ const LayerSnapshot = struct {
     id: Layer.Id,
     cells: []gpu.Cell,
     codepoints: []u21,
-    // vaxis char.width per cell: 1=normal, 2=double-wide start, 0=continuation
     widths: []u8,
     width: u16,
     height: u16,
-    cursor: gpu.CursorInfo,
-    secondary_cursors: []gpu.CursorInfo,
+    cursors: []gpu.CursorInfo,
 };
 
 const ScreenSnapshot = struct {
@@ -264,8 +262,9 @@ fn buildLayerSnapshot(
     errdefer allocator.free(codepoints);
     const widths = try allocator.alloc(u8, cell_count);
     errdefer allocator.free(widths);
-    const sec = try allocator.alloc(gpu.CursorInfo, lv.secondary_cursors.len);
-    @memcpy(sec, lv.secondary_cursors);
+    const cursors = try allocator.alloc(gpu.CursorInfo, lv.secondary_cursors.len + 1);
+    @memcpy(cursors[0..lv.secondary_cursors.len], lv.secondary_cursors);
+    cursors[lv.secondary_cursors.len] = lv.cursor;
 
     // Convert vaxis cells to gpu.Cell (colours only; glyph indices filled on GPU thread).
     for (lv.screen.buf[0..cell_count], cells, codepoints, widths) |*vc, *gc, *cp, *wt| {
@@ -293,6 +292,12 @@ fn buildLayerSnapshot(
         wt.* = vc.char.width;
     }
 
+    // Set cursor width from it's cell
+    for (cursors) |*cur| {
+        const idx = @as(usize, cur.row) * lv.screen.width + cur.col;
+        cur.width = if (idx < cell_count and widths[idx] == 2) 2 else 1;
+    }
+
     return .{
         .id = lv.id,
         .cells = cells,
@@ -300,8 +305,7 @@ fn buildLayerSnapshot(
         .widths = widths,
         .width = lv.screen.width,
         .height = lv.screen.height,
-        .cursor = lv.cursor,
-        .secondary_cursors = sec,
+        .cursors = cursors,
     };
 }
 
@@ -309,7 +313,7 @@ fn freeLayerSnapshot(allocator: std.mem.Allocator, ls: *LayerSnapshot) void {
     allocator.free(ls.cells);
     allocator.free(ls.codepoints);
     allocator.free(ls.widths);
-    allocator.free(ls.secondary_cursors);
+    allocator.free(ls.cursors);
 }
 
 fn freeScreenSnapshot(allocator: std.mem.Allocator, snap: *ScreenSnapshot) void {
@@ -1096,8 +1100,7 @@ pub fn renderActorTick() void {
             ls.width,
             ls.height,
             pixel_size,
-            ls.cursor,
-            ls.secondary_cursors,
+            ls.cursors,
         );
     }
 
