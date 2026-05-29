@@ -23,6 +23,7 @@ const gpu = @import("gpu");
 const thespian = @import("thespian");
 const cbor = @import("cbor");
 const vaxis = @import("vaxis");
+const uucode_utils = @import("uucode_utils");
 const RGBA = @import("color").RGBA;
 
 const input_translate = @import("input.zig");
@@ -42,27 +43,8 @@ const rasterizer_font: gpu.RasterizerFont = if (builtin.os.tag == .windows)
 else
     .{ .freetype = .{} };
 
-const uucode = vaxis.uucode;
+const uucode = uucode_utils.uucode;
 const log = std.log.scoped(.wio_app);
-
-fn isWideCandidate(cp: u21) bool {
-    // PUA ranges
-    if ((cp >= 0xE000 and cp <= 0xF8FF) or
-        (cp >= 0xF0000 and cp <= 0xFFFFD) or
-        (cp >= 0x100000 and cp <= 0x10FFFD)) return true;
-
-    // Non-emoji dingbats (U+2700–U+27BF) and enclosed alphanumeric supplement (U+1F100–U+1F1FF)
-    if ((cp >= 0x2700 and cp <= 0x27BF) or (cp >= 0x1F100 and cp <= 0x1F1FF)) {
-        return !uucode.get(.is_emoji_presentation, @intCast(cp));
-    }
-
-    // Symbols from general categories So, Sm, Sk, Sc
-    const gc = uucode.get(.general_category, @intCast(cp));
-    return switch (gc) {
-        .symbol_math, .symbol_currency, .symbol_modifier, .symbol_other => true,
-        else => false,
-    };
-}
 
 const press: u8 = 1;
 const repeat: u8 = 2;
@@ -1042,7 +1024,7 @@ pub fn renderActorTick() void {
             }
 
             // Opportunistic wide rendering for PUA / symbol glyphs
-            if (w == 1 and isWideCandidate(glyph_cp)) {
+            if (w == 1 and uucode_utils.isWideCandidate(glyph_cp)) {
                 const same_row = (ci % ls.width) + 1 < ls.width;
                 const next_cp = if (!same_row) null else if (ci + 1 < layer_cells.len) ls.codepoints[ci + 1] else null;
                 const next_is_space = next_cp == ' ';

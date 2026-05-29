@@ -546,6 +546,14 @@ pub fn build_exe(
                     .root_source_file = b.path("src/gui/rasterizer/geometric.zig"),
                 });
 
+                const uucode_utils_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/uucode_utils.zig"),
+                    .target = target,
+                    .imports = &.{
+                        .{ .name = "vaxis", .module = vaxis_mod },
+                    },
+                });
+
                 const combined_rasterizer_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/rasterizer/combined.zig"),
                     .target = target,
@@ -613,7 +621,7 @@ pub fn build_exe(
                             .{ .name = "geometric", .module = geometric_mod },
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
-                            .{ .name = "vaxis", .module = vaxis_mod },
+                            .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         },
                     });
                     if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
@@ -648,6 +656,7 @@ pub fn build_exe(
                         .{ .name = "thespian", .module = thespian_mod },
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
+                        .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         .{ .name = "xterm", .module = gui_xterm_mod },
                         .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
@@ -681,6 +690,7 @@ pub fn build_exe(
                         .{ .name = "app", .module = app_mod },
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
+                        .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         .{ .name = "rasterizer", .module = combined_rasterizer_mod },
                     },
                 });
