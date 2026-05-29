@@ -14,7 +14,8 @@ const Self = @This();
 pub const GlyphSplit = enum { single, left, right };
 const Hinting = @import("gui_config").Hinting;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
-const uucode = @import("vaxis").uucode;
+const uucode_utils = @import("uucode_utils");
+const uucode = uucode_utils.uucode;
 
 pub const RasterFormat = enum(u2) {
     alpha = 0,
@@ -298,7 +299,7 @@ fn renderFromFace(
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
     const overflows = gw > target_w or gh > buf_h or off_y < 0 or off_y + gh > buf_h;
-    if (overflows) {
+    if (overflows and uucode_utils.isWideCandidate(codepoint)) {
         blitScaledAlpha(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w, cell_ascent_px, cap_height_px);
         return .{ .format = .alpha };
     }
