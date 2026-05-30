@@ -108,13 +108,13 @@ fn format(self: *Self) void {
     };
     const indent_mode = switch (self.indent_mode) {
         .spaces, .auto => "",
-        .tabs => " ⭾ ",
+        .tabs => " ⭾",
     };
     writer.print("{s}{s} ", .{ eol_mode, indent_mode }) catch {};
 
     const displayColumn = if (self.col0 orelse false) self.column else self.column + 1;
     (blk: switch (self.mode orelse .default) {
-        .default => writer.print("Ln {f}, Col {f} ", .{
+        .default => writer.print(" Ln {f}, Col {f} ", .{
             digits_fmt(self, self.line + 1),
             digits_fmt(self, displayColumn),
         }),
