@@ -134,7 +134,15 @@ fn format(self: *Self) void {
                 writer.print(" Bot", .{}) catch {}
             else {
                 const percent = (self.line * 1000) / (self.lines * 10);
-                writer.print(" {f}%", .{digits_fmt(self, percent)}) catch {};
+                writer.print(" {s}{d}%", .{
+                    if (percent >= 10)
+                        ""
+                    else switch (self.leader orelse .space) {
+                        .space => " ",
+                        .zero => "0",
+                    },
+                    percent,
+                }) catch {};
             }
             continue :blk .compact;
         },
