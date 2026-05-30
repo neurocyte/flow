@@ -394,7 +394,7 @@ pub const Editor = struct {
         dirty: bool = false,
         eol_mode: Buffer.EolMode = .lf,
         utf8_sanitized: bool = false,
-        indent_mode: IndentMode = .spaces,
+        indent_mode: IndentMode = .auto,
     } = .{},
 
     file_type: ?file_type_config = null,
@@ -2020,6 +2020,7 @@ pub const Editor = struct {
         self.last.root = root;
         self.last.eol_mode = eol_mode;
         self.last.utf8_sanitized = utf8_sanitized;
+        self.last.indent_mode = self.indent_mode;
     }
 
     fn send_editor_pos(self: *const Self, lines: usize, cursor: *const Cursor) !void {
