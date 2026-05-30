@@ -101,13 +101,24 @@
     },
     "overlay/palette": {
         "press": [
+            ["ctrl+w", "overlay_delete_word_left"],
             ["ctrl+a", "palette_menu_top"],
             ["ctrl+f", "palette_menu_down"]
         ]
     },
     "mini/file_browser": {
         "press": [
-            ["alt+backspace", "mini_mode_delete_to_previous_path_segment"]
+            ["ctrl+w", "mini_mode_delete_to_previous_path_segment"]
+        ]
+    },
+    "mini/find": {
+        "press": [
+            ["ctrl+w", "mini_mode_delete_word_left"]
+        ]
+    },
+    "mini/find_in_files": {
+        "press": [
+            ["ctrl+w", "mini_mode_delete_word_left"]
         ]
     },
     "home": {
