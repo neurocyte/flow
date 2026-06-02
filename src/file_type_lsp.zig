@@ -69,6 +69,11 @@ pub const gleam = .{
     .formatter = .{ "gleam", "format", "--stdin" },
 };
 
+pub const glsl = .{
+    .language_server = .{"glsl_analyzer"},
+    .formatter = .{"clang-format"},
+};
+
 pub const go = .{
     .language_server = .{"gopls"},
     .formatter = .{"gofmt"},
