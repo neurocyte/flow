@@ -1632,6 +1632,36 @@ const cmds = struct {
     }
     pub const reset_fontsize_meta: Meta = .{ .description = "Reset font to configured size" };
 
+    pub fn set_background_opacity(_: *Self, ctx: Ctx) Result {
+        var value: f32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&value)}))
+            return error.InvalidArgument;
+        if (build_options.gui)
+            tui.rdr().set_background_opacity(value);
+    }
+    pub const set_background_opacity_meta: Meta = .{ .arguments = &.{.float} };
+
+    pub fn adjust_background_opacity(_: *Self, ctx: Ctx) Result {
+        var delta: f32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&delta)}))
+            return error.InvalidArgument;
+        if (build_options.gui)
+            tui.rdr().adjust_background_opacity(delta);
+    }
+    pub const adjust_background_opacity_meta: Meta = .{ .arguments = &.{.float}, .description = "Adjust window opacity" };
+
+    pub fn reset_background_opacity(_: *Self, _: Ctx) Result {
+        if (build_options.gui)
+            tui.rdr().reset_background_opacity();
+    }
+    pub const reset_background_opacity_meta: Meta = .{ .description = "Reset window opacity" };
+
+    pub fn toggle_ignore_theme_alpha(_: *Self, _: Ctx) Result {
+        if (build_options.gui)
+            tui.rdr().toggle_ignore_theme_alpha();
+    }
+    pub const toggle_ignore_theme_alpha_meta: Meta = .{ .description = "Toggle theme alpha" };
+
     pub fn set_fontface(_: *Self, ctx: Ctx) Result {
         var fontface: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&fontface)}))
