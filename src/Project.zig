@@ -1673,7 +1673,7 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
                 if (std.mem.eql(u8, field_name, "detail")) {
                     if (!(try cbor.matchValue(&iter, cbor.extract(&label_detail)))) return invalid_completion_item_field("labelDetails.detail");
                 } else if (std.mem.eql(u8, field_name, "description")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_description)))) return invalid_completion_item_field("labelDetails.description");
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_description)))) try cbor.skipValue(&iter);
                 } else {
                     try cbor.skipValue(&iter);
                 }
@@ -1681,8 +1681,9 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
         } else if (std.mem.eql(u8, field_name, "kind")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return invalid_completion_item_field("kind");
         } else if (std.mem.eql(u8, field_name, "detail")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) return invalid_completion_item_field("detail");
+            if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) try cbor.skipValue(&iter);
         } else if (std.mem.eql(u8, field_name, "documentation")) {
+            if (try cbor.matchValue(&iter, cbor.null_)) continue;
             var len_ = cbor.decodeMapHeader(&iter) catch return;
             while (len_ > 0) : (len_ -= 1) {
                 if (!(try cbor.matchString(&iter, &field_name))) return invalid_completion_item_field("documentation");
