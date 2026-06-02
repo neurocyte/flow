@@ -114,6 +114,10 @@ var stop_requested: std.atomic.Value(bool) = .init(false);
 var background_color: std.atomic.Value(u32) = .init(RGBA.init(0, 255, 255, 255).to_u32()); // warning yellow, we should never see the default
 var background_dirty: std.atomic.Value(bool) = .init(false);
 
+var window_transparency: bool = false;
+var background_opacity: std.atomic.Value(u32) = .init(@bitCast(@as(f32, 0.5))); // f32 stored via u32 bitcast
+var ignore_theme_alpha: std.atomic.Value(bool) = .init(true);
+
 var dark_mode: std.atomic.Value(bool) = .init(true);
 var dark_mode_dirty: std.atomic.Value(bool) = .init(true);
 
@@ -211,8 +215,8 @@ pub fn updateScreen(
         allocator.free(snapshot_layers);
     }
 
-    for (layers, snapshot_layers) |*lv, *ls| {
-        ls.* = buildLayerSnapshot(allocator, lv) catch return;
+    for (layers, snapshot_layers, 0..) |*lv, *ls, idx| {
+        ls.* = buildLayerSnapshot(allocator, lv, idx == 0) catch return;
         built += 1;
     }
 
@@ -236,6 +240,7 @@ pub fn updateScreen(
 fn buildLayerSnapshot(
     allocator: std.mem.Allocator,
     lv: *const LayerView,
+    is_root: bool,
 ) std.mem.Allocator.Error!LayerSnapshot {
     const cell_count: usize = @as(usize, lv.screen.width) * @as(usize, lv.screen.height);
     const cells = try allocator.alloc(gpu.Cell, cell_count);
@@ -248,6 +253,10 @@ fn buildLayerSnapshot(
     @memcpy(cursors[0..lv.secondary_cursors.len], lv.secondary_cursors);
     cursors[lv.secondary_cursors.len] = lv.cursor;
 
+    const opacity: f32 = @bitCast(background_opacity.load(.acquire));
+    const ignore = ignore_theme_alpha.load(.acquire);
+    const transparent = window_transparency;
+
     // Convert vaxis cells to gpu.Cell (colours only; glyph indices filled on GPU thread).
     for (lv.screen.buf[0..cell_count], cells, codepoints, widths) |*vc, *gc, *cp, *wt| {
         const ul_color: RGBA = switch (vc.style.ul) {
@@ -256,9 +265,18 @@ fn buildLayerSnapshot(
         };
         const face: u8 = (@as(u8, @intFromBool(vc.style.bold)) << 0) |
             (@as(u8, @intFromBool(vc.style.italic)) << 1);
+        var bg = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg);
+        if (transparent) {
+            if (!is_root and vc.default) {
+                // empty non-root cells fully transparent
+                bg.a = 0;
+            } else {
+                bg.a = effectiveAlphaU8(bg.a, opacity, ignore);
+            }
+        }
         gc.* = .{
             .glyph_index = 0,
-            .background = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg),
+            .background = bg,
             .foreground = colorFromVaxis(if (vc.style.reverse) vc.style.bg else vc.style.fg),
             .underline = ul_color,
             .ul_style = @intFromEnum(vc.style.ul_style),
@@ -473,6 +491,9 @@ pub fn loadConfig() void {
     font_hinting = conf.fonthinting;
     font_line_height = if (conf.lineheight == 0) 100 else conf.lineheight;
     block_and_line_symbols = conf.block_and_line_symbols;
+    window_transparency = conf.gui_window_transparency;
+    background_opacity.store(@bitCast(std.math.clamp(conf.gui_background_opacity, 0.0, 1.0)), .release);
+    ignore_theme_alpha.store(conf.gui_ignore_theme_alpha, .release);
     const name = conf.fontface;
     const copy_len = @min(name.len, font_name_buf.len);
     @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
@@ -488,6 +509,9 @@ fn saveConfig() void {
     conf.fonthinting = font_hinting;
     conf.lineheight = font_line_height;
     conf.block_and_line_symbols = block_and_line_symbols;
+    conf.gui_window_transparency = window_transparency;
+    conf.gui_background_opacity = @bitCast(background_opacity.load(.acquire));
+    conf.gui_ignore_theme_alpha = ignore_theme_alpha.load(.acquire);
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
@@ -565,6 +589,22 @@ fn colorFromVaxis(color: vaxis.Cell.Color) RGBA {
     };
 }
 
+fn applyOpacity(theme_a: f32, opacity: f32) f32 {
+    const o = std.math.clamp(opacity, 0.0, 2.0);
+    return if (o <= 1.0)
+        theme_a * o
+    else
+        theme_a + (1.0 - theme_a) * (o - 1.0);
+}
+
+fn effectiveAlphaU8(theme_a_u8: u8, opacity: f32, ignore: bool) u8 {
+    const a: f32 = if (ignore)
+        std.math.clamp(opacity, 0.0, 1.0)
+    else
+        applyOpacity(@as(f32, @floatFromInt(theme_a_u8)) / 255.0, opacity);
+    return @intFromFloat(@round(a * 255.0));
+}
+
 // ── wio main loop (runs on dedicated thread) ──────────────────────────────
 //
 // Only the OS message pump runs here. GL/D3D/sg/gpu/paint all live on the
@@ -593,6 +633,7 @@ fn wioLoop() void {
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
         .gl_options = if (builtin.os.tag == .windows) null else gl_options(),
+        // .transparent = window_transparency, // upstream wio transparency flag PR
     }) catch |e| {
         log.err("wio.createWindow failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
@@ -889,6 +930,7 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
         tui_pid.send(.{"quit"}) catch {};
         return;
     };
+    gpu.setTransparent(window_transparency);
 
     const initial_size: wio.Size = .{ .width = @intCast(initial_w), .height = @intCast(initial_h) };
     render_ctx = .{
@@ -1073,6 +1115,13 @@ pub fn renderActorTick() void {
             .y = ls.height * font_set.cell_size.y,
         };
 
+        const layer_bg_alpha: u8 = if (window_transparency) blk: {
+            if (idx != 0) break :blk 0;
+            const op: f32 = @bitCast(background_opacity.load(.acquire));
+            const ig = ignore_theme_alpha.load(.acquire);
+            break :blk effectiveAlphaU8(gpu.getBackground().a, op, ig);
+        } else 0xFF;
+
         gpu.paintLayerOffscreen(
             &ctx.state,
             gop.value_ptr,
@@ -1083,6 +1132,7 @@ pub fn renderActorTick() void {
             ls.height,
             pixel_size,
             ls.cursors,
+            layer_bg_alpha,
         );
     }
 

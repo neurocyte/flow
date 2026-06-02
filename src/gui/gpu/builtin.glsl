@@ -11,9 +11,9 @@
 //                 subpixel (per-channel RGB coverage), or premultiplied
 //                 RGBA color.
 //------------------------------------------------------------------------------
-@ctype vec4 [4]f32
+#pragma sokol @ctype vec4 [4]f32
 
-@vs vs
+#pragma sokol @vs vs
 // top-left = (0,0), bottom-right = (1,1) on all platforms
 out vec2 v_uv;
 void main() {
@@ -23,9 +23,9 @@ void main() {
     v_uv = vec2(u, v);
     gl_Position = vec4(2.0 * u - 1.0, 1.0 - 2.0 * v, 0.0, 1.0);
 }
-@end
+#pragma sokol @end
 
-@fs fs
+#pragma sokol @fs fs
 in vec2 v_uv;
 
 layout(binding=0) uniform fs_params {
@@ -40,10 +40,10 @@ layout(binding=1) uniform texture2D cell_tex;
 layout(binding=0) uniform sampler glyph_smp;
 layout(binding=1) uniform sampler cell_smp;
 
-@image_sample_type glyph_tex unfilterable_float
-@image_sample_type cell_tex float
-@sampler_type glyph_smp nonfiltering
-@sampler_type cell_smp nonfiltering
+#pragma sokol @image_sample_type glyph_tex unfilterable_float
+#pragma sokol @image_sample_type cell_tex float
+#pragma sokol @sampler_type glyph_smp nonfiltering
+#pragma sokol @sampler_type cell_smp nonfiltering
 
 out vec4 frag_color;
 
@@ -64,7 +64,7 @@ void main() {
     int row = py / cell_size_y;
 
     if (col >= col_count || row >= row_count || row < 0 || col < 0) {
-        frag_color = vec4(bg_color.rgb, 1.0);
+        frag_color = vec4(bg_color.rgb, bg_color.a);
         return;
     }
 
@@ -121,6 +121,7 @@ void main() {
 
     vec3 final_bg = bg.rgb;
     vec3 final_fg = fg.rgb;
+    float final_a = bg.a;
 
     if (cur_shape != 0u) {
         vec3 cur = vec3(
@@ -136,16 +137,19 @@ void main() {
             // Underline: 2px horizontal bar at bottom of cell
             if (cell_px_y >= cell_size_y - 2) { frag_color = vec4(cur, 1.0); return; }
         } else {
-            // Block: cursor colour as bg, inverted for glyph contrast
+            // Block: cursor colour as bg, inverted for glyph contrast, always opaque
             final_bg = cur;
             final_fg = vec3(1.0) - cur;
+            final_a = 1.0;
         }
     }
 
     vec3 composed;
     if (glyph_kind == 0u) {
         // Alpha coverage in the red channel; blend fg over bg.
-        composed = mix(final_bg, final_fg, fg.a * glyph_sample.r);
+        float cov = fg.a * glyph_sample.r;
+        composed = mix(final_bg, final_fg, cov);
+        final_a = final_a + (1.0 - final_a) * cov;
     } else if (glyph_kind == 1u) {
         // Per-channel subpixel coverage.
         composed = vec3(
@@ -153,9 +157,13 @@ void main() {
             mix(final_bg.g, final_fg.g, fg.a * glyph_sample.g),
             mix(final_bg.b, final_fg.b, fg.a * glyph_sample.b)
         );
+        // Approximate alpha coverage as luminance-weighted.
+        float cov = fg.a * dot(glyph_sample.rgb, vec3(0.299, 0.587, 0.114));
+        final_a = final_a + (1.0 - final_a) * cov;
     } else {
         // Premultiplied RGBA color glyph composited over background.
         composed = glyph_sample.rgb + final_bg * (1.0 - glyph_sample.a);
+        final_a = glyph_sample.a + final_a * (1.0 - glyph_sample.a);
     }
 
     // Underline overlay
@@ -194,21 +202,27 @@ void main() {
             if ((cell_px_y >= ul_top) && (cell_px_y < ul_top + thick) &&
                 ((cell_px_x % (2 * seg)) < seg)) ul_alpha = 1.0;
         }
-        if (ul_alpha > 0.0) composed = mix(composed, ul_rgb, ul_alpha);
+        if (ul_alpha > 0.0) {
+            composed = mix(composed, ul_rgb, ul_alpha);
+            final_a = final_a + (1.0 - final_a) * ul_alpha;
+        }
     }
 
     // Strikethrough at vertical midline (uses final_fg so it inverts under block cursor)
     if (strike) {
         int sthick = max(1, underline_thickness);
         int sy = cell_size_y / 2 - sthick / 2;
-        if (cell_px_y >= sy && cell_px_y < sy + sthick) composed = final_fg;
+        if (cell_px_y >= sy && cell_px_y < sy + sthick) {
+            composed = final_fg;
+            final_a = 1.0;
+        }
     }
 
-    frag_color = vec4(composed, 1.0);
+    frag_color = vec4(composed, final_a);
 }
-@end
+#pragma sokol @end
 
-@program builtin vs fs
+#pragma sokol @program builtin vs fs
 
 // compositing program
 // sample a source pixel buffer into the destination attachment, with
@@ -216,7 +230,7 @@ void main() {
 // this shader emits a full-viewport quad and lets the caller decide where
 // it lands.
 
-@fs fs_composite
+#pragma sokol @fs fs_composite
 in vec2 v_uv;
 
 layout(binding=1) uniform fs_composite_params {
@@ -229,8 +243,8 @@ layout(binding=1) uniform fs_composite_params {
 layout(binding=2) uniform texture2D src_tex;
 layout(binding=2) uniform sampler src_smp;
 
-@image_sample_type src_tex float
-@sampler_type src_smp filtering
+#pragma sokol @image_sample_type src_tex float
+#pragma sokol @sampler_type src_smp filtering
 
 out vec4 frag_color;
 
@@ -241,10 +255,34 @@ void main() {
     // sg.queryFeatures().origin_top_left.
     vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, sample_flip.x));
     vec4 s = texture(sampler2D(src_tex, src_smp), uv);
-    // Premultiplied-alpha output
-    float a = s.a * composite_alpha.x;
-    frag_color = vec4(s.rgb * composite_alpha.x, a);
+    // Straight-alpha output.
+    frag_color = vec4(s.rgb, s.a * composite_alpha.x);
 }
-@end
+#pragma sokol @end
 
-@program composite vs fs_composite
+#pragma sokol @program composite vs fs_composite
+
+// Identical sampling to fs_composite but emits straight (non-premultiplied) RGBA.
+#pragma sokol @fs fs_present
+in vec2 v_uv;
+
+layout(binding=2) uniform fs_present_params {
+    vec4 present_sample_flip;  // .x = 1.0 to flip Y on sample
+};
+
+layout(binding=3) uniform texture2D present_tex;
+layout(binding=3) uniform sampler present_smp;
+
+#pragma sokol @image_sample_type present_tex float
+#pragma sokol @sampler_type present_smp filtering
+
+out vec4 frag_color;
+
+void main() {
+    vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, present_sample_flip.x));
+    vec4 s = texture(sampler2D(present_tex, present_smp), uv);
+    frag_color = vec4(s.rgb, s.a);
+}
+#pragma sokol @end
+
+#pragma sokol @program present vs fs_present

@@ -110,12 +110,14 @@ const global = struct {
     var pip: sg.Pipeline = .{};
     var composite_replace_pip: sg.Pipeline = .{};
     var composite_srcover_pip: sg.Pipeline = .{};
+    var present_pip: sg.Pipeline = .{};
     var glyph_sampler: sg.Sampler = .{};
     var cell_sampler: sg.Sampler = .{};
     var src_sampler: sg.Sampler = .{};
     var glyph_cache_arena: std.heap.ArenaAllocator = undefined;
     var background: RGBA = .init(0, 255, 255, 255); // default is warning yellow
     var composite_sample_flip_y: f32 = 0.0;
+    var transparent: bool = false;
 };
 
 pub fn init(allocator: std.mem.Allocator) !void {
@@ -142,10 +144,9 @@ pub fn init(allocator: std.mem.Allocator) !void {
     var composite_srcover_desc: sg.PipelineDesc = .{ .shader = composite_shd };
     composite_srcover_desc.primitive_type = .TRIANGLE_STRIP;
     composite_srcover_desc.color_count = 1;
-    // Premultiplied source-over: dst = src + dst * (1 - src.a)
     composite_srcover_desc.colors[0].blend = .{
         .enabled = true,
-        .src_factor_rgb = .ONE,
+        .src_factor_rgb = .SRC_ALPHA,
         .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
         .op_rgb = .ADD,
         .src_factor_alpha = .ONE,
@@ -153,6 +154,12 @@ pub fn init(allocator: std.mem.Allocator) !void {
         .op_alpha = .ADD,
     };
     global.composite_srcover_pip = sg.makePipeline(composite_srcover_desc);
+
+    const present_shd = sg.makeShader(shader.presentShaderDesc(sg.queryBackend()));
+    var present_desc: sg.PipelineDesc = .{ .shader = present_shd };
+    present_desc.primitive_type = .TRIANGLE_STRIP;
+    present_desc.color_count = 1;
+    global.present_pip = sg.makePipeline(present_desc);
 
     global.composite_sample_flip_y = if (sg.queryFeatures().origin_top_left) 0.0 else 1.0;
 
@@ -186,6 +193,7 @@ pub fn deinit() void {
     sg.destroyPipeline(global.pip);
     sg.destroyPipeline(global.composite_replace_pip);
     sg.destroyPipeline(global.composite_srcover_pip);
+    sg.destroyPipeline(global.present_pip);
     sg.destroySampler(global.glyph_sampler);
     sg.destroySampler(global.cell_sampler);
     sg.destroySampler(global.src_sampler);
@@ -227,6 +235,14 @@ pub fn setBackground(color: RGBA) void {
 
 pub fn getBackground() RGBA {
     return global.background;
+}
+
+pub fn setTransparent(on: bool) void {
+    global.transparent = on;
+}
+
+pub fn isTransparent() bool {
+    return global.transparent;
 }
 
 // ── WindowState ────────────────────────────────────────────────────────────
@@ -508,6 +524,7 @@ pub fn paintLayerOffscreen(
     rows: u16,
     pixel_size: XY(u16),
     cursors: []const CursorInfo,
+    bg_alpha: u8,
 ) void {
     if (cols == 0 or rows == 0) return;
     if (pixel_size.x == 0 or pixel_size.y == 0) return;
@@ -577,7 +594,11 @@ pub fn paintLayerOffscreen(
             0,
             0,
         },
-        .bg_color = global.background.to_vec4(),
+        .bg_color = blk: {
+            var v = global.background.to_vec4();
+            v[3] = @as(f32, @floatFromInt(bg_alpha)) / 255.0;
+            break :blk v;
+        },
     };
     sg.applyUniforms(shader.UB_fs_params, .{
         .ptr = &fs_params,
@@ -663,7 +684,7 @@ pub fn presentLayerToSwapchain(
             .r = @as(f32, @floatFromInt(global.background.r)) / 255.0,
             .g = @as(f32, @floatFromInt(global.background.g)) / 255.0,
             .b = @as(f32, @floatFromInt(global.background.b)) / 255.0,
-            .a = 1.0,
+            .a = if (global.transparent) 0.0 else 1.0,
         },
     };
 
@@ -686,21 +707,40 @@ pub fn presentLayerToSwapchain(
         .action = pass_action,
     });
 
-    sg.applyPipeline(global.composite_replace_pip);
+    if (global.transparent) {
+        // straight-alpha
+        sg.applyPipeline(global.present_pip);
 
-    var bindings: sg.Bindings = .{};
-    bindings.views[shader.VIEW_src_tex] = src_layer_state.pixel_view;
-    bindings.samplers[shader.SMP_src_smp] = global.src_sampler;
-    sg.applyBindings(bindings);
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_present_tex] = src_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_present_smp] = global.src_sampler;
+        sg.applyBindings(bindings);
 
-    const fs_params = shader.FsCompositeParams{
-        .composite_alpha = .{ 1.0, 0, 0, 0 },
-        .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
-    };
-    sg.applyUniforms(shader.UB_fs_composite_params, .{
-        .ptr = &fs_params,
-        .size = @sizeOf(shader.FsCompositeParams),
-    });
+        const present_params = shader.FsPresentParams{
+            .present_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_present_params, .{
+            .ptr = &present_params,
+            .size = @sizeOf(shader.FsPresentParams),
+        });
+    } else {
+        // premultiplied alpha
+        sg.applyPipeline(global.composite_replace_pip);
+
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_src_tex] = src_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_src_smp] = global.src_sampler;
+        sg.applyBindings(bindings);
+
+        const fs_params = shader.FsCompositeParams{
+            .composite_alpha = .{ 1.0, 0, 0, 0 },
+            .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_composite_params, .{
+            .ptr = &fs_params,
+            .size = @sizeOf(shader.FsCompositeParams),
+        });
+    }
 
     sg.draw(0, 4, 1);
     sg.endPass();
@@ -829,7 +869,7 @@ pub fn paint(
             .r = @as(f32, @floatFromInt(global.background.r)) / 255.0,
             .g = @as(f32, @floatFromInt(global.background.g)) / 255.0,
             .b = @as(f32, @floatFromInt(global.background.b)) / 255.0,
-            .a = 1.0,
+            .a = if (global.transparent) 0.0 else 1.0,
         },
     };
 
