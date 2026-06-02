@@ -749,7 +749,7 @@ fn write_config_value(T: type, value: T, writer: *std.Io.Writer) !void {
             try write_color_value(v, writer)
         else
             try writer.writeAll("null"),
-        f32, f64 => try writer.print("{}", .{value}),
+        f32, f64 => try writer.print("{:.2}", .{value}),
         else => {
             var s: std.json.Stringify = .{ .writer = writer, .options = .{ .whitespace = .minified } };
             try s.write(value);
