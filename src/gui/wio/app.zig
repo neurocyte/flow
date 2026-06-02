@@ -673,7 +673,7 @@ fn wioLoop() void {
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
         .gl_options = if (builtin.os.tag == .windows) null else gl_options(),
-        // .transparent = window_transparency, // upstream wio transparency flag PR
+        .transparent = window_transparency,
     }) catch |e| {
         log.err("wio.createWindow failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
@@ -947,7 +947,7 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
 
     var swapchain: if (builtin.os.tag == .windows) D3D11Swapchain else void = undefined;
     if (builtin.os.tag == .windows) {
-        swapchain = D3D11Swapchain.init(hwnd, @intCast(@max(1, initial_w)), @intCast(@max(1, initial_h))) catch |e| {
+        swapchain = D3D11Swapchain.init(hwnd, @intCast(@max(1, initial_w)), @intCast(@max(1, initial_h)), window_transparency) catch |e| {
             log.err("d3d11_swapchain.init failed: {s}", .{@errorName(e)});
             tui_pid.send(.{"quit"}) catch {};
             return;
@@ -1059,12 +1059,13 @@ pub fn renderActorTick() void {
 
     if (background_dirty.swap(false, .acq_rel)) {
         const color_u32 = background_color.load(.acquire);
-        gpu.setBackground(.{
-            .r = @truncate(color_u32 >> 24),
-            .g = @truncate(color_u32 >> 16),
-            .b = @truncate(color_u32 >> 8),
-            .a = @truncate(color_u32),
-        });
+        const r: u8 = @truncate(color_u32 >> 24);
+        const g: u8 = @truncate(color_u32 >> 16);
+        const b: u8 = @truncate(color_u32 >> 8);
+        const a: u8 = @truncate(color_u32);
+        gpu.setBackground(.{ .r = r, .g = g, .b = b, .a = a });
+        if (builtin.os.tag == .windows and window_transparency)
+            ctx.swapchain.setChromeColor(r, g, b);
     }
 
     ctx.frame_counter += 1;
