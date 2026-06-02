@@ -2209,6 +2209,7 @@ pub fn theme() *const Widget.Theme {
 }
 
 pub fn find_scope_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
+    if (theme_.scope_type != .text_mate) return scope_to_theme_token(theme_, scope);
     return if (find_scope_fallback(scope)) |tm_scope|
         scope_to_theme_token(theme_, tm_scope) orelse
             scope_to_theme_token(theme_, scope)

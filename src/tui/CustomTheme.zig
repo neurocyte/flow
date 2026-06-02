@@ -61,6 +61,8 @@ ansi_bright_white: Theme.Color,
 
 ansi_palette: [16][3]u8,
 
+scope_type: Theme.ScopeType,
+
 tokens: Tokens,
 
 pub const Token = struct { scope: []const u8, style: Theme.Style };
@@ -134,6 +136,8 @@ pub fn toTheme(self: @This(), allocator: std.mem.Allocator, scope_list: *std.Arr
         .ansi_bright_white = self.ansi_bright_white,
 
         .ansi_palette = self.ansi_palette,
+
+        .scope_type = self.scope_type,
 
         .tokens = try toTokens(allocator, self.tokens, scope_list),
     };
@@ -219,6 +223,8 @@ pub fn fromTheme(allocator: std.mem.Allocator, theme: Theme, scopes: [][]const u
         .ansi_bright_white = theme.ansi_bright_white,
 
         .ansi_palette = theme.ansi_palette,
+
+        .scope_type = theme.scope_type,
 
         .tokens = try fromTokens(allocator, theme.tokens, scopes),
     };
