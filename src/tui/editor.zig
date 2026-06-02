@@ -4696,11 +4696,12 @@ pub const Editor = struct {
     }
 
     pub fn indent_at(self: *Self, ctx: Context) Result {
+        if (self.pop_tabstop()) return;
         const b = try self.buf_for_update();
         const root = try self.with_cursels_mut_repeat(b.root, indent_at_cursel, b.allocator, ctx);
         try self.update_buf(root, ctx.now);
     }
-    pub const indent_at_meta: Meta = .{ .description = "Add indentation at cursor", .arguments = &.{.integer} };
+    pub const indent_at_meta: Meta = .{ .description = "Add indentation at cursor (or pop tabstop)", .arguments = &.{.integer} };
 
     fn indent_cursor(self: *Self, root_: Buffer.Root, cursor: Cursor, no_blank_line: bool, allocator: Allocator) error{Stop}!Buffer.Root {
         const space = "                                ";
