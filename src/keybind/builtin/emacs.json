@@ -3,8 +3,6 @@
         "press": [
             ["f4", "toggle_input_mode"],
             ["ctrl+0", "reset_fontsize"],
-            ["ctrl+=", "adjust_fontsize", 1.0],
-            ["ctrl+-", "adjust_fontsize", -1.0],
             ["ctrl+r", "find_file"],
             ["ctrl+x d", "open_file_tree"],
             ["ctrl+h ctrl+a", "open_help"],
@@ -127,8 +125,6 @@
             ["f", "change_fontface"],
             ["f4", "toggle_input_mode"],
             ["ctrl+0", "reset_fontsize"],
-            ["ctrl+=", "adjust_fontsize", 1.0],
-            ["ctrl+-", "adjust_fontsize", -1.0],
             ["ctrl+r", "find_file"],
             ["ctrl+h ctrl+a", "open_help"],
             ["ctrl+x ctrl+f", "open_file"],
