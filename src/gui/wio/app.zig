@@ -117,6 +117,7 @@ var background_dirty: std.atomic.Value(bool) = .init(false);
 var window_transparency: bool = false;
 var background_opacity: std.atomic.Value(u32) = .init(@bitCast(@as(f32, 0.5))); // f32 stored via u32 bitcast
 var ignore_theme_alpha: std.atomic.Value(bool) = .init(true);
+var opacity_dirty: std.atomic.Value(bool) = .init(false);
 
 var dark_mode: std.atomic.Value(bool) = .init(true);
 var dark_mode_dirty: std.atomic.Value(bool) = .init(true);
@@ -346,6 +347,45 @@ pub fn resetFontSize() void {
         break :blk ptr.*;
     };
     setFontSize(@floatFromInt(default));
+}
+
+pub fn setBackgroundOpacity(value: f32) void {
+    const max_alpha: f32 = if (ignore_theme_alpha.load(.acquire)) 1.0 else 2.0;
+    const o = std.math.clamp(value, 0.0, max_alpha);
+    background_opacity.store(@bitCast(o), .release);
+    saveConfig();
+    opacity_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn adjustBackgroundOpacity(delta: f32) void {
+    const cur: f32 = @bitCast(background_opacity.load(.acquire));
+    setBackgroundOpacity(cur + delta);
+}
+
+pub fn resetBackgroundOpacity() void {
+    const default = comptime blk: {
+        const field = std.meta.fieldInfo(gui_config, .gui_background_opacity);
+        const ptr: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
+        break :blk ptr.*;
+    };
+    setBackgroundOpacity(default);
+}
+
+pub fn toggleIgnoreThemeAlpha() void {
+    const next = !ignore_theme_alpha.load(.acquire);
+    ignore_theme_alpha.store(next, .release);
+    saveConfig();
+    opacity_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getBackgroundOpacity() f32 {
+    return @bitCast(background_opacity.load(.acquire));
+}
+
+pub fn getIgnoreThemeAlpha() bool {
+    return ignore_theme_alpha.load(.acquire);
 }
 
 pub fn resetFontFace() void {
@@ -992,6 +1032,10 @@ pub fn renderActorTick() void {
         gpu.invalidateGlyphCache(&ctx.state);
         sendResize(ctx.win_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
     }
+
+    // Force re-render to recompute alpha.
+    if (opacity_dirty.swap(false, .acq_rel))
+        sendResize(ctx.win_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
 
     // Apply dark titlebar (Win32). This is a window attribute API; it's safe
     // from any thread but conceptually belongs near the paint.

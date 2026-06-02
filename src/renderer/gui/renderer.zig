@@ -624,6 +624,26 @@ pub fn reset_fontsize(self: *Self) void {
     app.resetFontSize();
 }
 
+pub fn set_background_opacity(self: *Self, value: f32) void {
+    _ = self;
+    app.setBackgroundOpacity(value);
+}
+
+pub fn adjust_background_opacity(self: *Self, delta: f32) void {
+    _ = self;
+    app.adjustBackgroundOpacity(delta);
+}
+
+pub fn reset_background_opacity(self: *Self) void {
+    _ = self;
+    app.resetBackgroundOpacity();
+}
+
+pub fn toggle_ignore_theme_alpha(self: *Self) void {
+    _ = self;
+    app.toggleIgnoreThemeAlpha();
+}
+
 pub fn set_fontface(self: *Self, fontface: []const u8) void {
     _ = self;
     app.setFontFace(fontface);
