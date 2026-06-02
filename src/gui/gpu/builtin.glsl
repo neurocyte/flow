@@ -281,7 +281,8 @@ out vec4 frag_color;
 void main() {
     vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, present_sample_flip.x));
     vec4 s = texture(sampler2D(present_tex, present_smp), uv);
-    frag_color = vec4(s.rgb, s.a);
+    // Premultiplied-alpha output
+    frag_color = vec4(s.rgb * s.a, s.a);
 }
 #pragma sokol @end
 
