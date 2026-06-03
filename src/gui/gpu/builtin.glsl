@@ -142,14 +142,18 @@ void main() {
             // Underline: 2px horizontal bar at bottom of cell
             if (cell_px_y >= cell_size_y - 2) { frag_color = vec4(cur, 1.0); return; }
         } else if (cur_shape == 4u) {
-            // Unfocused: 2px hollow frame; cell bg + glyph render normally inside.
+            // Unfocused: 2px hollow frame; cell bg (dimmed) + glyph render normally inside.
             int t = 2;
             bool on_edge =
                 cell_px_x < t ||
                 cell_px_x >= cell_size_x - t ||
                 cell_px_y < t ||
                 cell_px_y >= cell_size_y - t;
-            if (on_edge) { frag_color = vec4(cur, 1.0); return; }
+            if (on_edge) {
+                vec3 dim = mix(cur, bg.rgb, 0.5);
+                frag_color = vec4(dim, 1.0);
+                return;
+            }
         }
     }
 

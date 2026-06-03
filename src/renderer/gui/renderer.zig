@@ -357,13 +357,12 @@ pub fn render(self: *Self) error{}!?i64 {
             const shape = vaxisCursorShape(s.cursor_shape);
             const blinks = isBlink(s.cursor_shape);
             const vis = if (blinks) self.blink_on else true;
-            const primary_color = if (shape == .unfocused) self.secondary_color else self.cursor_color;
             lv.cursor = .{
                 .vis = vis,
                 .row = s.cursor.row,
                 .col = s.cursor.col,
                 .shape = shape,
-                .color = primary_color,
+                .color = self.cursor_color,
             };
             for (s.cursor_secondary) |sc| {
                 self.secondary_cursors_buf.append(self.allocator, .{
