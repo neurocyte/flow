@@ -390,6 +390,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.vt.vt.draw(self.allocator, self.plane.window, focused_view) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
+    if (!focused_view) self.plane.window.setCursorShape(.unfocused);
 
     // Resolve ANSI colour indices 0–15 to theme RGB values
     {
