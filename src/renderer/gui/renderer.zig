@@ -73,8 +73,7 @@ blink_epoch: i64 = 0,
 blink_period_us: i64 = 500_000,
 blink_idle_us: i64 = 15_000_000,
 blink_last_change: i64 = 0,
-prev_cursor: app.CursorInfo = .{},
-prev_cursor_blink: bool = false,
+prev_cursors_hash: u64 = 0,
 
 const global = struct {
     var init_called: bool = false;
@@ -263,47 +262,6 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
 pub fn render(self: *Self) error{}!?i64 {
     if (!self.window_ready) return null;
 
-    const active_screen: ?*vaxis.Screen = &self.vx.screen;
-    var cursor: app.CursorInfo = .{};
-    if (active_screen) |s| if (s.cursor_vis) {
-        cursor = .{
-            .vis = true,
-            .row = s.cursor.row,
-            .col = s.cursor.col,
-            .shape = vaxisCursorShape(s.cursor_shape),
-            .color = self.cursor_color,
-        };
-    };
-    const cursor_blink: bool = if (active_screen) |s| isBlink(s.cursor_shape) else false;
-
-    if (cursor.vis != self.prev_cursor.vis or
-        cursor.row != self.prev_cursor.row or
-        cursor.col != self.prev_cursor.col or
-        cursor.shape != self.prev_cursor.shape or
-        cursor_blink != self.prev_cursor_blink)
-    {
-        const now = root.get_now().toMicroseconds();
-        if (cursor.vis) {
-            self.blink_epoch = now;
-            self.blink_on = true;
-        }
-        self.blink_last_change = now;
-    }
-    self.prev_cursor = cursor;
-    self.prev_cursor_blink = cursor_blink;
-
-    if (cursor.vis and cursor_blink) {
-        const now = root.get_now().toMicroseconds();
-        const idle = now - self.blink_last_change;
-        if (idle < self.blink_idle_us) {
-            const elapsed = @mod(now - self.blink_epoch, self.blink_period_us * 2);
-            self.blink_on = elapsed < self.blink_period_us;
-            cursor.vis = self.blink_on;
-        } else {
-            cursor.vis = true; // freeze visible after idle timeout
-        }
-    }
-
     var layers_buf: std.ArrayList(app.LayerView) = .empty;
     defer layers_buf.deinit(self.allocator);
     var targets_buf: std.ArrayList(app.TargetView) = .empty;
@@ -311,34 +269,18 @@ pub fn render(self: *Self) error{}!?i64 {
     var layer_index_by_ptr: std.AutoHashMap(*Layer, u32) = .init(self.allocator);
     defer layer_index_by_ptr.deinit();
 
-    self.secondary_cursors_buf.clearRetainingCapacity();
-    if (active_screen) |s| if (s.cursor_vis) for (s.cursor_secondary) |sc| {
-        self.secondary_cursors_buf.append(self.allocator, .{
-            .vis = cursor.vis, // blink in sync with the primary cursor
-            .row = sc.row,
-            .col = sc.col,
-            .shape = vaxisCursorShape(s.cursor_shape),
-            .color = self.secondary_color,
-        }) catch break;
-    };
-
     layers_buf.append(self.allocator, .{
         .id = self.stdplane_id,
         .screen = &self.vx.screen,
-        .cursor = if (active_screen == &self.vx.screen) cursor else .{},
-        .secondary_cursors = if (active_screen == &self.vx.screen) self.secondary_cursors_buf.items else &.{},
     }) catch @panic("OOM render");
 
     for (self.targets.items) |*t| {
         const src_gop = layer_index_by_ptr.getOrPut(t.src) catch @panic("OOM render");
         if (!src_gop.found_existing) {
             src_gop.value_ptr.* = @intCast(layers_buf.items.len);
-            const is_cursor_layer = active_screen == &t.src.screen;
             layers_buf.append(self.allocator, .{
                 .id = t.src.id,
                 .screen = &t.src.screen,
-                .cursor = if (is_cursor_layer) cursor else .{},
-                .secondary_cursors = if (is_cursor_layer) self.secondary_cursors_buf.items else &.{},
             }) catch @panic("OOM render");
         }
 
@@ -363,16 +305,90 @@ pub fn render(self: *Self) error{}!?i64 {
         }) catch @panic("OOM render");
     }
 
+    // hash visible cursor state across all layers
+    var hasher = std.hash.Wyhash.init(0);
+    var any_blink: bool = false;
+    for (layers_buf.items) |lv| {
+        const s = lv.screen;
+        hasher.update(&[_]u8{@intFromBool(s.cursor_vis)});
+        if (!s.cursor_vis) continue;
+        if (isBlink(s.cursor_shape)) any_blink = true;
+        hasher.update(std.mem.asBytes(&s.cursor.row));
+        hasher.update(std.mem.asBytes(&s.cursor.col));
+        hasher.update(std.mem.asBytes(&s.cursor_shape));
+        for (s.cursor_secondary) |sc| {
+            hasher.update(std.mem.asBytes(&sc.row));
+            hasher.update(std.mem.asBytes(&sc.col));
+        }
+    }
+    const cursors_hash = hasher.final();
+
+    // any cursor change resets global blink phase
+    const now = root.get_now().toMicroseconds();
+    if (cursors_hash != self.prev_cursors_hash) {
+        self.blink_epoch = now;
+        self.blink_on = true;
+        self.blink_last_change = now;
+    }
+    self.prev_cursors_hash = cursors_hash;
+
+    if (any_blink) {
+        const idle = now - self.blink_last_change;
+        if (idle < self.blink_idle_us) {
+            const elapsed = @mod(now - self.blink_epoch, self.blink_period_us * 2);
+            self.blink_on = elapsed < self.blink_period_us;
+        } else {
+            self.blink_on = true; // freeze visible after idle timeout
+        }
+    } else {
+        self.blink_on = true;
+    }
+
+    // emit all cursors
+    self.secondary_cursors_buf.clearRetainingCapacity();
+    var sec_ranges: std.ArrayList(struct { start: usize, end: usize }) = .empty;
+    defer sec_ranges.deinit(self.allocator);
+
+    for (layers_buf.items) |*lv| {
+        const s = lv.screen;
+        const sec_start = self.secondary_cursors_buf.items.len;
+        if (s.cursor_vis) {
+            const shape = vaxisCursorShape(s.cursor_shape);
+            const blinks = isBlink(s.cursor_shape);
+            const vis = if (blinks) self.blink_on else true;
+            lv.cursor = .{
+                .vis = vis,
+                .row = s.cursor.row,
+                .col = s.cursor.col,
+                .shape = shape,
+                .color = self.cursor_color,
+            };
+            for (s.cursor_secondary) |sc| {
+                self.secondary_cursors_buf.append(self.allocator, .{
+                    .vis = vis,
+                    .row = sc.row,
+                    .col = sc.col,
+                    .shape = shape,
+                    .color = self.secondary_color,
+                }) catch break;
+            }
+        }
+        sec_ranges.append(self.allocator, .{
+            .start = sec_start,
+            .end = self.secondary_cursors_buf.items.len,
+        }) catch @panic("OOM render");
+    }
+    for (layers_buf.items, sec_ranges.items) |*lv, rng| {
+        lv.secondary_cursors = self.secondary_cursors_buf.items[rng.start..rng.end];
+    }
+
     app.updateScreen(layers_buf.items, targets_buf.items);
     self.targets.clearRetainingCapacity();
 
-    const blink_active: bool = if (active_screen) |s| s.cursor_vis and isBlink(s.cursor_shape) else false;
-    if (!blink_active) return null;
-    const now_check = root.get_now().toMicroseconds();
-    if (now_check - self.blink_last_change >= self.blink_idle_us) return null;
-    const elapsed = @mod(now_check - self.blink_epoch, self.blink_period_us * 2);
-    const deadline = now_check + (self.blink_period_us - @mod(elapsed, self.blink_period_us));
-    return deadline;
+    if (!any_blink) return null;
+    if (now - self.blink_last_change >= self.blink_idle_us) return null;
+    const elapsed = @mod(now - self.blink_epoch, self.blink_period_us * 2);
+    return now + (self.blink_period_us - @mod(elapsed, self.blink_period_us));
 }
 
 pub fn sigwinch(self: *Self) !void {
