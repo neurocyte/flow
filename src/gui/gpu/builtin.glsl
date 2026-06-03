@@ -130,17 +130,26 @@ void main() {
             float((cur_packed >> 24u) & 255u) / 255.0
         );
 
-        if (cur_shape == 2u) {
+        if (cur_shape == 1u) {
+            // Block: cursor colour as bg, inverted for glyph contrast, always opaque
+            final_bg = cur;
+            final_fg = vec3(1.0) - cur;
+            final_a = 1.0;
+        } else if (cur_shape == 2u) {
             // Beam: 2px vertical bar at left edge of cell
             if (cell_px_x < 2) { frag_color = vec4(cur, 1.0); return; }
         } else if (cur_shape == 3u) {
             // Underline: 2px horizontal bar at bottom of cell
             if (cell_px_y >= cell_size_y - 2) { frag_color = vec4(cur, 1.0); return; }
-        } else {
-            // Block: cursor colour as bg, inverted for glyph contrast, always opaque
-            final_bg = cur;
-            final_fg = vec3(1.0) - cur;
-            final_a = 1.0;
+        } else if (cur_shape == 4u) {
+            // Unfocused: 2px hollow frame; cell bg + glyph render normally inside.
+            int t = 2;
+            bool on_edge =
+                cell_px_x < t ||
+                cell_px_x >= cell_size_x - t ||
+                cell_px_y < t ||
+                cell_px_y >= cell_size_y - t;
+            if (on_edge) { frag_color = vec4(cur, 1.0); return; }
         }
     }
 

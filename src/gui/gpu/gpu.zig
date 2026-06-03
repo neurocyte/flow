@@ -23,7 +23,7 @@ pub const SymbolRasterizer = Rasterizer.SymbolRasterizer;
 pub const Cell = @import("cell").Cell;
 pub const RGBA = @import("color").RGBA;
 
-pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2 };
+pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2, unfocused = 3 };
 
 pub const CursorInfo = struct {
     vis: bool = false,
@@ -81,7 +81,7 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
 //    3..2 : glyph_kind (00=alpha, 01=subpixel, 10=color, 11=reserved)
 //
 // Cursor field bit layout (0 → no cursor on this cell):
-//    7..0 : shape+1 (1=block, 2=beam, 3=underline)
+//    7..0 : shape+1 (1=block, 2=beam, 3=underline, 4=unfocused)
 //   31..8 : cursor color RRGGBB
 const ShaderCell = extern struct {
     glyph_index: u32,

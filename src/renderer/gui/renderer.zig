@@ -357,12 +357,13 @@ pub fn render(self: *Self) error{}!?i64 {
             const shape = vaxisCursorShape(s.cursor_shape);
             const blinks = isBlink(s.cursor_shape);
             const vis = if (blinks) self.blink_on else true;
+            const primary_color = if (shape == .unfocused) self.secondary_color else self.cursor_color;
             lv.cursor = .{
                 .vis = vis,
                 .row = s.cursor.row,
                 .col = s.cursor.col,
                 .shape = shape,
-                .color = self.cursor_color,
+                .color = primary_color,
             };
             for (s.cursor_secondary) |sc| {
                 self.secondary_cursors_buf.append(self.allocator, .{
@@ -766,15 +767,16 @@ fn themeColorToGpu(color: Color) RGBA {
 fn isBlink(shape: CursorShape) bool {
     return switch (shape) {
         .default, .block_blink, .beam_blink, .underline_blink => true,
-        else => false,
+        .block, .beam, .underline, .unfocused => false,
     };
 }
 
 fn vaxisCursorShape(shape: CursorShape) app.CursorShape {
     return switch (shape) {
-        .default, .block, .block_blink, .unfocused => .block,
+        .default, .block, .block_blink => .block,
         .beam, .beam_blink => .beam,
         .underline, .underline_blink => .underline,
+        .unfocused => .unfocused,
     };
 }
 
