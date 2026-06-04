@@ -383,7 +383,17 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             });
             if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
         },
-        .mouse => |mouse_| {
+        .mouse => |mouse__| {
+            var mouse_ = mouse__;
+            if (self.vx.state.pixel_mouse) {
+                // translate back to 0,0 coords
+                // vaxis translates SGR pixel mode's 1,1 origin coords to 0,0 origin coords,
+                // but we translate them back because our preferred terminals (kitty and ghostty)
+                // actually send 0,0 origin coordinates
+                mouse_.col += 1;
+                mouse_.row += 1;
+            }
+
             const mouse = self.vx.translateMouse(mouse_);
             try self.sync_mod_state(0, .{ .ctrl = mouse.mods.ctrl, .shift = mouse.mods.shift, .alt = mouse.mods.alt });
             if (self.dispatch_mouse) |f| switch (mouse.type) {
