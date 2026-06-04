@@ -7836,7 +7836,9 @@ pub const EditorWidget = struct {
     const Commands = command.Collection(Editor);
 
     fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
-        const container = try WidgetList.createH(allocator, parent, "editor.container", .dynamic);
+        const layer = try tui.WidgetLayerBox.create(allocator, parent, "editor.layer");
+        errdefer layer.deinit(allocator);
+        const container = try WidgetList.createH(allocator, layer.inner_plane(), "editor.container", .dynamic);
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
         try self.init(allocator, container.plane, buffer_manager, now);
@@ -7846,7 +7848,8 @@ pub const EditorWidget = struct {
         try container.add(editorWidget);
         if (tui.config().show_scrollbars)
             try container.add(try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container)));
-        return container.widget();
+        layer.set(container.widget());
+        return layer.widget();
     }
 
     fn init(self: *Self, allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !void {
