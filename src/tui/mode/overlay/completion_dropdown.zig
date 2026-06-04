@@ -41,7 +41,7 @@ pub const ValueType = struct {
     last_query: ?[]const u8 = null,
     commands: command.Collection(cmds) = undefined,
     data: []const u8 = &.{},
-    info_box: ?Widget = null,
+    info_box_layer: ?*tui.WidgetLayerBox = null,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -102,7 +102,7 @@ pub fn load_entries(self: *Type) !usize {
 pub fn deinit(self: *Type) void {
     self.allocator.free(self.value.data);
     if (self.value.last_query) |p| self.allocator.free(p);
-    if (self.value.info_box) |w| w.deinit(self.allocator);
+    if (self.value.info_box_layer) |layer| layer.deinit(self.allocator);
     self.value.commands.deinit();
 }
 
@@ -205,8 +205,8 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
         self.value.editor.plane.cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape());
     }
 
-    defer if (selected) if (self.value.info_box) |w| {
-        _ = w.render(theme);
+    defer if (selected) if (self.value.info_box_layer) |layer| {
+        _ = layer.widget().render(theme);
     };
     return tui.render_symbol(
         &button.plane,
@@ -228,9 +228,9 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
 }
 
 pub fn after_resize(self: *Type) void {
-    if (self.value.info_box) |w| {
-        w.deinit(self.allocator);
-        self.value.info_box = null;
+    if (self.value.info_box_layer) |layer| {
+        layer.deinit(self.allocator);
+        self.value.info_box_layer = null;
     }
 }
 
@@ -395,10 +395,15 @@ fn show_info_panel(mv: anytype, values: Values) !void {
 }
 
 fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
-    const w = self.value.info_box orelse blk: {
-        self.value.info_box = try info_view.create_widget_type(self.allocator, self.menu.container.plane, info_box_widget_type);
-        break :blk self.value.info_box.?;
+    const layer = self.value.info_box_layer orelse blk: {
+        const new_layer = try tui.WidgetLayerBox.create(self.allocator, tui.plane(), "completion_info.layer");
+        errdefer new_layer.deinit(self.allocator);
+        const inner = try info_view.create_widget_type(self.allocator, new_layer.inner_plane(), info_box_widget_type);
+        new_layer.set(inner);
+        self.value.info_box_layer = new_layer;
+        break :blk new_layer;
     };
+    const w = layer.widget();
     const info_ = if (w.get(@typeName(info_view))) |w_| w_.dynamic_cast(info_view) orelse null else null;
     const info = info_ orelse @panic("show_info_box");
 
@@ -419,13 +424,14 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     }
 
     const padding = tui.get_widget_style(info_box_widget_type).padding;
-    const btn_box = Widget.Box.from(button.plane);
+    const gy, const gx = button.plane.global_yx();
+    const btn_w: i32 = button.plane.dim_x();
     const dim = info.content_size();
-    w.resize(.{
+    layer.handle_resize(.{
         .h = dim.rows + padding.top + padding.bottom,
         .w = dim.cols + padding.left + padding.right + 3,
-        .y = btn_box.y,
-        .x = btn_box.x + btn_box.w + 1,
+        .y = @intCast(gy),
+        .x = @intCast(gx + btn_w + 1),
     });
 }
 
