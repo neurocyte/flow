@@ -250,8 +250,8 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    const widgets_more = self.widgets.render(theme);
     const views_more = self.floating_views.render(theme);
+    const widgets_more = self.widgets.render(theme);
     return widgets_more or views_more;
 }
 
