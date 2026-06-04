@@ -1683,32 +1683,18 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
         } else if (std.mem.eql(u8, field_name, "detail")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) try cbor.skipValue(&iter);
         } else if (std.mem.eql(u8, field_name, "documentation")) {
-            var doc_cbor: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&doc_cbor)))) return invalid_completion_item_field("documentation");
-            var doc_iter = doc_cbor;
-            if (try cbor.matchValue(&doc_iter, cbor.extract(&documentation))) {
+            if (try cbor.matchValue(&iter, cbor.extract(&documentation))) {
                 documentation_kind = "plaintext";
             } else {
-                doc_iter = doc_cbor;
-                var doc_field_name: []const u8 = undefined;
-                var doc_map_len = cbor.decodeMapHeader(&doc_iter) catch {
-                    return invalid_completion_item_field("documentation");
-                };
-
-                while (doc_map_len > 0) : (doc_map_len -= 1) {
-                    if (!(try cbor.matchString(&doc_iter, &doc_field_name))) {
-                        return invalid_completion_item_field("documentation");
-                    }
-                    if (std.mem.eql(u8, doc_field_name, "kind")) {
-                        if (!(try cbor.matchValue(&doc_iter, cbor.extract(&documentation_kind)))) {
-                            return invalid_completion_item_field("documentation.kind");
-                        }
-                    } else if (std.mem.eql(u8, doc_field_name, "value")) {
-                        if (!(try cbor.matchValue(&doc_iter, cbor.extract(&documentation)))) {
-                            return invalid_completion_item_field("documentation.value");
-                        }
+                var len_ = cbor.decodeMapHeader(&iter) catch return invalid_completion_item_field("documentation");
+                while (len_ > 0) : (len_ -= 1) {
+                    if (!(try cbor.matchString(&iter, &field_name))) return invalid_completion_item_field("documentation");
+                    if (std.mem.eql(u8, field_name, "kind")) {
+                        if (!(try cbor.matchValue(&iter, cbor.extract(&documentation_kind)))) return invalid_completion_item_field("documentation.kind");
+                    } else if (std.mem.eql(u8, field_name, "value")) {
+                        if (!(try cbor.matchValue(&iter, cbor.extract(&documentation)))) return invalid_completion_item_field("documentation.value");
                     } else {
-                        try cbor.skipValue(&doc_iter);
+                        try cbor.skipValue(&iter);
                     }
                 }
             }
