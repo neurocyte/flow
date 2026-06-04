@@ -2609,6 +2609,7 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
 pub const WidgetType = @import("config").WidgetType;
 pub const ConfigWidgetStyle = @import("config").WidgetStyle;
 pub const WidgetStyle = @import("WidgetStyle.zig");
+pub const WidgetLayerBox = @import("WidgetLayerBox.zig");
 
 pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
     const config_ = config();
