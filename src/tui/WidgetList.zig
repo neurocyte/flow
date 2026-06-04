@@ -555,21 +555,11 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     };
 }
 
-const ReparentCtx = struct {
-    surface: ?*const Plane.Surface,
-    screen: *renderer.vaxis.Screen,
-};
-
-fn reparent_walker(ctx_: *anyopaque, w: Widget) bool {
-    const ctx: *const ReparentCtx = @ptrCast(@alignCast(ctx_));
-    w.plane.window.screen = ctx.screen;
-    w.plane.parent_surface = ctx.surface;
-    return false;
-}
-
 fn reparent_subtrees(items: []WidgetState, surface: ?*const Plane.Surface, screen: *renderer.vaxis.Screen) void {
-    var ctx: ReparentCtx = .{ .surface = surface, .screen = screen };
-    for (items) |*w| _ = w.widget.walk(@ptrCast(&ctx), reparent_walker);
+    for (items) |*w| {
+        w.widget.plane.window.screen = screen;
+        w.widget.plane.parent_surface = surface;
+    }
 }
 
 fn reparent_main(self: *Self) void {
