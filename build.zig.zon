@@ -66,6 +66,10 @@
             .url = "git+https://github.com/ziglibs/diffz.git?ref=main#b39fe07e7fdbcf56e43ba2890b9f484f16969f90",
             .hash = "diffz-0.0.1-G2tlISzNAQCldmOcINavGmF1zdt20NFPXeM8d07jp_68",
         },
+        .cbor = .{
+            .url = "git+https://github.com/neurocyte/cbor?ref=master#90568ea4f14b3d26959f28590b1f2ae340abb701",
+            .hash = "cbor-1.3.0-RcQE_MltAQB4L8OOxp1ZnCDl6GeyeRBYy-0x4Q2P_Jnp",
+        },
     },
     .paths = .{
         "include",
