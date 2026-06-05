@@ -289,8 +289,8 @@ pub fn render(self: *Self) !?i64 {
 
     self.downgrade_cursor_shape();
     if (self.config_enable_terminal_cursor) {
-        self.propagate_focused_cursors_to_root();
         self.paint_unfocused_cell_cursors();
+        self.propagate_focused_cursors_to_root();
     } else {
         self.paint_all_cell_cursors();
     }
@@ -379,6 +379,15 @@ fn paint_unfocused_cell_cursors(self: *Self) void {
         for (src.cursor_secondary) |sc|
             if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
                 self.paint_dim_cell(spos.row, spos.col, self.secondary_color);
+    }
+    const scr = &self.vx.screen;
+    if (scr.cursor_vis and scr.cursor_shape == .unfocused) {
+        self.paint_dim_cell(scr.cursor.row, scr.cursor.col, self.cursor_color);
+        for (scr.cursor_secondary) |sc|
+            self.paint_dim_cell(sc.row, sc.col, self.secondary_color);
+        scr.cursor_vis = false;
+        self.allocator.free(scr.cursor_secondary);
+        scr.cursor_secondary = &.{};
     }
 }
 
