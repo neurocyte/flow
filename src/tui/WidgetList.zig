@@ -219,15 +219,13 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         null else null;
 
     var more = false;
-    var i: usize = 0;
-    for (self.widgets.items[0..]) |*w| {
+    for (self.widgets.items, 0..) |*w, i| {
         if (i < main_count) {
             const widget_box = w.widget.box();
             if (client_box.y + client_box.h <= widget_box.y) break;
             if (client_box.x + client_box.w <= widget_box.x) break;
         }
         if (w.widget.render(theme)) more = true;
-        i += 1;
     }
 
     if (trailing_target) |target| _ = tui.submit_layer(target);
