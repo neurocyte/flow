@@ -1104,13 +1104,17 @@ const cmds = struct {
     }
     pub const close_find_in_files_results_meta: Meta = .{ .description = "Close find in files results view" };
 
-    pub fn jump_back(self: *Self, _: Ctx) Result {
-        try self.location_history_.back(location_jump);
+    pub fn jump_back(self: *Self, ctx: Ctx) Result {
+        var same_file: bool = false;
+        _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
+        try self.location_history_.back(if (same_file) self.get_active_file_path() else null, location_jump);
     }
     pub const jump_back_meta: Meta = .{ .description = "Navigate back to previous history location" };
 
-    pub fn jump_forward(self: *Self, _: Ctx) Result {
-        try self.location_history_.forward(location_jump);
+    pub fn jump_forward(self: *Self, ctx: Ctx) Result {
+        var same_file: bool = false;
+        _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
+        try self.location_history_.forward(if (same_file) self.get_active_file_path() else null, location_jump);
     }
     pub const jump_forward_meta: Meta = .{ .description = "Navigate forward to next history location" };
 
