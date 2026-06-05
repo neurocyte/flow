@@ -104,9 +104,21 @@ pub const Target = struct {
 
     blend: Blend = .src_over,
     alpha: u8 = 0xFF,
+    z_index: Level = .main,
 
     pub const Blend = enum {
         replace, // dst = src
         src_over, // dst = src·a + dst·(1−a)
     };
+};
+
+pub const Level = enum(i32) {
+    background = -1,
+    root = 0,
+    main = 1,
+    statusbar = 2,
+    modal = 3,
+    overlay = 4,
+    top = 99,
+    _,
 };
