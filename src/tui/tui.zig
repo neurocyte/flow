@@ -2163,6 +2163,7 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .yoffset = @intCast(yoffset),
         .xoffset = @intCast(xoffset),
         .alpha = 204,
+        .z_index = .top,
     });
     return self.top_layer_.?.plane();
 }
