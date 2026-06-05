@@ -344,10 +344,6 @@ fn cursor_root_pos(self: *Self, src_row: u16, src_col: u16, surface: *const Laye
 
 fn propagate_focused_cursors_to_root(self: *Self) void {
     const scr = &self.vx.screen;
-    scr.cursor_vis = false;
-    self.allocator.free(scr.cursor_secondary);
-    scr.cursor_secondary = &.{};
-
     for (self.targets.items) |*t| {
         const src = &t.src.screen;
         if (!src.cursor_vis) continue;
@@ -358,16 +354,17 @@ fn propagate_focused_cursors_to_root(self: *Self) void {
         scr.cursor.col = pos.col;
         scr.cursor_shape = src.cursor_shape;
 
+        self.allocator.free(scr.cursor_secondary);
+        scr.cursor_secondary = &.{};
         if (src.cursor_secondary.len == 0) continue;
-        const old_len = scr.cursor_secondary.len;
-        const grown = self.allocator.realloc(scr.cursor_secondary, old_len + src.cursor_secondary.len) catch continue;
+        const grown = self.allocator.alloc(@TypeOf(scr.cursor_secondary[0]), src.cursor_secondary.len) catch continue;
         scr.cursor_secondary = grown;
         for (src.cursor_secondary, 0..) |sc, i| {
             const spos = self.cursor_root_pos(sc.row, sc.col, &t.src.surface) orelse {
-                scr.cursor_secondary[old_len + i] = .{ .row = 0, .col = 0 };
+                scr.cursor_secondary[i] = .{ .row = 0, .col = 0 };
                 continue;
             };
-            scr.cursor_secondary[old_len + i] = .{ .row = spos.row, .col = spos.col };
+            scr.cursor_secondary[i] = .{ .row = spos.row, .col = spos.col };
         }
     }
 }
