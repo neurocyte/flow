@@ -178,12 +178,12 @@ const RenderActor = struct {
 pub fn init(
     allocator: std.mem.Allocator,
     handler_ctx: *anyopaque,
-    no_alternate: bool,
+    _: bool, // no_alternate
+    _: bool, // enable_terminal_cursor
     dispatch_initialized: *const fn (ctx: *anyopaque) void,
 ) Error!Self {
     std.debug.assert(!global.init_called);
     global.init_called = true;
-    _ = no_alternate;
 
     const opts: vaxis.Vaxis.Options = .{
         .kitty_keyboard_flags = .{
@@ -302,6 +302,7 @@ pub fn render(self: *Self) error{}!?i64 {
             .dst_y_off = t.dst.y_off,
             .dst_width = t.dst.width,
             .dst_height = t.dst.height,
+            .z_index = @intFromEnum(t.z_index),
         }) catch @panic("OOM render");
     }
 
@@ -771,7 +772,7 @@ fn isBlink(shape: CursorShape) bool {
 
 fn vaxisCursorShape(shape: CursorShape) app.CursorShape {
     return switch (shape) {
-        .default, .block, .block_blink => .block,
+        .default, .block, .block_blink, .unfocused => .block,
         .beam, .beam_blink => .beam,
         .underline, .underline_blink => .underline,
     };

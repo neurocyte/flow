@@ -192,7 +192,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .config_bufs = conf_bufs,
         .highlight_columns_ = if (conf.highlight_columns_enabled) conf.highlight_columns else &.{},
         .highlight_columns_configured = conf.highlight_columns,
-        .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
+        .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), conf.enable_terminal_cursor, dispatch_initialized),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
@@ -696,10 +696,6 @@ fn render(self: *Self) void {
         defer frame.deinit();
         self.rdr_.stdplane().erase();
         const theme_ = self.current_theme();
-        if (has_native_cursor()) {
-            self.rdr_.stdplane().reset_all_cursors(self.allocator);
-            self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
-        }
         const continue_mainview = if (self.mainview_) |mv| mv.render(theme_) else false;
 
         switch (self.hint_mode) {
@@ -2338,10 +2334,6 @@ pub fn is_cursor_beam() bool {
         .beam, .beam_blink => true,
         else => false,
     };
-}
-
-pub fn has_native_cursor() bool {
-    return current().config_.enable_terminal_cursor;
 }
 
 pub fn get_selection_style() @import("Buffer").Selection.Style {

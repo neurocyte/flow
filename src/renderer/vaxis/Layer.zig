@@ -121,4 +121,6 @@ pub const Level = enum(i32) {
     overlay = 4,
     top = 99,
     _,
+
+    pub const default = .root;
 };

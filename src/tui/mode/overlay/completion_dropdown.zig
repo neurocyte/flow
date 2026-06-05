@@ -200,10 +200,8 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
     const icon_: []const u8 = values.kind.icon();
     const color: u24 = 0x0;
 
-    if (tui.has_native_cursor()) blk: {
-        const cursor = self.value.editor.get_primary_scr() orelse break :blk;
+    if (self.value.editor.get_primary_scr()) |cursor|
         self.value.editor.plane.cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape());
-    }
 
     defer if (selected) if (self.value.info_box_layer) |layer| {
         _ = layer.widget().render(theme);

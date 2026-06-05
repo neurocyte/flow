@@ -102,7 +102,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.home();
     }
     if (tui.mini_mode()) |_|
-        self.render_mini_mode(&btn.plane, theme)
+        self.render_mini_mode(&btn.plane)
     else if (self.detailed)
         self.render_detailed(&btn.plane, theme, auto_save)
     else
@@ -117,23 +117,15 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     return false;
 }
 
-fn render_mini_mode(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
+fn render_mini_mode(self: *Self, plane: *Plane) void {
     plane.off_styles(styles.italic);
     const mini_mode = tui.mini_mode() orelse return;
     _ = plane.putstr_unicode(" ") catch {};
     _ = plane.putstr_unicode(mini_mode.text) catch {};
     if (mini_mode.cursor) |cursor| {
         const pos: c_int = @intCast(cursor);
-        if (tui.has_native_cursor()) {
-            plane.cursor_enable(0, pos + 1, tui.get_cursor_shape());
-            self.have_mini_mode_cursor = true;
-        } else {
-            plane.cursor_move_yx(0, pos + 1);
-            var cell = plane.cell_init();
-            _ = plane.at_cursor_cell(&cell) catch return;
-            cell.set_style(theme.editor_cursor);
-            _ = plane.putc(&cell) catch {};
-        }
+        plane.cursor_enable(0, pos + 1, tui.get_cursor_shape());
+        self.have_mini_mode_cursor = true;
     }
     return;
 }
