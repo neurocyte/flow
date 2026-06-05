@@ -99,7 +99,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
     if (tui.config().top_bar.len > 0) {
         const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, "top_bar.layer");
-        bar_layer.z_index = .top;
+        bar_layer.z_index = .statusbar;
         const bar = try @import("status/bar.zig").create(allocator, bar_layer.inner_plane(), tui.config().top_bar, .none, null);
         bar_layer.set(bar);
         self.top_bar = (try widgets.addP(bar_layer.widget())).*;
