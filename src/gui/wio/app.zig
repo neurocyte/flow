@@ -74,6 +74,7 @@ pub const TargetView = struct {
     dst_y_off: i32 = 0,
     dst_width: u16 = 0,
     dst_height: u16 = 0,
+    z_index: i32 = 0,
 };
 
 const LayerSnapshot = struct {
@@ -1199,14 +1200,25 @@ pub fn renderActorTick() void {
         }
     }
 
-    // composite every target onto its parent in reverse submission order
+    // composite every target onto its parent
     {
         const cell_w: i32 = font_set.cell_size.x;
         const cell_h: i32 = font_set.cell_size.y;
-        var i = snap.targets.len;
-        while (i > 0) {
-            i -= 1;
-            const t = &snap.targets[i];
+        const order = allocator.alloc(u32, snap.targets.len) catch {
+            log.err("OOM building draw order", .{});
+            return;
+        };
+        defer allocator.free(order);
+        for (order, 0..) |*o, i| o.* = @intCast(i);
+        std.mem.sort(u32, order, snap.targets, struct {
+            fn lt(targets: []const TargetView, a: u32, b: u32) bool {
+                if (targets[a].z_index != targets[b].z_index)
+                    return targets[a].z_index < targets[b].z_index;
+                return a > b;
+            }
+        }.lt);
+        for (order) |idx| {
+            const t = &snap.targets[idx];
             const src_id = snap.layers[t.src_index].id;
             const dst_id = snap.layers[t.parent].id;
             const src_state = ctx.layers.getPtr(src_id) orelse continue;

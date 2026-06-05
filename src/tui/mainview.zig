@@ -96,15 +96,21 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     const widgets = try WidgetList.createV(allocator, self.plane, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
-    if (tui.config().top_bar.len > 0)
-        self.top_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().top_bar, .none, null))).*;
 
-    const views = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
+    if (tui.config().top_bar.len > 0) {
+        const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, "top_bar.layer");
+        bar_layer.z_index = .top;
+        const bar = try @import("status/bar.zig").create(allocator, bar_layer.inner_plane(), tui.config().top_bar, .none, null);
+        bar_layer.set(bar);
+        self.top_bar = (try widgets.addP(bar_layer.widget())).*;
+    }
+
+    const views = try WidgetList.createH(allocator, widgets.plane, @typeName(Self), .dynamic);
     self.views = views;
     self.views_widget = views.widget();
     try views.add(try Widget.empty(allocator, self.views_widget.plane.*, .dynamic));
 
-    const panes = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
+    const panes = try WidgetList.createH(allocator, widgets.plane, @typeName(Self), .dynamic);
     self.panes = panes;
     self.panes_widget = panes.widget();
     try self.update_panes_layout();
@@ -113,7 +119,11 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
     if (tui.config().bottom_bar.len > 0) {
         const bar_style: @import("status/bar.zig").Style = if (tui.config().show_bottom_bar_grip) .grip else .none;
-        self.bottom_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, bar_style, EventHandler.bind(self, handle_bottom_bar_event)))).*;
+        const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, "bottom_bar.layer");
+        bar_layer.z_index = .statusbar;
+        const bar = try @import("status/bar.zig").create(allocator, bar_layer.inner_plane(), tui.config().bottom_bar, bar_style, EventHandler.bind(self, handle_bottom_bar_event));
+        bar_layer.set(bar);
+        self.bottom_bar = (try widgets.addP(bar_layer.widget())).*;
     }
     if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
@@ -245,6 +255,7 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
         .{ .static = padding },
         widget_type,
     );
+    pane.z_index = .background;
     try pane.add(try Widget.empty(self.allocator, self.views_widget.plane.*, .dynamic));
     return pane.widget();
 }
@@ -334,12 +345,13 @@ fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode
             }
         } else {
             if (mode != .disable)
-                try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
+                try panels.add(try view.create(self.allocator, panels.plane, ctx));
         }
     } else if (mode != .disable) {
         const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
+        panels.z_index = .statusbar;
         try self.widgets.add(panels.widget());
-        try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
+        try panels.add(try view.create(self.allocator, panels.plane, ctx));
         self.panels = panels;
     }
     tui.resize();

@@ -7805,6 +7805,7 @@ pub const EditorWidget = struct {
 
     fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
         const layer = try tui.WidgetLayerBox.create(allocator, parent, "editor.layer");
+        layer.z_index = .main;
         errdefer layer.deinit(allocator);
         const container = try WidgetList.createH(allocator, layer.inner_plane(), "editor.container", .dynamic);
         const self = try allocator.create(Self);

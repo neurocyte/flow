@@ -39,6 +39,7 @@ prepare_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widge
 after_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) void = after_resize_default,
 on_layout: *const fn (ctx: ?*anyopaque, self: *Self) Widget.Layout = on_layout_default,
 widget_type: Widget.Type,
+z_index: Layer.Level = .default,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
     return createHStyled(allocator, parent, name, layout_, .none);
@@ -242,6 +243,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
     var target: Layer.Target = .{
         .src = layer,
         .dst = tui.plane().window,
+        .blend = .replace,
     };
 
     const cw = self.plane.cell_x();
