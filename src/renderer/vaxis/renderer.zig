@@ -357,14 +357,20 @@ fn propagate_focused_cursors_to_root(self: *Self) void {
         self.allocator.free(scr.cursor_secondary);
         scr.cursor_secondary = &.{};
         if (src.cursor_secondary.len == 0) continue;
-        const grown = self.allocator.alloc(@TypeOf(scr.cursor_secondary[0]), src.cursor_secondary.len) catch continue;
-        scr.cursor_secondary = grown;
-        for (src.cursor_secondary, 0..) |sc, i| {
-            const spos = self.cursor_root_pos(sc.row, sc.col, &t.src.surface) orelse {
-                scr.cursor_secondary[i] = .{ .row = 0, .col = 0 };
-                continue;
-            };
-            scr.cursor_secondary[i] = .{ .row = spos.row, .col = spos.col };
+        if (self.vx.caps.multi_cursor) {
+            const grown = self.allocator.alloc(@TypeOf(scr.cursor_secondary[0]), src.cursor_secondary.len) catch continue;
+            scr.cursor_secondary = grown;
+            for (src.cursor_secondary, 0..) |sc, i| {
+                const spos = self.cursor_root_pos(sc.row, sc.col, &t.src.surface) orelse {
+                    scr.cursor_secondary[i] = .{ .row = 0, .col = 0 };
+                    continue;
+                };
+                scr.cursor_secondary[i] = .{ .row = spos.row, .col = spos.col };
+            }
+        } else {
+            for (src.cursor_secondary) |sc|
+                if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
+                    self.paint_solid_cell(spos.row, spos.col, self.secondary_color);
         }
     }
 }
