@@ -192,7 +192,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .config_bufs = conf_bufs,
         .highlight_columns_ = if (conf.highlight_columns_enabled) conf.highlight_columns else &.{},
         .highlight_columns_configured = conf.highlight_columns,
-        .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
+        .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), conf.enable_terminal_cursor, dispatch_initialized),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
@@ -695,11 +695,8 @@ fn render(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
         self.rdr_.stdplane().erase();
+        self.rdr_.stdplane().reset_all_cursors(self.allocator);
         const theme_ = self.current_theme();
-        if (has_native_cursor()) {
-            self.rdr_.stdplane().reset_all_cursors(self.allocator);
-            self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
-        }
         const continue_mainview = if (self.mainview_) |mv| mv.render(theme_) else false;
 
         switch (self.hint_mode) {
@@ -2163,6 +2160,7 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .yoffset = @intCast(yoffset),
         .xoffset = @intCast(xoffset),
         .alpha = 204,
+        .z_index = .top,
     });
     return self.top_layer_.?.plane();
 }
@@ -2337,10 +2335,6 @@ pub fn is_cursor_beam() bool {
         .beam, .beam_blink => true,
         else => false,
     };
-}
-
-pub fn has_native_cursor() bool {
-    return current().config_.enable_terminal_cursor;
 }
 
 pub fn get_selection_style() @import("Buffer").Selection.Style {
@@ -2609,6 +2603,7 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
 pub const WidgetType = @import("config").WidgetType;
 pub const ConfigWidgetStyle = @import("config").WidgetStyle;
 pub const WidgetStyle = @import("WidgetStyle.zig");
+pub const WidgetLayerBox = @import("WidgetLayerBox.zig");
 
 pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
     const config_ = config();

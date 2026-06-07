@@ -377,7 +377,6 @@ pub const Editor = struct {
     animation_lag: f64,
     animation_last_time: i64,
 
-    software_rendered_cursor: bool,
     render_whitespace: WhitespaceMode,
     indent_size: usize,
     tab_width: usize,
@@ -416,7 +415,7 @@ pub const Editor = struct {
     diag_warnings: usize = 0,
     diag_info: usize = 0,
     diag_hints: usize = 0,
-    info_box: ?Widget = null,
+    info_box_layer: ?*tui.WidgetLayerBox = null,
     info_box_state: ?struct {
         range: Match,
         view: View,
@@ -646,7 +645,6 @@ pub const Editor = struct {
             .animation_frame_rate = frame_rate,
             .animation_last_time = now.toMicroseconds(),
             .enable_format_on_save = tui.config().enable_format_on_save,
-            .software_rendered_cursor = !tui.has_native_cursor(),
             .render_whitespace = tui.config().whitespace_mode,
         };
         self.add_default_symbol_triggers();
@@ -656,7 +654,7 @@ pub const Editor = struct {
         var meta: std.Io.Writer.Allocating = .init(self.allocator);
         defer meta.deinit();
         if (self.buffer) |_| self.write_state(&meta.writer) catch {};
-        if (self.info_box) |*w| w.deinit(self.allocator);
+        if (self.info_box_layer) |layer| layer.deinit(self.allocator);
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
@@ -1320,56 +1318,38 @@ pub const Editor = struct {
         if (tui.config().inline_vcs_blame and !pc_row_diag)
             self.render_blame(theme, hl_row, ctx_.cell_map, now) catch {};
         self.render_column_highlights() catch {};
-        self.render_cursors(theme, ctx_.cell_map, focused) catch {};
+        self.render_cursors(ctx_.cell_map, focused) catch {};
         self.render_file_link_highlight(theme);
-        if (self.info_box) |w| _ = w.render(theme);
+        if (self.info_box_layer) |layer| _ = layer.widget().render(theme);
     }
 
-    fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
+    fn render_cursors(self: *Self, cell_map: CellMap, focused: bool) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
-        if (focused and !self.software_rendered_cursor and tui.rdr().vx.caps.multi_cursor)
-            self.plane.clear_multi_cursors(self.allocator);
+        self.plane.clear_multi_cursors(self.allocator);
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
             const cursor = cursel.cursor;
-            try self.render_cursor_secondary(&cursor, theme, cell_map, focused);
+            try self.render_cursor_secondary(&cursor, cell_map);
         };
-        try self.render_cursor_primary(&self.get_primary().cursor, theme, cell_map, focused);
+        try self.render_cursor_primary(&self.get_primary().cursor, cell_map, focused);
     }
 
-    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused_: bool) !void {
-        const configured_shape = tui.get_cursor_shape();
-        const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
-            configured_shape
-        else if (self.cursels.items.len > 1) switch (configured_shape) {
-            .beam => .block,
-            .beam_blink => .block_blink,
-            .underline => .block,
-            .underline_blink => .block_blink,
-            else => configured_shape,
-        } else configured_shape;
+    fn render_cursor_primary(self: *Self, cursor: *const Cursor, cell_map: CellMap, focused_: bool) !void {
+        const focused = focused_ or self.cursor_focus_override;
+        const shape: @import("renderer").CursorShape = if (focused) tui.get_cursor_shape() else .unfocused;
         const screen_pos = self.screen_cursor(cursor);
         if (screen_pos) |pos| set_cell_map_cursor(cell_map, pos.row, pos.col);
 
-        const focused = focused_ or self.cursor_focus_override;
-
-        if (focused and !self.software_rendered_cursor) {
-            if (screen_pos) |pos| {
-                self.render_term_cursor(pos, cursor_shape);
-            } else if (tui.is_mainview_focused() and tui.rdr().vx.caps.multi_cursor and self.has_secondary_cursors()) {
-                self.hide_term_cursor(cursor_shape);
-            }
-        } else if (screen_pos) |pos|
-            self.render_soft_cursor(pos, if (focused) theme.editor_cursor else theme.editor_cursor_secondary);
+        if (screen_pos) |pos|
+            self.render_term_cursor(pos, shape)
+        else if (tui.is_mainview_focused() and self.has_secondary_cursors())
+            self.hide_term_cursor(shape);
     }
 
-    fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
+    fn render_cursor_secondary(self: *Self, cursor: *const Cursor, cell_map: CellMap) !void {
         const pos = self.screen_cursor(cursor) orelse return;
         set_cell_map_cursor(cell_map, pos.row, pos.col);
-        if (focused and !self.software_rendered_cursor and tui.rdr().vx.caps.multi_cursor)
-            self.render_term_cursor_secondary(pos)
-        else
-            self.render_soft_cursor(pos, theme.editor_cursor_secondary);
+        self.render_term_cursor_secondary(pos);
     }
 
     inline fn render_term_cursor(self: *Self, pos: Cursor, shape: anytype) void {
@@ -1382,18 +1362,6 @@ pub const Editor = struct {
 
     inline fn hide_term_cursor(self: *Self, shape: anytype) void {
         self.plane.cursor_hide(shape);
-    }
-
-    inline fn render_soft_cursor(self: *Self, pos: Cursor, style: Widget.Theme.Style) void {
-        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
-        self.render_cursor_cell(style);
-    }
-
-    inline fn render_cursor_cell(self: *Self, style: Widget.Theme.Style) void {
-        var cell = self.plane.cell_init();
-        _ = self.plane.at_cursor_cell(&cell) catch return;
-        cell.set_style(style);
-        _ = self.plane.putc(&cell) catch {};
     }
 
     inline fn set_cell_map_cursor(cell_map: CellMap, y: usize, x: usize) void {
@@ -2133,9 +2101,9 @@ pub const Editor = struct {
     }
 
     fn clear_info_box(self: *Self) void {
-        if (self.info_box) |*w| {
-            w.deinit(self.allocator);
-            self.info_box = null;
+        if (self.info_box_layer) |layer| {
+            layer.deinit(self.allocator);
+            self.info_box_layer = null;
             self.info_box_state = null;
             self.clear_matches();
         }
@@ -2143,17 +2111,22 @@ pub const Editor = struct {
 
     const info_box_widget_type: Widget.Type = .info_box;
     fn show_info_box(self: *Self) !*info_view {
-        const w = self.info_box orelse blk: {
-            self.info_box = try info_view.create_widget_type(self.allocator, self.plane, info_box_widget_type);
-            break :blk self.info_box.?;
+        const layer = self.info_box_layer orelse blk: {
+            const new_layer = try tui.WidgetLayerBox.create(self.allocator, self.plane, "editor_info.layer");
+            errdefer new_layer.deinit(self.allocator);
+            const inner = try info_view.create_widget_type(self.allocator, new_layer.inner_plane(), info_box_widget_type);
+            new_layer.set(inner);
+            self.info_box_layer = new_layer;
+            break :blk new_layer;
         };
+        const w = layer.widget();
         const info_ = if (w.get(@typeName(info_view))) |w_| w_.dynamic_cast(info_view) orelse null else null;
         const info = info_ orelse @panic("Editor.show_info_box");
         return info;
     }
 
     fn place_info_box(self: *Self, cursor: Cursor) void {
-        const w = self.info_box orelse return;
+        const layer = self.info_box_layer orelse return;
         const info = self.show_info_box() catch return;
         const padding = tui.get_widget_style(info_box_widget_type).padding;
         const dim = info.content_size();
@@ -2163,7 +2136,7 @@ pub const Editor = struct {
         };
         const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
 
-        w.resize(.{
+        layer.handle_resize(.{
             .h = dim.rows + padding.top + padding.bottom,
             .w = dim.cols + padding.left + padding.right + 3,
             .y = @intCast(y + 1),
@@ -7831,7 +7804,10 @@ pub const EditorWidget = struct {
     const Commands = command.Collection(Editor);
 
     fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
-        const container = try WidgetList.createH(allocator, parent, "editor.container", .dynamic);
+        const layer = try tui.WidgetLayerBox.create(allocator, parent, "editor.layer");
+        layer.z_index = .main;
+        errdefer layer.deinit(allocator);
+        const container = try WidgetList.createH(allocator, layer.inner_plane(), "editor.container", .dynamic);
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
         try self.init(allocator, container.plane, buffer_manager, now);
@@ -7841,7 +7817,8 @@ pub const EditorWidget = struct {
         try container.add(editorWidget);
         if (tui.config().show_scrollbars)
             try container.add(try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container)));
-        return container.widget();
+        layer.set(container.widget());
+        return layer.widget();
     }
 
     fn init(self: *Self, allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !void {

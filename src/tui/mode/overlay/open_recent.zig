@@ -28,6 +28,7 @@ const widget_type: Widget.Type = .palette;
 allocator: std.mem.Allocator,
 f: usize = 0,
 modal: *ModalBackground.State(*Self),
+menu_layer: *tui.WidgetLayerBox,
 menu: *MenuType,
 inputbox: *InputBox.State(*Self),
 logger: log.Logger,
@@ -55,14 +56,16 @@ pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
+    const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), "open_recent.layer");
+    errdefer menu_layer.deinit(allocator);
     self.* = .{
         .allocator = allocator,
         .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{ .ctx = self }),
-        .menu = try Menu.create(*Self, allocator, tui.plane(), .{
+        .menu_layer = menu_layer,
+        .menu = try Menu.create(*Self, allocator, menu_layer.inner_plane(), .{
             .ctx = self,
             .style = widget_type,
             .on_render = on_render_menu,
-            .prepare_resize = prepare_resize_menu,
         }),
         .logger = log.logger(@typeName(Self)),
         .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
@@ -76,6 +79,9 @@ pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui
     };
     try self.commands.init(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_project_manager));
+    self.menu_layer.ctx = self;
+    self.menu_layer.prepare_resize = prepare_resize_layer;
+    self.menu_layer.set(self.menu.container_widget);
 
     if (ctx.args.buf.len != 0) {
         try self.restore(ctx);
@@ -87,7 +93,7 @@ pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui
 
     self.do_resize();
     try mv.floating_views.add(self.modal.widget());
-    try mv.floating_views.add(self.menu.container_widget);
+    try mv.floating_views.add(self.menu_layer.widget());
     var mode = try keybind.mode("overlay/palette", allocator, .{
         .insert_command = "overlay_insert_bytes",
     });
@@ -102,7 +108,7 @@ pub fn deinit(self: *Self) void {
     self.commands.deinit();
     tui.message_filters().remove_ptr(self);
     if (tui.mainview()) |mv| {
-        mv.floating_views.remove(self.menu.container_widget);
+        mv.floating_views.remove(self.menu_layer.widget());
         mv.floating_views.remove(self.modal.widget());
     }
     self.logger.deinit();
@@ -182,8 +188,10 @@ fn on_render_menu(_: *Self, button: *ButtonType, theme: *const Widget.Theme, sel
     return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
-fn prepare_resize_menu(self: *Self, _: *MenuType, _: Widget.Box) Widget.Box {
-    return self.prepare_resize();
+fn prepare_resize_layer(ctx_: ?*anyopaque, _: *tui.WidgetLayerBox, _: Widget.Box) Widget.Box {
+    const self: *Self = @ptrCast(@alignCast(ctx_.?));
+    const padding = tui.get_widget_style(widget_type).padding;
+    return self.prepare_resize().from_client_box(padding);
 }
 
 fn prepare_resize(self: *Self) Widget.Box {
@@ -220,7 +228,7 @@ fn prepare_resize(self: *Self) Widget.Box {
 }
 
 fn do_resize(self: *Self) void {
-    self.menu.resize(self.prepare_resize());
+    self.menu_layer.handle_resize(self.prepare_resize());
 }
 
 fn menu_action_open_file(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {

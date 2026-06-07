@@ -51,16 +51,8 @@ pub fn Options(context: type) type {
             }
             if (self.cursor) |cursor| {
                 const pos: c_int = @intCast(cursor);
-                if (tui.has_native_cursor()) {
-                    const x: c_int = @intCast(self.opts.padding + self.icon_width);
-                    self.plane.cursor_enable(0, pos + x, tui.get_cursor_shape());
-                } else {
-                    self.plane.cursor_move_yx(0, pos + self.opts.padding + self.icon_width);
-                    var cell = self.plane.cell_init();
-                    _ = self.plane.at_cursor_cell(&cell) catch return false;
-                    cell.set_style(theme.editor_cursor);
-                    _ = self.plane.putc(&cell) catch {};
-                }
+                const x: c_int = @intCast(self.opts.padding + self.icon_width);
+                self.plane.cursor_enable(0, pos + x, tui.get_cursor_shape());
             }
             return false;
         }

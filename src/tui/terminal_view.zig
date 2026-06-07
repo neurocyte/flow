@@ -386,12 +386,11 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     if (theme.editor.bg) |bg| self.vt.vt.bg_color = color.u24_to_u8s(bg.color);
 
     // Blit the terminal's front screen into our vaxis.Window.
-    const software_cursor = !tui.has_native_cursor();
-    const focused_cursor_color: ?[3]u8 = if (theme.editor_cursor.bg) |bg| RGB.to_u8s(RGB.from_u24(bg.color)) else null;
-    const unfocused_cursor_color: ?[3]u8 = if (theme.editor_cursor_secondary.bg) |bg| RGB.to_u8s(RGB.from_u24(bg.color)) else focused_cursor_color;
-    self.vt.vt.draw(self.allocator, self.plane.window, self.focused and tui.terminal_has_focus(), software_cursor, focused_cursor_color, unfocused_cursor_color) catch |e| {
+    const focused_view = self.focused and tui.terminal_has_focus();
+    self.vt.vt.draw(self.allocator, self.plane.window, focused_view) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
+    if (!focused_view) self.plane.window.setCursorShape(.unfocused);
 
     // Resolve ANSI colour indices 0–15 to theme RGB values
     {
