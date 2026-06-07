@@ -1683,11 +1683,7 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
         } else if (std.mem.eql(u8, field_name, "detail")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) try cbor.skipValue(&iter);
         } else if (std.mem.eql(u8, field_name, "documentation")) {
-            var iter_ = iter;
-            if (try cbor.matchValue(&iter_, cbor.null_)) {
-                iter = iter_;
-                continue;
-            }
+            if (try cbor.matchValue(&iter, cbor.null_)) continue;
             if (try cbor.matchValue(&iter, cbor.extract(&documentation))) {
                 documentation_kind = "plaintext";
             } else {
