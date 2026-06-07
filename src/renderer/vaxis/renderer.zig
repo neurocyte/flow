@@ -719,13 +719,13 @@ pub fn set_color_scheme(self: *Self, scheme: ColorScheme) void {
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
-    self.cursor_color = RGB.from_u24(@intCast(color.color));
-    self.vx.setTerminalCursorColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    self.cursor_color = RGB.from_u24(color.color);
+    self.vx.setTerminalCursorColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(color.color).rgb) catch {};
 }
 
 pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
-    self.secondary_color = RGB.from_u24(@intCast(color.color));
-    self.vx.setTerminalCursorSecondaryColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    self.secondary_color = RGB.from_u24(color.color);
+    self.vx.setTerminalCursorSecondaryColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(color.color).rgb) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
