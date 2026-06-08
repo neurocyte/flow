@@ -2161,6 +2161,7 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .xoffset = @intCast(xoffset),
         .alpha = self.palette_opacity_(),
         .z_index = .top,
+        .blend = .src_over_blur,
     });
     return self.top_layer_.?.plane();
 }
