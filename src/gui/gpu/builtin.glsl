@@ -110,11 +110,15 @@ void main() {
     vec4 glyph_sample = texelFetch(sampler2D(glyph_tex, glyph_smp), atlas_coord, 0);
 
     // Decoration field (bits: 31..8=ul_color RRGGBB, 7..5=ul_style,
-    // 4=strikethrough, 3..2=glyph_kind, 0=secondary cursor flag)
+    // 4=strikethrough, 3..2=glyph_kind, 1=reserved, 0=glyph_alpha_from_bg)
     uint ul_style = (deco >> 5u) & 7u;
     bool strike = ((deco >> 4u) & 1u) != 0u;
     uint glyph_kind = (deco >> 2u) & 3u;
+    bool fg_from_bg = (deco & 1u) != 0u;
     uint ul_packed = deco >> 8u;
+
+    // Captured before the cursor branch potentially raises final_a to 1.0.
+    float cell_a = bg.a;
 
     // Per-cell cursor (0 = none; low byte = shape+1, high 24 bits = RRGGBB)
     uint cur_shape = cur_packed & 255u;
@@ -230,6 +234,12 @@ void main() {
             final_a = 1.0;
         }
     }
+
+    // When the cell opts into "glyph alpha follows bg", clamp the output
+    // alpha to the captured bg.a so glyph/underline/strikethrough don't
+    // drag it up. Block cursor (shape == 1) is exempt: the cursor itself
+    // must be opaque for legibility.
+    if (fg_from_bg && cur_shape != 1u) final_a = cell_a;
 
     frag_color = vec4(composed, final_a);
 }
