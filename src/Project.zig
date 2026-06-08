@@ -1684,15 +1684,19 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
             if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) try cbor.skipValue(&iter);
         } else if (std.mem.eql(u8, field_name, "documentation")) {
             if (try cbor.matchValue(&iter, cbor.null_)) continue;
-            var len_ = cbor.decodeMapHeader(&iter) catch return;
-            while (len_ > 0) : (len_ -= 1) {
-                if (!(try cbor.matchString(&iter, &field_name))) return invalid_completion_item_field("documentation");
-                if (std.mem.eql(u8, field_name, "kind")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation_kind)))) return invalid_completion_item_field("documentation.kind");
-                } else if (std.mem.eql(u8, field_name, "value")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation)))) return invalid_completion_item_field("documentation.value");
-                } else {
-                    try cbor.skipValue(&iter);
+            if (try cbor.matchValue(&iter, cbor.extract(&documentation))) {
+                documentation_kind = "plaintext";
+            } else {
+                var len_ = cbor.decodeMapHeader(&iter) catch return invalid_completion_item_field("documentation");
+                while (len_ > 0) : (len_ -= 1) {
+                    if (!(try cbor.matchString(&iter, &field_name))) return invalid_completion_item_field("documentation");
+                    if (std.mem.eql(u8, field_name, "kind")) {
+                        if (!(try cbor.matchValue(&iter, cbor.extract(&documentation_kind)))) return invalid_completion_item_field("documentation.kind");
+                    } else if (std.mem.eql(u8, field_name, "value")) {
+                        if (!(try cbor.matchValue(&iter, cbor.extract(&documentation)))) return invalid_completion_item_field("documentation.value");
+                    } else {
+                        try cbor.skipValue(&iter);
+                    }
                 }
             }
         } else if (std.mem.eql(u8, field_name, "insertText")) {
