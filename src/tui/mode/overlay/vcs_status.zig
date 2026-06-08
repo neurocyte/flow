@@ -47,6 +47,8 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), "vcs_status.layer");
+    menu_layer.blend = .src_over_blur;
+    menu_layer.alpha = tui.palette_opacity();
     errdefer menu_layer.deinit(allocator);
     self.* = .{
         .allocator = allocator,
