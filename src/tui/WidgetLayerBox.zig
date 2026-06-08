@@ -20,7 +20,9 @@ inner: ?Widget = null,
 box: Widget.Box = .{},
 ctx: ?*anyopaque = null,
 prepare_resize: ?*const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = null,
+alpha: u8 = 0xFF,
 z_index: Layer.Level = .overlay,
+blend: Layer.Target.Blend = .default,
 
 pub fn create(allocator: Allocator, parent: Plane, name: [:0]const u8) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
@@ -101,7 +103,9 @@ fn build_target(self: *Self) Layer.Target {
         .y = @divFloor(oy, ch),
         .xoffset = @intCast(@mod(ox, cw)),
         .yoffset = @intCast(@mod(oy, ch)),
+        .alpha = self.alpha,
         .z_index = self.z_index,
+        .blend = self.blend,
     };
 }
 
