@@ -276,6 +276,7 @@ fn buildLayerSnapshot(
                 bg.a = effectiveAlphaU8(bg.a, opacity, ignore);
             }
         }
+        const flags: u8 = if (vc.style.glyph_alpha_from_bg) gpu.flag_glyph_alpha_from_bg else 0;
         gc.* = .{
             .glyph_index = 0,
             .background = bg,
@@ -284,6 +285,7 @@ fn buildLayerSnapshot(
             .ul_style = @intFromEnum(vc.style.ul_style),
             .strikethrough = if (vc.style.strikethrough) 1 else 0,
             .face = face,
+            .flags = flags,
         };
         // Decode first codepoint from the grapheme cluster.
         const g = vc.char.grapheme;

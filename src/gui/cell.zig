@@ -11,5 +11,8 @@ pub const Cell = extern struct {
     strikethrough: u8,
     /// Rasterizer face index: 0=regular, 1=bold, 2=italic, 3=bold_italic.
     face: u8 = 0,
-    _pad: [1]u8 = .{0},
+    /// Bit 0 = glyph_alpha_from_bg (cell α taken from bg.a in shader).
+    flags: u8 = 0,
 };
+
+pub const flag_glyph_alpha_from_bg: u8 = 1 << 0;

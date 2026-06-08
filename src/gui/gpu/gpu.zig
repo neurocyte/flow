@@ -21,6 +21,7 @@ pub const RasterizerBackend = Rasterizer.Backend;
 pub const Hinting = Rasterizer.Hinting;
 pub const SymbolRasterizer = Rasterizer.SymbolRasterizer;
 pub const Cell = @import("cell").Cell;
+pub const flag_glyph_alpha_from_bg = @import("cell").flag_glyph_alpha_from_bg;
 pub const RGBA = @import("color").RGBA;
 
 pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2, unfocused = 3 };
@@ -79,6 +80,8 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
 //    7..5 : ul_style (3 bits, 0=off..5=dashed)
 //    4    : strikethrough flag
 //    3..2 : glyph_kind (00=alpha, 01=subpixel, 10=color, 11=reserved)
+//    1    : reserved
+//    0    : glyph_alpha_from_bg (cell α taken from bg.a in shader)
 //
 // Cursor field bit layout (0 → no cursor on this cell):
 //    7..0 : shape+1 (1=block, 2=beam, 3=underline, 4=unfocused)
@@ -101,7 +104,8 @@ fn packDeco(src: Cell, kind: u2) u32 {
     const style: u32 = (@as(u32, src.ul_style) & 7) << 5;
     const strike: u32 = if (src.strikethrough != 0) (@as(u32, 1) << 4) else 0;
     const kbits: u32 = (@as(u32, kind) & 3) << 2;
-    return color24 | style | strike | kbits;
+    const fg_t: u32 = if ((src.flags & flag_glyph_alpha_from_bg) != 0) 1 else 0;
+    return color24 | style | strike | kbits | fg_t;
 }
 
 const global = struct {
