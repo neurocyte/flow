@@ -310,3 +310,130 @@ void main() {
 #pragma sokol @end
 
 #pragma sokol @program present vs fs_present
+
+// blit_uv: copy a UV-windowed sub-rect of a source render target into a
+// full-quad destination viewport. Used to snapshot the part of a layer's
+// pixel buffer that sits under a src_over_blur target's footprint.
+
+#pragma sokol @fs fs_blit_uv
+in vec2 v_uv;
+
+layout(binding=3) uniform fs_blit_uv_params {
+    vec4 src_uv;           // .xy = source UV origin, .zw = source UV scale
+    vec4 blit_sample_flip; // .x = 1.0 to flip Y on sample; .yzw pad
+};
+
+layout(binding=4) uniform texture2D blit_tex;
+layout(binding=4) uniform sampler blit_smp;
+
+#pragma sokol @image_sample_type blit_tex float
+#pragma sokol @sampler_type blit_smp filtering
+
+out vec4 frag_color;
+
+void main() {
+    vec2 logical = src_uv.xy + v_uv * src_uv.zw;
+    vec2 uv = vec2(logical.x, mix(logical.y, 1.0 - logical.y, blit_sample_flip.x));
+    frag_color = texture(sampler2D(blit_tex, blit_smp), uv);
+}
+#pragma sokol @end
+
+#pragma sokol @program blit_uv vs fs_blit_uv
+
+// blur: one Kawase pass. 4 diagonal taps at (±off.x, ±off.y) averaged. The
+// bilinear sampler turns each tap into a 2x2 box, so one pass averages 16
+// effective source pixels.
+
+#pragma sokol @fs fs_blur
+in vec2 v_uv;
+
+layout(binding=4) uniform fs_blur_params {
+    vec4 blur_step;         // .xy = (offset_x_uv, offset_y_uv); .zw pad
+    vec4 blur_sample_flip;  // .x = 1.0 to flip Y on sample; .yzw pad
+};
+
+layout(binding=5) uniform texture2D blur_src_tex;
+layout(binding=5) uniform sampler blur_src_smp;
+
+#pragma sokol @image_sample_type blur_src_tex float
+#pragma sokol @sampler_type blur_src_smp filtering
+
+out vec4 frag_color;
+
+void main() {
+    vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, blur_sample_flip.x));
+    vec2 off = blur_step.xy;
+    vec4 s = vec4(0.0);
+    s += texture(sampler2D(blur_src_tex, blur_src_smp), uv + vec2( off.x,  off.y));
+    s += texture(sampler2D(blur_src_tex, blur_src_smp), uv + vec2(-off.x,  off.y));
+    s += texture(sampler2D(blur_src_tex, blur_src_smp), uv + vec2( off.x, -off.y));
+    s += texture(sampler2D(blur_src_tex, blur_src_smp), uv + vec2(-off.x, -off.y));
+    frag_color = s * 0.25;
+}
+#pragma sokol @end
+
+#pragma sokol @program blur vs fs_blur
+
+// blur_compose: final step of src_over_blur. Samples the blurred backdrop
+// and the src layer, applies post-process (contrast / brightness /
+// vibrancy / noise) to the backdrop, then src_over composites src on top.
+// Output is the final pixel for the dst sub-rect (written with REPLACE).
+
+#pragma sokol @fs fs_blur_compose
+in vec2 v_uv;
+
+layout(binding=5) uniform fs_blur_compose_params {
+    vec4 post0;          // .x = noise, .y = contrast, .z = brightness, .w = vibrancy
+    vec4 post1;          // .x = vibrancy_darkness, .y = composite_alpha; .zw pad
+    vec4 bc_sample_flip; // .x = 1.0 to flip Y on sample; .yzw pad
+};
+
+layout(binding=6) uniform texture2D backdrop_tex;
+layout(binding=7) uniform texture2D bc_src_tex;
+layout(binding=6) uniform sampler backdrop_smp;
+layout(binding=7) uniform sampler bc_src_smp;
+
+#pragma sokol @image_sample_type backdrop_tex float
+#pragma sokol @image_sample_type bc_src_tex float
+#pragma sokol @sampler_type backdrop_smp filtering
+#pragma sokol @sampler_type bc_src_smp filtering
+
+out vec4 frag_color;
+
+// IQ-style hash for tiny per-pixel noise (no texture lookup needed).
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 19.19);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+void main() {
+    vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, bc_sample_flip.x));
+    vec4 bg = texture(sampler2D(backdrop_tex, backdrop_smp), uv);
+    vec4 sr = texture(sampler2D(bc_src_tex, bc_src_smp), uv);
+
+    float noise    = post0.x;
+    float contrast = post0.y;
+    float bright   = post0.z;
+    float vib      = post0.w;
+    float vib_dark = post1.x;
+    float alpha_g  = post1.y;
+
+    vec3 c = bg.rgb;
+    c = (c - 0.5) * contrast + 0.5;
+    c *= bright;
+    float luma = dot(c, vec3(0.299, 0.587, 0.114));
+    float vib_scale = mix(1.0, smoothstep(0.0, 0.5, luma), 1.0 - vib_dark);
+    c = mix(vec3(luma), c, 1.0 + vib * vib_scale);
+    float n = (hash12(gl_FragCoord.xy) - 0.5) * noise;
+    c += vec3(n);
+    c = clamp(c, 0.0, 1.0);
+
+    float a_src = sr.a * alpha_g;
+    vec3 out_rgb = sr.rgb * a_src + c * (1.0 - a_src);
+    float out_a  = a_src + bg.a * (1.0 - a_src);
+    frag_color = vec4(out_rgb, out_a);
+}
+#pragma sokol @end
+
+#pragma sokol @program blur_compose vs fs_blur_compose

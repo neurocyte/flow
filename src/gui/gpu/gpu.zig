@@ -115,13 +115,24 @@ const global = struct {
     var composite_replace_pip: sg.Pipeline = .{};
     var composite_srcover_pip: sg.Pipeline = .{};
     var present_pip: sg.Pipeline = .{};
+    var blit_uv_pip: sg.Pipeline = .{};
+    var blur_pip: sg.Pipeline = .{};
+    var blur_compose_pip: sg.Pipeline = .{};
     var glyph_sampler: sg.Sampler = .{};
     var cell_sampler: sg.Sampler = .{};
     var src_sampler: sg.Sampler = .{};
+    var blur_sampler: sg.Sampler = .{};
     var glyph_cache_arena: std.heap.ArenaAllocator = undefined;
     var background: RGBA = .init(0, 255, 255, 255); // default is warning yellow
     var composite_sample_flip_y: f32 = 0.0;
     var transparent: bool = false;
+
+    // Kawase blur ping-pong textures. Lazily allocated and grown to the
+    // largest src footprint seen via ensureBlurTextures().
+    var blur_image: [2]sg.Image = .{ .{}, .{} };
+    var blur_view: [2]sg.View = .{ .{}, .{} };
+    var blur_color_view: [2]sg.View = .{ .{}, .{} };
+    var blur_size: XY(u16) = .{ .x = 0, .y = 0 };
 };
 
 pub fn init(allocator: std.mem.Allocator) !void {
@@ -165,6 +176,27 @@ pub fn init(allocator: std.mem.Allocator) !void {
     present_desc.color_count = 1;
     global.present_pip = sg.makePipeline(present_desc);
 
+    // Blur pipeline trio (snapshot / Kawase tap / post-process+compose).
+    // All three write with REPLACE; the compose shader does the src_over
+    // math itself, so no fixed-function blending is needed.
+    const blit_uv_shd = sg.makeShader(shader.blitUvShaderDesc(sg.queryBackend()));
+    var blit_uv_desc: sg.PipelineDesc = .{ .shader = blit_uv_shd };
+    blit_uv_desc.primitive_type = .TRIANGLE_STRIP;
+    blit_uv_desc.color_count = 1;
+    global.blit_uv_pip = sg.makePipeline(blit_uv_desc);
+
+    const blur_shd = sg.makeShader(shader.blurShaderDesc(sg.queryBackend()));
+    var blur_desc: sg.PipelineDesc = .{ .shader = blur_shd };
+    blur_desc.primitive_type = .TRIANGLE_STRIP;
+    blur_desc.color_count = 1;
+    global.blur_pip = sg.makePipeline(blur_desc);
+
+    const blur_compose_shd = sg.makeShader(shader.blurComposeShaderDesc(sg.queryBackend()));
+    var blur_compose_desc: sg.PipelineDesc = .{ .shader = blur_compose_shd };
+    blur_compose_desc.primitive_type = .TRIANGLE_STRIP;
+    blur_compose_desc.color_count = 1;
+    global.blur_compose_pip = sg.makePipeline(blur_compose_desc);
+
     global.composite_sample_flip_y = if (sg.queryFeatures().origin_top_left) 0.0 else 1.0;
 
     // Nearest-neighbour samplers (no filtering)
@@ -189,6 +221,15 @@ pub fn init(allocator: std.mem.Allocator) !void {
         .wrap_u = .CLAMP_TO_EDGE,
         .wrap_v = .CLAMP_TO_EDGE,
     });
+    // Bilinear sampler for the Kawase 4-tap kernel; each tap then
+    // averages a 2x2 source neighbourhood for free.
+    global.blur_sampler = sg.makeSampler(.{
+        .min_filter = .LINEAR,
+        .mag_filter = .LINEAR,
+        .mipmap_filter = .NEAREST,
+        .wrap_u = .CLAMP_TO_EDGE,
+        .wrap_v = .CLAMP_TO_EDGE,
+    });
 }
 
 pub fn deinit() void {
@@ -198,11 +239,49 @@ pub fn deinit() void {
     sg.destroyPipeline(global.composite_replace_pip);
     sg.destroyPipeline(global.composite_srcover_pip);
     sg.destroyPipeline(global.present_pip);
+    sg.destroyPipeline(global.blit_uv_pip);
+    sg.destroyPipeline(global.blur_pip);
+    sg.destroyPipeline(global.blur_compose_pip);
     sg.destroySampler(global.glyph_sampler);
     sg.destroySampler(global.cell_sampler);
     sg.destroySampler(global.src_sampler);
+    sg.destroySampler(global.blur_sampler);
+    freeBlurTextures();
     global.glyph_cache_arena.deinit();
     global.rasterizer.deinit();
+}
+
+fn freeBlurTextures() void {
+    for (0..2) |i| {
+        if (global.blur_color_view[i].id != 0) sg.destroyView(global.blur_color_view[i]);
+        if (global.blur_view[i].id != 0) sg.destroyView(global.blur_view[i]);
+        if (global.blur_image[i].id != 0) sg.destroyImage(global.blur_image[i]);
+        global.blur_color_view[i] = .{};
+        global.blur_view[i] = .{};
+        global.blur_image[i] = .{};
+    }
+    global.blur_size = .{ .x = 0, .y = 0 };
+}
+
+fn ensureBlurTextures(needed: XY(u16)) void {
+    if (needed.eql(global.blur_size) and global.blur_image[0].id != 0) return;
+    freeBlurTextures();
+
+    for (0..2) |i| {
+        global.blur_image[i] = sg.makeImage(.{
+            .width = needed.x,
+            .height = needed.y,
+            .pixel_format = .RGBA8,
+            .usage = .{ .color_attachment = true },
+        });
+        global.blur_view[i] = sg.makeView(.{
+            .texture = .{ .image = global.blur_image[i] },
+        });
+        global.blur_color_view[i] = sg.makeView(.{
+            .color_attachment = .{ .image = global.blur_image[i] },
+        });
+    }
+    global.blur_size = needed;
 }
 
 pub fn loadFont(name: []const u8, size_px: u16) !Font {
@@ -626,11 +705,12 @@ pub const CompositeOp = struct {
     /// global alpha multiplier
     alpha: u8,
 
-    pub const BlendMode = enum { replace, src_over };
+    pub const BlendMode = enum { replace, src_over, src_over_blur };
 };
 
 /// Composite one layer's offscreen pixel buffer into another's, using the
 /// `composite_{replace,srcover}_pip` pipeline and a sub-rect viewport.
+/// `.src_over_blur` runs a separate snapshot -> Kawase -> compose sequence.
 pub fn compositeLayer(
     dst_layer_state: *const LayerGpuState,
     src_layer_state: *const LayerGpuState,
@@ -638,6 +718,11 @@ pub fn compositeLayer(
 ) void {
     if (dst_layer_state.pixel_image.id == 0 or src_layer_state.pixel_image.id == 0) return;
     if (op.dst_w == 0 or op.dst_h == 0) return;
+
+    if (op.blend == .src_over_blur) {
+        compositeLayerBlur(dst_layer_state, src_layer_state, op);
+        return;
+    }
 
     var pass_action: sg.PassAction = .{};
     pass_action.colors[0] = .{ .load_action = .LOAD };
@@ -652,6 +737,7 @@ pub fn compositeLayer(
     const pipeline = switch (op.blend) {
         .replace => global.composite_replace_pip,
         .src_over => global.composite_srcover_pip,
+        .src_over_blur => unreachable, // handled above
     };
     sg.applyPipeline(pipeline);
 
@@ -671,6 +757,144 @@ pub fn compositeLayer(
 
     sg.draw(0, 4, 1);
     sg.endPass();
+}
+
+const BlurParams = struct {
+    size: f32 = 1.0,
+    passes: u32 = 3,
+    noise: f32 = 0.0117,
+    contrast: f32 = 0.8916,
+    brightness: f32 = 0.8172,
+    vibrancy: f32 = 0.1696,
+    vibrancy_darkness: f32 = 0.0,
+};
+
+const default_blur_params: BlurParams = .{};
+
+/// snapshot dst sub-rect -> N Kawase passes ping-pong -> post-process +
+/// src_over compose back into dst sub-rect.
+fn compositeLayerBlur(
+    dst_layer_state: *const LayerGpuState,
+    src_layer_state: *const LayerGpuState,
+    op: CompositeOp,
+) void {
+    const params = default_blur_params;
+    const w = op.dst_w;
+    const h = op.dst_h;
+
+    ensureBlurTextures(.{ .x = w, .y = h });
+
+    // snapshot dst sub-rect -> blur_image[0]
+    {
+        const dst_w_full: f32 = @floatFromInt(dst_layer_state.pixel_size.x);
+        const dst_h_full: f32 = @floatFromInt(dst_layer_state.pixel_size.y);
+        // dst sub-rect in normalised dst UV space (top-origin, before any
+        // GL Y-flip — the shader applies that itself).
+        const src_uv: [4]f32 = .{
+            @as(f32, @floatFromInt(op.dst_x)) / dst_w_full,
+            @as(f32, @floatFromInt(op.dst_y)) / dst_h_full,
+            @as(f32, @floatFromInt(w)) / dst_w_full,
+            @as(f32, @floatFromInt(h)) / dst_h_full,
+        };
+
+        var pass_action: sg.PassAction = .{};
+        pass_action.colors[0] = .{ .load_action = .DONTCARE };
+        var atts: sg.Attachments = .{};
+        atts.colors[0] = global.blur_color_view[0];
+
+        sg.beginPass(.{ .attachments = atts, .action = pass_action });
+        sg.applyViewport(0, 0, w, h, true);
+        sg.applyPipeline(global.blit_uv_pip);
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_blit_tex] = dst_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_blit_smp] = global.blur_sampler;
+        sg.applyBindings(bindings);
+        const blit_params = shader.FsBlitUvParams{
+            .src_uv = src_uv,
+            .blit_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_blit_uv_params, .{
+            .ptr = &blit_params,
+            .size = @sizeOf(shader.FsBlitUvParams),
+        });
+        sg.draw(0, 4, 1);
+        sg.endPass();
+    }
+
+    // N Kawase passes ping-ponging blur_image[0] <-> blur_image[1]
+    var src_idx: usize = 0;
+    {
+        // Blur textures are sized exactly to (w, h), so UV offsets map
+        // 1 pixel -> 1/w (or 1/h) directly.
+        const tex_w: f32 = @floatFromInt(w);
+        const tex_h: f32 = @floatFromInt(h);
+        var pass_idx: u32 = 0;
+        while (pass_idx < params.passes) : (pass_idx += 1) {
+            const dst_idx: usize = 1 - src_idx;
+            // Classic Kawase: kernel grows per pass.
+            const off_px: f32 = params.size * @as(f32, @floatFromInt(pass_idx + 1)) + 0.5;
+            const off_u: f32 = off_px / tex_w;
+            const off_v: f32 = off_px / tex_h;
+
+            var pass_action: sg.PassAction = .{};
+            pass_action.colors[0] = .{ .load_action = .DONTCARE };
+            var atts: sg.Attachments = .{};
+            atts.colors[0] = global.blur_color_view[dst_idx];
+
+            sg.beginPass(.{ .attachments = atts, .action = pass_action });
+            sg.applyViewport(0, 0, w, h, true);
+            sg.applyPipeline(global.blur_pip);
+            var bindings: sg.Bindings = .{};
+            bindings.views[shader.VIEW_blur_src_tex] = global.blur_view[src_idx];
+            bindings.samplers[shader.SMP_blur_src_smp] = global.blur_sampler;
+            sg.applyBindings(bindings);
+            const blur_params = shader.FsBlurParams{
+                .blur_step = .{ off_u, off_v, 0, 0 },
+                .blur_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+            };
+            sg.applyUniforms(shader.UB_fs_blur_params, .{
+                .ptr = &blur_params,
+                .size = @sizeOf(shader.FsBlurParams),
+            });
+            sg.draw(0, 4, 1);
+            sg.endPass();
+
+            src_idx = dst_idx;
+        }
+    }
+
+    // post-process backdrop + src_over src -> dst sub-rect (replace)
+    {
+        var pass_action: sg.PassAction = .{};
+        pass_action.colors[0] = .{ .load_action = .LOAD };
+
+        sg.beginPass(.{
+            .attachments = dst_layer_state.attachments(),
+            .action = pass_action,
+        });
+        sg.applyViewport(op.dst_x, op.dst_y, op.dst_w, op.dst_h, true);
+        sg.applyPipeline(global.blur_compose_pip);
+
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_backdrop_tex] = global.blur_view[src_idx];
+        bindings.views[shader.VIEW_bc_src_tex] = src_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_backdrop_smp] = global.blur_sampler;
+        bindings.samplers[shader.SMP_bc_src_smp] = global.blur_sampler;
+        sg.applyBindings(bindings);
+
+        const compose_params = shader.FsBlurComposeParams{
+            .post0 = .{ params.noise, params.contrast, params.brightness, params.vibrancy },
+            .post1 = .{ params.vibrancy_darkness, @as(f32, @floatFromInt(op.alpha)) / 255.0, 0, 0 },
+            .bc_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_blur_compose_params, .{
+            .ptr = &compose_params,
+            .size = @sizeOf(shader.FsBlurComposeParams),
+        });
+
+        sg.draw(0, 4, 1);
+        sg.endPass();
+    }
 }
 
 /// Blit a layer's offscreen pixel buffer to the swapchain

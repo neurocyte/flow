@@ -102,13 +102,16 @@ pub const Target = struct {
     yoffset: i16 = 0, // cell y pixel offset
     xoffset: i16 = 0, // cell x pixel offset
 
-    blend: Blend = .src_over,
+    blend: Blend = .replace,
     alpha: u8 = 0xFF,
     z_index: Level = .main,
 
     pub const Blend = enum {
         replace, // dst = src
         src_over, // dst = src·a + dst·(1−a)
+        src_over_blur, // src_over after Kawase-blurring dst under src footprint
+
+        pub const default = .replace;
     };
 };
 

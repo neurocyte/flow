@@ -1235,6 +1235,7 @@ pub fn renderActorTick() void {
                 .blend = switch (t.blend) {
                     .replace => .replace,
                     .src_over => .src_over,
+                    .src_over_blur => .src_over_blur,
                 },
                 .alpha = t.alpha,
             });
