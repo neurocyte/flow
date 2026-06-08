@@ -2159,10 +2159,19 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .x = @intCast(box.x),
         .yoffset = @intCast(yoffset),
         .xoffset = @intCast(xoffset),
-        .alpha = 204,
+        .alpha = self.palette_opacity_(),
         .z_index = .top,
     });
     return self.top_layer_.?.plane();
+}
+
+fn palette_opacity_(self: *Self) u8 {
+    const alpha = std.math.clamp(self.config_.palette_opacity * 255, 0, 255);
+    return @intFromFloat(alpha);
+}
+
+pub fn palette_opacity() u8 {
+    return current().palette_opacity_();
 }
 
 pub fn have_top_layer() bool {

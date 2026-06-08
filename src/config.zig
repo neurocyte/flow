@@ -89,6 +89,7 @@ info_box_style: WidgetStyle = .bar_left_spacious,
 info_box_width_limit: usize = 80,
 
 palette_placement: PalettePlacement = .top_center,
+palette_opacity: f32 = 0.75,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,
