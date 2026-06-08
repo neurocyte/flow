@@ -374,6 +374,7 @@ fn write_cell(self: *Plane, col: i32, row: i32, egc: []const u8) void {
     cell.char.width = @intCast(w);
     if (self.transparent) {
         cell.style.fg = self.style.fg;
+        cell.style.glyph_alpha_from_bg = self.style.glyph_alpha_from_bg;
     } else {
         cell.style = self.style;
     }
@@ -436,6 +437,7 @@ pub fn set_styles(self: *Plane, stylebits: StyleBits) void {
     self.style.bold = false;
     self.style.ul_style = .off;
     self.style.italic = false;
+    self.style.glyph_alpha_from_bg = false;
     self.on_styles(stylebits);
 }
 
@@ -445,6 +447,7 @@ pub fn on_styles(self: *Plane, stylebits: StyleBits) void {
     if (stylebits.undercurl) self.style.ul_style = .curly;
     if (stylebits.underline) self.style.ul_style = .single;
     if (stylebits.italic) self.style.italic = true;
+    if (stylebits.transparent_fg) self.style.glyph_alpha_from_bg = true;
 }
 
 pub fn off_styles(self: *Plane, stylebits: StyleBits) void {
@@ -453,6 +456,7 @@ pub fn off_styles(self: *Plane, stylebits: StyleBits) void {
     if (stylebits.undercurl) self.style.ul_style = .off;
     if (stylebits.underline) self.style.ul_style = .off;
     if (stylebits.italic) self.style.italic = false;
+    if (stylebits.transparent_fg) self.style.glyph_alpha_from_bg = false;
 }
 
 pub fn set_fg_rgb(self: *Plane, col: ThemeColor) !void {
