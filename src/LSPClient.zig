@@ -19,6 +19,10 @@ allocator: std.mem.Allocator,
 lsp: *const LSP,
 project_name: []const u8,
 logger_lsp: log.Logger,
+language_server: []const u8,
+language_server_options: []const u8,
+language_server_protocol: file_type_config.ProtocolLevel,
+owner: tp.pid,
 
 const Self = @This();
 
@@ -51,36 +55,66 @@ pub fn start(
     const self = blk: {
         const lsp = try LSP.open(allocator, project_name, .{ .buf = language_server });
         errdefer lsp.deinit();
-        break :blk try create(allocator, lsp, project_name);
+        break :blk try create(allocator, lsp, project_name, language_server, language_server_options, language_server_protocol, from);
     };
     errdefer self.deinit();
     try self.send_init_request(from, language_server, language_server_options, language_server_protocol);
     return self;
 }
 
-fn create(allocator: std.mem.Allocator, lsp: *const LSP, project_name: []const u8) error{OutOfMemory}!*Self {
+fn create(
+    allocator: std.mem.Allocator,
+    lsp: *const LSP,
+    project_name: []const u8,
+    language_server: []const u8,
+    language_server_options: []const u8,
+    language_server_protocol: file_type_config.ProtocolLevel,
+    from: tp.pid_ref,
+) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     const name_copy = try allocator.dupe(u8, project_name);
     errdefer allocator.free(name_copy);
+    const lsp_name_copy = try allocator.dupe(u8, language_server);
+    errdefer allocator.free(lsp_name_copy);
+    const options_copy = try allocator.dupe(u8, language_server_options);
+    errdefer allocator.free(options_copy);
     self.* = .{
         .allocator = allocator,
         .lsp = lsp,
         .project_name = name_copy,
         .logger_lsp = log.logger("lsp"),
+        .language_server = lsp_name_copy,
+        .language_server_options = options_copy,
+        .language_server_protocol = language_server_protocol,
+        .owner = from.clone(),
     };
     return self;
 }
 
 pub fn deinit(self: *Self) void {
+    self.owner.deinit();
     self.lsp.term();
     self.logger_lsp.deinit();
+    self.allocator.free(self.language_server_options);
+    self.allocator.free(self.language_server);
     self.allocator.free(self.project_name);
     self.allocator.destroy(self);
 }
 
 pub fn expired(self: *const Self) bool {
     return self.lsp.pid.expired();
+}
+
+pub fn restart(self: *const Self) StartLspError!*Self {
+    return Self.start(
+        self.allocator,
+        self.project_name,
+        self.language_server,
+        self.language_server_options,
+        self.language_server_protocol,
+        self.owner.ref(),
+    );
 }
 
 pub const eol = '\n';
@@ -886,7 +920,7 @@ pub fn goto_type_definition(self: *Self, from: tp.pid_ref, args: *const SourceLo
     return self.send_goto_request(from, args, "textDocument/typeDefinition");
 }
 
-pub const SendGotoRequestError = (error{} || LspError || GetLineOfFileError || cbor.Error);
+pub const SendGotoRequestError = (error{} || StartLspError || GetLineOfFileError || cbor.Error);
 
 fn send_goto_request(self: *Self, from: tp.pid_ref, args: *const SourceLocation, method: []const u8) SendGotoRequestError!void {
     const uri = try make_URI(self.allocator, self.project_name, args.src.path);

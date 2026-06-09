@@ -2434,3 +2434,27 @@ pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.lsp_info.add_from_event(m.buf) catch return;
     self.foreach_editor(ed.Editor.update_completion_triggers);
 }
+
+pub fn lsp_restarted(self: *Self, m: tp.message) void {
+    var project_name: []const u8 = undefined;
+    var lsp_cmd: []const u8 = undefined;
+    if (!(m.match(.{ "PRJ", "lsp_restarted", tp.extract(&project_name), tp.extract(&lsp_cmd) }) catch false)) return;
+
+    const logger = log.logger("lsp");
+    defer logger.deinit();
+
+    const buffers = self.buffer_manager.list_unordered(self.allocator) catch return;
+    defer self.allocator.free(buffers);
+    var count: usize = 0;
+    for (buffers) |buffer| {
+        if (buffer.is_ephemeral()) continue;
+        const ft_name = buffer.file_type_name orelse continue;
+        const ft = (file_type_config.get(ft_name) catch continue) orelse continue;
+        const lsp = ft.language_server orelse continue;
+        if (lsp.len == 0) continue;
+        if (!std.mem.eql(u8, lsp[0], lsp_cmd)) continue;
+        send_buffer_did_open(buffer) catch {};
+        count += 1;
+    }
+    logger.print("'{s}' restarted in {s}; re-opened {d} buffer(s)", .{ lsp_cmd, project_name, count });
+}

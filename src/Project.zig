@@ -33,6 +33,7 @@ logger: log.Logger,
 logger_lsp: log.Logger,
 logger_git: log.Logger,
 last_used: i128,
+parent: tp.pid,
 
 workspace: ?[]const u8 = null,
 
@@ -104,7 +105,7 @@ const Task = struct {
 
 const State = enum { none, running, done, failed };
 
-pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Self {
+pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref) OutOfMemoryError!Self {
     const now = root.get_now();
     return .{
         .allocator = allocator,
@@ -117,10 +118,12 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .logger_lsp = log.logger("lsp"),
         .logger_git = log.logger("git"),
         .last_used = @as(i128, now.toNanoseconds()),
+        .parent = parent.clone(),
     };
 }
 
 pub fn deinit(self: *Self) void {
+    self.parent.deinit();
     if (self.walker) |pid| pid.send(.{"stop"}) catch {};
     if (self.workspace) |p| self.allocator.free(p);
     var i_ = self.file_language_server_name.iterator();
@@ -318,21 +321,43 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
 }
 
 pub fn get_existing_lsp_client(self: *Self, language_server: []const u8) ?*LSPClient {
-    if (self.language_servers.get(language_server)) |client| {
-        if (!client.expired()) return client;
-        if (self.language_servers.fetchRemove(language_server)) |kv| {
-            self.allocator.free(kv.key);
-            kv.value.deinit();
-        }
+    const client = self.language_servers.get(language_server) orelse return null;
+    return if (client.expired()) null else client;
+}
+
+pub fn evict_lsp_client(self: *Self, language_server: []const u8) void {
+    if (self.language_servers.fetchRemove(language_server)) |kv| {
+        self.allocator.free(kv.key);
+        kv.value.deinit();
     }
-    return null;
+}
+
+pub fn handle_lsp_terminated(self: *Self, language_server: []const u8) StartLspError!void {
+    _ = try self.restart_lsp_client(language_server);
+    self.logger_lsp.print("restarted '{s}'", .{language_server});
+}
+
+pub fn restart_lsp_client(self: *Self, language_server: []const u8) StartLspError!*LSPClient {
+    if (self.get_existing_lsp_client(language_server)) |client| return client;
+    const old_client = self.language_servers.get(language_server) orelse return error.LspFailed;
+    const new_client = try old_client.restart();
+    errdefer new_client.deinit();
+    self.evict_lsp_client(language_server);
+    try self.language_servers.put(try self.allocator.dupe(u8, language_server), new_client);
+    var iter: []const u8 = new_client.language_server;
+    var lsp_cmd: []const u8 = "";
+    if ((cbor.decodeArrayHeader(&iter) catch @as(usize, 0)) > 0)
+        _ = cbor.matchValue(&iter, cbor.extract(&lsp_cmd)) catch {};
+    self.parent.send(.{ "PRJ", "lsp_restarted", self.name, lsp_cmd }) catch {};
+    return new_client;
 }
 
 pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) StartLspError!*LSPClient {
     if (self.file_language_server_name.get(file_path)) |lsp_name|
-        return self.get_existing_lsp_client(lsp_name) orelse error.LspFailed;
+        return self.restart_lsp_client(lsp_name);
 
     const client = self.get_existing_lsp_client(language_server) orelse blk: {
+        self.evict_lsp_client(language_server); // drop any stale entry
         const new_client = try LSPClient.start(self.allocator, self.name, language_server, language_server_options, language_server_protocol, from);
         errdefer new_client.deinit();
         try self.language_servers.put(try self.allocator.dupe(u8, language_server), new_client);
@@ -345,9 +370,10 @@ pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const
     return client;
 }
 
-pub fn get_lsp_client_for_file(self: *Self, file_path: []const u8) LspError!*LSPClient {
+pub fn get_lsp_client_for_file(self: *Self, file_path: []const u8) StartLspError!*LSPClient {
     const lsp_name = self.file_language_server_name.get(file_path) orelse return error.NoLsp;
-    return self.get_existing_lsp_client(lsp_name) orelse error.LspFailed;
+    if (self.get_existing_lsp_client(lsp_name)) |client| return client;
+    return self.restart_lsp_client(lsp_name);
 }
 
 fn sort_files_by_mtime(self: *Self) void {
@@ -896,17 +922,17 @@ pub fn did_open(
     return client.did_open(file_path, file_type, version, text);
 }
 
-pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) StartLspError!void {
     const client = try self.get_lsp_client_for_file(file_path);
     return client.did_change(file_path, version, text_dst, text_src, eol_mode);
 }
 
-pub fn did_save(self: *Self, file_path: []const u8) LspError!void {
+pub fn did_save(self: *Self, file_path: []const u8) StartLspError!void {
     const client = try self.get_lsp_client_for_file(file_path);
     return client.did_save(file_path);
 }
 
-pub fn did_close(self: *Self, file_path: []const u8) LspError!void {
+pub fn did_close(self: *Self, file_path: []const u8) StartLspError!void {
     const client = try self.get_lsp_client_for_file(file_path);
     return client.did_close(file_path);
 }
@@ -954,23 +980,23 @@ pub fn highlight_references(self: *Self, from: tp.pid_ref, source_location: *con
 }
 
 pub const CompletionError = LSPClient.CompletionError;
-pub fn completion(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+pub fn completion(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) StartLspError!void {
     const client = try self.get_lsp_client_for_file(source_location.src.path);
     return client.completion(from, source_location);
 }
 
 pub const SymbolInformationError = LSPClient.SymbolInformationError;
-pub fn symbols(self: *Self, from: tp.pid_ref, file_path: []const u8) (LspError || SymbolInformationError)!void {
+pub fn symbols(self: *Self, from: tp.pid_ref, file_path: []const u8) (StartLspError || SymbolInformationError)!void {
     const client = try self.get_lsp_client_for_file(file_path);
     return client.symbols(from, file_path);
 }
 
-pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) (LspError || GetLineOfFileError)!void {
+pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) (StartLspError || GetLineOfFileError)!void {
     const client = try self.get_lsp_client_for_file(source_location.src.path);
     return client.rename_symbol(from, source_location);
 }
 
-pub fn hover(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+pub fn hover(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) StartLspError!void {
     const client = try self.get_lsp_client_for_file(source_location.src.path);
     return client.hover(from, source_location);
 }

@@ -600,6 +600,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", "triggerCharacters", tp.more }))
         return if (mainview()) |mv| mv.trigger_characters_update(m);
 
+    if (try m.match(.{ "PRJ", "lsp_restarted", tp.more }))
+        return if (mainview()) |mv| mv.lsp_restarted(m);
+
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
 
