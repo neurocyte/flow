@@ -226,6 +226,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
             if (client_box.y + client_box.h <= widget_box.y) break;
             if (client_box.x + client_box.w <= widget_box.x) break;
         }
+        switch (w.layout) {
+            .static => |size| if (size == 0) continue,
+            else => {},
+        }
         if (w.widget.render(theme)) more = true;
     }
 
