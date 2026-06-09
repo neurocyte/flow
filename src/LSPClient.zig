@@ -10,10 +10,78 @@ const Buffer = @import("Buffer");
 const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 
-const Project = @import("Project.zig");
 const LSP = @import("LSP.zig");
 
+pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError || std.Io.Writer.Error);
+pub const StartLspError = (error{ ThespianSpawnFailed, Timeout, InvalidLspCommand } || LspError || OutOfMemoryError || cbor.Error);
+
+allocator: std.mem.Allocator,
+lsp: *const LSP,
+project_name: []const u8,
+logger_lsp: log.Logger,
+
+const Self = @This();
+
 const OutOfMemoryError = error{OutOfMemory};
+
+pub const SourceLocation = struct {
+    src: file_link.FileSrc,
+    alternative_destination: ?file_link.FileDest = null,
+};
+
+pub fn convert_path(file_path_: []u8) []u8 {
+    var file_path = file_path_;
+    if (builtin.os.tag == .windows) {
+        if (file_path[0] == '/') file_path = file_path[1..];
+        for (file_path, 0..) |c, i| if (c == '/') {
+            file_path[i] = '\\';
+        };
+    }
+    return file_path;
+}
+
+pub fn start(
+    allocator: std.mem.Allocator,
+    project_name: []const u8,
+    language_server: []const u8,
+    language_server_options: []const u8,
+    language_server_protocol: file_type_config.ProtocolLevel,
+    from: tp.pid_ref,
+) StartLspError!*Self {
+    const self = blk: {
+        const lsp = try LSP.open(allocator, project_name, .{ .buf = language_server });
+        errdefer lsp.deinit();
+        break :blk try create(allocator, lsp, project_name);
+    };
+    errdefer self.deinit();
+    try self.send_init_request(from, language_server, language_server_options, language_server_protocol);
+    return self;
+}
+
+fn create(allocator: std.mem.Allocator, lsp: *const LSP, project_name: []const u8) error{OutOfMemory}!*Self {
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
+    const name_copy = try allocator.dupe(u8, project_name);
+    errdefer allocator.free(name_copy);
+    self.* = .{
+        .allocator = allocator,
+        .lsp = lsp,
+        .project_name = name_copy,
+        .logger_lsp = log.logger("lsp"),
+    };
+    return self;
+}
+
+pub fn deinit(self: *Self) void {
+    self.lsp.term();
+    self.logger_lsp.deinit();
+    self.allocator.free(self.project_name);
+    self.allocator.destroy(self);
+}
+
+pub fn expired(self: *const Self) bool {
+    return self.lsp.pid.expired();
+}
 
 pub const eol = '\n';
 
@@ -47,8 +115,8 @@ pub fn get_line(allocator: std.mem.Allocator, buf: []const u8) ![]const u8 {
     return allocator.dupe(u8, buf);
 }
 
-pub fn make_URI(project: *Project, file_path: ?[]const u8) Project.LspError![]const u8 {
-    var buf: std.Io.Writer.Allocating = .init(project.allocator);
+pub fn make_URI(allocator: std.mem.Allocator, project_name: []const u8, file_path: ?[]const u8) LspError![]const u8 {
+    var buf: std.Io.Writer.Allocating = .init(allocator);
     defer buf.deinit();
     const writer = &buf.writer;
     try writer.writeAll("file://");
@@ -56,11 +124,11 @@ pub fn make_URI(project: *Project, file_path: ?[]const u8) Project.LspError![]co
         if (std.fs.path.isAbsolute(path)) {
             try write_URI_path(writer, path);
         } else {
-            try write_URI_path(writer, project.name);
+            try write_URI_path(writer, project_name);
             try writer.writeByte('/');
             try write_URI_path(writer, path);
         }
-    } else try write_URI_path(writer, project.name);
+    } else try write_URI_path(writer, project_name);
     return buf.toOwnedSlice();
 }
 
@@ -79,7 +147,7 @@ pub fn file_uri_to_path(uri: []const u8, file_path_buf: []u8) error{InvalidTarge
         uri[5..]
     else
         return error.InvalidTargetURI);
-    return Project.convert_path(file_path);
+    return convert_path(file_path);
 }
 
 pub const DocumentHighlight = struct {
@@ -238,8 +306,8 @@ pub const RangeError = error{
 } || PositionError || cbor.Error;
 pub fn read_range(range: []const u8) RangeError!Range {
     var iter = range;
-    var start: ?Position = null;
-    var end: ?Position = null;
+    var start_pos: ?Position = null;
+    var end_pos: ?Position = null;
     var len = try cbor.decodeMapHeader(&iter);
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
@@ -247,17 +315,17 @@ pub fn read_range(range: []const u8) RangeError!Range {
         if (std.mem.eql(u8, field_name, "start")) {
             var position: []const u8 = undefined;
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&position)))) return error.InvalidRangeField;
-            start = try read_position(position);
+            start_pos = try read_position(position);
         } else if (std.mem.eql(u8, field_name, "end")) {
             var position: []const u8 = undefined;
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&position)))) return error.InvalidRangeField;
-            end = try read_position(position);
+            end_pos = try read_position(position);
         } else {
             try cbor.skipValue(&iter);
         }
     }
-    if (start == null or end == null) return error.InvalidRange;
-    return .{ .start = start.?, .end = end.? };
+    if (start_pos == null or end_pos == null) return error.InvalidRange;
+    return .{ .start = start_pos.?, .end = end_pos.? };
 }
 
 pub const Position = struct { line: usize, character: usize };
@@ -286,11 +354,10 @@ pub fn read_position(position: []const u8) PositionError!Position {
     return .{ .line = line.?, .character = character.? };
 }
 
-pub fn hover(project: *Project, from: tp.pid_ref, source_location: *const Project.SourceLocation) Project.LspError!void {
-    const lsp = try project.get_language_server(source_location.src.path);
-    const uri = try make_URI(project, source_location.src.path);
-    defer project.allocator.free(uri);
-    // project.logger_lsp.print("fetching hover information...", .{});
+pub fn hover(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+    const uri = try make_URI(self.allocator, self.project_name, source_location.src.path);
+    defer self.allocator.free(uri);
+    // self.logger_lsp.print("fetching hover information...", .{});
 
     const handler: struct {
         from: tp.pid,
@@ -318,7 +385,7 @@ pub fn hover(project: *Project, from: tp.pid_ref, source_location: *const Projec
         .col = source_location.src.column,
     };
 
-    lsp.send_request(project.allocator, "textDocument/hover", .{
+    self.lsp.send_request(self.allocator, "textDocument/hover", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = source_location.src.line, .character = source_location.src.column },
     }, handler) catch return error.LspFailed;
@@ -422,10 +489,9 @@ pub const CompletionError = error{
     InvalidTargetURI,
 } || CompletionListError || CompletionItemError || TextEditError || cbor.Error;
 
-pub fn completion(project: *Project, from: tp.pid_ref, source_location: *const Project.SourceLocation) Project.LspError!void {
-    const lsp = try project.get_language_server(source_location.src.path);
-    const uri = try make_URI(project, source_location.src.path);
-    defer project.allocator.free(uri);
+pub fn completion(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+    const uri = try make_URI(self.allocator, self.project_name, source_location.src.path);
+    defer self.allocator.free(uri);
 
     const handler: struct {
         from: tp.pid,
@@ -457,7 +523,7 @@ pub fn completion(project: *Project, from: tp.pid_ref, source_location: *const P
         .col = source_location.src.column,
     };
 
-    lsp.send_request(project.allocator, "textDocument/completion", .{
+    self.lsp.send_request(self.allocator, "textDocument/completion", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = source_location.src.line, .character = source_location.src.column },
     }, handler) catch return error.LspFailed;
@@ -635,10 +701,9 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     };
 }
 
-pub fn symbols(project: *Project, from: tp.pid_ref, file_path: []const u8) (Project.LspError || SymbolInformationError)!void {
-    const lsp = try project.get_language_server(file_path);
-    const uri = try make_URI(project, file_path);
-    defer project.allocator.free(uri);
+pub fn symbols(self: *Self, from: tp.pid_ref, file_path: []const u8) (LspError || SymbolInformationError)!void {
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
+    defer self.allocator.free(uri);
 
     const handler: struct {
         from: tp.pid,
@@ -663,7 +728,7 @@ pub fn symbols(project: *Project, from: tp.pid_ref, file_path: []const u8) (Proj
         .file_path = try std.heap.c_allocator.dupe(u8, file_path),
     };
 
-    lsp.send_request(project.allocator, "textDocument/documentSymbol", .{
+    self.lsp.send_request(self.allocator, "textDocument/documentSymbol", .{
         .textDocument = .{ .uri = uri },
     }, handler) catch return error.LspFailed;
 }
@@ -805,33 +870,27 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
     };
 }
 
-pub fn goto_definition(project: *Project, from: tp.pid_ref, args: *const Project.SourceLocation) SendGotoRequestError!void {
-    return send_goto_request(project, from, args, "textDocument/definition");
+pub fn goto_definition(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/definition");
 }
 
-pub fn goto_declaration(project: *Project, from: tp.pid_ref, args: *const Project.SourceLocation) SendGotoRequestError!void {
-    return send_goto_request(project, from, args, "textDocument/declaration");
+pub fn goto_declaration(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/declaration");
 }
 
-pub fn goto_implementation(project: *Project, from: tp.pid_ref, args: *const Project.SourceLocation) SendGotoRequestError!void {
-    return send_goto_request(project, from, args, "textDocument/implementation");
+pub fn goto_implementation(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/implementation");
 }
 
-pub fn goto_type_definition(project: *Project, from: tp.pid_ref, args: *const Project.SourceLocation) SendGotoRequestError!void {
-    return send_goto_request(project, from, args, "textDocument/typeDefinition");
+pub fn goto_type_definition(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/typeDefinition");
 }
 
-pub const SendGotoRequestError = (error{} || Project.LspError || GetLineOfFileError || cbor.Error);
+pub const SendGotoRequestError = (error{} || LspError || GetLineOfFileError || cbor.Error);
 
-fn send_goto_request(project: *Project, from: tp.pid_ref, args: *const Project.SourceLocation, method: []const u8) SendGotoRequestError!void {
-    const lsp = project.get_language_server(args.src.path) catch |e| switch (e) {
-        error.NoLsp => return if (args.alternative_destination) |*link| navigate_to_alternate_destination(from.ref(), link) else e,
-        error.OutOfMemory => return e,
-        error.WriteFailed => return e,
-        error.LspFailed => return e,
-    };
-    const uri = try make_URI(project, args.src.path);
-    defer project.allocator.free(uri);
+fn send_goto_request(self: *Self, from: tp.pid_ref, args: *const SourceLocation, method: []const u8) SendGotoRequestError!void {
+    const uri = try make_URI(self.allocator, self.project_name, args.src.path);
+    defer self.allocator.free(uri);
 
     const handler: struct {
         from: tp.pid,
@@ -863,7 +922,7 @@ fn send_goto_request(project: *Project, from: tp.pid_ref, args: *const Project.S
         }
     } = .{
         .from = from.clone(),
-        .name = try std.heap.c_allocator.dupe(u8, project.name),
+        .name = try std.heap.c_allocator.dupe(u8, self.project_name),
         .alternative_destination = if (args.alternative_destination) |dest| .{
             .path = try std.heap.c_allocator.dupe(u8, dest.path),
             .line = dest.line,
@@ -874,7 +933,7 @@ fn send_goto_request(project: *Project, from: tp.pid_ref, args: *const Project.S
         } else null,
     };
 
-    lsp.send_request(project.allocator, method, .{
+    self.lsp.send_request(self.allocator, method, .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = args.src.line, .character = args.src.column },
     }, handler) catch return error.LspFailed;
@@ -914,7 +973,7 @@ fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (error
     }
 }
 
-fn navigate_to_alternate_destination(from: tp.pid_ref, dest: *const file_link.FileDest) error{}!void {
+pub fn navigate_to_alternate_destination(from: tp.pid_ref, dest: *const file_link.FileDest) error{}!void {
     from.send(.{ "cmd", "navigate", .{
         .file = dest.path,
         .goto = .{ dest.line orelse 1, dest.column orelse 1 },
@@ -924,11 +983,10 @@ fn navigate_to_alternate_destination(from: tp.pid_ref, dest: *const file_link.Fi
     };
 }
 
-pub fn references(project: *Project, from: tp.pid_ref, source_location: *const Project.SourceLocation) SendGotoRequestError!void {
-    const lsp = try project.get_language_server(source_location.src.path);
-    const uri = try make_URI(project, source_location.src.path);
-    defer project.allocator.free(uri);
-    project.logger_lsp.print("finding references...", .{});
+pub fn references(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) SendGotoRequestError!void {
+    const uri = try make_URI(self.allocator, self.project_name, source_location.src.path);
+    defer self.allocator.free(uri);
+    self.logger_lsp.print("finding references...", .{});
 
     const handler: struct {
         from: tp.pid,
@@ -950,10 +1008,10 @@ pub fn references(project: *Project, from: tp.pid_ref, source_location: *const P
         }
     } = .{
         .from = from.clone(),
-        .name = try std.heap.c_allocator.dupe(u8, project.name),
+        .name = try std.heap.c_allocator.dupe(u8, self.project_name),
     };
 
-    lsp.send_request(project.allocator, "textDocument/references", .{
+    self.lsp.send_request(self.allocator, "textDocument/references", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = source_location.src.line, .character = source_location.src.column },
         .context = .{ .includeDeclaration = true },
@@ -1003,10 +1061,9 @@ fn send_reference(tag: []const u8, to: tp.pid_ref, location_: []const u8, name: 
     };
 }
 
-pub fn highlight_references(project: *Project, from: tp.pid_ref, source_location: *const Project.SourceLocation) SendGotoRequestError!void {
-    const lsp = try project.get_language_server(source_location.src.path);
-    const uri = try make_URI(project, source_location.src.path);
-    defer project.allocator.free(uri);
+pub fn highlight_references(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) SendGotoRequestError!void {
+    const uri = try make_URI(self.allocator, self.project_name, source_location.src.path);
+    defer self.allocator.free(uri);
 
     const handler: struct {
         from: tp.pid,
@@ -1030,7 +1087,7 @@ pub fn highlight_references(project: *Project, from: tp.pid_ref, source_location
         .file_path = try std.heap.c_allocator.dupe(u8, source_location.src.path),
     };
 
-    lsp.send_request(project.allocator, "textDocument/documentHighlight", .{
+    self.lsp.send_request(self.allocator, "textDocument/documentHighlight", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = source_location.src.line, .character = source_location.src.column },
         .context = .{ .includeDeclaration = true },
@@ -1066,10 +1123,9 @@ fn send_highlight(to: tp.pid_ref, highlight_: []const u8, file_path: []const u8)
     };
 }
 
-pub fn rename_symbol(project: *Project, from: tp.pid_ref, source_location: *const Project.SourceLocation) (Project.LspError || GetLineOfFileError)!void {
-    const lsp = try project.get_language_server(source_location.src.path);
-    const uri = try make_URI(project, source_location.src.path);
-    defer project.allocator.free(uri);
+pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) (LspError || GetLineOfFileError)!void {
+    const uri = try make_URI(self.allocator, self.project_name, source_location.src.path);
+    defer self.allocator.free(uri);
 
     const handler: struct {
         from: tp.pid,
@@ -1121,7 +1177,7 @@ pub fn rename_symbol(project: *Project, from: tp.pid_ref, source_location: *cons
         .file_path = try std.heap.c_allocator.dupe(u8, source_location.src.path),
     };
 
-    lsp.send_request(project.allocator, "textDocument/rename", .{
+    self.lsp.send_request(self.allocator, "textDocument/rename", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = source_location.src.line, .character = source_location.src.column },
         .newName = "PLACEHOLDER",
@@ -1214,44 +1270,41 @@ fn decode_rename_symbol_item(file_uri: []const u8, iter: *[]const u8, renames: *
     }
 }
 
-pub fn did_open(project: *Project, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel, version: usize, text: []const u8) Project.StartLspError!void {
-    project.update_mru(&.{ .src = .{ .path = file_path, .line = 0, .column = 0 } }) catch {};
-    const lsp = try project.get_or_start_language_server(from, file_path, language_server, language_server_options, language_server_protocol);
-    const uri = try make_URI(project, file_path);
-    defer project.allocator.free(uri);
-    lsp.send_notification("textDocument/didOpen", .{
+pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, version: usize, text: []const u8) LspError!void {
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
+    defer self.allocator.free(uri);
+    self.lsp.send_notification("textDocument/didOpen", .{
         .textDocument = .{ .uri = uri, .languageId = file_type, .version = version, .text = text },
     }) catch return error.LspFailed;
 }
 
-pub fn did_change(project: *Project, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) Project.LspError!void {
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
     _ = eol_mode;
     defer std.heap.c_allocator.free(text_dst);
     defer std.heap.c_allocator.free(text_src);
-    const lsp = try project.get_language_server(file_path);
-    const uri = try make_URI(project, file_path);
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
 
-    var arena_ = std.heap.ArenaAllocator.init(project.allocator);
+    var arena_ = std.heap.ArenaAllocator.init(self.allocator);
     const arena = arena_.allocator();
     var scratch_alloc: ?[]u32 = null;
     defer {
         const frame = tracy.initZone(@src(), .{ .name = "deinit" });
-        project.allocator.free(uri);
+        self.allocator.free(uri);
         arena_.deinit();
         frame.deinit();
         if (scratch_alloc) |scratch|
-            project.allocator.free(scratch);
+            self.allocator.free(scratch);
     }
 
     var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
-    var edits_cb: std.Io.Writer.Allocating = .init(project.allocator);
+    var edits_cb: std.Io.Writer.Allocating = .init(self.allocator);
     const writer = &edits_cb.writer;
 
     const scratch_len = 4 * (text_dst.len + text_src.len) + 2;
     const scratch = blk: {
         const frame = tracy.initZone(@src(), .{ .name = "scratch" });
         defer frame.deinit();
-        break :blk try project.allocator.alloc(u32, scratch_len);
+        break :blk try self.allocator.alloc(u32, scratch_len);
     };
     scratch_alloc = scratch;
 
@@ -1303,7 +1356,7 @@ pub fn did_change(project: *Project, file_path: []const u8, version: usize, text
     {
         const frame = tracy.initZone(@src(), .{ .name = "send" });
         defer frame.deinit();
-        var msg: std.Io.Writer.Allocating = .init(project.allocator);
+        var msg: std.Io.Writer.Allocating = .init(self.allocator);
         defer msg.deinit();
         const msg_writer = &msg.writer;
         try cbor.writeMapHeader(msg_writer, 2);
@@ -1313,7 +1366,7 @@ pub fn did_change(project: *Project, file_path: []const u8, version: usize, text
         try cbor.writeArrayHeader(msg_writer, edits_count);
         _ = try msg_writer.write(edits_cb.written());
 
-        lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
+        self.lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
     }
 }
 
@@ -1329,194 +1382,38 @@ fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) v
     }
 }
 
-pub fn did_save(project: *Project, file_path: []const u8) Project.LspError!void {
-    const lsp = try project.get_language_server(file_path);
-    const uri = try make_URI(project, file_path);
-    defer project.allocator.free(uri);
-    lsp.send_notification("textDocument/didSave", .{
+pub fn did_save(self: *Self, file_path: []const u8) LspError!void {
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
+    defer self.allocator.free(uri);
+    self.lsp.send_notification("textDocument/didSave", .{
         .textDocument = .{ .uri = uri },
     }) catch return error.LspFailed;
 }
 
-pub fn did_close(project: *Project, file_path: []const u8) Project.LspError!void {
-    const lsp = try project.get_language_server(file_path);
-    const uri = try make_URI(project, file_path);
-    defer project.allocator.free(uri);
-    lsp.send_notification("textDocument/didClose", .{
+pub fn did_close(self: *Self, file_path: []const u8) LspError!void {
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
+    defer self.allocator.free(uri);
+    self.lsp.send_notification("textDocument/didClose", .{
         .textDocument = .{ .uri = uri },
     }) catch return error.LspFailed;
-}
-
-pub fn publish_diagnostics(project: *Project, to: tp.pid_ref, params_cb: []const u8) DiagnosticError!void {
-    var uri: ?[]const u8 = null;
-    var diagnostics: []const u8 = &.{};
-    var iter = params_cb;
-    var len = try cbor.decodeMapHeader(&iter);
-    while (len > 0) : (len -= 1) {
-        var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDiagnostic;
-        if (std.mem.eql(u8, field_name, "uri")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&uri)))) return error.InvalidDiagnosticField;
-        } else if (std.mem.eql(u8, field_name, "diagnostics")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostics)))) return error.InvalidDiagnosticField;
-        } else {
-            try cbor.skipValue(&iter);
-        }
-    }
-
-    if (uri == null) return error.InvalidDiagnosticField;
-    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const file_path = try file_uri_to_path(uri.?, &file_path_buf);
-
-    send_clear_diagnostics(project, to, file_path);
-
-    iter = diagnostics;
-    len = try cbor.decodeArrayHeader(&iter);
-    while (len > 0) : (len -= 1) {
-        var diagnostic: []const u8 = undefined;
-        if (try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostic))) {
-            try send_diagnostic(project, to, file_path, diagnostic);
-        } else return error.InvalidDiagnosticField;
-    }
-}
-
-pub const DiagnosticError = error{
-    InvalidTargetURI,
-    InvalidDiagnostic,
-    InvalidDiagnosticFieldName,
-    InvalidDiagnosticField,
-} || RangeError || cbor.Error;
-fn send_diagnostic(_: *Project, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) DiagnosticError!void {
-    var source: []const u8 = "unknown";
-    var code: []const u8 = "none";
-    var code_int: i64 = 0;
-    var code_int_buf: [64]u8 = undefined;
-    var message: []const u8 = "empty";
-    var severity: i64 = 1;
-    var range: ?Range = null;
-    var iter = diagnostic;
-    var len = try cbor.decodeMapHeader(&iter);
-    while (len > 0) : (len -= 1) {
-        var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDiagnosticFieldName;
-        if (std.mem.eql(u8, field_name, "source") or std.mem.eql(u8, field_name, "uri")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&source)))) return error.InvalidDiagnosticField;
-        } else if (std.mem.eql(u8, field_name, "code")) {
-            if (try cbor.matchValue(&iter, cbor.extract(&code_int))) {
-                var writer = std.Io.Writer.fixed(&code_int_buf);
-                try writer.print("{}", .{code_int});
-                code = writer.buffered();
-            } else if (!(try cbor.matchValue(&iter, cbor.extract(&code))))
-                return error.InvalidDiagnosticField;
-        } else if (std.mem.eql(u8, field_name, "message")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidDiagnosticField;
-        } else if (std.mem.eql(u8, field_name, "severity")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&severity)))) return error.InvalidDiagnosticField;
-        } else if (std.mem.eql(u8, field_name, "range")) {
-            var range_: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidDiagnosticField;
-            range = try read_range(range_);
-        } else {
-            try cbor.skipValue(&iter);
-        }
-    }
-    if (range == null) return error.InvalidDiagnostic;
-    to.send(.{ "cmd", "add_diagnostic", .{
-        file_path,
-        source,
-        code,
-        message,
-        severity,
-        range.?.start.line,
-        range.?.start.character,
-        range.?.end.line,
-        range.?.end.character,
-    } }) catch |e| {
-        std.log.err("send add_diagnostic failed: {t}", .{e});
-    };
-}
-
-fn send_clear_diagnostics(_: *Project, to: tp.pid_ref, file_path: []const u8) void {
-    to.send(.{ "cmd", "clear_diagnostics", .{file_path} }) catch |e| {
-        std.log.err("send clear_diagnostics failed: {t}", .{e});
-    };
-}
-
-pub fn show_message(project: *Project, params_cb: []const u8) !void {
-    return show_or_log_message(project, .show, params_cb);
-}
-
-pub fn log_message(project: *Project, params_cb: []const u8) !void {
-    return show_or_log_message(project, .log, params_cb);
-}
-
-pub const LogMessageError = error{
-    InvalidLogMessage,
-    InvalidLogMessageField,
-    InvalidLogMessageFieldName,
-} || cbor.Error;
-fn show_or_log_message(project: *Project, operation: enum { show, log }, params_cb: []const u8) LogMessageError!void {
-    if (!tp.env.get().is("lsp_verbose")) return;
-    var type_: i32 = 0;
-    var message: ?[]const u8 = null;
-    var iter = params_cb;
-    var len = try cbor.decodeMapHeader(&iter);
-    while (len > 0) : (len -= 1) {
-        var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidLogMessage;
-        if (std.mem.eql(u8, field_name, "type")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&type_)))) return error.InvalidLogMessageField;
-        } else if (std.mem.eql(u8, field_name, "message")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidLogMessageField;
-        } else {
-            try cbor.skipValue(&iter);
-        }
-    }
-    const msg = message orelse return;
-    if (type_ <= 2)
-        project.logger_lsp.err_msg("lsp", msg)
-    else
-        project.logger_lsp.print("{t}: {s}", .{ operation, msg });
-}
-
-pub fn show_notification(project: *Project, method: []const u8, params_cb: []const u8) !void {
-    if (!tp.env.get().is("lsp_verbose")) return;
-    const params = try cbor.toJsonAlloc(project.allocator, params_cb);
-    defer project.allocator.free(params);
-    project.logger_lsp.print("LSP notification: {s} -> {s}", .{ method, params });
-}
-
-pub fn register_capability(project: *Project, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) Project.LspError!void {
-    _ = params_cb;
-    return LSP.send_response(project.allocator, from, cbor_id, null) catch error.LspFailed;
-}
-
-pub fn workDoneProgress_create(project: *Project, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) Project.LspError!void {
-    _ = params_cb;
-    return LSP.send_response(project.allocator, from, cbor_id, null) catch error.LspFailed;
-}
-
-pub fn unsupported_lsp_request(project: *Project, from: tp.pid_ref, cbor_id: []const u8, method: []const u8) Project.LspError!void {
-    return LSP.send_error_response(project.allocator, from, cbor_id, LSP.ErrorCode.MethodNotFound, method) catch error.LspFailed;
 }
 
 pub const LspInfoError = error{ InvalidInfoMessage, InvalidTriggerCharacters };
 
-pub fn start_language_server(project: *Project, from: tp.pid_ref, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) Project.StartLspError!*const LSP {
-    if (project.get_existing_language_server(language_server)) |lsp| return lsp;
-    const lsp = try LSP.open(project.allocator, project.name, .{ .buf = language_server });
-    errdefer lsp.deinit();
-    const uri = try make_URI(project, null);
-    defer project.allocator.free(uri);
-    const basename_begin = std.mem.lastIndexOfScalar(u8, project.name, std.fs.path.sep);
-    const basename = if (basename_begin) |begin| project.name[begin + 1 ..] else project.name;
+fn send_init_request(
+    self: *Self,
+    from: tp.pid_ref,
+    language_server: []const u8,
+    language_server_options: []const u8,
+    language_server_protocol: file_type_config.ProtocolLevel,
+) !void {
+    const project_path = self.project_name;
+    const project_uri = try make_URI(self.allocator, self.project_name, null);
+    defer self.allocator.free(project_uri);
+    const basename_begin = std.mem.lastIndexOfScalar(u8, project_path, std.fs.path.sep);
+    const project_basename = if (basename_begin) |begin| project_path[begin + 1 ..] else project_path;
+    const lsp = self.lsp;
 
-    try send_lsp_init_request(project, from, lsp, project.name, basename, uri, language_server, language_server_options, language_server_protocol);
-    try project.language_servers.put(try project.allocator.dupe(u8, language_server), lsp);
-    return lsp;
-}
-
-fn send_lsp_init_request(project: *Project, from: tp.pid_ref, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) !void {
     const handler: struct {
         from: tp.pid,
         language_server: []const u8,
@@ -1560,29 +1457,29 @@ fn send_lsp_init_request(project: *Project, from: tp.pid_ref, lsp: *const LSP, p
                 try cbor.writeValue(writer, null);
                 return;
             }
-            const toCbor = cbor.fromJsonAlloc(ctx.project.allocator, ctx.language_server_options) catch {
+            const toCbor = cbor.fromJsonAlloc(ctx.client.allocator, ctx.language_server_options) catch {
                 try cbor.writeValue(writer, null);
-                ctx.project.logger_lsp.print_err("init", "ignored invalid JSON in LSP initialization options", .{});
+                ctx.client.logger_lsp.print_err("init", "ignored invalid JSON in LSP initialization options", .{});
                 return;
             };
-            defer ctx.project.allocator.free(toCbor);
+            defer ctx.client.allocator.free(toCbor);
 
             writer.writeAll(toCbor) catch return error.WriteFailed;
         }
-        project: *Project,
+        client: *Self,
         language_server_options: []const u8,
-    } = .{ .project = project, .language_server_options = language_server_options };
+    } = .{ .client = self, .language_server_options = language_server_options };
 
     try lsp.set_protocol(language_server_protocol);
 
     if (language_server_protocol == .simple) {
-        try lsp.send_request(project.allocator, "initialize", .{
+        try lsp.send_request(self.allocator, "initialize", .{
             .rootUri = project_uri,
         }, handler);
         return;
     }
 
-    try lsp.send_request(project.allocator, "initialize", .{
+    try lsp.send_request(self.allocator, "initialize", .{
         .initializationOptions = initializationOptions,
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,

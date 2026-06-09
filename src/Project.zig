@@ -8,12 +8,14 @@ const git = @import("git");
 const VcsStatus = @import("VcsStatus");
 const file_type_config = @import("file_type_config");
 const file_link = @import("file_link");
+const Buffer = @import("Buffer");
 const builtin = @import("builtin");
 
 const project_manager = @import("project_manager.zig");
 const LSP = @import("LSP.zig");
 const LSPClient = @import("LSPClient.zig");
 const walk_tree = @import("walk_tree.zig");
+const convert_path = LSPClient.convert_path;
 
 allocator: std.mem.Allocator,
 name: []const u8,
@@ -23,7 +25,7 @@ pending: std.ArrayListUnmanaged(File) = .empty,
 longest_file_path: usize = 0,
 longest_new_or_modified_file_path: usize = 0,
 open_time: i64,
-language_servers: std.StringHashMap(*const LSP),
+language_servers: std.StringHashMap(*LSPClient),
 file_language_server_name: std.StringHashMap([]const u8),
 tasks: std.ArrayList(Task),
 persistent: bool = false,
@@ -65,8 +67,8 @@ pub const RequestError = error{
     InvalidVcsStatusRequest,
     InvalidTasksRequest,
 } || OutOfMemoryError || cbor.Error;
-pub const StartLspError = (error{ ThespianSpawnFailed, Timeout, InvalidLspCommand } || LspError || OutOfMemoryError || cbor.Error);
-pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError || std.Io.Writer.Error);
+pub const StartLspError = LSPClient.StartLspError;
+pub const LspError = LSPClient.LspError;
 pub const GitError = error{InvalidGitResponse};
 pub const LspInfoError = LSPClient.LspInfoError;
 
@@ -93,10 +95,7 @@ pub const FilePos = struct {
     col: usize = 0,
 };
 
-pub const SourceLocation = struct {
-    src: file_link.FileSrc,
-    alternative_destination: ?file_link.FileDest = null,
-};
+pub const SourceLocation = LSPClient.SourceLocation;
 
 const Task = struct {
     command: []const u8,
@@ -111,7 +110,7 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .allocator = allocator,
         .name = try allocator.dupe(u8, name),
         .open_time = now.toMilliseconds(),
-        .language_servers = std.StringHashMap(*const LSP).init(allocator),
+        .language_servers = std.StringHashMap(*LSPClient).init(allocator),
         .file_language_server_name = std.StringHashMap([]const u8).init(allocator),
         .tasks = .empty,
         .logger = log.logger("project"),
@@ -132,7 +131,7 @@ pub fn deinit(self: *Self) void {
     var i = self.language_servers.iterator();
     while (i.next()) |p| {
         self.allocator.free(p.key_ptr.*);
-        p.value_ptr.*.term();
+        p.value_ptr.*.deinit();
     }
     for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
     self.new_or_modified_files.deinit(self.allocator);
@@ -318,9 +317,9 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     }
 }
 
-pub fn get_existing_language_server(self: *Self, language_server: []const u8) ?*const LSP {
-    if (self.language_servers.get(language_server)) |lsp| {
-        if (!lsp.pid.expired()) return lsp;
+pub fn get_existing_lsp_client(self: *Self, language_server: []const u8) ?*LSPClient {
+    if (self.language_servers.get(language_server)) |client| {
+        if (!client.expired()) return client;
         if (self.language_servers.fetchRemove(language_server)) |kv| {
             self.allocator.free(kv.key);
             kv.value.deinit();
@@ -329,19 +328,26 @@ pub fn get_existing_language_server(self: *Self, language_server: []const u8) ?*
     return null;
 }
 
-pub fn get_or_start_language_server(self: *Self, from: tp.pid_ref, file_path: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) StartLspError!*const LSP {
+pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) StartLspError!*LSPClient {
     if (self.file_language_server_name.get(file_path)) |lsp_name|
-        return self.get_existing_language_server(lsp_name) orelse error.LspFailed;
-    const lsp = try LSPClient.start_language_server(self, from, language_server, language_server_options, language_server_protocol);
+        return self.get_existing_lsp_client(lsp_name) orelse error.LspFailed;
+
+    const client = self.get_existing_lsp_client(language_server) orelse blk: {
+        const new_client = try LSPClient.start(self.allocator, self.name, language_server, language_server_options, language_server_protocol, from);
+        errdefer new_client.deinit();
+        try self.language_servers.put(try self.allocator.dupe(u8, language_server), new_client);
+        break :blk new_client;
+    };
+
     const key = try self.allocator.dupe(u8, file_path);
     const value = try self.allocator.dupe(u8, language_server);
     try self.file_language_server_name.put(key, value);
-    return lsp;
+    return client;
 }
 
-pub fn get_language_server(self: *Self, file_path: []const u8) LspError!*const LSP {
+pub fn get_lsp_client_for_file(self: *Self, file_path: []const u8) LspError!*LSPClient {
     const lsp_name = self.file_language_server_name.get(file_path) orelse return error.NoLsp;
-    return self.get_existing_language_server(lsp_name) orelse error.LspFailed;
+    return self.get_existing_lsp_client(lsp_name) orelse error.LspFailed;
 }
 
 fn sort_files_by_mtime(self: *Self) void {
@@ -874,52 +880,254 @@ pub fn delete_task(self: *Self, command: []const u8) error{}!void {
         };
 }
 
-pub const did_open = LSPClient.did_open;
-pub const did_change = LSPClient.did_change;
-pub const did_save = LSPClient.did_save;
-pub const did_close = LSPClient.did_close;
-
-pub const SendGotoRequestError = LSPClient.SendGotoRequestError;
-pub const goto_definition = LSPClient.goto_definition;
-pub const goto_declaration = LSPClient.goto_declaration;
-pub const goto_implementation = LSPClient.goto_implementation;
-pub const goto_type_definition = LSPClient.goto_type_definition;
-
-pub fn convert_path(file_path_: []u8) []u8 {
-    var file_path = file_path_;
-    if (builtin.os.tag == .windows) {
-        if (file_path[0] == '/') file_path = file_path[1..];
-        for (file_path, 0..) |c, i| if (c == '/') {
-            file_path[i] = '\\';
-        };
-    }
-    return file_path;
+pub fn did_open(
+    self: *Self,
+    from: tp.pid_ref,
+    file_path: []const u8,
+    file_type: []const u8,
+    language_server: []const u8,
+    language_server_options: []const u8,
+    language_server_protocol: file_type_config.ProtocolLevel,
+    version: usize,
+    text: []const u8,
+) StartLspError!void {
+    self.update_mru(&.{ .src = .{ .path = file_path, .line = 0, .column = 0 } }) catch {};
+    const client = try self.get_or_start_lsp_client(from, file_path, language_server, language_server_options, language_server_protocol);
+    return client.did_open(file_path, file_type, version, text);
 }
 
-pub const references = LSPClient.references;
-pub const highlight_references = LSPClient.highlight_references;
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    return client.did_change(file_path, version, text_dst, text_src, eol_mode);
+}
+
+pub fn did_save(self: *Self, file_path: []const u8) LspError!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    return client.did_save(file_path);
+}
+
+pub fn did_close(self: *Self, file_path: []const u8) LspError!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    return client.did_close(file_path);
+}
+
+pub const SendGotoRequestError = LSPClient.SendGotoRequestError;
+
+fn goto_client(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!?*LSPClient {
+    return self.get_lsp_client_for_file(args.src.path) catch |e| switch (e) {
+        error.NoLsp => {
+            if (args.alternative_destination) |*link| try LSPClient.navigate_to_alternate_destination(from.ref(), link);
+            return null;
+        },
+        else => return e,
+    };
+}
+
+pub fn goto_definition(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    const client = (try self.goto_client(from, args)) orelse return;
+    return client.goto_definition(from, args);
+}
+
+pub fn goto_declaration(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    const client = (try self.goto_client(from, args)) orelse return;
+    return client.goto_declaration(from, args);
+}
+
+pub fn goto_implementation(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    const client = (try self.goto_client(from, args)) orelse return;
+    return client.goto_implementation(from, args);
+}
+
+pub fn goto_type_definition(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    const client = (try self.goto_client(from, args)) orelse return;
+    return client.goto_type_definition(from, args);
+}
+
+pub fn references(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) SendGotoRequestError!void {
+    const client = try self.get_lsp_client_for_file(source_location.src.path);
+    return client.references(from, source_location);
+}
+
+pub fn highlight_references(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) SendGotoRequestError!void {
+    const client = try self.get_lsp_client_for_file(source_location.src.path);
+    return client.highlight_references(from, source_location);
+}
 
 pub const CompletionError = LSPClient.CompletionError;
-pub const completion = LSPClient.completion;
+pub fn completion(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+    const client = try self.get_lsp_client_for_file(source_location.src.path);
+    return client.completion(from, source_location);
+}
 
 pub const SymbolInformationError = LSPClient.SymbolInformationError;
-pub const symbols = LSPClient.symbols;
+pub fn symbols(self: *Self, from: tp.pid_ref, file_path: []const u8) (LspError || SymbolInformationError)!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    return client.symbols(from, file_path);
+}
 
-pub const rename_symbol = LSPClient.rename_symbol;
+pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) (LspError || GetLineOfFileError)!void {
+    const client = try self.get_lsp_client_for_file(source_location.src.path);
+    return client.rename_symbol(from, source_location);
+}
 
-pub const hover = LSPClient.hover;
+pub fn hover(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+    const client = try self.get_lsp_client_for_file(source_location.src.path);
+    return client.hover(from, source_location);
+}
 
-pub const DiagnosticError = LSPClient.DiagnosticError;
-pub const publish_diagnostics = LSPClient.publish_diagnostics;
+pub const DiagnosticError = error{
+    InvalidTargetURI,
+    InvalidDiagnostic,
+    InvalidDiagnosticFieldName,
+    InvalidDiagnosticField,
+} || LSPClient.RangeError || cbor.Error;
 
-pub const LogMessageError = LSPClient.LogMessageError;
-pub const show_message = LSPClient.show_message;
-pub const log_message = LSPClient.log_message;
-pub const show_notification = LSPClient.show_notification;
+pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) DiagnosticError!void {
+    var uri: ?[]const u8 = null;
+    var diagnostics: []const u8 = &.{};
+    var iter = params_cb;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDiagnostic;
+        if (std.mem.eql(u8, field_name, "uri")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&uri)))) return error.InvalidDiagnosticField;
+        } else if (std.mem.eql(u8, field_name, "diagnostics")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostics)))) return error.InvalidDiagnosticField;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
 
-pub const register_capability = LSPClient.register_capability;
-pub const workDoneProgress_create = LSPClient.workDoneProgress_create;
-pub const unsupported_lsp_request = LSPClient.unsupported_lsp_request;
+    if (uri == null) return error.InvalidDiagnosticField;
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = try LSPClient.file_uri_to_path(uri.?, &file_path_buf);
+
+    self.send_clear_diagnostics(to, file_path);
+
+    iter = diagnostics;
+    len = try cbor.decodeArrayHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var diagnostic: []const u8 = undefined;
+        if (try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostic))) {
+            try self.send_diagnostic(to, file_path, diagnostic);
+        } else return error.InvalidDiagnosticField;
+    }
+}
+
+fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) DiagnosticError!void {
+    var source: []const u8 = "unknown";
+    var code: []const u8 = "none";
+    var code_int: i64 = 0;
+    var code_int_buf: [64]u8 = undefined;
+    var message: []const u8 = "empty";
+    var severity: i64 = 1;
+    var range: ?LSPClient.Range = null;
+    var iter = diagnostic;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDiagnosticFieldName;
+        if (std.mem.eql(u8, field_name, "source") or std.mem.eql(u8, field_name, "uri")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&source)))) return error.InvalidDiagnosticField;
+        } else if (std.mem.eql(u8, field_name, "code")) {
+            if (try cbor.matchValue(&iter, cbor.extract(&code_int))) {
+                var writer = std.Io.Writer.fixed(&code_int_buf);
+                try writer.print("{}", .{code_int});
+                code = writer.buffered();
+            } else if (!(try cbor.matchValue(&iter, cbor.extract(&code))))
+                return error.InvalidDiagnosticField;
+        } else if (std.mem.eql(u8, field_name, "message")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidDiagnosticField;
+        } else if (std.mem.eql(u8, field_name, "severity")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&severity)))) return error.InvalidDiagnosticField;
+        } else if (std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidDiagnosticField;
+            range = try LSPClient.read_range(range_);
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    if (range == null) return error.InvalidDiagnostic;
+    to.send(.{ "cmd", "add_diagnostic", .{
+        file_path,
+        source,
+        code,
+        message,
+        severity,
+        range.?.start.line,
+        range.?.start.character,
+        range.?.end.line,
+        range.?.end.character,
+    } }) catch |e| {
+        std.log.err("send add_diagnostic failed: {t}", .{e});
+    };
+}
+
+fn send_clear_diagnostics(_: *Self, to: tp.pid_ref, file_path: []const u8) void {
+    to.send(.{ "cmd", "clear_diagnostics", .{file_path} }) catch |e| {
+        std.log.err("send clear_diagnostics failed: {t}", .{e});
+    };
+}
+
+pub fn show_message(self: *Self, params_cb: []const u8) !void {
+    return self.show_or_log_message(.show, params_cb);
+}
+
+pub fn log_message(self: *Self, params_cb: []const u8) !void {
+    return self.show_or_log_message(.log, params_cb);
+}
+
+pub const LogMessageError = error{
+    InvalidLogMessage,
+    InvalidLogMessageField,
+    InvalidLogMessageFieldName,
+} || cbor.Error;
+fn show_or_log_message(self: *Self, operation: enum { show, log }, params_cb: []const u8) LogMessageError!void {
+    if (!tp.env.get().is("lsp_verbose")) return;
+    var type_: i32 = 0;
+    var message: ?[]const u8 = null;
+    var iter = params_cb;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidLogMessage;
+        if (std.mem.eql(u8, field_name, "type")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&type_)))) return error.InvalidLogMessageField;
+        } else if (std.mem.eql(u8, field_name, "message")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidLogMessageField;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    const msg = message orelse return;
+    if (type_ <= 2)
+        self.logger_lsp.err_msg("lsp", msg)
+    else
+        self.logger_lsp.print("{t}: {s}", .{ operation, msg });
+}
+
+pub fn show_notification(self: *Self, method: []const u8, params_cb: []const u8) !void {
+    if (!tp.env.get().is("lsp_verbose")) return;
+    const params = try cbor.toJsonAlloc(self.allocator, params_cb);
+    defer self.allocator.free(params);
+    self.logger_lsp.print("LSP notification: {s} -> {s}", .{ method, params });
+}
+
+pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) LspError!void {
+    _ = params_cb;
+    return LSP.send_response(self.allocator, from, cbor_id, null) catch error.LspFailed;
+}
+
+pub fn workDoneProgress_create(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) LspError!void {
+    _ = params_cb;
+    return LSP.send_response(self.allocator, from, cbor_id, null) catch error.LspFailed;
+}
+
+pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u8, method: []const u8) LspError!void {
+    return LSP.send_error_response(self.allocator, from, cbor_id, LSP.ErrorCode.MethodNotFound, method) catch error.LspFailed;
+}
 
 pub const GetLineOfFileError = LSPClient.GetLineOfFileError;
 
