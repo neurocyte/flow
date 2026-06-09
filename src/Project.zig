@@ -340,7 +340,6 @@ fn get_language_server_instance(self: *Self, from: tp.pid_ref, language_server: 
     const basename_begin = std.mem.lastIndexOfScalar(u8, self.name, std.fs.path.sep);
     const basename = if (basename_begin) |begin| self.name[begin + 1 ..] else self.name;
 
-    errdefer lsp.deinit();
     try self.send_lsp_init_request(from, lsp, self.name, basename, uri, language_server, language_server_options, language_server_protocol);
     try self.language_servers.put(try self.allocator.dupe(u8, language_server), lsp);
     return lsp;
