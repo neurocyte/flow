@@ -7102,6 +7102,14 @@ pub const Editor = struct {
     }
     pub const hover_meta: Meta = .{ .description = "Language: Show documentation for symbol (hover)" };
 
+    pub fn restart_language_server(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        project_manager.restart_language_server(file_path) catch |e| {
+            self.logger.print("project_manager.restart_language_server failed: {any}", .{e});
+        };
+    }
+    pub const restart_language_server_meta: Meta = .{ .description = "Language: Restart language server" };
+
     pub fn hover_at_abs(self: *Self, y: usize, x: usize) Result {
         const row: usize = self.view.row + y;
         const col: usize = self.view.col + x;

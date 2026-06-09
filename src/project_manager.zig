@@ -203,6 +203,13 @@ pub fn request_vcs_blame(file_path: []const u8) (ProjectManagerError || ProjectE
     return send(.{ "request_vcs_blame", project, file_path });
 }
 
+pub fn restart_language_server(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "restart_language_server", project, file_path });
+}
+
 pub fn add_task(task: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -546,6 +553,8 @@ const Process = struct {
             return;
         } else if (try cbor.match(m.buf, .{ "request_vcs_blame", tp.extract(&project_directory), tp.extract(&path) })) {
             self.request_vcs_blame(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "restart_language_server", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.restart_language_server(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else {
             self.logger.err("receive", tp.unexpected(m));
         }
@@ -578,6 +587,11 @@ const Process = struct {
     fn handle_lsp_terminated(self: *Process, project_directory: []const u8, language_server: []const u8) (ProjectError || Project.StartLspError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.handle_lsp_terminated(language_server);
+    }
+
+    fn restart_language_server(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.restart_language_server_for_file(file_path);
     }
 
     fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) (ProjectError || Project.RequestError)!void {

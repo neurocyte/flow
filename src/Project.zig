@@ -338,7 +338,19 @@ pub fn handle_lsp_terminated(self: *Self, language_server: []const u8) StartLspE
 }
 
 pub fn restart_lsp_client(self: *Self, language_server: []const u8) StartLspError!*LSPClient {
-    if (self.get_existing_lsp_client(language_server)) |client| return client;
+    return self.restart_lsp_client_inner(language_server, .if_dead);
+}
+
+pub fn force_restart_lsp_client(self: *Self, language_server: []const u8) StartLspError!*LSPClient {
+    return self.restart_lsp_client_inner(language_server, .always);
+}
+
+const RestartMode = enum { if_dead, always };
+
+fn restart_lsp_client_inner(self: *Self, language_server: []const u8, mode: RestartMode) StartLspError!*LSPClient {
+    if (mode == .if_dead) {
+        if (self.get_existing_lsp_client(language_server)) |client| return client;
+    }
     const old_client = self.language_servers.get(language_server) orelse return error.LspFailed;
     const new_client = try old_client.restart();
     errdefer new_client.deinit();
@@ -350,6 +362,12 @@ pub fn restart_lsp_client(self: *Self, language_server: []const u8) StartLspErro
         _ = cbor.matchValue(&iter, cbor.extract(&lsp_cmd)) catch {};
     self.parent.send(.{ "PRJ", "lsp_restarted", self.name, lsp_cmd }) catch {};
     return new_client;
+}
+
+pub fn restart_language_server_for_file(self: *Self, file_path: []const u8) StartLspError!void {
+    const lsp_name = self.file_language_server_name.get(file_path) orelse return error.NoLsp;
+    _ = try self.force_restart_lsp_client(lsp_name);
+    self.logger_lsp.print("language server restarted for {s}", .{file_path});
 }
 
 pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) StartLspError!*LSPClient {
