@@ -77,7 +77,7 @@ fn inspect_location(self: *Self, row: usize, col: usize) void {
     const syn = self.editor.syntax orelse return;
     const root = (self.editor.buffer orelse return).root;
     const col_pos = root.get_line_width_to_pos(row, col, self.editor.metrics) catch return;
-    if (!syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col_pos) }))
+    if (!syn.highlights_at_point(self, dump_highlight, syntax.SimpleNonRegex(*Self), .{ .row = @intCast(row), .column = @intCast(col_pos) }))
         self.ast_at_point(syn, row, col_pos, root);
 }
 

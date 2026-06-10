@@ -1727,7 +1727,7 @@ pub const Editor = struct {
             .start_byte = 0,
             .end_byte = 0,
         };
-        return syn.render(&ctx, Ctx.cb, range);
+        return syn.render(&ctx, Ctx.cb, syntax.SimpleNonRegex(*Ctx), range);
     }
 
     fn render_whitespace_map(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
