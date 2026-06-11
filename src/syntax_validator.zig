@@ -9,7 +9,7 @@ const match = @import("match");
 
 const wrap_buffer_size = 4096;
 
-pub fn Validator(comptime T: type) fn (T, []const u8) bool {
+pub fn Validator(comptime T: type) fn (T, cbor.Raw) bool {
     const simple = syntax.SimpleNonRegex(void);
 
     const local = struct {
@@ -48,7 +48,7 @@ pub fn Validator(comptime T: type) fn (T, []const u8) bool {
             if (predicate.bytes.len + 1 > buf.len) return false; // too large to wrap: drop
             var writer = std.Io.Writer.fixed(&buf);
             cbor.writeValue(&writer, .{predicate}) catch return false;
-            return simple({}, writer.buffered());
+            return simple({}, .{ .bytes = writer.buffered() });
         }
 
         fn evalLuaMatch(capture: cbor.Raw, pattern: cbor.Raw, any: bool) cbor.Error!bool {
@@ -93,8 +93,8 @@ pub fn Validator(comptime T: type) fn (T, []const u8) bool {
     };
 
     return struct {
-        fn validate(_: T, predicates: []const u8) bool {
-            return local.evalPredicates(.{ .bytes = predicates }) catch true;
+        fn validate(_: T, predicates: cbor.Raw) bool {
+            return local.evalPredicates(predicates) catch true;
         }
     }.validate;
 }
@@ -104,7 +104,7 @@ test "wraps SimpleNonRegex: existing predicates still evaluated" {
     const eval = struct {
         fn eval(value: anytype) bool {
             var buf: [4096]u8 = undefined;
-            return validator({}, cbor.fmt(&buf, value));
+            return validator({}, .{ .bytes = cbor.fmt(&buf, value) });
         }
     }.eval;
 
@@ -134,7 +134,7 @@ test "lua-match predicates" {
     const eval = struct {
         fn eval(value: anytype) bool {
             var buf: [4096]u8 = undefined;
-            return validator({}, cbor.fmt(&buf, value));
+            return validator({}, .{ .bytes = cbor.fmt(&buf, value) });
         }
     }.eval;
 
@@ -178,7 +178,7 @@ test "mixed lua-match and simple predicates" {
     const eval = struct {
         fn eval(value: anytype) bool {
             var buf: [4096]u8 = undefined;
-            return validator({}, cbor.fmt(&buf, value));
+            return validator({}, .{ .bytes = cbor.fmt(&buf, value) });
         }
     }.eval;
 
