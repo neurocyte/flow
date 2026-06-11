@@ -1669,11 +1669,12 @@ pub const Editor = struct {
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
             last_begin: Cursor = Cursor.invalid(),
+            last_scope_wins: bool = false,
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, _: *const syntax.Node) error{Stop}!void {
                 var sel = ctx.pos_cache.from_pos(range, ctx.root, ctx.self.metrics);
 
                 if (idx > 0) return;
-                if (sel.begin.eql(ctx.last_begin)) return;
+                if (!ctx.last_scope_wins and sel.begin.eql(ctx.last_begin)) return;
                 ctx.last_begin = sel.begin;
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
@@ -1718,6 +1719,7 @@ pub const Editor = struct {
             .cache = cache,
             .root = root,
             .pos_cache = try PosToWidthCache.init(self.allocator),
+            .last_scope_wins = tui.config().syntax_highlight_last_scope_wins,
         };
 
         defer ctx.pos_cache.deinit();
