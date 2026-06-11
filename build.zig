@@ -435,6 +435,19 @@ pub fn build_exe(
         .root_source_file = b.path("src/color.zig"),
     });
 
+    const match_mod = b.createModule(.{
+        .root_source_file = b.path("src/match.zig"),
+    });
+
+    const syntax_validator_mod = b.createModule(.{
+        .root_source_file = b.path("src/syntax_validator.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "match", .module = match_mod },
+        },
+    });
+
     const bin_path_mod = b.createModule(.{
         .root_source_file = b.path("src/bin_path.zig"),
     });
@@ -734,6 +747,30 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const match_test_run_cmd = b.addRunArtifact(b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/match.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+        .filters = test_filters,
+    }));
+
+    const syntax_validator_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/syntax_validator.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("syntax", syntax_mod);
+        tests.root_module.addImport("match", match_mod);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const shell_mod = b.createModule(.{
         .root_source_file = b.path("src/shell.zig"),
         .imports = &.{
@@ -830,6 +867,7 @@ pub fn build_exe(
             .{ .name = "location_history", .module = location_history_mod },
             .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "syntax_validator", .module = syntax_validator_mod },
             .{ .name = "text_manip", .module = text_manip_mod },
             .{ .name = "argv", .module = argv_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
@@ -1002,6 +1040,8 @@ pub fn build_exe(
 
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
+    test_step.dependOn(&match_test_run_cmd.step);
+    test_step.dependOn(&syntax_validator_test_run_cmd.step);
 
     const lints = b.addFmt(.{
         .paths = &.{ "src", "test", "build.zig" },

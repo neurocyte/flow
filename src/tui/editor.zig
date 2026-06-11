@@ -13,6 +13,7 @@ const file_type_config = @import("file_type_config");
 const project_manager = @import("project_manager");
 const root_mod = @import("soft_root").root;
 const file_link = @import("file_link");
+const syntax_validator = @import("syntax_validator");
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
@@ -1729,7 +1730,7 @@ pub const Editor = struct {
             .start_byte = 0,
             .end_byte = 0,
         };
-        return syn.render(&ctx, Ctx.cb, syntax.SimpleNonRegex(*Ctx), range);
+        return syn.render(&ctx, Ctx.cb, syntax_validator.Validator(*Ctx), range);
     }
 
     fn render_whitespace_map(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
