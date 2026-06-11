@@ -1,6 +1,5 @@
 const Allocator = @import("std").mem.Allocator;
 
-const tp = @import("thespian");
 const Buffer = @import("Buffer");
 const color = @import("color");
 const syntax = @import("syntax");
@@ -8,7 +7,6 @@ const syntax = @import("syntax");
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
 const styles = @import("renderer").styles;
-const EventHandler = @import("EventHandler");
 const command = @import("command");
 
 const tui = @import("tui.zig");
@@ -36,14 +34,12 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
         .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
         .editor = editor,
     };
-    try editor.handlers.add(EventHandler.bind(self, ed_receive));
     container.ctx = self;
     try container.add(Widget.to(self));
     return container.widget();
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
-    self.editor.handlers.remove_ptr(self);
     tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
@@ -54,6 +50,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.theme = theme;
     self.plane.erase();
     self.plane.home();
+    self.editor = tui.get_active_editor() orelse return false;
     const cursor = self.editor.get_primary().cursor;
     self.inspect_location(cursor.row, cursor.col);
     return false;
@@ -62,16 +59,6 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-}
-
-fn ed_receive(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    if (try m.match(.{ "E", "close" }))
-        return self.clear();
-}
-
-fn clear(self: *Self) void {
-    self.plane.erase();
-    self.plane.home();
 }
 
 fn inspect_location(self: *Self, row: usize, col: usize) void {
