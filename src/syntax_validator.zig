@@ -25,8 +25,6 @@ pub fn Validator(comptime T: type) fn (T, cbor.Raw) bool {
         }
 
         fn evalPredicate(predicate: cbor.Raw) cbor.Error!bool {
-            if (isDirective(predicate)) return true;
-
             var op: []const u8 = undefined;
             var capture: cbor.Raw = undefined;
             var pattern: cbor.Raw = undefined;
@@ -44,14 +42,7 @@ pub fn Validator(comptime T: type) fn (T, cbor.Raw) bool {
             return delegate(predicate);
         }
 
-        fn isDirective(predicate: cbor.Raw) bool {
-            var iter = predicate.bytes;
-            _ = cbor.decodeArrayHeader(&iter) catch return false;
-            var op: []const u8 = undefined;
-            if (!(cbor.matchValue(&iter, cbor.extract(&op)) catch false)) return false;
-            return std.mem.endsWith(u8, op, "!");
-        }
-
+        /// Evaluate a single non-lua predicate by wrapping it in a one-element array
         fn delegate(predicate: cbor.Raw) bool {
             var buf: [wrap_buffer_size]u8 = undefined;
             if (predicate.bytes.len + 1 > buf.len) return false; // too large to wrap: drop
