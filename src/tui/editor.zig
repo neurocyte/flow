@@ -2253,7 +2253,8 @@ pub const Editor = struct {
         defer frame.deinit();
         var old = self.cursels;
         defer old.deinit(self.allocator);
-        self.cursels = CurSel.List.initCapacity(self.allocator, old.items.len) catch return;
+        self.cursels = CurSel.List.initCapacity(self.allocator, old.items.len) catch @panic("OOM collapse_cursors");
+        if (old.items.len == 0) return; // nothing to collapse
         var a_idx = old.items.len - 1;
         while (a_idx > 0) : (a_idx -= 1) if (old.items[a_idx]) |*a| {
             var b_idx = a_idx - 1;
@@ -2277,7 +2278,7 @@ pub const Editor = struct {
             };
         };
         for (old.items) |*item_| if (item_.*) |*item| {
-            (self.cursels.addOne(self.allocator) catch return).* = item.*;
+            (self.cursels.addOne(self.allocator) catch @panic("OOM collapse_cursors")).* = item.*;
         };
     }
 
