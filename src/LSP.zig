@@ -478,7 +478,6 @@ const Process = struct {
     }
 
     fn handle_not_found(self: *Process) error{ExitNormal}!void {
-        self.err_msg("'{s}' executable not found", .{self.tag});
         self.write_log("### '{s}' executable not found ###\n", .{self.tag});
         self.parent.send(.{ sp_tag, self.project, self.tag, "not found" }) catch {};
         return error.ExitNormal;
