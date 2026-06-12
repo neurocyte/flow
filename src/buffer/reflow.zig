@@ -1,4 +1,14 @@
-pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize, metrics: Metrics) error{ OutOfMemory, WriteFailed }![]u8 {
+pub const WidthMethod = enum { screen, unicode };
+pub const IndentStyle = enum { spaces, tabs };
+
+pub fn reflow(
+    allocator: std.mem.Allocator,
+    text: []const u8,
+    width: usize,
+    width_method: WidthMethod,
+    indent: IndentStyle,
+    metrics: Metrics,
+) error{ OutOfMemory, WriteFailed }![]u8 {
     const len = text.len;
     const trailing_ln: bool = (len > 0 and text[len - 1] == '\n');
     const input = if (trailing_ln) text[0 .. len - 1] else text;
@@ -30,24 +40,23 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize, metr
             const state: enum { begin, words } = if (line_len == 0) .begin else .words;
             blk: switch (state) {
                 .begin => {
-                    if (item_start) {
-                        try writer.writeAll(cur.first);
-                        line_len += prefix_width(cur.first, metrics.tab_width);
-                        item_start = false;
+                    const indent_cols = indent_width(cur.indent, metrics.tab_width);
+                    try emit_indent(writer, indent_cols, indent, metrics.tab_width);
+                    line_len += indent_cols;
+                    const content_width = measure(cur.content, line_len, width_method, metrics);
+                    if (item_start or !cur.bullet) {
+                        try writer.writeAll(cur.content);
                     } else {
-                        try writer.writeAll(cur.continuation);
-                        line_len += prefix_width(cur.continuation, metrics.tab_width);
-                        var pad = cur.pad;
-                        while (pad > 0) : (pad -= 1) {
-                            try writer.writeByte(' ');
-                            line_len += 1;
-                        }
+                        var pad = content_width;
+                        while (pad > 0) : (pad -= 1) try writer.writeByte(' ');
                     }
+                    line_len += content_width;
+                    item_start = false;
                     line_has_word = false;
                     continue :blk .words;
                 },
                 .words => {
-                    const word_width = gwidth.gwidth(word, .unicode);
+                    const word_width = measure(word, line_len, width_method, metrics);
                     if (line_has_word) {
                         if (line_len + word_width + 1 >= width) {
                             try writer.writeByte('\n');
@@ -68,6 +77,21 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize, metr
     return output.toOwnedSlice();
 }
 
+fn measure(text: []const u8, abs_col: usize, width_method: WidthMethod, metrics: Metrics) usize {
+    return switch (width_method) {
+        .screen => metrics.egc_chunk_width(metrics, text, abs_col),
+        .unicode => gwidth.gwidth(text, .unicode),
+    };
+}
+
+fn emit_indent(writer: *std.Io.Writer, cols: usize, indent: IndentStyle, tab_width: usize) error{WriteFailed}!void {
+    var w = cols;
+    if (indent == .tabs and tab_width > 0) while (w >= tab_width) : (w -= tab_width)
+        try writer.writeByte('\t');
+    while (w > 0) : (w -= 1)
+        try writer.writeByte(' ');
+}
+
 const Token = union(enum) {
     word: []const u8,
     paragraph,
@@ -82,14 +106,13 @@ fn split_words(allocator: std.mem.Allocator, text: []const u8, prefix: Prefix) e
         const rest: []const u8 = if (prefix.bullet) blk: {
             const indent = whitespace_len(line);
             if (indent == line.len) break :blk &.{};
-            if (bullet_marker(line, indent)) |m| {
+            if (bullet_marker(line, indent)) |marker_len| {
                 (try tokens.addOne(allocator)).* = .{ .item = .{
-                    .first = line[0 .. indent + m.bytes],
-                    .continuation = line[0..indent],
-                    .pad = m.cols,
+                    .indent = line[0..indent],
+                    .content = line[indent .. indent + marker_len],
                     .bullet = true,
                 } };
-                break :blk line[indent + m.bytes ..];
+                break :blk line[indent + marker_len ..];
             }
             break :blk line[indent..];
         } else if (line.len > prefix.len) line[prefix.len..] else &.{};
@@ -113,22 +136,20 @@ fn whitespace_len(line: []const u8) usize {
     return i;
 }
 
-const Marker = struct { bytes: usize, cols: usize };
-
 const unicode_bullets = [_][]const u8{ "•", "◦", "‣", "⁃", "▪", "▸", "●", "○" };
 
-fn bullet_marker(line: []const u8, indent: usize) ?Marker {
+fn bullet_marker(line: []const u8, indent: usize) ?usize {
     const rest = line[indent..];
     if (rest.len >= 2 and (rest[0] == '-' or rest[0] == '*' or rest[0] == '+') and rest[1] == ' ') {
         if (rest[0] == '-' and rest.len >= 6 and rest[2] == '[' and
             (rest[3] == ' ' or rest[3] == 'x' or rest[3] == 'X') and
             rest[4] == ']' and rest[5] == ' ')
-            return .{ .bytes = 6, .cols = 6 };
-        return .{ .bytes = 2, .cols = 2 };
+            return 6;
+        return 2;
     }
     for (unicode_bullets) |bullet|
         if (rest.len > bullet.len and std.mem.startsWith(u8, rest, bullet) and rest[bullet.len] == ' ')
-            return .{ .bytes = bullet.len + 1, .cols = 2 };
+            return bullet.len + 1;
     return null;
 }
 
@@ -146,28 +167,24 @@ fn detect_prefix(text: []const u8) Prefix {
         prefix = lcp(prefix, line);
         count += 1;
     };
-    if (count < 1) {
-        prefix = prefix[0..prefix_len(prefix, .alnum)];
-        return .{
-            .len = prefix.len,
-            .first = prefix,
-            .continuation = prefix,
-        };
-    }
-    prefix = prefix[0..prefix_len(prefix, .alpha)];
+    if (count < 1)
+        return make_prefix(prefix[0..prefix_len(prefix, .alnum)]);
+    return make_prefix(prefix[0..prefix_len(prefix, .alpha)]);
+}
 
+fn make_prefix(prefix: []const u8) Prefix {
+    const indent = whitespace_len(prefix);
     return .{
+        .indent = prefix[0..indent],
+        .content = prefix[indent..],
         .len = prefix.len,
-        .first = prefix,
-        .continuation = prefix,
     };
 }
 
 const Prefix = struct {
+    indent: []const u8 = &.{},
+    content: []const u8 = &.{},
     len: usize = 0,
-    first: []const u8 = &.{},
-    continuation: []const u8 = &.{},
-    pad: usize = 0,
     bullet: bool = false,
 };
 
@@ -215,7 +232,7 @@ fn is_number(cp: u21) bool {
     };
 }
 
-fn prefix_width(text: []const u8, tab_width: usize) usize {
+fn indent_width(text: []const u8, tab_width: usize) usize {
     var col: usize = 0;
     var run: usize = 0;
     for (text, 0..) |c, i| if (c == '\t') {

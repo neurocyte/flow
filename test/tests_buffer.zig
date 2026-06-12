@@ -499,7 +499,13 @@ test "byte_offset_to_line_and_col" {
 }
 
 fn test_reflow(input: []const u8, width: usize, expected: []const u8) !void {
-    const out = try Buffer.reflow(a, input, width, metrics());
+    const out = try Buffer.reflow(a, input, width, .unicode, .spaces, metrics());
+    defer a.free(out);
+    try std.testing.expectEqualStrings(expected, out);
+}
+
+fn test_reflow_tabs(input: []const u8, width: usize, expected: []const u8) !void {
+    const out = try Buffer.reflow(a, input, width, .unicode, .tabs, metrics());
     defer a.free(out);
     try std.testing.expectEqualStrings(expected, out);
 }
@@ -586,9 +592,30 @@ test "reflow: wraps on display width, not byte length" {
 }
 
 test "reflow: tab indentation counts as tab_width columns" {
-    try test_reflow(
+    try test_reflow_tabs(
         "\tword1 word2 word3\n",
         20,
         "\tword1 word2\n\tword3\n",
+    );
+}
+
+test "reflow: indentation is regenerated in the document indent style" {
+    try test_reflow(
+        "\tword1 word2 word3\n",
+        20,
+        "        word1 word2\n        word3\n",
+    );
+    try test_reflow_tabs(
+        "          word1 word2 word3\n",
+        40,
+        "\t  word1 word2 word3\n",
+    );
+}
+
+test "reflow: bullet continuation keeps prefix tabs and pads with spaces" {
+    try test_reflow_tabs(
+        "\t- one two three four\n",
+        24,
+        "\t- one two three\n\t  four\n",
     );
 }
