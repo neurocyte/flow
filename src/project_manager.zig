@@ -466,7 +466,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract_cbor(&cbor_id), tp.extract_cbor(&params_cb) })) {
             self.dispatch_request(from, project_directory, language_server, method, cbor_id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "not found" })) {
-            self.logger.print("project '{s}' executable '{s}' not found", .{ project_directory, language_server });
+            self.handle_lsp_not_found(project_directory, language_server);
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "done" })) {
             self.handle_lsp_terminated(project_directory, language_server) catch |e|
                 self.logger.err("lsp-restart", e);
@@ -587,6 +587,11 @@ const Process = struct {
     fn handle_lsp_terminated(self: *Process, project_directory: []const u8, language_server: []const u8) (ProjectError || Project.StartLspError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.handle_lsp_terminated(language_server);
+    }
+
+    fn handle_lsp_not_found(self: *Process, project_directory: []const u8, language_server: []const u8) void {
+        if (self.projects.get(project_directory)) |project|
+            project.handle_lsp_not_found(language_server);
     }
 
     fn restart_language_server(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {
