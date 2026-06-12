@@ -32,11 +32,11 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
                 .begin => {
                     if (item_start) {
                         try writer.writeAll(cur.first);
-                        line_len += cur.first.len;
+                        line_len += gwidth.gwidth(cur.first, .unicode);
                         item_start = false;
                     } else {
                         try writer.writeAll(cur.continuation);
-                        line_len += cur.continuation.len;
+                        line_len += gwidth.gwidth(cur.continuation, .unicode);
                         var pad = cur.pad;
                         while (pad > 0) : (pad -= 1) {
                             try writer.writeByte(' ');
@@ -47,8 +47,9 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
                     continue :blk .words;
                 },
                 .words => {
+                    const word_width = gwidth.gwidth(word, .unicode);
                     if (line_has_word) {
-                        if (line_len + word.len + 1 >= width) {
+                        if (line_len + word_width + 1 >= width) {
                             try writer.writeByte('\n');
                             line_len = 0;
                             continue :blk .begin;
@@ -57,7 +58,7 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
                         line_len += 1;
                     }
                     try writer.writeAll(word);
-                    line_len += word.len;
+                    line_len += word_width;
                     line_has_word = true;
                 },
             }
@@ -216,3 +217,4 @@ fn is_number(cp: u21) bool {
 
 const std = @import("std");
 const uucode = @import("vaxis").uucode;
+const gwidth = @import("vaxis").gwidth;

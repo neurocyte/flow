@@ -576,3 +576,11 @@ test "reflow: multi-byte unicode bullets align by column" {
         "• a long first\n  bullet that wraps\n• second\n",
     );
 }
+
+test "reflow: wraps on display width, not byte length" {
+    try test_reflow(
+        "日本 日本 日本\n",
+        10,
+        "日本 日本\n日本\n",
+    );
+}
