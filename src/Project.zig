@@ -382,7 +382,6 @@ fn restart_lsp_client_inner(self: *Self, lsp_name: []const u8, mode: RestartMode
     errdefer new_client.deinit();
     self.evict_lsp_client(lsp_name);
     try self.language_servers.put(try self.allocator.dupe(u8, lsp_name), new_client);
-    self.parent.send(.{ "PRJ", "lsp_restarted", self.name, lsp_name }) catch {};
     return new_client;
 }
 
@@ -403,7 +402,7 @@ pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const
 
     const client = self.get_existing_lsp_client(lsp_name) orelse blk: {
         self.evict_lsp_client(lsp_name);
-        const new_client = try LSPClient.start(self.allocator, self.name, language_server, language_server_options, language_server_protocol, from);
+        const new_client = try LSPClient.start(self.allocator, self.name, language_server, language_server_options, language_server_protocol, from, false);
         errdefer new_client.deinit();
         try self.language_servers.put(try self.allocator.dupe(u8, lsp_name), new_client);
         break :blk new_client;

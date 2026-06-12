@@ -51,6 +51,7 @@ pub fn start(
     language_server_options: []const u8,
     language_server_protocol: file_type_config.ProtocolLevel,
     from: tp.pid_ref,
+    notify_restart: bool,
 ) StartLspError!*Self {
     const self = blk: {
         const lsp = try LSP.open(allocator, project_name, .{ .buf = language_server });
@@ -58,7 +59,7 @@ pub fn start(
         break :blk try create(allocator, lsp, project_name, language_server, language_server_options, language_server_protocol, from);
     };
     errdefer self.deinit();
-    try self.send_init_request(from, language_server, language_server_options, language_server_protocol);
+    try self.send_init_request(from, language_server, language_server_options, language_server_protocol, notify_restart);
     return self;
 }
 
@@ -114,6 +115,7 @@ pub fn restart(self: *const Self) StartLspError!*Self {
         self.language_server_options,
         self.language_server_protocol,
         self.owner.ref(),
+        true, // notify_restart
     );
 }
 
@@ -1440,6 +1442,7 @@ fn send_init_request(
     language_server: []const u8,
     language_server_options: []const u8,
     language_server_protocol: file_type_config.ProtocolLevel,
+    notify_restart: bool,
 ) !void {
     const project_path = self.project_name;
     const project_uri = try make_URI(self.allocator, self.project_name, null);
@@ -1453,6 +1456,7 @@ fn send_init_request(
         language_server: []const u8,
         lsp: LSP,
         project_path: []const u8,
+        notify_restart: bool,
 
         pub fn deinit(self_: *@This()) void {
             self_.from.deinit();
@@ -1465,6 +1469,12 @@ fn send_init_request(
             self_.lsp.send_notification("initialized", .{}) catch return error.LspFailed;
             if (self_.lsp.pid.expired()) return error.LspFailed;
             std.log.info("initialized LSP: {f}", .{fmt_lsp_name_func(self_.language_server)});
+
+            if (self_.notify_restart) {
+                var lsp_name: []const u8 = "";
+                _ = cbor.match(self_.language_server, .{ cbor.extract(&lsp_name), cbor.more }) catch false;
+                self_.from.send(.{ "PRJ", "lsp_restarted", self_.project_path, lsp_name }) catch {};
+            }
 
             var result: []const u8 = undefined;
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
@@ -1482,6 +1492,7 @@ fn send_init_request(
             .pid = lsp.pid.clone(),
         },
         .project_path = try std.heap.c_allocator.dupe(u8, project_path),
+        .notify_restart = notify_restart,
     };
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
