@@ -7564,7 +7564,7 @@ pub const Editor = struct {
         const cut_text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text);
         std.log.info("reflow @{d}", .{reflow_width});
-        const reflowed = Buffer.reflow(sfa_allocator, cut_text, reflow_width) catch return error.Stop;
+        const reflowed = Buffer.reflow(sfa_allocator, cut_text, reflow_width, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(reflowed);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, reflowed, allocator) catch return error.Stop;

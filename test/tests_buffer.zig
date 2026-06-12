@@ -499,7 +499,7 @@ test "byte_offset_to_line_and_col" {
 }
 
 fn test_reflow(input: []const u8, width: usize, expected: []const u8) !void {
-    const out = try Buffer.reflow(a, input, width);
+    const out = try Buffer.reflow(a, input, width, metrics());
     defer a.free(out);
     try std.testing.expectEqualStrings(expected, out);
 }
@@ -582,5 +582,13 @@ test "reflow: wraps on display width, not byte length" {
         "日本 日本 日本\n",
         10,
         "日本 日本\n日本\n",
+    );
+}
+
+test "reflow: tab indentation counts as tab_width columns" {
+    try test_reflow(
+        "\tword1 word2 word3\n",
+        20,
+        "\tword1 word2\n\tword3\n",
     );
 }

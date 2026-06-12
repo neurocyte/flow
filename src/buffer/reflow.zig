@@ -1,4 +1,4 @@
-pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) error{ OutOfMemory, WriteFailed }![]u8 {
+pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize, metrics: Metrics) error{ OutOfMemory, WriteFailed }![]u8 {
     const len = text.len;
     const trailing_ln: bool = (len > 0 and text[len - 1] == '\n');
     const input = if (trailing_ln) text[0 .. len - 1] else text;
@@ -32,11 +32,11 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
                 .begin => {
                     if (item_start) {
                         try writer.writeAll(cur.first);
-                        line_len += gwidth.gwidth(cur.first, .unicode);
+                        line_len += prefix_width(cur.first, metrics.tab_width);
                         item_start = false;
                     } else {
                         try writer.writeAll(cur.continuation);
-                        line_len += gwidth.gwidth(cur.continuation, .unicode);
+                        line_len += prefix_width(cur.continuation, metrics.tab_width);
                         var pad = cur.pad;
                         while (pad > 0) : (pad -= 1) {
                             try writer.writeByte(' ');
@@ -215,6 +215,20 @@ fn is_number(cp: u21) bool {
     };
 }
 
+fn prefix_width(text: []const u8, tab_width: usize) usize {
+    var col: usize = 0;
+    var run: usize = 0;
+    for (text, 0..) |c, i| if (c == '\t') {
+        if (i > run) col += gwidth.gwidth(text[run..i], .unicode);
+        col += if (tab_width == 0) 0 else tab_width - (col % tab_width);
+        run = i + 1;
+    };
+    if (text.len > run) col += gwidth.gwidth(text[run..], .unicode);
+    return col;
+}
+
 const std = @import("std");
+const Buffer = @import("Buffer.zig");
+const Metrics = Buffer.Metrics;
 const uucode = @import("vaxis").uucode;
 const gwidth = @import("vaxis").gwidth;

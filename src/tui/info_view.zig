@@ -65,7 +65,7 @@ pub fn append_content(self: *Self, content: []const u8) !void {
             tui.config().info_box_width_limit
         else
             tui.screen().w;
-        const text = try reflow(self.allocator, line, width);
+        const text = try reflow(self.allocator, line, width, self.plane.metrics(tui.config().tab_width));
         defer self.allocator.free(text);
         var iter_ = std.mem.splitScalar(u8, text, '\n');
         while (iter_.next()) |line_| if (line_.len > 0) {
