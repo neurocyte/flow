@@ -497,3 +497,53 @@ test "byte_offset_to_line_and_col" {
     try std.testing.expectEqual(Buffer.Cursor{ .row = 8, .col = 0 }, buffer.root.byte_offset_to_line_and_col(74, metrics(), eol_mode));
     try std.testing.expectEqual(Buffer.Cursor{ .row = 11, .col = 2 }, buffer.root.byte_offset_to_line_and_col(108, metrics(), eol_mode));
 }
+
+fn test_reflow(input: []const u8, width: usize, expected: []const u8) !void {
+    const out = try Buffer.reflow(a, input, width);
+    defer a.free(out);
+    try std.testing.expectEqualStrings(expected, out);
+}
+
+test "reflow: prefix never contains alphas" {
+    try test_reflow(
+        "This is text\nThat is text\n",
+        40,
+        "This is text That is text\n",
+    );
+}
+
+test "reflow: single paragraph detects non-alphanumeric prefix" {
+    try test_reflow(
+        "// this is a long comment that should wrap somewhere\n",
+        30,
+        "// this is a long comment\n// that should wrap somewhere\n",
+    );
+    try test_reflow(
+        "    indented paragraph that wraps here please thanks\n",
+        30,
+        "    indented paragraph that\n    wraps here please thanks\n",
+    );
+    try test_reflow(
+        "   // this is a long comment that should wrap somewhere\n",
+        30,
+        "   // this is a long comment\n   // that should wrap\n   // somewhere\n",
+    );
+}
+
+test "reflow: markdown bullet section re-wraps each bullet" {
+    try test_reflow(
+        "- a long first bullet that wraps\n- second bullet\n- third\n",
+        20,
+        "- a long first\n  bullet that wraps\n- second bullet\n- third\n",
+    );
+    try test_reflow(
+        "  - first item that is rather long\n  - second\n",
+        20,
+        "  - first item that\n    is rather long\n  - second\n",
+    );
+    try test_reflow(
+        "- one long single bullet that should wrap around\n",
+        20,
+        "- one long single\n  bullet that\n  should wrap\n  around\n",
+    );
+}
