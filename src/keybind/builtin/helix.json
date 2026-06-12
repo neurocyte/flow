@@ -532,6 +532,26 @@
             ["9", "add_integer_argument_digit", 9]
         ]
     },
+    "overlay/palette": {
+        "press": [
+            ["ctrl+w", "overlay_delete_word_left"]
+        ]
+    },
+    "mini/file_browser": {
+        "press": [
+            ["ctrl+w", "mini_mode_delete_to_previous_path_segment"]
+        ]
+    },
+    "mini/find": {
+        "press": [
+            ["ctrl+w", "mini_mode_delete_word_left"]
+        ]
+    },
+    "mini/find_in_files": {
+        "press": [
+            ["ctrl+w", "mini_mode_delete_word_left"]
+        ]
+    },
     "mini/replace": {
         "press": [
             ["ctrl+g", "mini_mode_cancel"],

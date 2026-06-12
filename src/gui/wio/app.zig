@@ -23,6 +23,7 @@ const gpu = @import("gpu");
 const thespian = @import("thespian");
 const cbor = @import("cbor");
 const vaxis = @import("vaxis");
+const uucode_utils = @import("uucode_utils");
 const RGBA = @import("color").RGBA;
 
 const input_translate = @import("input.zig");
@@ -42,6 +43,7 @@ const rasterizer_font: gpu.RasterizerFont = if (builtin.os.tag == .windows)
 else
     .{ .freetype = .{} };
 
+const uucode = uucode_utils.uucode;
 const log = std.log.scoped(.wio_app);
 
 const press: u8 = 1;
@@ -72,18 +74,17 @@ pub const TargetView = struct {
     dst_y_off: i32 = 0,
     dst_width: u16 = 0,
     dst_height: u16 = 0,
+    z_index: i32 = 0,
 };
 
 const LayerSnapshot = struct {
     id: Layer.Id,
     cells: []gpu.Cell,
     codepoints: []u21,
-    // vaxis char.width per cell: 1=normal, 2=double-wide start, 0=continuation
     widths: []u8,
     width: u16,
     height: u16,
-    cursor: gpu.CursorInfo,
-    secondary_cursors: []gpu.CursorInfo,
+    cursors: []gpu.CursorInfo,
 };
 
 const ScreenSnapshot = struct {
@@ -113,6 +114,11 @@ var stop_requested: std.atomic.Value(bool) = .init(false);
 // Stored as packed RGBA u32 to allow atomic reads/writes.
 var background_color: std.atomic.Value(u32) = .init(RGBA.init(0, 255, 255, 255).to_u32()); // warning yellow, we should never see the default
 var background_dirty: std.atomic.Value(bool) = .init(false);
+
+var window_transparency: bool = false;
+var background_opacity: std.atomic.Value(u32) = .init(@bitCast(@as(f32, 0.5))); // f32 stored via u32 bitcast
+var ignore_theme_alpha: std.atomic.Value(bool) = .init(true);
+var opacity_dirty: std.atomic.Value(bool) = .init(false);
 
 var dark_mode: std.atomic.Value(bool) = .init(true);
 var dark_mode_dirty: std.atomic.Value(bool) = .init(true);
@@ -211,8 +217,8 @@ pub fn updateScreen(
         allocator.free(snapshot_layers);
     }
 
-    for (layers, snapshot_layers) |*lv, *ls| {
-        ls.* = buildLayerSnapshot(allocator, lv) catch return;
+    for (layers, snapshot_layers, 0..) |*lv, *ls, idx| {
+        ls.* = buildLayerSnapshot(allocator, lv, idx == 0) catch return;
         built += 1;
     }
 
@@ -236,6 +242,7 @@ pub fn updateScreen(
 fn buildLayerSnapshot(
     allocator: std.mem.Allocator,
     lv: *const LayerView,
+    is_root: bool,
 ) std.mem.Allocator.Error!LayerSnapshot {
     const cell_count: usize = @as(usize, lv.screen.width) * @as(usize, lv.screen.height);
     const cells = try allocator.alloc(gpu.Cell, cell_count);
@@ -244,8 +251,13 @@ fn buildLayerSnapshot(
     errdefer allocator.free(codepoints);
     const widths = try allocator.alloc(u8, cell_count);
     errdefer allocator.free(widths);
-    const sec = try allocator.alloc(gpu.CursorInfo, lv.secondary_cursors.len);
-    @memcpy(sec, lv.secondary_cursors);
+    const cursors = try allocator.alloc(gpu.CursorInfo, lv.secondary_cursors.len + 1);
+    @memcpy(cursors[0..lv.secondary_cursors.len], lv.secondary_cursors);
+    cursors[lv.secondary_cursors.len] = lv.cursor;
+
+    const opacity: f32 = @bitCast(background_opacity.load(.acquire));
+    const ignore = ignore_theme_alpha.load(.acquire);
+    const transparent = window_transparency;
 
     // Convert vaxis cells to gpu.Cell (colours only; glyph indices filled on GPU thread).
     for (lv.screen.buf[0..cell_count], cells, codepoints, widths) |*vc, *gc, *cp, *wt| {
@@ -255,14 +267,25 @@ fn buildLayerSnapshot(
         };
         const face: u8 = (@as(u8, @intFromBool(vc.style.bold)) << 0) |
             (@as(u8, @intFromBool(vc.style.italic)) << 1);
+        var bg = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg);
+        if (transparent) {
+            if (!is_root and vc.default) {
+                // empty non-root cells fully transparent
+                bg.a = 0;
+            } else {
+                bg.a = effectiveAlphaU8(bg.a, opacity, ignore);
+            }
+        }
+        const flags: u8 = if (vc.style.glyph_alpha_from_bg) gpu.flag_glyph_alpha_from_bg else 0;
         gc.* = .{
             .glyph_index = 0,
-            .background = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg),
+            .background = bg,
             .foreground = colorFromVaxis(if (vc.style.reverse) vc.style.bg else vc.style.fg),
             .underline = ul_color,
             .ul_style = @intFromEnum(vc.style.ul_style),
             .strikethrough = if (vc.style.strikethrough) 1 else 0,
             .face = face,
+            .flags = flags,
         };
         // Decode first codepoint from the grapheme cluster.
         const g = vc.char.grapheme;
@@ -273,6 +296,12 @@ fn buildLayerSnapshot(
         wt.* = vc.char.width;
     }
 
+    // Set cursor width from it's cell
+    for (cursors) |*cur| {
+        const idx = @as(usize, cur.row) * lv.screen.width + cur.col;
+        cur.width = if (idx < cell_count and widths[idx] == 2) 2 else 1;
+    }
+
     return .{
         .id = lv.id,
         .cells = cells,
@@ -280,8 +309,7 @@ fn buildLayerSnapshot(
         .widths = widths,
         .width = lv.screen.width,
         .height = lv.screen.height,
-        .cursor = lv.cursor,
-        .secondary_cursors = sec,
+        .cursors = cursors,
     };
 }
 
@@ -289,7 +317,7 @@ fn freeLayerSnapshot(allocator: std.mem.Allocator, ls: *LayerSnapshot) void {
     allocator.free(ls.cells);
     allocator.free(ls.codepoints);
     allocator.free(ls.widths);
-    allocator.free(ls.secondary_cursors);
+    allocator.free(ls.cursors);
 }
 
 fn freeScreenSnapshot(allocator: std.mem.Allocator, snap: *ScreenSnapshot) void {
@@ -322,6 +350,45 @@ pub fn resetFontSize() void {
         break :blk ptr.*;
     };
     setFontSize(@floatFromInt(default));
+}
+
+pub fn setBackgroundOpacity(value: f32) void {
+    const max_alpha: f32 = if (ignore_theme_alpha.load(.acquire)) 1.0 else 2.0;
+    const o = std.math.clamp(value, 0.0, max_alpha);
+    background_opacity.store(@bitCast(o), .release);
+    saveConfig();
+    opacity_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn adjustBackgroundOpacity(delta: f32) void {
+    const cur: f32 = @bitCast(background_opacity.load(.acquire));
+    setBackgroundOpacity(cur + delta);
+}
+
+pub fn resetBackgroundOpacity() void {
+    const default = comptime blk: {
+        const field = std.meta.fieldInfo(gui_config, .gui_background_opacity);
+        const ptr: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
+        break :blk ptr.*;
+    };
+    setBackgroundOpacity(default);
+}
+
+pub fn toggleIgnoreThemeAlpha() void {
+    const next = !ignore_theme_alpha.load(.acquire);
+    ignore_theme_alpha.store(next, .release);
+    saveConfig();
+    opacity_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getBackgroundOpacity() f32 {
+    return @bitCast(background_opacity.load(.acquire));
+}
+
+pub fn getIgnoreThemeAlpha() bool {
+    return ignore_theme_alpha.load(.acquire);
 }
 
 pub fn resetFontFace() void {
@@ -467,6 +534,9 @@ pub fn loadConfig() void {
     font_hinting = conf.fonthinting;
     font_line_height = if (conf.lineheight == 0) 100 else conf.lineheight;
     block_and_line_symbols = conf.block_and_line_symbols;
+    window_transparency = conf.gui_window_transparency;
+    background_opacity.store(@bitCast(std.math.clamp(conf.gui_background_opacity, 0.0, 1.0)), .release);
+    ignore_theme_alpha.store(conf.gui_ignore_theme_alpha, .release);
     const name = conf.fontface;
     const copy_len = @min(name.len, font_name_buf.len);
     @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
@@ -482,6 +552,9 @@ fn saveConfig() void {
     conf.fonthinting = font_hinting;
     conf.lineheight = font_line_height;
     conf.block_and_line_symbols = block_and_line_symbols;
+    conf.gui_window_transparency = window_transparency;
+    conf.gui_background_opacity = @bitCast(background_opacity.load(.acquire));
+    conf.gui_ignore_theme_alpha = ignore_theme_alpha.load(.acquire);
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
@@ -559,6 +632,22 @@ fn colorFromVaxis(color: vaxis.Cell.Color) RGBA {
     };
 }
 
+fn applyOpacity(theme_a: f32, opacity: f32) f32 {
+    const o = std.math.clamp(opacity, 0.0, 2.0);
+    return if (o <= 1.0)
+        theme_a * o
+    else
+        theme_a + (1.0 - theme_a) * (o - 1.0);
+}
+
+fn effectiveAlphaU8(theme_a_u8: u8, opacity: f32, ignore: bool) u8 {
+    const a: f32 = if (ignore)
+        std.math.clamp(opacity, 0.0, 1.0)
+    else
+        applyOpacity(@as(f32, @floatFromInt(theme_a_u8)) / 255.0, opacity);
+    return @intFromFloat(@round(a * 255.0));
+}
+
 // ── wio main loop (runs on dedicated thread) ──────────────────────────────
 //
 // Only the OS message pump runs here. GL/D3D/sg/gpu/paint all live on the
@@ -587,6 +676,7 @@ fn wioLoop() void {
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
         .gl_options = if (builtin.os.tag == .windows) null else gl_options(),
+        .transparent = window_transparency,
     }) catch |e| {
         log.err("wio.createWindow failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
@@ -860,7 +950,7 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
 
     var swapchain: if (builtin.os.tag == .windows) D3D11Swapchain else void = undefined;
     if (builtin.os.tag == .windows) {
-        swapchain = D3D11Swapchain.init(hwnd, @intCast(@max(1, initial_w)), @intCast(@max(1, initial_h))) catch |e| {
+        swapchain = D3D11Swapchain.init(hwnd, @intCast(@max(1, initial_w)), @intCast(@max(1, initial_h)), window_transparency) catch |e| {
             log.err("d3d11_swapchain.init failed: {s}", .{@errorName(e)});
             tui_pid.send(.{"quit"}) catch {};
             return;
@@ -883,6 +973,7 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
         tui_pid.send(.{"quit"}) catch {};
         return;
     };
+    gpu.setTransparent(window_transparency);
 
     const initial_size: wio.Size = .{ .width = @intCast(initial_w), .height = @intCast(initial_h) };
     render_ctx = .{
@@ -945,6 +1036,10 @@ pub fn renderActorTick() void {
         sendResize(ctx.win_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
     }
 
+    // Force re-render to recompute alpha.
+    if (opacity_dirty.swap(false, .acq_rel))
+        sendResize(ctx.win_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
+
     // Apply dark titlebar (Win32). This is a window attribute API; it's safe
     // from any thread but conceptually belongs near the paint.
     if (builtin.os.tag == .windows and dark_mode_dirty.swap(false, .acq_rel)) {
@@ -967,12 +1062,13 @@ pub fn renderActorTick() void {
 
     if (background_dirty.swap(false, .acq_rel)) {
         const color_u32 = background_color.load(.acquire);
-        gpu.setBackground(.{
-            .r = @truncate(color_u32 >> 24),
-            .g = @truncate(color_u32 >> 16),
-            .b = @truncate(color_u32 >> 8),
-            .a = @truncate(color_u32),
-        });
+        const r: u8 = @truncate(color_u32 >> 24);
+        const g: u8 = @truncate(color_u32 >> 16);
+        const b: u8 = @truncate(color_u32 >> 8);
+        const a: u8 = @truncate(color_u32);
+        gpu.setBackground(.{ .r = r, .g = g, .b = b, .a = a });
+        if (builtin.os.tag == .windows and window_transparency)
+            ctx.swapchain.setChromeColor(r, g, b);
     }
 
     ctx.frame_counter += 1;
@@ -988,7 +1084,12 @@ pub fn renderActorTick() void {
         @memcpy(layer_cells, ls.cells);
 
         var layer_prev_cp: u21 = ' ';
-        for (layer_cells, ls.codepoints, ls.widths) |*cell, cp, w| {
+        const cell_w = font_set.cell_size.x;
+        var ci: usize = 0;
+        while (ci < layer_cells.len) : (ci += 1) {
+            const cell = &layer_cells[ci];
+            const cp = ls.codepoints[ci];
+            const w = ls.widths[ci];
             const split: gpu.GlyphSplit = switch (w) {
                 2 => .left,
                 0 => .right,
@@ -997,6 +1098,58 @@ pub fn renderActorTick() void {
             const glyph_cp = if (w == 0) layer_prev_cp else cp;
             const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
             const per_face = font_set.faces[@intFromEnum(face)];
+
+            // Terminal-assigned double-width: generate both halves now
+            if (w == 2) {
+                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .left);
+                const same_row = (ci % ls.width) + 1 < ls.width;
+                if (same_row and ci + 1 < layer_cells.len) {
+                    const placeholder = &layer_cells[ci + 1];
+                    placeholder.* = cell.*;
+                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
+                    ci += 1;
+                }
+                layer_prev_cp = cp;
+                continue;
+            }
+
+            // Opportunistic wide rendering for PUA / symbol glyphs
+            if (w == 1 and uucode_utils.isWideCandidate(glyph_cp)) {
+                const same_row = (ci % ls.width) + 1 < ls.width;
+                const next_cp = if (!same_row) null else if (ci + 1 < layer_cells.len) ls.codepoints[ci + 1] else null;
+                const next_is_space = next_cp == ' ';
+                if (same_row and next_is_space) if (gpu.glyphAdvance(per_face, glyph_cp)) |advance| {
+                    const desired: usize = @intCast((@as(u32, advance) + cell_w - 1) / cell_w);
+                    if (desired > 1) {
+                        const col = ci % ls.width;
+                        const max_extra = @min(desired - 1, 4);
+                        var num_spaces: usize = 0;
+                        while (num_spaces < max_extra and
+                            col + 1 + num_spaces < ls.width and
+                            ci + 1 + num_spaces < layer_cells.len and
+                            (ls.codepoints[ci + 1 + num_spaces] == ' ' or
+                                ls.codepoints[ci + 1 + num_spaces] == 0x2002) and
+                            ls.widths[ci + 1 + num_spaces] == 1)
+                        {
+                            num_spaces += 1;
+                        }
+                        if (num_spaces > 0) {
+                            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .left);
+                            const fg_color = cell.foreground;
+                            var s: usize = 0;
+                            while (s < num_spaces) : (s += 1) {
+                                const sc = &layer_cells[ci + 1 + s];
+                                sc.foreground = fg_color;
+                                sc.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
+                            }
+                            layer_prev_cp = cp;
+                            ci += num_spaces;
+                            continue;
+                        }
+                    }
+                };
+            }
+
             cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
             if (w != 0) layer_prev_cp = cp;
         }
@@ -1010,6 +1163,13 @@ pub fn renderActorTick() void {
             .y = ls.height * font_set.cell_size.y,
         };
 
+        const layer_bg_alpha: u8 = if (window_transparency) blk: {
+            if (idx != 0) break :blk 0;
+            const op: f32 = @bitCast(background_opacity.load(.acquire));
+            const ig = ignore_theme_alpha.load(.acquire);
+            break :blk effectiveAlphaU8(gpu.getBackground().a, op, ig);
+        } else 0xFF;
+
         gpu.paintLayerOffscreen(
             &ctx.state,
             gop.value_ptr,
@@ -1019,8 +1179,8 @@ pub fn renderActorTick() void {
             ls.width,
             ls.height,
             pixel_size,
-            ls.cursor,
-            ls.secondary_cursors,
+            ls.cursors,
+            layer_bg_alpha,
         );
     }
 
@@ -1042,14 +1202,25 @@ pub fn renderActorTick() void {
         }
     }
 
-    // composite every target onto its parent in reverse submission order
+    // composite every target onto its parent
     {
         const cell_w: i32 = font_set.cell_size.x;
         const cell_h: i32 = font_set.cell_size.y;
-        var i = snap.targets.len;
-        while (i > 0) {
-            i -= 1;
-            const t = &snap.targets[i];
+        const order = allocator.alloc(u32, snap.targets.len) catch {
+            log.err("OOM building draw order", .{});
+            return;
+        };
+        defer allocator.free(order);
+        for (order, 0..) |*o, i| o.* = @intCast(i);
+        std.mem.sort(u32, order, snap.targets, struct {
+            fn lt(targets: []const TargetView, a: u32, b: u32) bool {
+                if (targets[a].z_index != targets[b].z_index)
+                    return targets[a].z_index < targets[b].z_index;
+                return a > b;
+            }
+        }.lt);
+        for (order) |idx| {
+            const t = &snap.targets[idx];
             const src_id = snap.layers[t.src_index].id;
             const dst_id = snap.layers[t.parent].id;
             const src_state = ctx.layers.getPtr(src_id) orelse continue;
@@ -1064,6 +1235,7 @@ pub fn renderActorTick() void {
                 .blend = switch (t.blend) {
                     .replace => .replace,
                     .src_over => .src_over,
+                    .src_over_blur => .src_over_blur,
                 },
                 .alpha = t.alpha,
             });

@@ -5,6 +5,7 @@ const root = @import("soft_root").root;
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
+const styles = @import("renderer").styles;
 const Buffer = @import("Buffer");
 const input = @import("input");
 
@@ -19,21 +20,28 @@ const @"style.config" = struct {
     default_minimum_tabs_shown: usize = 2,
 
     padding: []const u8 = " ",
+    padding_fg_transparent: bool = true,
     padding_left: usize = 2,
     padding_right: usize = 1,
 
     clean_indicator: []const u8 = " ",
     clean_indicator_fg: ?colors = null,
+    clean_indicator_fg_transparent: bool = false,
     dirty_indicator: []const u8 = "",
     dirty_indicator_fg: ?colors = null,
+    dirty_indicator_fg_transparent: bool = false,
     close_icon: []const u8 = "󰅖",
     close_icon_fg: colors = .Error,
+    close_icon_fg_transparent: bool = false,
     save_icon: []const u8 = "󰆓",
     save_icon_fg: ?colors = null,
+    save_icon_fg_transparent: bool = false,
     clipping_indicator: []const u8 = "»",
+    clipping_indicator_fg_transparent: bool = false,
 
     spacer: []const u8 = "|",
     spacer_fg: colors = .active_bg,
+    spacer_fg_transparent: bool = true,
     spacer_bg: colors = .inactive_bg,
 
     bar_fg: colors = .inactive_fg,
@@ -43,45 +51,55 @@ const @"style.config" = struct {
     active_bg: colors = .active_bg,
     active_left: []const u8 = "🭅",
     active_left_fg: colors = .active_bg,
+    active_left_fg_transparent: bool = true,
     active_left_bg: colors = .inactive_bg,
     active_right: []const u8 = "🭐",
     active_right_fg: colors = .active_bg,
+    active_right_fg_transparent: bool = true,
     active_right_bg: colors = .inactive_bg,
 
     inactive_fg: colors = .inactive_fg,
     inactive_bg: colors = .inactive_bg,
     inactive_left: []const u8 = " ",
     inactive_left_fg: colors = .inactive_fg,
+    inactive_left_fg_transparent: bool = true,
     inactive_left_bg: colors = .inactive_bg,
     inactive_right: []const u8 = " ",
     inactive_right_fg: colors = .inactive_fg,
+    inactive_right_fg_transparent: bool = true,
     inactive_right_bg: colors = .inactive_bg,
 
     selected_fg: colors = .active_fg,
     selected_bg: colors = .active_bg,
     selected_left: []const u8 = "🭅",
     selected_left_fg: colors = .active_bg,
+    selected_left_fg_transparent: bool = true,
     selected_left_bg: colors = .inactive_bg,
     selected_right: []const u8 = "🭐",
     selected_right_fg: colors = .active_bg,
+    selected_right_fg_transparent: bool = true,
     selected_right_bg: colors = .inactive_bg,
 
     unfocused_active_fg: colors = .unfocused_active_fg,
     unfocused_active_bg: colors = .active_bg,
     unfocused_active_left: []const u8 = "🭅",
     unfocused_active_left_fg: colors = .active_bg,
+    unfocused_active_left_fg_transparent: bool = true,
     unfocused_active_left_bg: colors = .inactive_bg,
     unfocused_active_right: []const u8 = "🭐",
     unfocused_active_right_fg: colors = .active_bg,
+    unfocused_active_right_fg_transparent: bool = true,
     unfocused_active_right_bg: colors = .inactive_bg,
 
     unfocused_inactive_fg: colors = .inactive_fg,
     unfocused_inactive_bg: colors = .inactive_bg,
     unfocused_inactive_left: []const u8 = " ",
     unfocused_inactive_left_fg: colors = .inactive_fg,
+    unfocused_inactive_left_fg_transparent: bool = true,
     unfocused_inactive_left_bg: colors = .inactive_bg,
     unfocused_inactive_right: []const u8 = " ",
     unfocused_inactive_right_fg: colors = .inactive_fg,
+    unfocused_inactive_right_fg_transparent: bool = true,
     unfocused_inactive_right_bg: colors = .inactive_bg,
 
     file_type_icon: bool = true,
@@ -789,8 +807,7 @@ const Tab = struct {
             .fg = self.tab_style.selected_left_fg.from_theme(theme),
             .bg = self.tab_style.selected_left_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.selected_left) catch {};
-
+        put_glyph(plane, self.tab_style.selected_left, self.tab_style.selected_left_fg_transparent);
         plane.set_style(.{
             .fg = self.tab_style.selected_fg.from_theme(theme),
             .bg = self.tab_style.selected_bg.from_theme(theme),
@@ -801,7 +818,7 @@ const Tab = struct {
             .fg = self.tab_style.selected_right_fg.from_theme(theme),
             .bg = self.tab_style.selected_right_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.selected_right) catch {};
+        put_glyph(plane, self.tab_style.selected_right, self.tab_style.selected_right_fg_transparent);
     }
 
     fn render_active(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
@@ -825,7 +842,7 @@ const Tab = struct {
             .fg = self.tab_style.active_left_fg.from_theme(theme),
             .bg = self.tab_style.active_left_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.active_left) catch {};
+        put_glyph(plane, self.tab_style.active_left, self.tab_style.active_left_fg_transparent);
 
         plane.set_style(.{
             .fg = self.tab_style.active_fg.from_theme(theme),
@@ -837,7 +854,7 @@ const Tab = struct {
             .fg = self.tab_style.active_right_fg.from_theme(theme),
             .bg = self.tab_style.active_right_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.active_right) catch {};
+        put_glyph(plane, self.tab_style.active_right, self.tab_style.active_right_fg_transparent);
     }
 
     fn render_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
@@ -855,7 +872,7 @@ const Tab = struct {
             .fg = self.tab_style.inactive_left_fg.from_theme(theme),
             .bg = self.tab_style.inactive_left_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.inactive_left) catch {};
+        put_glyph(plane, self.tab_style.inactive_left, self.tab_style.inactive_left_fg_transparent);
 
         plane.set_style(.{
             .fg = self.tab_style.inactive_fg.from_theme(theme),
@@ -867,7 +884,7 @@ const Tab = struct {
             .fg = self.tab_style.inactive_right_fg.from_theme(theme),
             .bg = self.tab_style.inactive_right_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.inactive_right) catch {};
+        put_glyph(plane, self.tab_style.inactive_right, self.tab_style.inactive_right_fg_transparent);
     }
 
     fn render_dragging(self: *@This(), plane: *Plane, theme: *const Widget.Theme) void {
@@ -903,7 +920,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_active_left_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_active_left_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.unfocused_active_left) catch {};
+        put_glyph(plane, self.tab_style.unfocused_active_left, self.tab_style.unfocused_active_left_fg_transparent);
 
         plane.set_style(.{
             .fg = self.tab_style.unfocused_active_fg.from_theme(theme),
@@ -915,7 +932,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_active_right_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_active_right_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.unfocused_active_right) catch {};
+        put_glyph(plane, self.tab_style.unfocused_active_right, self.tab_style.unfocused_active_right_fg_transparent);
     }
 
     fn render_unfocused_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
@@ -933,7 +950,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_inactive_left_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_inactive_left_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.unfocused_inactive_left) catch {};
+        put_glyph(plane, self.tab_style.unfocused_inactive_left, self.tab_style.unfocused_inactive_left_fg_transparent);
 
         plane.set_style(.{
             .fg = self.tab_style.unfocused_inactive_fg.from_theme(theme),
@@ -945,7 +962,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_inactive_right_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_inactive_right_bg.from_theme(theme),
         });
-        _ = plane.putstr(self.tab_style.unfocused_inactive_right) catch {};
+        put_glyph(plane, self.tab_style.unfocused_inactive_right, self.tab_style.unfocused_inactive_right_fg_transparent);
     }
 
     fn render_content(self: *@This(), plane: *Plane, label: []const u8, hover: bool, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
@@ -975,20 +992,20 @@ const Tab = struct {
                 if (self.tab_style.save_icon_fg) |color|
                     plane.set_style(.{ .fg = color.from_theme(theme) });
                 self.save_pos = plane.cursor_x();
-                _ = plane.putstr(self.tabbar.tab_style.save_icon) catch {};
+                put_glyph(plane, self.tabbar.tab_style.save_icon, self.tabbar.tab_style.save_icon_fg_transparent);
             } else {
                 plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
                 self.close_pos = plane.cursor_x();
-                _ = plane.putstr(self.tabbar.tab_style.close_icon) catch {};
+                put_glyph(plane, self.tabbar.tab_style.close_icon, self.tabbar.tab_style.close_icon_fg_transparent);
             }
         } else if (is_dirty and !auto_save) {
             if (self.tab_style.dirty_indicator_fg) |color|
                 plane.set_style(.{ .fg = color.from_theme(theme) });
-            _ = plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
+            put_glyph(plane, self.tabbar.tab_style.dirty_indicator, self.tabbar.tab_style.dirty_indicator_fg_transparent);
         } else {
             if (self.tab_style.clean_indicator_fg) |color|
                 plane.set_style(.{ .fg = color.from_theme(theme) });
-            _ = plane.putstr(self.tabbar.tab_style.clean_indicator) catch {};
+            put_glyph(plane, self.tabbar.tab_style.clean_indicator, self.tabbar.tab_style.clean_indicator_fg_transparent);
         }
         plane.set_style(.{ .fg = fg });
         self.render_padding(plane, .right);
@@ -999,6 +1016,9 @@ const Tab = struct {
             .left => self.tab_style.padding_left,
             .right => self.tab_style.padding_right,
         };
+        const old_fgt = plane.style.glyph_alpha_from_bg;
+        defer plane.style.glyph_alpha_from_bg = old_fgt;
+        plane.style.glyph_alpha_from_bg = self.tab_style.padding_fg_transparent;
         while (padding > 0) : (padding -= 1) _ = plane.putstr(self.tab_style.padding) catch {};
     }
 
@@ -1183,3 +1203,10 @@ const colors = enum {
         };
     }
 };
+
+fn put_glyph(plane: *Plane, glyph: []const u8, fg_transparent: bool) void {
+    const old_fgt = plane.style.glyph_alpha_from_bg;
+    defer plane.style.glyph_alpha_from_bg = old_fgt;
+    plane.style.glyph_alpha_from_bg = fg_transparent;
+    _ = plane.putstr(glyph) catch {};
+}

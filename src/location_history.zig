@@ -94,15 +94,16 @@ const Process = struct {
         var s: Selection = .{};
         var cb: usize = 0;
         var file_path: []const u8 = undefined;
+        var in_file: ?[]const u8 = null;
 
         return if (try m.match(.{ "U", tp.extract(&file_path), tp.extract(&c.col), tp.extract(&c.row) }))
             self.update(.{ .file_path = file_path, .cursor = c })
         else if (try m.match(.{ "U", tp.extract(&file_path), tp.extract(&c.col), tp.extract(&c.row), tp.extract(&s.begin.row), tp.extract(&s.begin.col), tp.extract(&s.end.row), tp.extract(&s.end.col) }))
             self.update(.{ .file_path = file_path, .cursor = c, .selection = s })
-        else if (try m.match(.{ "B", tp.extract(&cb) }))
-            self.back(from, cb)
-        else if (try m.match(.{ "F", tp.extract(&cb) }))
-            self.forward(from, cb)
+        else if (try m.match(.{ "B", tp.extract(&in_file), tp.extract(&cb) }))
+            self.back(from, in_file, cb)
+        else if (try m.match(.{ "F", tp.extract(&in_file), tp.extract(&cb) }))
+            self.forward(from, in_file, cb)
         else if (try m.match(.{"shutdown"}))
             tp.exit_normal();
     }
@@ -140,16 +141,30 @@ const Process = struct {
         return if (a_) |a| std.mem.eql(u8, a.file_path, b.file_path) and a.cursor.row == b.cursor.row else false;
     }
 
-    fn back(self: *const Process, from: tp.pid_ref, cb_addr: usize) void {
+    fn back(self: *const Process, from: tp.pid_ref, in_file: ?[]const u8, cb_addr: usize) void {
         const cb: *CallBack = if (cb_addr == 0) return else @ptrFromInt(cb_addr);
-        if (self.backwards.getLastOrNull()) |entry|
-            cb(from, entry.file_path, entry.cursor, entry.selection);
+        var i = self.backwards.items.len;
+        while (i > 0) {
+            i -= 1;
+            const entry = self.backwards.items[i];
+            if (in_file == null or std.mem.eql(u8, entry.file_path, in_file.?)) {
+                cb(from, entry.file_path, entry.cursor, entry.selection);
+                break;
+            }
+        }
     }
 
-    fn forward(self: *Process, from: tp.pid_ref, cb_addr: usize) void {
+    fn forward(self: *Process, from: tp.pid_ref, in_file: ?[]const u8, cb_addr: usize) void {
         const cb: *CallBack = if (cb_addr == 0) return else @ptrFromInt(cb_addr);
-        if (self.forwards.getLastOrNull()) |entry|
-            cb(from, entry.file_path, entry.cursor, entry.selection);
+        var i = self.forwards.items.len;
+        while (i > 0) {
+            i -= 1;
+            const entry = self.forwards.items[i];
+            if (in_file == null or std.mem.eql(u8, entry.file_path, in_file.?)) {
+                cb(from, entry.file_path, entry.cursor, entry.selection);
+                break;
+            }
+        }
     }
 };
 
@@ -164,10 +179,10 @@ pub fn update(self: Self, file_path: []const u8, cursor: Cursor, selection: ?Sel
 
 pub const CallBack = fn (from: tp.pid_ref, file_path: []const u8, cursor: Cursor, selection: ?Selection) void;
 
-pub fn back(self: Self, cb: *const CallBack) tp.result {
-    if (self.pid) |pid| try pid.send(.{ "B", @intFromPtr(cb) });
+pub fn back(self: Self, in_file: ?[]const u8, cb: *const CallBack) tp.result {
+    if (self.pid) |pid| try pid.send(.{ "B", in_file, @intFromPtr(cb) });
 }
 
-pub fn forward(self: Self, cb: *const CallBack) tp.result {
-    if (self.pid) |pid| try pid.send(.{ "F", @intFromPtr(cb) });
+pub fn forward(self: Self, in_file: ?[]const u8, cb: *const CallBack) tp.result {
+    if (self.pid) |pid| try pid.send(.{ "F", in_file, @intFromPtr(cb) });
 }

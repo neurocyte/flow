@@ -210,6 +210,13 @@ pub fn request_vcs_blame(file_path: []const u8) (ProjectManagerError || ProjectE
     return send(.{ "request_vcs_blame", project, file_path });
 }
 
+pub fn restart_language_server(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "restart_language_server", project, file_path });
+}
+
 pub fn add_task(task: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -465,10 +472,11 @@ const Process = struct {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract_cbor(&cbor_id), tp.extract_cbor(&params_cb) })) {
             self.dispatch_request(from, project_directory, language_server, method, cbor_id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
-        } else if (try cbor.match(m.buf, .{ "child", tp.extract(&path), "not found" })) {
-            self.logger.print("executable '{s}' not found", .{path});
-        } else if (try cbor.match(m.buf, .{ "child", tp.extract(&path), "done" })) {
-            self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
+        } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "not found" })) {
+            self.logger.print("project '{s}' executable '{s}' not found", .{ project_directory, language_server });
+        } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "done" })) {
+            self.handle_lsp_terminated(project_directory, language_server) catch |e|
+                self.logger.err("lsp-restart", e);
         } else if (try cbor.match(m.buf, .{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "close", tp.extract(&project_directory) })) {
@@ -554,6 +562,8 @@ const Process = struct {
             return;
         } else if (try cbor.match(m.buf, .{ "request_vcs_blame", tp.extract(&project_directory), tp.extract(&path) })) {
             self.request_vcs_blame(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "restart_language_server", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.restart_language_server(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else {
             self.logger.err("receive", tp.unexpected(m));
         }
@@ -566,7 +576,7 @@ const Process = struct {
         } else {
             self.logger.print("opening: {s}", .{project_directory});
             const project = try self.allocator.create(Project);
-            project.* = try Project.init(self.allocator, project_directory);
+            project.* = try Project.init(self.allocator, project_directory, self.parent.ref());
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.query_git();
@@ -581,6 +591,16 @@ const Process = struct {
             self.allocator.destroy(kv.value);
             self.logger.print("closed: {s}", .{project_directory});
         }
+    }
+
+    fn handle_lsp_terminated(self: *Process, project_directory: []const u8, language_server: []const u8) (ProjectError || Project.StartLspError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.handle_lsp_terminated(language_server);
+    }
+
+    fn restart_language_server(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.restart_language_server_for_file(file_path);
     }
 
     fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) (ProjectError || Project.RequestError)!void {
@@ -729,21 +749,21 @@ const Process = struct {
         return project.did_open(self.parent.ref(), file_path, file_type, language_server, language_server_options, language_server_protocol, version, text);
     }
 
-    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectError || Project.LspError)!void {
+    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_change" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.did_change(file_path, version, text_dst, text_src, eol_mode);
     }
 
-    fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.LspError)!void {
+    fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_save" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.did_save(file_path);
     }
 
-    fn did_close(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.LspError)!void {
+    fn did_close(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_close" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
@@ -792,28 +812,28 @@ const Process = struct {
         return project.highlight_references(from, args);
     }
 
-    fn symbols(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.SymbolInformationError || Project.LspError)!void {
+    fn symbols(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.SymbolInformationError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".symbols" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.symbols(from, file_path);
     }
 
-    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.CompletionError || Project.LspError)!void {
+    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.CompletionError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.completion(from, args);
     }
 
-    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.GetLineOfFileError || Project.LspError)!void {
+    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.GetLineOfFileError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".rename_symbol" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.rename_symbol(from, args);
     }
 
-    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.LspError)!void {
+    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".hover" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;

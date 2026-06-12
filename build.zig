@@ -435,6 +435,19 @@ pub fn build_exe(
         .root_source_file = b.path("src/color.zig"),
     });
 
+    const match_mod = b.createModule(.{
+        .root_source_file = b.path("src/match.zig"),
+    });
+
+    const syntax_validator_mod = b.createModule(.{
+        .root_source_file = b.path("src/syntax_validator.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "match", .module = match_mod },
+        },
+    });
+
     const bin_path_mod = b.createModule(.{
         .root_source_file = b.path("src/bin_path.zig"),
     });
@@ -546,6 +559,14 @@ pub fn build_exe(
                     .root_source_file = b.path("src/gui/rasterizer/geometric.zig"),
                 });
 
+                const uucode_utils_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/uucode_utils.zig"),
+                    .target = target,
+                    .imports = &.{
+                        .{ .name = "vaxis", .module = vaxis_mod },
+                    },
+                });
+
                 const combined_rasterizer_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/rasterizer/combined.zig"),
                     .target = target,
@@ -554,6 +575,13 @@ pub fn build_exe(
                         .{ .name = "gui_config", .module = gui_config_mod },
                     },
                 });
+
+                const nerd_font_mod = blk2: {
+                    const nerd_dep = b.lazyDependency("nerd_fonts", .{}) orelse break :blk2 null;
+                    break :blk2 b.createModule(.{
+                        .root_source_file = nerd_dep.path("SymbolsNerdFontMono-Regular.ttf"),
+                    });
+                };
 
                 if (target.result.os.tag == .windows) {
                     const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
@@ -567,6 +595,7 @@ pub fn build_exe(
                             .{ .name = "win32", .module = win32_mod },
                         },
                     });
+                    if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
                     combined_rasterizer_mod.addImport("dw_rasterizer", dwrite_rasterizer_mod);
                 } else {
                     const tt_dep = b.lazyDependency("TrueType", .{
@@ -595,6 +624,7 @@ pub fn build_exe(
                             .{ .name = "gui_config", .module = gui_config_mod },
                         },
                     });
+                    if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);
 
                     const freetype_rasterizer_mod = b.createModule(.{
                         .root_source_file = b.path("src/gui/rasterizer/freetype.zig"),
@@ -604,8 +634,10 @@ pub fn build_exe(
                             .{ .name = "geometric", .module = geometric_mod },
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
+                            .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         },
                     });
+                    if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
                     freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
                     freetype_rasterizer_mod.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
                     freetype_rasterizer_mod.link_libc = true;
@@ -637,6 +669,7 @@ pub fn build_exe(
                         .{ .name = "thespian", .module = thespian_mod },
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
+                        .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         .{ .name = "xterm", .module = gui_xterm_mod },
                         .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
@@ -670,6 +703,7 @@ pub fn build_exe(
                         .{ .name = "app", .module = app_mod },
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
+                        .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         .{ .name = "rasterizer", .module = combined_rasterizer_mod },
                     },
                 });
@@ -710,6 +744,30 @@ pub fn build_exe(
         tests.root_module.addImport("config", config_mod);
         tests.root_module.addImport("soft_root", soft_root_mod);
         // b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
+    const match_test_run_cmd = b.addRunArtifact(b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/match.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+        .filters = test_filters,
+    }));
+
+    const syntax_validator_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/syntax_validator.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("syntax", syntax_mod);
+        tests.root_module.addImport("match", match_mod);
         break :blk b.addRunArtifact(tests);
     };
 
@@ -809,6 +867,7 @@ pub fn build_exe(
             .{ .name = "location_history", .module = location_history_mod },
             .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "syntax_validator", .module = syntax_validator_mod },
             .{ .name = "text_manip", .module = text_manip_mod },
             .{ .name = "argv", .module = argv_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
@@ -981,6 +1040,8 @@ pub fn build_exe(
 
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
+    test_step.dependOn(&match_test_run_cmd.step);
+    test_step.dependOn(&syntax_validator_test_run_cmd.step);
 
     const lints = b.addFmt(.{
         .paths = &.{ "src", "test", "build.zig" },

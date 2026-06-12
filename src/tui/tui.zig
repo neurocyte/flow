@@ -192,7 +192,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .config_bufs = conf_bufs,
         .highlight_columns_ = if (conf.highlight_columns_enabled) conf.highlight_columns else &.{},
         .highlight_columns_configured = conf.highlight_columns,
-        .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
+        .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), conf.enable_terminal_cursor, dispatch_initialized),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
@@ -600,6 +600,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", "triggerCharacters", tp.more }))
         return if (mainview()) |mv| mv.trigger_characters_update(m);
 
+    if (try m.match(.{ "PRJ", "lsp_restarted", tp.more }))
+        return if (mainview()) |mv| mv.lsp_restarted(m);
+
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
 
@@ -695,11 +698,8 @@ fn render(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
         self.rdr_.stdplane().erase();
+        self.rdr_.stdplane().reset_all_cursors(self.allocator);
         const theme_ = self.current_theme();
-        if (has_native_cursor()) {
-            self.rdr_.stdplane().reset_all_cursors(self.allocator);
-            self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
-        }
         const continue_mainview = if (self.mainview_) |mv| mv.render(theme_) else false;
 
         switch (self.hint_mode) {
@@ -2162,9 +2162,20 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .x = @intCast(box.x),
         .yoffset = @intCast(yoffset),
         .xoffset = @intCast(xoffset),
-        .alpha = 204,
+        .alpha = self.palette_opacity_(),
+        .z_index = .top,
+        .blend = .src_over_blur,
     });
     return self.top_layer_.?.plane();
+}
+
+fn palette_opacity_(self: *Self) u8 {
+    const alpha = std.math.clamp(self.config_.palette_opacity * 255, 0, 255);
+    return @intFromFloat(alpha);
+}
+
+pub fn palette_opacity() u8 {
+    return current().palette_opacity_();
 }
 
 pub fn have_top_layer() bool {
@@ -2209,6 +2220,7 @@ pub fn theme() *const Widget.Theme {
 }
 
 pub fn find_scope_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
+    if (theme_.scope_type != .text_mate) return scope_to_theme_token(theme_, scope);
     return if (find_scope_fallback(scope)) |tm_scope|
         scope_to_theme_token(theme_, tm_scope) orelse
             scope_to_theme_token(theme_, scope)
@@ -2258,8 +2270,9 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "class.defaultLibrary", .tm = "support.class" },
     .{ .ts = "class", .tm = "entity.name.type.class" },
     .{ .ts = "interface", .tm = "entity.name.type.interface" },
-    .{ .ts = "enum", .tm = "entity.name.type.enum" },
     .{ .ts = "enumMember", .tm = "variable.other.enummember" },
+    .{ .ts = "enum", .tm = "entity.name.type.enum" },
+    .{ .ts = "constant.builtin", .tm = "keyword.constant" },
     .{ .ts = "constant", .tm = "entity.name.constant" },
     .{ .ts = "function.defaultLibrary", .tm = "support.function" },
     .{ .ts = "function.builtin", .tm = "entity.name.function" },
@@ -2290,7 +2303,6 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "keyword.modifier", .tm = "keyword.storage" },
     .{ .ts = "keyword.type", .tm = "keyword.structure" },
     .{ .ts = "keyword.function", .tm = "storage.type.function" },
-    .{ .ts = "constant.builtin", .tm = "keyword.constant" },
     .{ .ts = "text.title", .tm = "entity.name.section" },
     .{ .ts = "diff.minus", .tm = "markup.deleted" },
     .{ .ts = "diff.plus", .tm = "markup.inserted" },
@@ -2299,8 +2311,7 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
 fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
     self.logger.print("set terminal style {s}", .{theme_.name});
     self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
-    if (self.rdr_.vx.caps.multi_cursor)
-        self.rdr_.set_terminal_secondary_cursor_color(theme_.editor_cursor_secondary.bg orelse theme_.editor_cursor.bg.?);
+    self.rdr_.set_terminal_secondary_cursor_color(theme_.editor_cursor_secondary.bg orelse theme_.editor_cursor.bg.?);
     if (build_options.gui or self.config_.enable_terminal_color_scheme)
         self.rdr_.set_terminal_style(theme_.editor);
     self.rdr_.set_color_scheme(theme_.type);
@@ -2336,10 +2347,6 @@ pub fn is_cursor_beam() bool {
         .beam, .beam_blink => true,
         else => false,
     };
-}
-
-pub fn has_native_cursor() bool {
-    return current().config_.enable_terminal_cursor;
 }
 
 pub fn get_selection_style() @import("Buffer").Selection.Style {
@@ -2594,14 +2601,13 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
     if (root.read_theme(allocator, theme_name)) |content| {
         allocator.free(content);
     } else {
+        var custom_theme = try Widget.CustomTheme.fromTheme(allocator, self.current_theme().*, Widget.scopes);
+        defer custom_theme.deinit(allocator);
         var buf: std.Io.Writer.Allocating = .init(self.allocator);
         defer buf.deinit();
         var s: std.json.Stringify = .{ .writer = &buf.writer, .options = .{ .whitespace = .indent_2 } };
-        try s.write(self.current_theme().*);
-        try root.write_theme(
-            theme_name,
-            buf.written(),
-        );
+        try s.write(custom_theme);
+        try root.write_theme(theme_name, buf.written());
     }
     return try root.get_theme_file_name(theme_name);
 }
@@ -2609,6 +2615,7 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
 pub const WidgetType = @import("config").WidgetType;
 pub const ConfigWidgetStyle = @import("config").WidgetStyle;
 pub const WidgetStyle = @import("WidgetStyle.zig");
+pub const WidgetLayerBox = @import("WidgetLayerBox.zig");
 
 pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
     const config_ = config();

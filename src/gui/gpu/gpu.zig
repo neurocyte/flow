@@ -21,17 +21,39 @@ pub const RasterizerBackend = Rasterizer.Backend;
 pub const Hinting = Rasterizer.Hinting;
 pub const SymbolRasterizer = Rasterizer.SymbolRasterizer;
 pub const Cell = @import("cell").Cell;
+pub const flag_glyph_alpha_from_bg = @import("cell").flag_glyph_alpha_from_bg;
 pub const RGBA = @import("color").RGBA;
 
-pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2 };
+pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2, unfocused = 3 };
 
 pub const CursorInfo = struct {
     vis: bool = false,
     row: u16 = 0,
     col: u16 = 0,
+    width: u8 = 1,
     shape: CursorShape = .block,
     color: RGBA = .init(255, 255, 255, 255),
 };
+
+fn packCursor(c: CursorInfo) u32 {
+    const shape: u32 = @as(u32, @intCast(@intFromEnum(c.shape))) + 1;
+    return shape |
+        (@as(u32, c.color.r) << 8) |
+        (@as(u32, c.color.g) << 16) |
+        (@as(u32, c.color.b) << 24);
+}
+
+fn markCursors(shader_cells: []ShaderCell, cursors: []const CursorInfo, cols: u16, rows: u16) void {
+    for (cursors) |cur| {
+        if (!cur.vis or cur.row >= rows or cur.col >= cols) continue;
+        const packed_cursor = packCursor(cur);
+        const row_off = @as(usize, cur.row) * cols;
+        const width = if (cur.shape == .beam) 1 else cur.width;
+        var c: u16 = 0;
+        while (c < width and cur.col + c < cols) : (c += 1)
+            shader_cells[row_off + cur.col + c].cursor = packed_cursor;
+    }
+}
 
 const log = std.log.scoped(.gpu);
 
@@ -46,28 +68,30 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
     };
 }
 
-// Shader cell layout. Stored on the GPU as 4 RGBA8 texels per cell:
+// Shader cell layout. Stored on the GPU as 5 RGBA8 texels per cell:
 //   texel 0 = glyph_index bytes (LE),
 //   texel 1 = bg color (r,g,b,a),
 //   texel 2 = fg color,
-//   texel 3 = deco bytes (LE).
-// Each texel encodes one terminal cell:
-//   .r = glyph_index  (u32)
-//   .g = bg packed    (RGBA bit-cast to u32: r<<24|g<<16|b<<8|a)
-//   .b = fg packed    (same)
-//   .a = decoration field
+//   texel 3 = deco bytes (LE),
+//   texel 4 = cursor bytes (LE).
 //
 // Decoration field bit layout:
 //   31..8 : underline color RRGGBB (24 bits, 0 → use fg)
 //    7..5 : ul_style (3 bits, 0=off..5=dashed)
 //    4    : strikethrough flag
 //    3..2 : glyph_kind (00=alpha, 01=subpixel, 10=color, 11=reserved)
-//    0    : secondary-cursor flag
+//    1    : reserved
+//    0    : glyph_alpha_from_bg (cell α taken from bg.a in shader)
+//
+// Cursor field bit layout (0 → no cursor on this cell):
+//    7..0 : shape+1 (1=block, 2=beam, 3=underline, 4=unfocused)
+//   31..8 : cursor color RRGGBB
 const ShaderCell = extern struct {
     glyph_index: u32,
     bg: u32,
     fg: u32,
     deco: u32 = 0,
+    cursor: u32 = 0,
 };
 
 fn packDeco(src: Cell, kind: u2) u32 {
@@ -80,7 +104,8 @@ fn packDeco(src: Cell, kind: u2) u32 {
     const style: u32 = (@as(u32, src.ul_style) & 7) << 5;
     const strike: u32 = if (src.strikethrough != 0) (@as(u32, 1) << 4) else 0;
     const kbits: u32 = (@as(u32, kind) & 3) << 2;
-    return color24 | style | strike | kbits;
+    const fg_t: u32 = if ((src.flags & flag_glyph_alpha_from_bg) != 0) 1 else 0;
+    return color24 | style | strike | kbits | fg_t;
 }
 
 const global = struct {
@@ -89,12 +114,25 @@ const global = struct {
     var pip: sg.Pipeline = .{};
     var composite_replace_pip: sg.Pipeline = .{};
     var composite_srcover_pip: sg.Pipeline = .{};
+    var present_pip: sg.Pipeline = .{};
+    var blit_uv_pip: sg.Pipeline = .{};
+    var blur_pip: sg.Pipeline = .{};
+    var blur_compose_pip: sg.Pipeline = .{};
     var glyph_sampler: sg.Sampler = .{};
     var cell_sampler: sg.Sampler = .{};
     var src_sampler: sg.Sampler = .{};
+    var blur_sampler: sg.Sampler = .{};
     var glyph_cache_arena: std.heap.ArenaAllocator = undefined;
     var background: RGBA = .init(0, 255, 255, 255); // default is warning yellow
     var composite_sample_flip_y: f32 = 0.0;
+    var transparent: bool = false;
+
+    // Kawase blur ping-pong textures. Lazily allocated and grown to the
+    // largest src footprint seen via ensureBlurTextures().
+    var blur_image: [2]sg.Image = .{ .{}, .{} };
+    var blur_view: [2]sg.View = .{ .{}, .{} };
+    var blur_color_view: [2]sg.View = .{ .{}, .{} };
+    var blur_size: XY(u16) = .{ .x = 0, .y = 0 };
 };
 
 pub fn init(allocator: std.mem.Allocator) !void {
@@ -121,10 +159,9 @@ pub fn init(allocator: std.mem.Allocator) !void {
     var composite_srcover_desc: sg.PipelineDesc = .{ .shader = composite_shd };
     composite_srcover_desc.primitive_type = .TRIANGLE_STRIP;
     composite_srcover_desc.color_count = 1;
-    // Premultiplied source-over: dst = src + dst * (1 - src.a)
     composite_srcover_desc.colors[0].blend = .{
         .enabled = true,
-        .src_factor_rgb = .ONE,
+        .src_factor_rgb = .SRC_ALPHA,
         .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
         .op_rgb = .ADD,
         .src_factor_alpha = .ONE,
@@ -132,6 +169,33 @@ pub fn init(allocator: std.mem.Allocator) !void {
         .op_alpha = .ADD,
     };
     global.composite_srcover_pip = sg.makePipeline(composite_srcover_desc);
+
+    const present_shd = sg.makeShader(shader.presentShaderDesc(sg.queryBackend()));
+    var present_desc: sg.PipelineDesc = .{ .shader = present_shd };
+    present_desc.primitive_type = .TRIANGLE_STRIP;
+    present_desc.color_count = 1;
+    global.present_pip = sg.makePipeline(present_desc);
+
+    // Blur pipeline trio (snapshot / Kawase tap / post-process+compose).
+    // All three write with REPLACE; the compose shader does the src_over
+    // math itself, so no fixed-function blending is needed.
+    const blit_uv_shd = sg.makeShader(shader.blitUvShaderDesc(sg.queryBackend()));
+    var blit_uv_desc: sg.PipelineDesc = .{ .shader = blit_uv_shd };
+    blit_uv_desc.primitive_type = .TRIANGLE_STRIP;
+    blit_uv_desc.color_count = 1;
+    global.blit_uv_pip = sg.makePipeline(blit_uv_desc);
+
+    const blur_shd = sg.makeShader(shader.blurShaderDesc(sg.queryBackend()));
+    var blur_desc: sg.PipelineDesc = .{ .shader = blur_shd };
+    blur_desc.primitive_type = .TRIANGLE_STRIP;
+    blur_desc.color_count = 1;
+    global.blur_pip = sg.makePipeline(blur_desc);
+
+    const blur_compose_shd = sg.makeShader(shader.blurComposeShaderDesc(sg.queryBackend()));
+    var blur_compose_desc: sg.PipelineDesc = .{ .shader = blur_compose_shd };
+    blur_compose_desc.primitive_type = .TRIANGLE_STRIP;
+    blur_compose_desc.color_count = 1;
+    global.blur_compose_pip = sg.makePipeline(blur_compose_desc);
 
     global.composite_sample_flip_y = if (sg.queryFeatures().origin_top_left) 0.0 else 1.0;
 
@@ -157,6 +221,15 @@ pub fn init(allocator: std.mem.Allocator) !void {
         .wrap_u = .CLAMP_TO_EDGE,
         .wrap_v = .CLAMP_TO_EDGE,
     });
+    // Bilinear sampler for the Kawase 4-tap kernel; each tap then
+    // averages a 2x2 source neighbourhood for free.
+    global.blur_sampler = sg.makeSampler(.{
+        .min_filter = .LINEAR,
+        .mag_filter = .LINEAR,
+        .mipmap_filter = .NEAREST,
+        .wrap_u = .CLAMP_TO_EDGE,
+        .wrap_v = .CLAMP_TO_EDGE,
+    });
 }
 
 pub fn deinit() void {
@@ -165,11 +238,50 @@ pub fn deinit() void {
     sg.destroyPipeline(global.pip);
     sg.destroyPipeline(global.composite_replace_pip);
     sg.destroyPipeline(global.composite_srcover_pip);
+    sg.destroyPipeline(global.present_pip);
+    sg.destroyPipeline(global.blit_uv_pip);
+    sg.destroyPipeline(global.blur_pip);
+    sg.destroyPipeline(global.blur_compose_pip);
     sg.destroySampler(global.glyph_sampler);
     sg.destroySampler(global.cell_sampler);
     sg.destroySampler(global.src_sampler);
+    sg.destroySampler(global.blur_sampler);
+    freeBlurTextures();
     global.glyph_cache_arena.deinit();
     global.rasterizer.deinit();
+}
+
+fn freeBlurTextures() void {
+    for (0..2) |i| {
+        if (global.blur_color_view[i].id != 0) sg.destroyView(global.blur_color_view[i]);
+        if (global.blur_view[i].id != 0) sg.destroyView(global.blur_view[i]);
+        if (global.blur_image[i].id != 0) sg.destroyImage(global.blur_image[i]);
+        global.blur_color_view[i] = .{};
+        global.blur_view[i] = .{};
+        global.blur_image[i] = .{};
+    }
+    global.blur_size = .{ .x = 0, .y = 0 };
+}
+
+fn ensureBlurTextures(needed: XY(u16)) void {
+    if (needed.eql(global.blur_size) and global.blur_image[0].id != 0) return;
+    freeBlurTextures();
+
+    for (0..2) |i| {
+        global.blur_image[i] = sg.makeImage(.{
+            .width = needed.x,
+            .height = needed.y,
+            .pixel_format = .RGBA8,
+            .usage = .{ .color_attachment = true },
+        });
+        global.blur_view[i] = sg.makeView(.{
+            .texture = .{ .image = global.blur_image[i] },
+        });
+        global.blur_color_view[i] = sg.makeView(.{
+            .color_attachment = .{ .image = global.blur_image[i] },
+        });
+    }
+    global.blur_size = needed;
 }
 
 pub fn loadFont(name: []const u8, size_px: u16) !Font {
@@ -192,7 +304,10 @@ pub fn setSymbolRasterizer(h: SymbolRasterizer) void {
     global.rasterizer.setSymbolRasterizer(h);
 }
 
-/// Force the glyph index cache to be rebuilt
+pub fn glyphAdvance(font: Font, codepoint: u21) ?u16 {
+    return global.rasterizer.glyphAdvance(font, codepoint);
+}
+
 pub fn invalidateGlyphCache(state: *WindowState) void {
     state.glyph_cache_cell_size = null;
 }
@@ -203,6 +318,14 @@ pub fn setBackground(color: RGBA) void {
 
 pub fn getBackground() RGBA {
     return global.background;
+}
+
+pub fn setTransparent(on: bool) void {
+    global.transparent = on;
+}
+
+pub fn isTransparent() bool {
+    return global.transparent;
 }
 
 // ── WindowState ────────────────────────────────────────────────────────────
@@ -276,7 +399,7 @@ pub const WindowState = struct {
             if (state.cell_image.id != 0) sg.destroyImage(state.cell_image);
 
             state.cell_image = sg.makeImage(.{
-                .width = cols * 4,
+                .width = cols * 5,
                 .height = rows,
                 .pixel_format = .RGBA8,
                 .usage = .{ .dynamic_update = true },
@@ -331,15 +454,14 @@ pub const WindowState = struct {
             break :blk &(state.glyph_index_cache.?);
         };
 
-        const right_half: bool = switch (split) {
-            .single, .left => false,
-            .right => true,
-        };
+        const right_half: bool = split == .right;
+        const wide: bool = split != .single;
 
         switch (cache.reserve(
             global.glyph_cache_arena.allocator(),
             codepoint,
             right_half,
+            wide,
             @intFromEnum(face),
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
@@ -429,7 +551,7 @@ pub const LayerGpuState = struct {
             if (self.cell_image.id != 0) sg.destroyImage(self.cell_image);
 
             self.cell_image = sg.makeImage(.{
-                .width = @as(i32, cols) * 4,
+                .width = @as(i32, cols) * 5,
                 .height = rows,
                 .pixel_format = .RGBA8,
                 .usage = .{ .dynamic_update = true },
@@ -484,8 +606,8 @@ pub fn paintLayerOffscreen(
     cols: u16,
     rows: u16,
     pixel_size: XY(u16),
-    cursor: CursorInfo,
-    secondary_cursors: []const CursorInfo,
+    cursors: []const CursorInfo,
+    bg_alpha: u8,
 ) void {
     if (cols == 0 or rows == 0) return;
     if (pixel_size.x == 0 or pixel_size.y == 0) return;
@@ -513,11 +635,7 @@ pub fn paintLayerOffscreen(
         };
     }
 
-    for (secondary_cursors) |sc| {
-        if (!sc.vis) continue;
-        if (sc.row >= rows or sc.col >= cols) continue;
-        shader_cells[@as(usize, sc.row) * cols + sc.col].deco |= 1;
-    }
+    markCursors(shader_cells, cursors, cols, rows);
 
     if (window_state.glyph_atlas_dirty) flushGlyphAtlas(window_state);
 
@@ -545,11 +663,6 @@ pub fn paintLayerOffscreen(
     bindings.samplers[1] = global.cell_sampler;
     sg.applyBindings(bindings);
 
-    const sec_color: RGBA = if (secondary_cursors.len > 0)
-        secondary_cursors[0].color
-    else
-        .init(255, 255, 255, 255);
-
     const fs_params = shader.FsParams{
         .cell_size = .{
             font_set.cell_size.x,
@@ -558,21 +671,17 @@ pub fn paintLayerOffscreen(
             rows,
         },
         .viewport = .{ pixel_h, pixel_w, 0, 0 },
-        .cursor_pos = .{
-            cursor.col,
-            cursor.row,
-            @intFromEnum(cursor.shape),
-            if (cursor.vis) 1 else 0,
-        },
         .underline_info = .{
             font_set.underline_position,
             font_set.underline_thickness,
             0,
             0,
         },
-        .cursor_color = cursor.color.to_vec4(),
-        .sec_cursor_color = sec_color.to_vec4(),
-        .bg_color = global.background.to_vec4(),
+        .bg_color = blk: {
+            var v = global.background.to_vec4();
+            v[3] = @as(f32, @floatFromInt(bg_alpha)) / 255.0;
+            break :blk v;
+        },
     };
     sg.applyUniforms(shader.UB_fs_params, .{
         .ptr = &fs_params,
@@ -596,11 +705,12 @@ pub const CompositeOp = struct {
     /// global alpha multiplier
     alpha: u8,
 
-    pub const BlendMode = enum { replace, src_over };
+    pub const BlendMode = enum { replace, src_over, src_over_blur };
 };
 
 /// Composite one layer's offscreen pixel buffer into another's, using the
 /// `composite_{replace,srcover}_pip` pipeline and a sub-rect viewport.
+/// `.src_over_blur` runs a separate snapshot -> Kawase -> compose sequence.
 pub fn compositeLayer(
     dst_layer_state: *const LayerGpuState,
     src_layer_state: *const LayerGpuState,
@@ -608,6 +718,11 @@ pub fn compositeLayer(
 ) void {
     if (dst_layer_state.pixel_image.id == 0 or src_layer_state.pixel_image.id == 0) return;
     if (op.dst_w == 0 or op.dst_h == 0) return;
+
+    if (op.blend == .src_over_blur) {
+        compositeLayerBlur(dst_layer_state, src_layer_state, op);
+        return;
+    }
 
     var pass_action: sg.PassAction = .{};
     pass_action.colors[0] = .{ .load_action = .LOAD };
@@ -622,6 +737,7 @@ pub fn compositeLayer(
     const pipeline = switch (op.blend) {
         .replace => global.composite_replace_pip,
         .src_over => global.composite_srcover_pip,
+        .src_over_blur => unreachable, // handled above
     };
     sg.applyPipeline(pipeline);
 
@@ -643,6 +759,144 @@ pub fn compositeLayer(
     sg.endPass();
 }
 
+const BlurParams = struct {
+    size: f32 = 1.0,
+    passes: u32 = 3,
+    noise: f32 = 0.0117,
+    contrast: f32 = 0.8916,
+    brightness: f32 = 0.8172,
+    vibrancy: f32 = 0.1696,
+    vibrancy_darkness: f32 = 0.0,
+};
+
+const default_blur_params: BlurParams = .{};
+
+/// snapshot dst sub-rect -> N Kawase passes ping-pong -> post-process +
+/// src_over compose back into dst sub-rect.
+fn compositeLayerBlur(
+    dst_layer_state: *const LayerGpuState,
+    src_layer_state: *const LayerGpuState,
+    op: CompositeOp,
+) void {
+    const params = default_blur_params;
+    const w = op.dst_w;
+    const h = op.dst_h;
+
+    ensureBlurTextures(.{ .x = w, .y = h });
+
+    // snapshot dst sub-rect -> blur_image[0]
+    {
+        const dst_w_full: f32 = @floatFromInt(dst_layer_state.pixel_size.x);
+        const dst_h_full: f32 = @floatFromInt(dst_layer_state.pixel_size.y);
+        // dst sub-rect in normalised dst UV space (top-origin, before any
+        // GL Y-flip — the shader applies that itself).
+        const src_uv: [4]f32 = .{
+            @as(f32, @floatFromInt(op.dst_x)) / dst_w_full,
+            @as(f32, @floatFromInt(op.dst_y)) / dst_h_full,
+            @as(f32, @floatFromInt(w)) / dst_w_full,
+            @as(f32, @floatFromInt(h)) / dst_h_full,
+        };
+
+        var pass_action: sg.PassAction = .{};
+        pass_action.colors[0] = .{ .load_action = .DONTCARE };
+        var atts: sg.Attachments = .{};
+        atts.colors[0] = global.blur_color_view[0];
+
+        sg.beginPass(.{ .attachments = atts, .action = pass_action });
+        sg.applyViewport(0, 0, w, h, true);
+        sg.applyPipeline(global.blit_uv_pip);
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_blit_tex] = dst_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_blit_smp] = global.blur_sampler;
+        sg.applyBindings(bindings);
+        const blit_params = shader.FsBlitUvParams{
+            .src_uv = src_uv,
+            .blit_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_blit_uv_params, .{
+            .ptr = &blit_params,
+            .size = @sizeOf(shader.FsBlitUvParams),
+        });
+        sg.draw(0, 4, 1);
+        sg.endPass();
+    }
+
+    // N Kawase passes ping-ponging blur_image[0] <-> blur_image[1]
+    var src_idx: usize = 0;
+    {
+        // Blur textures are sized exactly to (w, h), so UV offsets map
+        // 1 pixel -> 1/w (or 1/h) directly.
+        const tex_w: f32 = @floatFromInt(w);
+        const tex_h: f32 = @floatFromInt(h);
+        var pass_idx: u32 = 0;
+        while (pass_idx < params.passes) : (pass_idx += 1) {
+            const dst_idx: usize = 1 - src_idx;
+            // Classic Kawase: kernel grows per pass.
+            const off_px: f32 = params.size * @as(f32, @floatFromInt(pass_idx + 1)) + 0.5;
+            const off_u: f32 = off_px / tex_w;
+            const off_v: f32 = off_px / tex_h;
+
+            var pass_action: sg.PassAction = .{};
+            pass_action.colors[0] = .{ .load_action = .DONTCARE };
+            var atts: sg.Attachments = .{};
+            atts.colors[0] = global.blur_color_view[dst_idx];
+
+            sg.beginPass(.{ .attachments = atts, .action = pass_action });
+            sg.applyViewport(0, 0, w, h, true);
+            sg.applyPipeline(global.blur_pip);
+            var bindings: sg.Bindings = .{};
+            bindings.views[shader.VIEW_blur_src_tex] = global.blur_view[src_idx];
+            bindings.samplers[shader.SMP_blur_src_smp] = global.blur_sampler;
+            sg.applyBindings(bindings);
+            const blur_params = shader.FsBlurParams{
+                .blur_step = .{ off_u, off_v, 0, 0 },
+                .blur_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+            };
+            sg.applyUniforms(shader.UB_fs_blur_params, .{
+                .ptr = &blur_params,
+                .size = @sizeOf(shader.FsBlurParams),
+            });
+            sg.draw(0, 4, 1);
+            sg.endPass();
+
+            src_idx = dst_idx;
+        }
+    }
+
+    // post-process backdrop + src_over src -> dst sub-rect (replace)
+    {
+        var pass_action: sg.PassAction = .{};
+        pass_action.colors[0] = .{ .load_action = .LOAD };
+
+        sg.beginPass(.{
+            .attachments = dst_layer_state.attachments(),
+            .action = pass_action,
+        });
+        sg.applyViewport(op.dst_x, op.dst_y, op.dst_w, op.dst_h, true);
+        sg.applyPipeline(global.blur_compose_pip);
+
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_backdrop_tex] = global.blur_view[src_idx];
+        bindings.views[shader.VIEW_bc_src_tex] = src_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_backdrop_smp] = global.blur_sampler;
+        bindings.samplers[shader.SMP_bc_src_smp] = global.blur_sampler;
+        sg.applyBindings(bindings);
+
+        const compose_params = shader.FsBlurComposeParams{
+            .post0 = .{ params.noise, params.contrast, params.brightness, params.vibrancy },
+            .post1 = .{ params.vibrancy_darkness, @as(f32, @floatFromInt(op.alpha)) / 255.0, 0, 0 },
+            .bc_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_blur_compose_params, .{
+            .ptr = &compose_params,
+            .size = @sizeOf(shader.FsBlurComposeParams),
+        });
+
+        sg.draw(0, 4, 1);
+        sg.endPass();
+    }
+}
+
 /// Blit a layer's offscreen pixel buffer to the swapchain
 pub fn presentLayerToSwapchain(
     src_layer_state: *const LayerGpuState,
@@ -658,7 +912,7 @@ pub fn presentLayerToSwapchain(
             .r = @as(f32, @floatFromInt(global.background.r)) / 255.0,
             .g = @as(f32, @floatFromInt(global.background.g)) / 255.0,
             .b = @as(f32, @floatFromInt(global.background.b)) / 255.0,
-            .a = 1.0,
+            .a = if (global.transparent) 0.0 else 1.0,
         },
     };
 
@@ -681,21 +935,40 @@ pub fn presentLayerToSwapchain(
         .action = pass_action,
     });
 
-    sg.applyPipeline(global.composite_replace_pip);
+    if (global.transparent) {
+        // straight-alpha
+        sg.applyPipeline(global.present_pip);
 
-    var bindings: sg.Bindings = .{};
-    bindings.views[shader.VIEW_src_tex] = src_layer_state.pixel_view;
-    bindings.samplers[shader.SMP_src_smp] = global.src_sampler;
-    sg.applyBindings(bindings);
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_present_tex] = src_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_present_smp] = global.src_sampler;
+        sg.applyBindings(bindings);
 
-    const fs_params = shader.FsCompositeParams{
-        .composite_alpha = .{ 1.0, 0, 0, 0 },
-        .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
-    };
-    sg.applyUniforms(shader.UB_fs_composite_params, .{
-        .ptr = &fs_params,
-        .size = @sizeOf(shader.FsCompositeParams),
-    });
+        const present_params = shader.FsPresentParams{
+            .present_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_present_params, .{
+            .ptr = &present_params,
+            .size = @sizeOf(shader.FsPresentParams),
+        });
+    } else {
+        // premultiplied alpha
+        sg.applyPipeline(global.composite_replace_pip);
+
+        var bindings: sg.Bindings = .{};
+        bindings.views[shader.VIEW_src_tex] = src_layer_state.pixel_view;
+        bindings.samplers[shader.SMP_src_smp] = global.src_sampler;
+        sg.applyBindings(bindings);
+
+        const fs_params = shader.FsCompositeParams{
+            .composite_alpha = .{ 1.0, 0, 0, 0 },
+            .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        };
+        sg.applyUniforms(shader.UB_fs_composite_params, .{
+            .ptr = &fs_params,
+            .size = @sizeOf(shader.FsCompositeParams),
+        });
+    }
 
     sg.draw(0, 4, 1);
     sg.endPass();
@@ -757,8 +1030,7 @@ pub fn paint(
     col_count: u16,
     top: u16,
     cells: []const Cell,
-    cursor: CursorInfo,
-    secondary_cursors: []const CursorInfo,
+    cursors: []const CursorInfo,
     swapchain_render_view: ?*const anyopaque, // windows only
 ) void {
     const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font_set.cell_size.x));
@@ -806,12 +1078,7 @@ pub fn paint(
         }
     }
 
-    // Mark secondary cursor cells (bit 0 of deco field, read by fragment shader).
-    for (secondary_cursors) |sc| {
-        if (!sc.vis) continue;
-        if (sc.row >= shader_row_count or sc.col >= shader_col_count) continue;
-        shader_cells[@as(usize, sc.row) * shader_col_count + sc.col].deco |= 1;
-    }
+    markCursors(shader_cells, cursors, shader_col_count, shader_row_count);
 
     // Upload glyph atlas to GPU if any new glyphs were rasterized this frame.
     if (state.glyph_atlas_dirty) flushGlyphAtlas(state);
@@ -830,7 +1097,7 @@ pub fn paint(
             .r = @as(f32, @floatFromInt(global.background.r)) / 255.0,
             .g = @as(f32, @floatFromInt(global.background.g)) / 255.0,
             .b = @as(f32, @floatFromInt(global.background.b)) / 255.0,
-            .a = 1.0,
+            .a = if (global.transparent) 0.0 else 1.0,
         },
     };
 
@@ -861,11 +1128,6 @@ pub fn paint(
     bindings.samplers[1] = global.cell_sampler;
     sg.applyBindings(bindings);
 
-    const sec_color: RGBA = if (secondary_cursors.len > 0)
-        secondary_cursors[0].color
-    else
-        .init(255, 255, 255, 255);
-
     const fs_params = shader.FsParams{
         .cell_size = .{
             font_set.cell_size.x,
@@ -874,20 +1136,12 @@ pub fn paint(
             shader_row_count,
         },
         .viewport = .{ @intCast(client_size.y), @intCast(client_size.x), 0, 0 },
-        .cursor_pos = .{
-            cursor.col,
-            cursor.row,
-            @intFromEnum(cursor.shape),
-            if (cursor.vis) 1 else 0,
-        },
         .underline_info = .{
             font_set.underline_position,
             font_set.underline_thickness,
             0,
             0,
         },
-        .cursor_color = cursor.color.to_vec4(),
-        .sec_cursor_color = sec_color.to_vec4(),
         .bg_color = global.background.to_vec4(),
     };
     sg.applyUniforms(shader.UB_fs_params, .{

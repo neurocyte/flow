@@ -108,13 +108,13 @@ fn format(self: *Self) void {
     };
     const indent_mode = switch (self.indent_mode) {
         .spaces, .auto => "",
-        .tabs => " ⭾ ",
+        .tabs => " ⭾",
     };
     writer.print("{s}{s} ", .{ eol_mode, indent_mode }) catch {};
 
     const displayColumn = if (self.col0 orelse false) self.column else self.column + 1;
     (blk: switch (self.mode orelse .default) {
-        .default => writer.print("Ln {f}, Col {f} ", .{
+        .default => writer.print(" Ln {f}, Col {f} ", .{
             digits_fmt(self, self.line + 1),
             digits_fmt(self, displayColumn),
         }),
@@ -134,7 +134,15 @@ fn format(self: *Self) void {
                 writer.print(" Bot", .{}) catch {}
             else {
                 const percent = (self.line * 1000) / (self.lines * 10);
-                writer.print(" {f}%", .{digits_fmt(self, percent)}) catch {};
+                writer.print(" {s}{d}%", .{
+                    if (percent >= 10)
+                        ""
+                    else switch (self.leader orelse .space) {
+                        .space => " ",
+                        .zero => "0",
+                    },
+                    percent,
+                }) catch {};
             }
             continue :blk .compact;
         },

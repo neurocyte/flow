@@ -60,12 +60,13 @@ const Entry = struct {
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
+    const plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
     self.* = .{
         .allocator = allocator,
-        .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
+        .plane = plane,
         .logger = log.logger(@typeName(Self)),
         .entries = .empty,
-        .menu = try Menu.create(*Self, allocator, tui.plane(), .{
+        .menu = try Menu.create(*Self, allocator, plane, .{
             .ctx = self,
             .style = widget_type,
             .on_render = handle_render_menu,

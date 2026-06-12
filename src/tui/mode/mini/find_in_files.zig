@@ -9,6 +9,7 @@ const tui = @import("../../tui.zig");
 
 const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;
+const lastIndexOfAny = @import("std").mem.lastIndexOfAny;
 
 const Self = @This();
 const name = "󰥨 find";
@@ -135,6 +136,16 @@ const cmds = struct {
         self.update_mini_mode_text();
     }
     pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn mini_mode_delete_word_left(self: *Self, _: Ctx) Result {
+        if (lastIndexOfAny(u8, self.input_, "/\\. -_")) |pos| {
+            self.input_ = self.input_[0..pos];
+        } else {
+            self.input_ = "";
+        }
+        self.update_mini_mode_text();
+    }
+    pub const mini_mode_delete_word_left_meta: Meta = .{ .description = "Delete word to the left" };
 
     pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
         self.input_ = self.input_[0 .. self.input_.len - tui.egc_last(self.input_).len];

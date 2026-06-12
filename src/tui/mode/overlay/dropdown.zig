@@ -29,6 +29,7 @@ pub const Placement = enum {
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
+        menu_layer: *tui.WidgetLayerBox,
         menu: *Menu.State(*Self),
         mode: keybind.Mode,
         query: std.ArrayList(u8),
@@ -66,13 +67,17 @@ pub fn Create(options: type) type {
             const mv = tui.mainview() orelse return error.NotFound;
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
+            const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), "dropdown.layer");
+            menu_layer.blend = .src_over_blur;
+            menu_layer.alpha = tui.palette_opacity();
+            errdefer menu_layer.deinit(allocator);
             self.* = .{
                 .allocator = allocator,
-                .menu = try Menu.create(*Self, allocator, tui.plane(), .{
+                .menu_layer = menu_layer,
+                .menu = try Menu.create(*Self, allocator, menu_layer.inner_plane(), .{
                     .ctx = self,
                     .style = widget_type,
                     .on_render = options.on_render_menu,
-                    .prepare_resize = prepare_resize_menu,
                     .after_resize = after_resize_menu,
                     .on_scroll = EventHandler.bind(self, Self.on_scroll),
                     .on_click4 = mouse_click_button4,
@@ -96,6 +101,9 @@ pub fn Create(options: type) type {
             errdefer self.commands.deinit();
             self.mode.event_handler = EventHandler.to_owned(self);
             self.mode.name = options.name;
+            self.menu_layer.ctx = self;
+            self.menu_layer.prepare_resize = prepare_resize_layer;
+            self.menu_layer.set(self.menu.container_widget);
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             if (@hasDecl(options, "init")) try options.init(self);
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
@@ -111,7 +119,7 @@ pub fn Create(options: type) type {
                 try self.query.appendSlice(self.allocator, initial_query);
             }
             try self.start_query(0);
-            try mv.floating_views.add(self.menu.container_widget);
+            try mv.floating_views.add(self.menu_layer.widget());
 
             if (@hasDecl(options, "handle_event")) blk: {
                 const editor = mv.get_active_editor() orelse break :blk;
@@ -130,7 +138,7 @@ pub fn Create(options: type) type {
                 options.deinit(self);
             self.entries.deinit(self.allocator);
             if (tui.mainview()) |mv|
-                mv.floating_views.remove(self.menu.container_widget);
+                mv.floating_views.remove(self.menu_layer.widget());
             self.logger.deinit();
             self.allocator.destroy(self);
         }
@@ -149,9 +157,11 @@ pub fn Create(options: type) type {
                 .{ .fg = theme.scrollbar.fg, .bg = theme.editor_widget.bg };
         }
 
-        fn prepare_resize_menu(self: *Self, menu: *Menu.State(*Self), _: Widget.Box) Widget.Box {
-            const padding = tui.get_widget_style(menu.opts.style).padding;
-            return self.prepare_resize(padding) orelse .{};
+        fn prepare_resize_layer(ctx_: ?*anyopaque, _: *tui.WidgetLayerBox, _: Widget.Box) Widget.Box {
+            const self: *Self = @ptrCast(@alignCast(ctx_.?));
+            const padding = tui.get_widget_style(widget_type).padding;
+            const box = self.prepare_resize(padding) orelse return .{};
+            return box.from_client_box(padding);
         }
 
         fn prepare_resize(self: *Self, padding: Widget.Style.Margin) ?Widget.Box {
@@ -163,7 +173,7 @@ pub fn Create(options: type) type {
         }
 
         fn prepare_width(self: *Self, screen: Widget.Box) usize {
-            return @min(screen.w - 2, @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2));
+            return @min(screen.w -| 2, @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2));
         }
 
         fn prepare_resize_at_y_x(self: *Self, screen: Widget.Box, w: usize, y: usize, x: usize) Widget.Box {
@@ -195,7 +205,7 @@ pub fn Create(options: type) type {
 
         fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             const box = self.prepare_resize(padding) orelse return;
-            self.menu.resize(box.to_client_box(padding));
+            self.menu_layer.handle_resize(box.to_client_box(padding));
             self.after_resize();
         }
 

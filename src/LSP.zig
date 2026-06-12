@@ -480,14 +480,14 @@ const Process = struct {
     fn handle_not_found(self: *Process) error{ExitNormal}!void {
         self.err_msg("'{s}' executable not found", .{self.tag});
         self.write_log("### '{s}' executable not found ###\n", .{self.tag});
-        self.parent.send(.{ sp_tag, self.tag, "not found" }) catch {};
+        self.parent.send(.{ sp_tag, self.project, self.tag, "not found" }) catch {};
         return error.ExitNormal;
     }
 
     fn handle_terminated(self: *Process, err: []const u8, code: u32) error{ExitNormal}!void {
         self.msg("terminated: {s} {d}", .{ err, code });
         self.write_log("### subprocess terminated {s} {d} ###\n", .{ err, code });
-        self.parent.send(.{ sp_tag, self.tag, "done" }) catch {};
+        self.parent.send(.{ sp_tag, self.project, self.tag, "done" }) catch {};
         return error.ExitNormal;
     }
 

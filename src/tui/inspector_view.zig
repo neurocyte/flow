@@ -1,6 +1,5 @@
 const Allocator = @import("std").mem.Allocator;
 
-const tp = @import("thespian");
 const Buffer = @import("Buffer");
 const color = @import("color");
 const syntax = @import("syntax");
@@ -8,13 +7,13 @@ const syntax = @import("syntax");
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
 const styles = @import("renderer").styles;
-const EventHandler = @import("EventHandler");
 const command = @import("command");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const ed = @import("editor.zig");
+const syntax_validator = @import("syntax_validator");
 
 pub const name = @typeName(Self);
 
@@ -35,14 +34,12 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
         .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
         .editor = editor,
     };
-    try editor.handlers.add(EventHandler.bind(self, ed_receive));
     container.ctx = self;
     try container.add(Widget.to(self));
     return container.widget();
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
-    self.editor.handlers.remove_ptr(self);
     tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
@@ -53,6 +50,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.theme = theme;
     self.plane.erase();
     self.plane.home();
+    self.editor = tui.get_active_editor() orelse return false;
     const cursor = self.editor.get_primary().cursor;
     self.inspect_location(cursor.row, cursor.col);
     return false;
@@ -63,21 +61,11 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
 }
 
-fn ed_receive(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    if (try m.match(.{ "E", "close" }))
-        return self.clear();
-}
-
-fn clear(self: *Self) void {
-    self.plane.erase();
-    self.plane.home();
-}
-
 fn inspect_location(self: *Self, row: usize, col: usize) void {
     const syn = self.editor.syntax orelse return;
     const root = (self.editor.buffer orelse return).root;
     const col_pos = root.get_line_width_to_pos(row, col, self.editor.metrics) catch return;
-    if (!syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col_pos) }))
+    if (!syn.highlights_at_point(self, dump_highlight, syntax_validator.Validator(*Self), .{ .row = @intCast(row), .column = @intCast(col_pos) }))
         self.ast_at_point(syn, row, col_pos, root);
 }
 
@@ -189,7 +177,7 @@ fn show_color(self: *Self, tag: []const u8, c_: ?Widget.Theme.Color) void {
             (theme.panel.fg orelse Widget.Theme.Color{ .color = 0xFFFFFF }).color,
             (theme.panel.bg orelse Widget.Theme.Color{ .color = 0x000000 }).color,
         ) }) catch {};
-        _ = self.plane.print("#{x}", .{c.color}) catch return;
+        _ = self.plane.print("#{x:0>6}", .{c.color}) catch return;
         self.reset_style();
         if (c.alpha != 0xff)
             _ = self.plane.print(" ɑ{x}", .{c.alpha}) catch return;

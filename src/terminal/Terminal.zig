@@ -283,9 +283,6 @@ pub fn draw(
     allocator: std.mem.Allocator,
     win: vaxis.Window,
     focused: bool,
-    software_cursor: bool,
-    focused_cursor_color: ?[3]u8,
-    unfocused_cursor_color: ?[3]u8,
 ) !void {
     // Use app-overridden colour if set, otherwise fall back to theme colour.
     const default_fg: vaxis.Cell.Color = .{ .rgb = self.app_fg_color orelse self.fg_color };
@@ -322,27 +319,9 @@ pub fn draw(
         else
             null;
         if (visible) |cur_row| {
-            if (focused and !software_cursor) {
-                win.setCursorShape(self.front_screen.cursor.shape);
-                win.showCursor(cur_col, cur_row);
-            } else if (win.readCell(cur_col, cur_row)) |cell| {
-                // Software cursor. Priority for the bg colour:
-                //   focused:   app_cursor_color > focused_cursor_color > reverse
-                //   unfocused: unfocused_cursor_color > reverse
-                var soft = cell;
-                const cc: ?[3]u8 = if (focused)
-                    self.app_cursor_color orelse focused_cursor_color
-                else
-                    unfocused_cursor_color;
-                if (cc) |c| {
-                    soft.style.bg = .{ .rgb = c };
-                    soft.style.fg = cell.style.bg;
-                    soft.style.reverse = false;
-                } else {
-                    soft.style.reverse = !cell.style.reverse;
-                }
-                win.writeCell(cur_col, cur_row, soft);
-            }
+            const shape: vaxis.Cell.CursorShape = if (focused) self.front_screen.cursor.shape else .unfocused;
+            win.setCursorShape(shape);
+            win.showCursor(cur_col, cur_row);
         }
     }
 }

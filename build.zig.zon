@@ -6,8 +6,8 @@
 
     .dependencies = .{
         .syntax = .{
-            .url = "git+https://github.com/neurocyte/flow-syntax?ref=master#46fc239970b6fa61897757fdc52263ef5fc40d57",
-            .hash = "flow_syntax-0.7.2-X8jOoTllAQCP77bxgBvJZjHK3axQ_hXCJVgDRM-1p1T9",
+            .url = "git+https://github.com/neurocyte/flow-syntax?ref=zig-0.16#6327dff36e2e7a363f841667375f560176dc8977",
+            .hash = "flow_syntax-0.7.2-X8jOoS-MAQAFej5AMybVTEI7BspBNniXGPAthA677yHW",
         },
         .flags = .{
             .url = "git+https://github.com/neurocyte/flags?ref=main#68c1ae1fadcbcadc5ae10912bb95a547ca04d71f",
@@ -18,20 +18,20 @@
             .hash = "dizzy-1.0.0-q40X4aGRAADKbMiB82-6NSGBDG4Cd4wZxQN4kiYDQu-8",
         },
         .thespian = .{
-            .url = "git+https://github.com/neurocyte/thespian?ref=master#10089af77ba1ba048306a44cd744c51da121f25c",
-            .hash = "thespian-0.0.1-owFOjmgVBwD3YHkduGKFP2VU9A19mhn6Zkf0Jx-lcfng",
+            .url = "git+https://github.com/neurocyte/thespian?ref=master#5a6c2a037e3a8ee48616cb78248bdf2a590595e6",
+            .hash = "thespian-0.0.1-owFOjn0nBwBRsL6t4pesd_dorNVGaiwJne4EmHP995-_",
         },
         .themes = .{
-            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-b0476d4c299a2255230cbc939e01ae6e987fe837/flow-themes.tar.gz",
-            .hash = "N-V-__8AAGpeLAAjctWzOR8nFngdttW_XmZUtPJYWcQWldpr",
+            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-392bd7eaa5278c4c31c3200eea19360709ed8a4f/flow-themes.tar.gz",
+            .hash = "N-V-__8AAFp8LADAWU_CMONVd9v_5gp31EhoxPPqHckfPxXi",
         },
         .fuzzig = .{
             .url = "git+https://codeberg.org/fjebaker/fuzzig?ref=main#b8f8a21c9ce7b07cbadcb18c97a68d6dfe417418",
             .hash = "fuzzig-0.1.2-Ji0xigJqAQDvtmYhobWP8Acum6OwZ8Gbh-__fljWyjZa",
         },
         .vaxis = .{
-            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#5eb3d20cb6c7ffdf600e2ede1fbdc18cfde4a97b",
-            .hash = "vaxis-0.6.0-BWNV_JrRCQDOj2zi0OqpqNZHSzVLO9MJYEq-YushL7Al",
+            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#0f925ac8dc19a8e200b698dfd965d624e8b3bfc3",
+            .hash = "vaxis-0.6.0-BWNV_N3TCQAvXDjZOORNorQdHPapTsUbhXk3uCz9z0LW",
         },
         .zeit = .{
             .url = "git+https://github.com/rockorager/zeit?ref=0.16#1b1c95b2282c3003bb79ff6f44d3021ddcb279c1",
@@ -43,8 +43,8 @@
             .lazy = true,
         },
         .wio = .{
-            .url = "git+https://github.com/neurocyte/wio?ref=master#5cd993445c832953efb8e3de14218a238d1bca80",
-            .hash = "wio-0.0.0-8xHrrx2gBwDN5SFrFa2Jv9ka0yqSWeJ0dSgb_v0xXbqS",
+            .url = "git+https://github.com/neurocyte/wio?ref=master#6d7a5919de5f2e284ace3be28ea3a592645b69ea",
+            .hash = "wio-0.0.0-8xHrr8KpBwBCzhwIvXKB3RfZCfobfodDiNa3qWexpL1p",
             .lazy = true,
         },
         .sokol = .{
@@ -55,6 +55,11 @@
         .TrueType = .{
             .url = "git+https://codeberg.org/andrewrk/TrueType?ref=main#b0f9867671a14ce4ed75a05a7e52c927623095e5",
             .hash = "TrueType-0.0.0-Ne-mWMxxAQDit1oHfxlK2lkZAX8P7Wsa2SBPaR_xSpc8",
+            .lazy = true,
+        },
+        .nerd_fonts = .{
+            .url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/NerdFontsSymbolsOnly.tar.xz",
+            .hash = "N-V-__8AAI9HTABr_zPUAKuMp_GR5p_z-kjPIX_e3EtLjOqI",
             .lazy = true,
         },
         .diffz = .{

@@ -749,6 +749,7 @@ fn write_config_value(T: type, value: T, writer: *std.Io.Writer) !void {
             try write_color_value(v, writer)
         else
             try writer.writeAll("null"),
+        f32, f64 => try writer.print("{:.2}", .{value}),
         else => {
             var s: std.json.Stringify = .{ .writer = writer, .options = .{ .whitespace = .minified } };
             try s.write(value);
@@ -766,6 +767,7 @@ fn write_config_value_description(T: type, field_type: type, comptime field_name
             else => unsupported_error(T, field_type),
         },
         .bool => try writer.print("true or false", .{}),
+        .float => try writer.print("fractional number", .{}),
         .@"enum" => {
             var first = true;
             try writer.print("one of ", .{});

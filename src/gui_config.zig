@@ -15,6 +15,10 @@ block_and_line_symbols: SymbolRasterizer = .default,
 initial_window_x: u16 = 1087,
 initial_window_y: u16 = 1014,
 
+gui_window_transparency: bool = false,
+gui_background_opacity: f32 = 0.75,
+gui_ignore_theme_alpha: bool = true,
+
 include_files: []const u8 = "",
 
 pub const RasterizerBackend = if (builtin.os.tag == .windows)

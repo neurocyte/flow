@@ -10,7 +10,8 @@ const tui = @import("tui.zig");
 pub const Box = @import("Box.zig");
 pub const Pos = struct { y: i32 = 0, x: i32 = 0 };
 pub const Theme = @import("theme");
-pub const scopes = @import("themes").scopes;
+pub const CustomTheme = @import("CustomTheme.zig");
+const static_scopes = @import("themes").scopes;
 pub const Type = @import("config").WidgetType;
 pub const StyleTag = @import("config").WidgetStyle;
 pub const Style = @import("WidgetStyle.zig");
@@ -42,33 +43,45 @@ pub const Layout = union(enum) {
     }
 };
 
+pub var scopes: [][]const u8 = &.{};
+var scope_list: std.ArrayList([]const u8) = .empty;
+
 pub const ThemeInfo = struct {
     name: []const u8,
-    storage: ?std.json.Parsed(Theme) = null,
+    storage: ?Theme = null,
 
     pub fn get(self: *@This(), allocator: std.mem.Allocator) ?Theme {
+        defer scopes = scope_list.items;
+        if (scope_list.capacity == 0)
+            scope_list.appendSlice(allocator, &static_scopes) catch @panic("OOM get");
+
         if (load_theme_file(allocator, self.name) catch null) |parsed_theme| {
             self.storage = parsed_theme;
-            return self.storage.?.value;
+            return self.storage;
         }
 
         for (static_themes) |theme_| {
             if (std.mem.eql(u8, theme_.name, self.name))
                 return theme_;
         }
+
         return null;
     }
 
-    fn load_theme_file(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Theme) {
+    fn load_theme_file(allocator: std.mem.Allocator, theme_name: []const u8) !?Theme {
         return load_theme_file_internal(allocator, theme_name) catch |e| {
             std.log.err("Error loading theme '{s}' from file: {t}", .{ theme_name, e });
             return e;
         };
     }
-    fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Theme) {
+    fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8) !?Theme {
         const json_str = root.read_theme(allocator, theme_name) orelse return null;
         defer allocator.free(json_str);
-        return try std.json.parseFromSlice(Theme, allocator, json_str, .{ .allocate = .alloc_always });
+        const custom = try std.json.parseFromSlice(CustomTheme, allocator, json_str, .{ .allocate = .alloc_always });
+        defer custom.deinit();
+        defer scopes = scope_list.items;
+        const theme: ?Theme = try custom.value.toTheme(allocator, &scope_list);
+        return theme;
     }
 };
 

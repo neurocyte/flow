@@ -94,6 +94,75 @@ fn cssToFcWeight(css: u16) u16 {
     };
 }
 
+pub const FallbackCandidate = struct {
+    path: []u8,
+    face_index: i32,
+    has_color: bool,
+};
+
+/// Query for fonts that provide a specific codepoint
+pub fn findFallbackFonts(
+    allocator: std.mem.Allocator,
+    codepoint: u21,
+    prefer_color: bool,
+) ![]FallbackCandidate {
+    const config = fc.FcInitLoadConfigAndFonts() orelse return error.FontconfigInit;
+    defer fc.FcConfigDestroy(config);
+
+    const pat = fc.FcPatternCreate() orelse return error.OutOfMemory;
+    defer fc.FcPatternDestroy(pat);
+
+    const cs = fc.FcCharSetCreate() orelse return error.OutOfMemory;
+    defer fc.FcCharSetDestroy(cs);
+    _ = fc.FcCharSetAddChar(cs, codepoint);
+    _ = fc.FcPatternAddCharSet(pat, fc.FC_CHARSET, cs);
+
+    if (prefer_color) {
+        _ = fc.FcPatternAddBool(pat, fc.FC_COLOR, 1);
+        _ = fc.FcPatternAddString(pat, fc.FC_FAMILY, "emoji");
+    } else {
+        _ = fc.FcPatternAddString(pat, fc.FC_FAMILY, "monospace");
+    }
+
+    _ = fc.FcConfigSubstitute(config, pat, fc.FcMatchPattern);
+    fc.FcDefaultSubstitute(pat);
+
+    var result: fc.FcResult = undefined;
+    const font_set = fc.FcFontSort(config, pat, 0, null, &result);
+    if (font_set == null) return allocator.alloc(FallbackCandidate, 0);
+    defer fc.FcFontSetDestroy(font_set);
+
+    const max_candidates = 10;
+    var candidates: std.ArrayList(FallbackCandidate) = .empty;
+    errdefer {
+        for (candidates.items) |c_| allocator.free(c_.path);
+        candidates.deinit(allocator);
+    }
+
+    const nfont: usize = @intCast(font_set.*.nfont);
+    for (0..@min(nfont, max_candidates)) |i| {
+        const font_pat = font_set.*.fonts[i];
+
+        var file: [*c]fc.FcChar8 = undefined;
+        if (fc.FcPatternGetString(font_pat, fc.FC_FILE, 0, &file) != fc.FcResultMatch)
+            continue;
+
+        var index: c_int = 0;
+        _ = fc.FcPatternGetInteger(font_pat, fc.FC_INDEX, 0, &index);
+
+        var color_val: c_int = 0;
+        _ = fc.FcPatternGetBool(font_pat, fc.FC_COLOR, 0, &color_val);
+
+        try candidates.append(allocator, .{
+            .path = try allocator.dupe(u8, std.mem.sliceTo(file, 0)),
+            .face_index = index,
+            .has_color = color_val != 0,
+        });
+    }
+
+    return try candidates.toOwnedSlice(allocator);
+}
+
 /// Resolve a specific weight + slant variant of a family
 pub fn findVariant(
     allocator: std.mem.Allocator,

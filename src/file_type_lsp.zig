@@ -1,6 +1,8 @@
 pub const agda = .{};
 
-pub const @"asm" = .{};
+pub const @"asm" = .{
+    .language_server = .{"asm-lsp"},
+};
 
 pub const astro = .{
     .language_server = .{ "astro-ls", "--stdio" },
@@ -17,14 +19,14 @@ pub const c = .{
 };
 
 pub const @"c-sharp" = .{
-    .language_server = .{ "OmniSharp", "-lsp" },
+    .language_server = .{ "roslyn-language-server", "--stdio", "--autoLoadProjects" },
     .formatter = .{ "csharpier", "format" },
 };
 
 pub const conf = .{};
 
 pub const cmake = .{
-    .language_server = .{"cmake-language-server"},
+    .language_server = .{ "neocmakelsp", "stdio" },
     .formatter = .{"cmake-format"},
 };
 
@@ -39,7 +41,9 @@ pub const css = .{
 
 pub const diff = .{};
 
-pub const dockerfile = .{};
+pub const dockerfile = .{
+    .language_server = .{ "docker-langserver", "--stdio" },
+};
 
 pub const dtd = .{};
 
@@ -48,7 +52,9 @@ pub const elixir = .{
     .formatter = .{ "mix", "format", "-" },
 };
 
-pub const fish = .{};
+pub const fish = .{
+    .language_server = .{ "fish-lsp", "start" },
+};
 
 pub const fsharp = .{
     .language_server = .{"fsautocomplete"},
@@ -62,11 +68,18 @@ pub const gdscript = .{
 
 pub const @"git-rebase" = .{};
 
-pub const gitcommit = .{};
+pub const gitcommit = .{
+    .language_server = .{ "commit-lsp", "run" },
+};
 
 pub const gleam = .{
     .language_server = .{ "gleam", "lsp" },
     .formatter = .{ "gleam", "format", "--stdin" },
+};
+
+pub const glsl = .{
+    .language_server = .{"glsl_analyzer"},
+    .formatter = .{"clang-format"},
 };
 
 pub const go = .{
@@ -109,7 +122,9 @@ pub const julia = .{
     .formatter = .{ "julia", "-e", "using JuliaFormatter; print(format_text(read(stdin, String)))" },
 };
 
-pub const kdl = .{};
+pub const kdl = .{
+    .formatter = .{ "kdlfmt", "format", "-" },
+};
 
 pub const lua = .{
     .language_server = .{"lua-language-server"},
@@ -127,7 +142,9 @@ pub const markdown = .{
 
 pub const @"markdown-inline" = .{};
 
-pub const nasm = .{};
+pub const nasm = .{
+    .language_server = .{"asm-lsp"},
+};
 
 pub const nim = .{
     .language_server = .{"nimlangserver"},
@@ -178,12 +195,14 @@ pub const php = .{
 
 pub const powershell = .{};
 
-pub const proto = .{};
+pub const proto = .{
+    .language_server = .{ "buf", "lsp", "serve", "--timeout", "0" },
+};
 
 pub const purescript = .{};
 
 pub const python = .{
-    .language_server = .{ "uvx", "ty", "server" },
+    .language_server = .{ "ty", "server" },
     .formatter = .{ "ruff", "format", "-" },
 };
 

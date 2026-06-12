@@ -28,10 +28,13 @@ allocator: std.mem.Allocator,
 tty: vaxis.Tty,
 vx: vaxis.Vaxis,
 tty_buffer: []u8,
-cache_storage: GraphemeCache.Storage = .{},
+cache_storage: *GraphemeCache.Storage,
 targets: std.ArrayList(Layer.Target) = .empty,
 
 no_alternate: bool,
+config_enable_terminal_cursor: bool,
+cursor_color: RGB = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
+secondary_color: RGB = .{ .r = 0x80, .g = 0x80, .b = 0x80 },
 enable_sgr_pixel_mode_support: bool = true,
 event_buffer: std.Io.Writer.Allocating,
 input_buffer: std.Io.Writer.Allocating,
@@ -73,7 +76,7 @@ pub const Error = error{
     WriteFailed,
 } || std.Thread.SpawnError;
 
-pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, _: *const fn (ctx: *anyopaque) void) Error!Self {
+pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, enable_terminal_cursor: bool, _: *const fn (ctx: *anyopaque) void) Error!Self {
     const opts: vaxis.Vaxis.Options = .{
         .kitty_keyboard_flags = .{
             .disambiguate = true,
@@ -95,8 +98,10 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
             return error.TtyInitError;
         },
         .tty_buffer = tty_buffer,
+        .cache_storage = try allocator.create(GraphemeCache.Storage),
         .vx = try vaxis.init(root.get_io(), allocator, root.get_init().environ_map, opts),
         .no_alternate = no_alternate,
+        .config_enable_terminal_cursor = enable_terminal_cursor,
         .event_buffer = .init(allocator),
         .input_buffer = .init(allocator),
         .bracketed_paste_buffer = .init(allocator),
@@ -108,6 +113,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
 }
 
 pub fn deinit(self: *Self) void {
+    self.allocator.destroy(self.cache_storage);
     panic_cleanup = null;
     self.loop.stop();
     self.vx.deinit(self.allocator, self.tty.writer());
@@ -241,6 +247,9 @@ pub fn run(self: *Self, render_pid: ?@import("thespian").pid_ref) Error!void {
     self.vx.setBracketedPaste(self.tty.writer(), true) catch return error.TtyWriteError;
     self.vx.queryTerminalSend(self.tty.writer()) catch return error.TtyWriteError;
 
+    if (!self.config_enable_terminal_cursor)
+        self.tty.writer().writeAll(vaxis.ctlseqs.hide_cursor) catch return error.TtyWriteError;
+
     self.loop = Loop.init(&self.tty, &self.vx);
     try self.loop.start();
 }
@@ -270,33 +279,164 @@ fn draw_target(target: *const Layer.Target) void {
             target.src.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
         );
     }
-
-    // propagate the layer cursors
-    if (target.src.screen.cursor_vis) {
-        const cur_row: i32 = @intCast(target.src.screen.cursor.row);
-        const cur_col: i32 = @intCast(target.src.screen.cursor.col);
-        const abs_row = dst_y + cur_row;
-        const abs_col = dst_x + cur_col;
-        if (abs_row >= 0 and abs_row < dst_dim_y and abs_col >= 0 and abs_col < dst_dim_x) {
-            target.dst.screen.cursor_vis = true;
-            target.dst.screen.cursor.row = @intCast(abs_row);
-            target.dst.screen.cursor.col = @intCast(abs_col);
-            target.dst.screen.cursor_shape = target.src.screen.cursor_shape;
-        }
-    }
 }
 
 pub fn render(self: *Self) !?i64 {
     if (in_panic.load(.acquire)) return null;
-    var i = self.targets.items.len;
-    while (i > 0) {
-        i -= 1;
-        draw_target(&self.targets.items[i]);
+    const order = build_draw_order(self.allocator, self.targets.items);
+    defer self.allocator.free(order);
+    for (order) |idx| draw_target(&self.targets.items[idx]);
+
+    self.downgrade_cursor_shape();
+    if (self.config_enable_terminal_cursor) {
+        self.paint_unfocused_cell_cursors();
+        self.propagate_focused_cursors_to_root();
+    } else {
+        self.paint_all_cell_cursors();
     }
+
     self.targets.clearRetainingCapacity();
     try self.vx.render(self.tty.writer());
     try self.tty.writer().flush();
     return null;
+}
+
+fn build_draw_order(allocator: std.mem.Allocator, targets: []const Layer.Target) []u32 {
+    const order = allocator.alloc(u32, targets.len) catch @panic("OOM vaxis.build_draw_order");
+    for (order, 0..) |*o, i| o.* = @intCast(i);
+    std.mem.sort(u32, order, targets, struct {
+        fn lt(t: []const Layer.Target, a: u32, b: u32) bool {
+            if (t[a].z_index != t[b].z_index) return @intFromEnum(t[a].z_index) < @intFromEnum(t[b].z_index);
+            return a > b;
+        }
+    }.lt);
+    return order;
+}
+
+fn downgrade_cursor_shape(self: *Self) void {
+    if (self.vx.caps.multi_cursor) return;
+    for (self.targets.items) |*t| {
+        const src = &t.src.screen;
+        if (src.cursor_secondary.len == 0) continue;
+        src.cursor_shape = switch (src.cursor_shape) {
+            .beam => .block,
+            .beam_blink => .block_blink,
+            .underline => .block,
+            .underline_blink => .block_blink,
+            else => src.cursor_shape,
+        };
+    }
+}
+
+fn cursor_root_pos(self: *Self, src_row: u16, src_col: u16, surface: *const Layer.Surface) ?struct { row: u16, col: u16 } {
+    const std_plane = self.stdplane();
+    const cw = std_plane.cell_x();
+    const ch = std_plane.cell_y();
+    const dst_x_cells = @divFloor(surface.origin_px_x, cw);
+    const dst_y_cells = @divFloor(surface.origin_px_y, ch);
+    const r = dst_y_cells + @as(i32, @intCast(src_row));
+    const c = dst_x_cells + @as(i32, @intCast(src_col));
+    const scr = &self.vx.screen;
+    if (r < 0 or c < 0) return null;
+    if (r >= scr.height or c >= scr.width) return null;
+    return .{ .row = @intCast(r), .col = @intCast(c) };
+}
+
+fn propagate_focused_cursors_to_root(self: *Self) void {
+    const scr = &self.vx.screen;
+    for (self.targets.items) |*t| {
+        const src = &t.src.screen;
+        if (!src.cursor_vis) continue;
+        if (src.cursor_shape == .unfocused) continue;
+        const pos = self.cursor_root_pos(src.cursor.row, src.cursor.col, &t.src.surface) orelse continue;
+        scr.cursor_vis = true;
+        scr.cursor.row = pos.row;
+        scr.cursor.col = pos.col;
+        scr.cursor_shape = src.cursor_shape;
+
+        self.allocator.free(scr.cursor_secondary);
+        scr.cursor_secondary = &.{};
+        if (src.cursor_secondary.len == 0) continue;
+        if (self.vx.caps.multi_cursor) {
+            const grown = self.allocator.alloc(@TypeOf(scr.cursor_secondary[0]), src.cursor_secondary.len) catch continue;
+            scr.cursor_secondary = grown;
+            for (src.cursor_secondary, 0..) |sc, i| {
+                const spos = self.cursor_root_pos(sc.row, sc.col, &t.src.surface) orelse {
+                    scr.cursor_secondary[i] = .{ .row = 0, .col = 0 };
+                    continue;
+                };
+                scr.cursor_secondary[i] = .{ .row = spos.row, .col = spos.col };
+            }
+        } else {
+            for (src.cursor_secondary) |sc|
+                if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
+                    self.paint_solid_cell(spos.row, spos.col, self.secondary_color);
+        }
+    }
+}
+
+fn paint_unfocused_cell_cursors(self: *Self) void {
+    for (self.targets.items) |*t| {
+        const src = &t.src.screen;
+        if (!src.cursor_vis) continue;
+        if (src.cursor_shape != .unfocused) continue;
+        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, &t.src.surface)) |pos|
+            self.paint_dim_cell(pos.row, pos.col, self.cursor_color);
+        for (src.cursor_secondary) |sc|
+            if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
+                self.paint_dim_cell(spos.row, spos.col, self.secondary_color);
+    }
+    const scr = &self.vx.screen;
+    if (scr.cursor_vis and scr.cursor_shape == .unfocused) {
+        self.paint_dim_cell(scr.cursor.row, scr.cursor.col, self.cursor_color);
+        for (scr.cursor_secondary) |sc|
+            self.paint_dim_cell(sc.row, sc.col, self.secondary_color);
+        scr.cursor_vis = false;
+        self.allocator.free(scr.cursor_secondary);
+        scr.cursor_secondary = &.{};
+    }
+}
+
+fn paint_all_cell_cursors(self: *Self) void {
+    for (self.targets.items) |*t| {
+        const src = &t.src.screen;
+        if (!src.cursor_vis) continue;
+        const dim_primary = src.cursor_shape == .unfocused;
+        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, &t.src.surface)) |pos| {
+            if (dim_primary)
+                self.paint_dim_cell(pos.row, pos.col, self.cursor_color)
+            else
+                self.paint_solid_cell(pos.row, pos.col, self.cursor_color);
+        }
+        for (src.cursor_secondary) |sc|
+            if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
+                self.paint_dim_cell(spos.row, spos.col, self.secondary_color);
+    }
+    self.vx.screen.cursor_vis = false;
+}
+
+fn paint_solid_cell(self: *Self, row: u16, col: u16, color: RGB) void {
+    const scr = &self.vx.screen;
+    var cell = scr.readCell(col, row) orelse return;
+    const old_bg = cell.style.bg;
+    cell.style.bg = .{ .rgb = .{ color.r, color.g, color.b } };
+    cell.style.fg = old_bg;
+    cell.style.reverse = false;
+    scr.writeCell(col, row, cell);
+}
+
+fn paint_dim_cell(self: *Self, row: u16, col: u16, color: RGB) void {
+    const scr = &self.vx.screen;
+    var cell = scr.readCell(col, row) orelse return;
+    cell.style.bg = switch (cell.style.bg) {
+        .rgb => |bg| .{ .rgb = .{
+            @intCast((@as(u16, color.r) + @as(u16, bg[0])) / 2),
+            @intCast((@as(u16, color.g) + @as(u16, bg[1])) / 2),
+            @intCast((@as(u16, color.b) + @as(u16, bg[2])) / 2),
+        } },
+        else => .{ .rgb = .{ color.r, color.g, color.b } },
+    };
+    scr.writeCell(col, row, cell);
 }
 
 pub fn sigwinch(self: *Self) !void {
@@ -381,7 +521,17 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             });
             if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
         },
-        .mouse => |mouse_| {
+        .mouse => |mouse__| {
+            var mouse_ = mouse__;
+            if (self.vx.state.pixel_mouse) {
+                // translate back to 0,0 coords
+                // vaxis translates SGR pixel mode's 1,1 origin coords to 0,0 origin coords,
+                // but we translate them back because our preferred terminals (kitty and ghostty)
+                // actually send 0,0 origin coordinates
+                mouse_.col += 1;
+                mouse_.row += 1;
+            }
+
             const mouse = self.vx.translateMouse(mouse_);
             try self.sync_mod_state(0, .{ .ctrl = mouse.mods.ctrl, .shift = mouse.mods.shift, .alt = mouse.mods.alt });
             if (self.dispatch_mouse) |f| switch (mouse.type) {
@@ -569,11 +719,13 @@ pub fn set_color_scheme(self: *Self, scheme: ColorScheme) void {
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
-    self.vx.setTerminalCursorColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    self.cursor_color = RGB.from_u24(color.color);
+    self.vx.setTerminalCursorColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(color.color).rgb) catch {};
 }
 
 pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
-    self.vx.setTerminalCursorSecondaryColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    self.secondary_color = RGB.from_u24(color.color);
+    self.vx.setTerminalCursorSecondaryColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(color.color).rgb) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {

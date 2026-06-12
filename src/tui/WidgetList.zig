@@ -39,6 +39,7 @@ prepare_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widge
 after_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) void = after_resize_default,
 on_layout: *const fn (ctx: ?*anyopaque, self: *Self) Widget.Layout = on_layout_default,
 widget_type: Widget.Type,
+z_index: Layer.Level = .default,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
     return createHStyled(allocator, parent, name, layout_, .none);
@@ -219,15 +220,17 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         null else null;
 
     var more = false;
-    var i: usize = 0;
-    for (self.widgets.items[0..]) |*w| {
+    for (self.widgets.items, 0..) |*w, i| {
         if (i < main_count) {
             const widget_box = w.widget.box();
             if (client_box.y + client_box.h <= widget_box.y) break;
             if (client_box.x + client_box.w <= widget_box.x) break;
         }
+        switch (w.layout) {
+            .static => |size| if (size == 0) continue,
+            else => {},
+        }
         if (w.widget.render(theme)) more = true;
-        i += 1;
     }
 
     if (trailing_target) |target| _ = tui.submit_layer(target);
@@ -244,6 +247,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
     var target: Layer.Target = .{
         .src = layer,
         .dst = tui.plane().window,
+        .blend = .replace,
     };
 
     const cw = self.plane.cell_x();
@@ -555,21 +559,11 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     };
 }
 
-const ReparentCtx = struct {
-    surface: ?*const Plane.Surface,
-    screen: *renderer.vaxis.Screen,
-};
-
-fn reparent_walker(ctx_: *anyopaque, w: Widget) bool {
-    const ctx: *const ReparentCtx = @ptrCast(@alignCast(ctx_));
-    w.plane.window.screen = ctx.screen;
-    w.plane.parent_surface = ctx.surface;
-    return false;
-}
-
 fn reparent_subtrees(items: []WidgetState, surface: ?*const Plane.Surface, screen: *renderer.vaxis.Screen) void {
-    var ctx: ReparentCtx = .{ .surface = surface, .screen = screen };
-    for (items) |*w| _ = w.widget.walk(@ptrCast(&ctx), reparent_walker);
+    for (items) |*w| {
+        w.widget.plane.window.screen = screen;
+        w.widget.plane.parent_surface = surface;
+    }
 }
 
 fn reparent_main(self: *Self) void {

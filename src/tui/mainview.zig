@@ -96,15 +96,21 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     const widgets = try WidgetList.createV(allocator, self.plane, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
-    if (tui.config().top_bar.len > 0)
-        self.top_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().top_bar, .none, null))).*;
 
-    const views = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
+    if (tui.config().top_bar.len > 0) {
+        const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, "top_bar.layer");
+        bar_layer.z_index = .statusbar;
+        const bar = try @import("status/bar.zig").create(allocator, bar_layer.inner_plane(), tui.config().top_bar, .none, null);
+        bar_layer.set(bar);
+        self.top_bar = (try widgets.addP(bar_layer.widget())).*;
+    }
+
+    const views = try WidgetList.createH(allocator, widgets.plane, @typeName(Self), .dynamic);
     self.views = views;
     self.views_widget = views.widget();
     try views.add(try Widget.empty(allocator, self.views_widget.plane.*, .dynamic));
 
-    const panes = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
+    const panes = try WidgetList.createH(allocator, widgets.plane, @typeName(Self), .dynamic);
     self.panes = panes;
     self.panes_widget = panes.widget();
     try self.update_panes_layout();
@@ -113,7 +119,11 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
     if (tui.config().bottom_bar.len > 0) {
         const bar_style: @import("status/bar.zig").Style = if (tui.config().show_bottom_bar_grip) .grip else .none;
-        self.bottom_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, bar_style, EventHandler.bind(self, handle_bottom_bar_event)))).*;
+        const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, "bottom_bar.layer");
+        bar_layer.z_index = .statusbar;
+        const bar = try @import("status/bar.zig").create(allocator, bar_layer.inner_plane(), tui.config().bottom_bar, bar_style, EventHandler.bind(self, handle_bottom_bar_event));
+        bar_layer.set(bar);
+        self.bottom_bar = (try widgets.addP(bar_layer.widget())).*;
     }
     if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
@@ -245,13 +255,14 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
         .{ .static = padding },
         widget_type,
     );
+    pane.z_index = .background;
     try pane.add(try Widget.empty(self.allocator, self.views_widget.plane.*, .dynamic));
     return pane.widget();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    const widgets_more = self.widgets.render(theme);
     const views_more = self.floating_views.render(theme);
+    const widgets_more = self.widgets.render(theme);
     return widgets_more or views_more;
 }
 
@@ -334,12 +345,13 @@ fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode
             }
         } else {
             if (mode != .disable)
-                try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
+                try panels.add(try view.create(self.allocator, panels.plane, ctx));
         }
     } else if (mode != .disable) {
         const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
+        panels.z_index = .statusbar;
         try self.widgets.add(panels.widget());
-        try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
+        try panels.add(try view.create(self.allocator, panels.plane, ctx));
         self.panels = panels;
     }
     tui.resize();
@@ -1092,13 +1104,17 @@ const cmds = struct {
     }
     pub const close_find_in_files_results_meta: Meta = .{ .description = "Close find in files results view" };
 
-    pub fn jump_back(self: *Self, _: Ctx) Result {
-        try self.location_history_.back(location_jump);
+    pub fn jump_back(self: *Self, ctx: Ctx) Result {
+        var same_file: bool = false;
+        _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
+        try self.location_history_.back(if (same_file) self.get_active_file_path() else null, location_jump);
     }
     pub const jump_back_meta: Meta = .{ .description = "Navigate back to previous history location" };
 
-    pub fn jump_forward(self: *Self, _: Ctx) Result {
-        try self.location_history_.forward(location_jump);
+    pub fn jump_forward(self: *Self, ctx: Ctx) Result {
+        var same_file: bool = false;
+        _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
+        try self.location_history_.forward(if (same_file) self.get_active_file_path() else null, location_jump);
     }
     pub const jump_forward_meta: Meta = .{ .description = "Navigate forward to next history location" };
 
@@ -1631,6 +1647,36 @@ const cmds = struct {
             tui.rdr().reset_fontsize();
     }
     pub const reset_fontsize_meta: Meta = .{ .description = "Reset font to configured size" };
+
+    pub fn set_background_opacity(_: *Self, ctx: Ctx) Result {
+        var value: f32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&value)}))
+            return error.InvalidArgument;
+        if (build_options.gui)
+            tui.rdr().set_background_opacity(value);
+    }
+    pub const set_background_opacity_meta: Meta = .{ .arguments = &.{.float} };
+
+    pub fn adjust_background_opacity(_: *Self, ctx: Ctx) Result {
+        var delta: f32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&delta)}))
+            return error.InvalidArgument;
+        if (build_options.gui)
+            tui.rdr().adjust_background_opacity(delta);
+    }
+    pub const adjust_background_opacity_meta: Meta = .{ .arguments = &.{.float}, .description = "Adjust window opacity" };
+
+    pub fn reset_background_opacity(_: *Self, _: Ctx) Result {
+        if (build_options.gui)
+            tui.rdr().reset_background_opacity();
+    }
+    pub const reset_background_opacity_meta: Meta = .{ .description = "Reset window opacity" };
+
+    pub fn toggle_ignore_theme_alpha(_: *Self, _: Ctx) Result {
+        if (build_options.gui)
+            tui.rdr().toggle_ignore_theme_alpha();
+    }
+    pub const toggle_ignore_theme_alpha_meta: Meta = .{ .description = "Toggle theme alpha" };
 
     pub fn set_fontface(_: *Self, ctx: Ctx) Result {
         var fontface: []const u8 = undefined;
@@ -2391,4 +2437,28 @@ pub fn vcs_blame_update(self: *Self, m: tp.message) void {
 pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.lsp_info.add_from_event(m.buf) catch return;
     self.foreach_editor(ed.Editor.update_completion_triggers);
+}
+
+pub fn lsp_restarted(self: *Self, m: tp.message) void {
+    var project_name: []const u8 = undefined;
+    var lsp_cmd: []const u8 = undefined;
+    if (!(m.match(.{ "PRJ", "lsp_restarted", tp.extract(&project_name), tp.extract(&lsp_cmd) }) catch false)) return;
+
+    const logger = log.logger("lsp");
+    defer logger.deinit();
+
+    const buffers = self.buffer_manager.list_unordered(self.allocator) catch return;
+    defer self.allocator.free(buffers);
+    var count: usize = 0;
+    for (buffers) |buffer| {
+        if (buffer.is_ephemeral()) continue;
+        const ft_name = buffer.file_type_name orelse continue;
+        const ft = (file_type_config.get(ft_name) catch continue) orelse continue;
+        const lsp = ft.language_server orelse continue;
+        if (lsp.len == 0) continue;
+        if (!std.mem.eql(u8, lsp[0], lsp_cmd)) continue;
+        send_buffer_did_open(buffer) catch {};
+        count += 1;
+    }
+    logger.print("'{s}' restarted in {s}; re-opened {d} buffer(s)", .{ lsp_cmd, project_name, count });
 }

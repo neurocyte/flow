@@ -351,6 +351,19 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
     return set;
 }
 
+pub fn glyphAdvance(self: *const Self, font: Font, codepoint: u21) ?u16 {
+    if (is_windows) {
+        return switch (font.backend) {
+            .dwrite => |f| self.dw.glyphAdvance(f, codepoint),
+        };
+    } else {
+        return switch (font.backend) {
+            .truetype => null,
+            .freetype => |f| self.ft.glyphAdvance(f, codepoint),
+        };
+    }
+}
+
 pub fn render(
     self: *const Self,
     font: Font,

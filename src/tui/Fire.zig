@@ -2,6 +2,7 @@ const std = @import("std");
 const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
 const root = @import("soft_root").root;
+const styles = @import("renderer").styles;
 
 const px = "▀";
 
@@ -67,10 +68,10 @@ const fire_black: u8 = 0;
 const fire_white: u8 = fire_palette.len - 1;
 
 pub fn render(self: *Fire) void {
-    self.plane.home();
-    const transparent = self.plane.transparent;
-    self.plane.transparent = false;
-    defer self.plane.transparent = transparent;
+    var plane = self.plane;
+    plane.on_styles(styles.transparent_fg);
+    plane.home();
+    plane.transparent = false;
 
     var rand = self.prng.random();
 
@@ -121,11 +122,11 @@ pub fn render(self: *Fire) void {
             const px_hi = self.screen_buf[@as(usize, @intCast(frame_y)) * self.FIRE_W + frame_x];
             const px_lo = self.screen_buf[@as(usize, @intCast(frame_y + 1)) * self.FIRE_W + frame_x];
 
-            self.plane.set_fg_palindex(fire_palette[px_hi]) catch {};
-            self.plane.set_bg_palindex(fire_palette[px_lo]) catch {};
-            _ = self.plane.putchar(px);
+            plane.set_fg_palindex(fire_palette[px_hi]) catch {};
+            plane.set_bg_palindex(fire_palette[px_lo]) catch {};
+            _ = plane.putchar(px);
         }
-        self.plane.cursor_move_yx(-1, 0);
-        self.plane.cursor_move_rel(1, 0) catch {};
+        plane.cursor_move_yx(-1, 0);
+        plane.cursor_move_rel(1, 0) catch {};
     }
 }
