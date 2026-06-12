@@ -547,3 +547,32 @@ test "reflow: markdown bullet section re-wraps each bullet" {
         "- one long single\n  bullet that\n  should wrap\n  around\n",
     );
 }
+
+test "reflow: bullets accept -, * and + markers" {
+    try test_reflow(
+        "* a long first bullet that wraps\n* second bullet\n",
+        20,
+        "* a long first\n  bullet that wraps\n* second bullet\n",
+    );
+    try test_reflow(
+        "+ a long first bullet that wraps\n+ second bullet\n",
+        20,
+        "+ a long first\n  bullet that wraps\n+ second bullet\n",
+    );
+}
+
+test "reflow: github task list bullets" {
+    try test_reflow(
+        "- [ ] a long first task item that wraps\n- [x] done item\n",
+        25,
+        "- [ ] a long first task\n      item that wraps\n- [x] done item\n",
+    );
+}
+
+test "reflow: multi-byte unicode bullets align by column" {
+    try test_reflow(
+        "• a long first bullet that wraps\n• second\n",
+        20,
+        "• a long first\n  bullet that wraps\n• second\n",
+    );
+}

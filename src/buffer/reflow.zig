@@ -3,103 +3,107 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
     const trailing_ln: bool = (len > 0 and text[len - 1] == '\n');
     const input = if (trailing_ln) text[0 .. len - 1] else text;
     const prefix = detect_prefix(input);
-    const words = try split_words(allocator, input, prefix);
-    defer allocator.free(words);
+    const tokens = try split_words(allocator, input, prefix);
+    defer allocator.free(tokens);
     var output: std.Io.Writer.Allocating = .init(allocator);
     const writer = &output.writer;
 
+    var cur = prefix;
     var item_start = true;
+    var line_has_word = false;
     var line_len: usize = 0;
-    for (words) |word| {
-        if (word.ptr == item_break.ptr) {
+    for (tokens) |token| switch (token) {
+        .item => |item_prefix| {
             if (line_len != 0) try writer.writeByte('\n');
             line_len = 0;
+            line_has_word = false;
+            cur = item_prefix;
             item_start = true;
-            continue;
-        }
-        const state: enum {
-            begin,
-            words,
-        } = if (line_len == 0) .begin else .words;
-        blk: switch (state) {
-            .begin => {
-                if (item_start) {
-                    try writer.writeAll(prefix.first);
-                    line_len += prefix.first.len;
-                    item_start = false;
-                } else {
-                    try writer.writeAll(prefix.continuation);
-                    line_len += prefix.continuation.len;
-                    var pad = prefix.first.len - prefix.continuation.len;
-                    while (pad > 0) : (pad -= 1) {
+        },
+        .paragraph => {
+            try writer.writeByte('\n');
+            try writer.writeByte('\n');
+            line_len = 0;
+            line_has_word = false;
+        },
+        .word => |word| {
+            const state: enum { begin, words } = if (line_len == 0) .begin else .words;
+            blk: switch (state) {
+                .begin => {
+                    if (item_start) {
+                        try writer.writeAll(cur.first);
+                        line_len += cur.first.len;
+                        item_start = false;
+                    } else {
+                        try writer.writeAll(cur.continuation);
+                        line_len += cur.continuation.len;
+                        var pad = cur.pad;
+                        while (pad > 0) : (pad -= 1) {
+                            try writer.writeByte(' ');
+                            line_len += 1;
+                        }
+                    }
+                    line_has_word = false;
+                    continue :blk .words;
+                },
+                .words => {
+                    if (line_has_word) {
+                        if (line_len + word.len + 1 >= width) {
+                            try writer.writeByte('\n');
+                            line_len = 0;
+                            continue :blk .begin;
+                        }
                         try writer.writeByte(' ');
                         line_len += 1;
                     }
-                }
-                continue :blk .words;
-            },
-            .words => {
-                if (word.len == 1 and word[0] == '\n') {
-                    try writer.writeByte('\n');
-                    try writer.writeByte('\n');
-                    line_len = 0;
-                    continue;
-                }
-                if (line_len > prefix.len) {
-                    if (line_len + word.len + 1 >= width) {
-                        try writer.writeByte('\n');
-                        line_len = 0;
-                        continue :blk .begin;
-                    }
-                    try writer.writeByte(' ');
-                    line_len += 1;
-                }
-                try writer.writeAll(word);
-                line_len += word.len;
-            },
-        }
-    }
+                    try writer.writeAll(word);
+                    line_len += word.len;
+                    line_has_word = true;
+                },
+            }
+        },
+    };
     if (trailing_ln) try writer.writeByte('\n');
     return output.toOwnedSlice();
 }
 
-// matched by pointer identity, never by content
-const item_break: []const u8 = "\x1e"; // RS (Record Separator control char)
+const Token = union(enum) {
+    word: []const u8,
+    paragraph,
+    item: Prefix,
+};
 
-fn split_words(allocator: std.mem.Allocator, text: []const u8, prefix: Prefix) error{OutOfMemory}![]const []const u8 {
-    var words: std.ArrayList([]const u8) = .empty;
+fn split_words(allocator: std.mem.Allocator, text: []const u8, prefix: Prefix) error{OutOfMemory}![]const Token {
+    var tokens: std.ArrayList(Token) = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
     var blank = false;
     while (lines.next()) |line| {
-        const content = if (prefix.bullet) bullet_content(line) else blk: {
-            if (line.len <= prefix.len) break :blk null;
-            break :blk Content{ .item = false, .text = line[prefix.len..] };
-        };
-        const c = content orelse {
-            if (!blank)
-                (try words.addOne(allocator)).* = "\n";
+        const rest: []const u8 = if (prefix.bullet) blk: {
+            const indent = whitespace_len(line);
+            if (indent == line.len) break :blk &.{};
+            if (bullet_marker(line, indent)) |m| {
+                (try tokens.addOne(allocator)).* = .{ .item = .{
+                    .first = line[0 .. indent + m.bytes],
+                    .continuation = line[0..indent],
+                    .pad = m.cols,
+                    .bullet = true,
+                } };
+                break :blk line[indent + m.bytes ..];
+            }
+            break :blk line[indent..];
+        } else if (line.len > prefix.len) line[prefix.len..] else &.{};
+        if (rest.len == 0) {
+            if (!blank) (try tokens.addOne(allocator)).* = .paragraph;
             blank = true;
             continue;
-        };
+        }
         blank = false;
-        if (c.item)
-            (try words.addOne(allocator)).* = item_break;
-        var it = std.mem.splitAny(u8, c.text, " \t");
+        var it = std.mem.splitAny(u8, rest, " \t");
         while (it.next()) |word| if (word.len > 0) {
-            (try words.addOne(allocator)).* = word;
+            (try tokens.addOne(allocator)).* = .{ .word = word };
         };
     }
-    return words.toOwnedSlice(allocator);
-}
-
-const Content = struct { item: bool, text: []const u8 };
-
-fn bullet_content(line: []const u8) ?Content {
-    const indent = whitespace_len(line);
-    if (indent == line.len) return null;
-    if (line.len >= indent + 2 and line[indent] == '-' and line[indent + 1] == ' ')
-        return .{ .item = true, .text = line[indent + 2 ..] };
-    return .{ .item = false, .text = line[indent..] };
+    return tokens.toOwnedSlice(allocator);
 }
 
 fn whitespace_len(line: []const u8) usize {
@@ -108,18 +112,32 @@ fn whitespace_len(line: []const u8) usize {
     return i;
 }
 
+const Marker = struct { bytes: usize, cols: usize };
+
+const unicode_bullets = [_][]const u8{ "•", "◦", "‣", "⁃", "▪", "▸", "●", "○" };
+
+fn bullet_marker(line: []const u8, indent: usize) ?Marker {
+    const rest = line[indent..];
+    if (rest.len >= 2 and (rest[0] == '-' or rest[0] == '*' or rest[0] == '+') and rest[1] == ' ') {
+        if (rest[0] == '-' and rest.len >= 6 and rest[2] == '[' and
+            (rest[3] == ' ' or rest[3] == 'x' or rest[3] == 'X') and
+            rest[4] == ']' and rest[5] == ' ')
+            return .{ .bytes = 6, .cols = 6 };
+        return .{ .bytes = 2, .cols = 2 };
+    }
+    for (unicode_bullets) |bullet|
+        if (rest.len > bullet.len and std.mem.startsWith(u8, rest, bullet) and rest[bullet.len] == ' ')
+            return .{ .bytes = bullet.len + 1, .cols = 2 };
+    return null;
+}
+
 fn detect_prefix(text: []const u8) Prefix {
     var lines = std.mem.splitScalar(u8, text, '\n');
     const line1 = lines.next() orelse return .{};
 
     const indent = whitespace_len(line1);
-    if (line1.len >= indent + 2 and line1[indent] == '-' and line1[indent + 1] == ' ')
-        return .{
-            .len = indent + 2,
-            .first = line1[0 .. indent + 2],
-            .continuation = line1[0..indent],
-            .bullet = true,
-        };
+    if (bullet_marker(line1, indent)) |_|
+        return .{ .bullet = true };
 
     var prefix: []const u8 = line1;
     var count: usize = 0;
@@ -148,6 +166,7 @@ const Prefix = struct {
     len: usize = 0,
     first: []const u8 = &.{},
     continuation: []const u8 = &.{},
+    pad: usize = 0,
     bullet: bool = false,
 };
 
