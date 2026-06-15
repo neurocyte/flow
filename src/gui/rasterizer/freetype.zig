@@ -247,6 +247,12 @@ pub fn render(
     return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
 }
 
+/// FreeType's FT_HAS_COLOR(face) macro:
+///   #define FT_HAS_COLOR( face ) ( !!( (face)->face_flags & FT_FACE_FLAG_COLOR ) )
+inline fn ftHasColor(face: c.FT_Face) bool {
+    return (face.*.face_flags & c.FT_FACE_FLAG_COLOR) != 0;
+}
+
 fn renderFromFace(
     self: *const Self,
     face: c.FT_Face,
@@ -268,10 +274,14 @@ fn renderFromFace(
         .normal => c.FT_LOAD_TARGET_NORMAL,
         .mono => c.FT_LOAD_TARGET_MONO,
     };
-    const load_flags: c.FT_Int32 = @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP | hint_flags);
+    const has_color_face = self.allow_color_glyphs and ftHasColor(face);
+    const load_flags: c.FT_Int32 = if (has_color_face)
+        @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_COLOR | hint_flags)
+    else
+        @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP | hint_flags);
     if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return .{ .format = .alpha };
 
-    if (synth.italic) {
+    if (synth.italic and !has_color_face) {
         var shear: c.FT_Matrix = .{
             .xx = 0x10000,
             .xy = 13932,
@@ -281,7 +291,7 @@ fn renderFromFace(
         c.FT_Outline_Transform(&face.*.glyph.*.outline, &shear);
     }
 
-    const render_mode: c.FT_Render_Mode = if (self.hinting == .mono)
+    const render_mode: c.FT_Render_Mode = if (self.hinting == .mono and !has_color_face)
         c.FT_RENDER_MODE_MONO
     else
         c.FT_RENDER_MODE_NORMAL;
@@ -298,6 +308,11 @@ fn renderFromFace(
     const gw: i32 = @intCast(bm.width);
     const gh: i32 = @intCast(bm.rows);
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
+
+    if (bm.pixel_mode == c.FT_PIXEL_MODE_BGRA) {
+        blitColorBitmap(staging_buf, buf_w, buf_h, &bm, target_w);
+        return .{ .format = .color };
+    }
 
     const too_big = gw > target_w or gh > buf_h;
     const overflows = too_big or off_y < 0 or off_y + gh > buf_h;
@@ -447,6 +462,75 @@ fn blitScaledAlphaFit(
             const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
             if (dst_idx >= staging_buf.len) continue;
             staging_buf[dst_idx] = cov;
+        }
+    }
+}
+
+fn bgraChannel(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, x: i32, y: i32, ch: usize) u8 {
+    const cx: u32 = @intCast(std.math.clamp(x, 0, gw - 1));
+    const cy: u32 = @intCast(std.math.clamp(y, 0, gh - 1));
+    return src[cy * pitch + cx * 4 + ch];
+}
+
+fn sampleBGRAtoRGBA(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, fx: f32, fy: f32) [4]u8 {
+    const x0: i32 = @intFromFloat(@floor(fx));
+    const y0: i32 = @intFromFloat(@floor(fy));
+    const tx: f32 = fx - @floor(fx);
+    const ty: f32 = fy - @floor(fy);
+    const src_ch = [4]usize{ 2, 1, 0, 3 };
+    var out: [4]u8 = undefined;
+    inline for (0..4) |oc| {
+        const sc = src_ch[oc];
+        const c00: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0, y0, sc));
+        const c10: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0 + 1, y0, sc));
+        const c01: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0, y0 + 1, sc));
+        const c11: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0 + 1, y0 + 1, sc));
+        const top = c00 * (1 - tx) + c10 * tx;
+        const bot = c01 * (1 - tx) + c11 * tx;
+        out[oc] = @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
+    }
+    return out;
+}
+
+fn blitColorBitmap(
+    staging_buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    bm: *const c.FT_Bitmap,
+    target_w: i32,
+) void {
+    const gw: i32 = @intCast(bm.width);
+    const gh: i32 = @intCast(bm.rows);
+    if (gw <= 0 or gh <= 0 or bm.pitch <= 0) return;
+    const pitch: u32 = @intCast(bm.pitch);
+    const src = bm.buffer;
+
+    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
+    const sy: f32 = @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(gh));
+    const s: f32 = @min(sx, sy);
+    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
+    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
+    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
+    const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
+    const inv_s: f32 = 1.0 / s;
+
+    var dy: i32 = 0;
+    while (dy < sh) : (dy += 1) {
+        const py = dst_y0 + dy;
+        if (py < 0 or py >= buf_h) continue;
+        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
+        var dx: i32 = 0;
+        while (dx < sw) : (dx += 1) {
+            const px = dst_x0 + dx;
+            if (px < 0 or px >= buf_w) continue;
+            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
+            const rgba = sampleBGRAtoRGBA(src, gw, gh, pitch, fsx, fsy);
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (dst_idx + 3 >= staging_buf.len) continue;
+            staging_buf[dst_idx + 0] = rgba[0];
+            staging_buf[dst_idx + 1] = rgba[1];
+            staging_buf[dst_idx + 2] = rgba[2];
+            staging_buf[dst_idx + 3] = rgba[3];
         }
     }
 }
