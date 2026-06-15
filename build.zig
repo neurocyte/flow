@@ -606,6 +606,7 @@ pub fn build_exe(
                             .{ .name = "xy", .module = gui_xy_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
                             .{ .name = "win32", .module = win32_mod },
+                            .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         },
                     });
                     if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
@@ -644,6 +645,7 @@ pub fn build_exe(
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
+                            .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         },
                     });
                     if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);

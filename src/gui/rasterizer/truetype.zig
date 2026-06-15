@@ -6,6 +6,7 @@ const fallback_resolver = @import("fallback_resolver");
 const geometric = @import("geometric");
 const root = @import("soft_root").root;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
+const uucode_utils = @import("uucode_utils");
 
 const Self = @This();
 
@@ -14,6 +15,25 @@ const nerd_font_data = @embedFile("nerd_font");
 fn unitsPerEm(tt: *const TrueType) u16 {
     const head = tt.table_offsets[@intFromEnum(TrueType.TableId.head)];
     return std.mem.readInt(u16, tt.ttf_bytes[head + 18 ..][0..2], .big);
+}
+
+fn blitWideSymbol(staging_buf: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32, gh: i32) void {
+    if (gw <= 0 or gh <= 0) return;
+    const dst_x0: i32 = 0;
+    const dst_y0: i32 = @divTrunc(buf_h - gh, 2);
+    var row: i32 = 0;
+    while (row < gh) : (row += 1) {
+        const py = dst_y0 + row;
+        if (py < 0 or py >= buf_h) continue;
+        var col: i32 = 0;
+        while (col < gw) : (col += 1) {
+            const px = dst_x0 + col;
+            if (px < 0 or px >= buf_w) continue;
+            const src_idx: usize = @intCast(row * gw + col);
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (src_idx < src.len and dst_idx < staging_buf.len) staging_buf[dst_idx] = src[src_idx];
+        }
+    }
 }
 
 const TtBackend = struct {
@@ -279,6 +299,7 @@ pub fn render(
     const tt = font.tt orelse return .{ .format = .alpha };
 
     const glyph = tt.codepointGlyphIndex(codepoint);
+    const wide_pua = split != .single and uucode_utils.isPrivateUse(codepoint);
 
     if (glyph == .notdef and codepoint != 0) {
         if (self.fallbackResolver()) |fb| {
@@ -286,12 +307,12 @@ pub fn render(
                 const fg = fb_face.tt.codepointGlyphIndex(codepoint);
                 const fscale: f32 = @as(f32, @floatFromInt(font.size_px)) /
                     @as(f32, @floatFromInt(@max(fb_face.units_per_em, 1)));
-                return rasterizeGlyph(self.allocator, &fb_face.tt, fscale, font.ascent_px, fg, split, font.cell_size, staging_buf);
+                return rasterizeGlyph(self.allocator, &fb_face.tt, fscale, font.ascent_px, fg, split, wide_pua, font.cell_size, staging_buf);
             }
         }
     }
 
-    return rasterizeGlyph(self.allocator, &tt, font.scale, font.ascent_px, glyph, split, font.cell_size, staging_buf);
+    return rasterizeGlyph(self.allocator, &tt, font.scale, font.ascent_px, glyph, split, wide_pua, font.cell_size, staging_buf);
 }
 
 fn fallbackResolver(self: *const Self) ?*FallbackResolver {
@@ -309,6 +330,7 @@ fn rasterizeGlyph(
     ascent_px: i32,
     glyph: TrueType.GlyphIndex,
     split: GlyphSplit,
+    wide_pua: bool,
     cell_size: XY(u16),
     staging_buf: []u8,
 ) RenderResult {
@@ -323,6 +345,23 @@ fn rasterizeGlyph(
     const dims = tt.glyphBitmap(alloc, &pixels, glyph, scale, scale) catch return .{ .format = .alpha };
 
     if (dims.width == 0 or dims.height == 0) return .{ .format = .alpha };
+
+    if (wide_pua) {
+        const wide_w: f32 = @as(f32, @floatFromInt(cell_size.x)) * 1.5;
+        const fit: f32 = @min(
+            wide_w / @as(f32, @floatFromInt(dims.width)),
+            @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(dims.height)),
+        );
+        if (fit > 1.0) {
+            var big = std.ArrayList(u8).empty;
+            if (tt.glyphBitmap(alloc, &big, glyph, scale * fit, scale * fit)) |bdims| {
+                blitWideSymbol(staging_buf, buf_w, buf_h, big.items, @intCast(bdims.width), @intCast(bdims.height));
+                return .{ .format = .alpha };
+            } else |_| {}
+        }
+        blitWideSymbol(staging_buf, buf_w, buf_h, pixels.items, @intCast(dims.width), @intCast(dims.height));
+        return .{ .format = .alpha };
+    }
 
     const glyph_extent: i32 = @as(i32, dims.off_x) + @as(i32, @intCast(dims.width));
     const center_offset: i32 = if (split != .single and glyph_extent < buf_w)

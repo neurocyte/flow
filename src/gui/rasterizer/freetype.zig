@@ -293,6 +293,24 @@ fn renderFromFace(
         c.FT_Outline_Transform(&face.*.glyph.*.outline, &shear);
     }
 
+    const wide_pua = split != .single and !has_color_face and uucode_utils.isPrivateUse(codepoint);
+    if (wide_pua and face.*.glyph.*.outline.n_points > 0) {
+        var cbox: c.FT_BBox = undefined;
+        c.FT_Outline_Get_CBox(&face.*.glyph.*.outline, &cbox);
+        const ow: f32 = @as(f32, @floatFromInt(cbox.xMax - cbox.xMin)) / 64.0;
+        const oh: f32 = @as(f32, @floatFromInt(cbox.yMax - cbox.yMin)) / 64.0;
+        if (ow > 0 and oh > 0) {
+            const tw: f32 = @as(f32, @floatFromInt(cell_size.x)) * 1.5;
+            const th: f32 = @floatFromInt(cell_size.y);
+            const s: f32 = @min(tw / ow, th / oh);
+            if (s > 1.0) {
+                const fixed: c.FT_Fixed = @intFromFloat(@round(s * 65536.0));
+                var m: c.FT_Matrix = .{ .xx = fixed, .xy = 0, .yx = 0, .yy = fixed };
+                c.FT_Outline_Transform(&face.*.glyph.*.outline, &m);
+            }
+        }
+    }
+
     const render_mode: c.FT_Render_Mode = if (self.hinting == .mono and !has_color_face)
         c.FT_RENDER_MODE_MONO
     else
@@ -314,6 +332,11 @@ fn renderFromFace(
     if (bm.pixel_mode == c.FT_PIXEL_MODE_BGRA) {
         blitColorBitmap(staging_buf, buf_w, buf_h, &bm, target_w);
         return .{ .format = .color };
+    }
+
+    if (wide_pua) {
+        blitWideSymbol(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono);
+        return .{ .format = .alpha };
     }
 
     if (from_fallback) {
@@ -430,7 +453,41 @@ fn blitScaledAlpha(
     }
 }
 
-/// scale an oversized alpha glyph to fit the full cell box
+fn blitWideSymbol(
+    staging_buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    src: [*c]const u8,
+    gw: i32,
+    gh: i32,
+    pitch: u32,
+    is_mono: bool,
+) void {
+    if (gw <= 0 or gh <= 0) return;
+    const dst_x0: i32 = 0;
+    const dst_y0: i32 = @divTrunc(buf_h - gh, 2);
+    var row: i32 = 0;
+    while (row < gh) : (row += 1) {
+        const py = dst_y0 + row;
+        if (py < 0 or py >= buf_h) continue;
+        var col: i32 = 0;
+        while (col < gw) : (col += 1) {
+            const px = dst_x0 + col;
+            if (px < 0 or px >= buf_w) continue;
+            const ucol: u32 = @intCast(col);
+            const urow: u32 = @intCast(row);
+            const cov: u8 = if (is_mono) blk: {
+                const byte = src[urow * pitch + (ucol >> 3)];
+                const bit: u3 = @intCast(7 - (ucol & 7));
+                break :blk if ((byte >> bit) & 1 != 0) 0xFF else 0x00;
+            } else src[urow * pitch + ucol];
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (dst_idx >= staging_buf.len) continue;
+            staging_buf[dst_idx] = cov;
+        }
+    }
+}
+
 fn blitScaledAlphaFit(
     staging_buf: []u8,
     buf_w: i32,

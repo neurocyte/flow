@@ -1133,8 +1133,15 @@ pub fn renderActorTick() void {
                 const same_row = (ci % ls.width) + 1 < ls.width;
                 const next_cp = if (!same_row) null else if (ci + 1 < layer_cells.len) ls.codepoints[ci + 1] else null;
                 const next_is_space = next_cp == ' ';
-                if (same_row and next_is_space) if (gpu.glyphAdvance(per_face, glyph_cp)) |advance| {
-                    const desired: usize = @intCast((@as(u32, advance) + cell_w - 1) / cell_w);
+                if (same_row and next_is_space) {
+                    const advance_cells: usize = if (gpu.glyphAdvance(per_face, glyph_cp)) |advance|
+                        @intCast((@as(u32, advance) + cell_w - 1) / cell_w)
+                    else
+                        1;
+                    const desired: usize = if (uucode_utils.isPrivateUse(glyph_cp))
+                        @max(advance_cells, 2)
+                    else
+                        advance_cells;
                     if (desired > 1) {
                         const col = ci % ls.width;
                         const max_extra = @min(desired - 1, 4);
@@ -1162,7 +1169,7 @@ pub fn renderActorTick() void {
                             continue;
                         }
                     }
-                };
+                }
             }
 
             cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);

@@ -1,6 +1,7 @@
 /// DirectWrite glyph rasterizer
 ///
 const std = @import("std");
+const uucode_utils = @import("uucode_utils");
 const win32 = @import("win32").everything;
 const XY = @import("xy").XY;
 
@@ -407,6 +408,35 @@ fn renderFromFace(
     const off_y: i32 = bounds.top;
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
+    if (split != .single and uucode_utils.isPrivateUse(codepoint)) {
+        const wide_w: f32 = @as(f32, @floatFromInt(cell_size.x)) * 1.5;
+        const fit: f32 = @min(
+            wide_w / @as(f32, @floatFromInt(src_w)),
+            @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(src_h)),
+        );
+        rescale: {
+            if (fit <= 1.0) break :rescale;
+            var sm: win32.DWRITE_MATRIX = .{ .m11 = fit, .m12 = 0, .m21 = 0, .m22 = fit, .dx = 0, .dy = 0 };
+            var a2: *win32.IDWriteGlyphRunAnalysis = undefined;
+            if (self.factory.CreateGlyphRunAnalysis(&run, 1.0, &sm, rmode, .NATURAL, 0.0, @floatFromInt(ascent_px), &a2) < 0) break :rescale;
+            defer _ = a2.IUnknown.Release();
+            var b2: win32.RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+            if (a2.GetAlphaTextureBounds(tex_type, &b2) < 0) break :rescale;
+            const w2: i32 = b2.right - b2.left;
+            const h2: i32 = b2.bottom - b2.top;
+            if (w2 <= 0 or h2 <= 0) break :rescale;
+            const sz2: usize = @intCast(w2 * h2 * bytes_per_texel);
+            const tex2 = self.allocator.alloc(u8, sz2) catch break :rescale;
+            defer self.allocator.free(tex2);
+            if (a2.CreateAlphaTexture(tex_type, &b2, @ptrCast(tex2.ptr), @intCast(sz2)) < 0) break :rescale;
+            blitWideSymbol(staging_buf, buf_w, buf_h, tex2, w2, h2, bytes_per_texel, tex_type);
+            return .{ .format = result_fmt };
+        }
+
+        blitWideSymbol(staging_buf, buf_w, buf_h, tex, src_w, src_h, bytes_per_texel, tex_type);
+        return .{ .format = result_fmt };
+    }
+
     const overflows = src_w > target_w or src_h > buf_h or off_y < 0 or off_y + src_h > buf_h;
     if (from_fallback and overflows) {
         blitScaledChannels(staging_buf, buf_w, buf_h, tex, src_w, src_h, bytes_per_texel, target_w, cell_ascent_px, cap_height_px);
@@ -705,6 +735,41 @@ fn sampleChannelBilinear(src: []const u8, gw: i32, gh: i32, channels: i32, ch: i
     const top = c00 * (1 - tx) + c10 * tx;
     const bot = c01 * (1 - tx) + c11 * tx;
     return @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
+}
+
+fn blitWideSymbol(
+    staging_buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    src: []const u8,
+    gw: i32,
+    gh: i32,
+    channels: i32,
+    tex_type: win32.DWRITE_TEXTURE_TYPE,
+) void {
+    if (gw <= 0 or gh <= 0) return;
+    const dst_x0: i32 = 0;
+    const dst_y0: i32 = @divTrunc(buf_h - gh, 2);
+    var row: i32 = 0;
+    while (row < gh) : (row += 1) {
+        const py = dst_y0 + row;
+        if (py < 0 or py >= buf_h) continue;
+        var col: i32 = 0;
+        while (col < gw) : (col += 1) {
+            const px = dst_x0 + col;
+            if (px < 0 or px >= buf_w) continue;
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (dst_idx + 3 >= staging_buf.len) continue;
+            const src_idx: usize = @as(usize, @intCast(row * gw + col)) * @as(usize, @intCast(channels));
+            if (tex_type == .ALIASED_1x1) {
+                staging_buf[dst_idx + 0] = src[src_idx];
+            } else {
+                staging_buf[dst_idx + 0] = src[src_idx + 0];
+                staging_buf[dst_idx + 1] = src[src_idx + 1];
+                staging_buf[dst_idx + 2] = src[src_idx + 2];
+            }
+        }
+    }
 }
 
 fn blitScaledChannels(
