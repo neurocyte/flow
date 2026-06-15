@@ -63,6 +63,7 @@ allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,
+allow_color_glyphs: bool = true,
 fallback: ?*FallbackResolver = null,
 
 pub fn init(allocator: std.mem.Allocator) !Self {

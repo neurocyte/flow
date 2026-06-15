@@ -63,6 +63,7 @@ hinting: Hinting = .normal,
 factory: *win32.IDWriteFactory,
 cache: std.AutoHashMapUnmanaged(FaceKey, *win32.IDWriteFontFace) = .empty,
 block_and_line_symbols: SymbolRasterizer = .default,
+allow_color_glyphs: bool = true,
 fallback: ?*FallbackResolver = null,
 
 pub fn init(allocator: std.mem.Allocator) !Self {

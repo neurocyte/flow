@@ -11,6 +11,7 @@ fontbackend: RasterizerBackend = default_backend,
 fonthinting: Hinting = .normal,
 lineheight: u8 = 100,
 block_and_line_symbols: SymbolRasterizer = .default,
+allow_color_glyphs: bool = true,
 
 initial_window_x: u16 = 1087,
 initial_window_y: u16 = 1014,

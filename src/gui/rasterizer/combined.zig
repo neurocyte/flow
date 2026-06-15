@@ -160,6 +160,15 @@ pub fn setSymbolRasterizer(self: *Self, sr: SymbolRasterizer) void {
     }
 }
 
+pub fn setAllowColorGlyphs(self: *Self, allow: bool) void {
+    if (is_windows) {
+        self.dw.allow_color_glyphs = allow;
+    } else {
+        // self.tt does not support color glyphs
+        self.ft.allow_color_glyphs = allow;
+    }
+}
+
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     const allocator = if (is_windows) self.dw.allocator else self.tt.allocator;
     const path = try font_finder.findFont(allocator, name);

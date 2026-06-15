@@ -304,6 +304,10 @@ pub fn setSymbolRasterizer(h: SymbolRasterizer) void {
     global.rasterizer.setSymbolRasterizer(h);
 }
 
+pub fn setAllowColorGlyphs(allow: bool) void {
+    global.rasterizer.setAllowColorGlyphs(allow);
+}
+
 pub fn glyphAdvance(font: Font, codepoint: u21) ?u16 {
     return global.rasterizer.glyphAdvance(font, codepoint);
 }

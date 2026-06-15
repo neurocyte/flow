@@ -106,6 +106,7 @@ var font_weight_bold_offset: u16 = 300;
 var font_backend: gpu.RasterizerBackend = default_rasterizer;
 var font_hinting: gpu.Hinting = .normal;
 var block_and_line_symbols: gpu.SymbolRasterizer = .default;
+var allow_color_glyphs: bool = true;
 var font_line_height: u8 = 100;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
@@ -464,6 +465,17 @@ pub fn getSymbolRasterizer() gpu.SymbolRasterizer {
     return block_and_line_symbols;
 }
 
+pub fn setAllowColorGlyphs(allow: bool) void {
+    allow_color_glyphs = allow;
+    saveConfig();
+    font_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getAllowColorGlyphs() bool {
+    return allow_color_glyphs;
+}
+
 pub fn setLineHeight(pct: u8) void {
     font_line_height = pct;
     saveConfig();
@@ -534,6 +546,7 @@ pub fn loadConfig() void {
     font_hinting = conf.fonthinting;
     font_line_height = if (conf.lineheight == 0) 100 else conf.lineheight;
     block_and_line_symbols = conf.block_and_line_symbols;
+    allow_color_glyphs = conf.allow_color_glyphs;
     window_transparency = conf.gui_window_transparency;
     background_opacity.store(@bitCast(std.math.clamp(conf.gui_background_opacity, 0.0, 1.0)), .release);
     ignore_theme_alpha.store(conf.gui_ignore_theme_alpha, .release);
@@ -552,6 +565,7 @@ fn saveConfig() void {
     conf.fonthinting = font_hinting;
     conf.lineheight = font_line_height;
     conf.block_and_line_symbols = block_and_line_symbols;
+    conf.allow_color_glyphs = allow_color_glyphs;
     conf.gui_window_transparency = window_transparency;
     conf.gui_background_opacity = @bitCast(background_opacity.load(.acquire));
     conf.gui_ignore_theme_alpha = ignore_theme_alpha.load(.acquire);
@@ -614,6 +628,7 @@ fn reloadFont() void {
     gpu.setRasterizerBackend(font_backend);
     gpu.setHinting(font_hinting);
     gpu.setSymbolRasterizer(block_and_line_symbols);
+    gpu.setAllowColorGlyphs(allow_color_glyphs);
     const set = gpu.loadFontSet(.{
         .name = name,
         .size_px = @max(size_physical, 4),
