@@ -583,6 +583,19 @@ pub fn build_exe(
                     });
                 };
 
+                const embed_emoji = b.option(
+                    bool,
+                    "embed-emoji",
+                    "Embed Noto Color Emoji as a built-in color glyph fallback (default: true)",
+                ) orelse true;
+
+                const noto_emoji_font_mod = blk2: {
+                    const flow_fonts_dep = b.lazyDependency("flow_fonts", .{}) orelse break :blk2 null;
+                    break :blk2 b.createModule(.{
+                        .root_source_file = flow_fonts_dep.path("noto-emoji-2.051/NotoColorEmoji.ttf"),
+                    });
+                };
+
                 if (target.result.os.tag == .windows) {
                     const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
                     const win32_mod = win32_dep.module("win32");
@@ -626,6 +639,10 @@ pub fn build_exe(
                     });
                     if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);
 
+                    const gui_embed_options = b.addOptions();
+                    gui_embed_options.addOption(bool, "embed_emoji", embed_emoji);
+                    const gui_embed_options_mod = gui_embed_options.createModule();
+
                     const freetype_rasterizer_mod = b.createModule(.{
                         .root_source_file = b.path("src/gui/rasterizer/freetype.zig"),
                         .target = target,
@@ -635,9 +652,11 @@ pub fn build_exe(
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
+                            .{ .name = "build_options", .module = gui_embed_options_mod },
                         },
                     });
                     if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
+                    if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
                     freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
                     freetype_rasterizer_mod.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
                     freetype_rasterizer_mod.link_libc = true;

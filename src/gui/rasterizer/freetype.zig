@@ -537,6 +537,10 @@ fn blitColorBitmap(
 
 const nerd_font_data = @embedFile("nerd_font");
 
+const build_options = @import("build_options");
+
+const noto_emoji_data: []const u8 = if (build_options.embed_emoji) @embedFile("noto_emoji_font") else "";
+
 fn setFaceSize(face: c.FT_Face, size_px: u16) bool {
     if (c.FT_Set_Pixel_Sizes(face, 0, size_px) == 0) return true;
 
@@ -601,6 +605,25 @@ const FallbackResolver = struct {
         }) catch {
             _ = c.FT_Done_Face(face);
         };
+
+        if (noto_emoji_data.len > 0) {
+            var emoji_face: c.FT_Face = undefined;
+            if (c.FT_New_Memory_Face(library, noto_emoji_data.ptr, @intCast(noto_emoji_data.len), 0, &emoji_face) == 0) {
+                if (setFaceSize(emoji_face, size_px)) {
+                    const emoji_ascent: i32 = @intCast((emoji_face.*.size.*.metrics.ascender + 32) >> 6);
+                    self.faces.append(allocator, .{
+                        .ft_face = emoji_face,
+                        .has_color = true,
+                        .ascent_px = emoji_ascent,
+                        .path_hash = std.hash.Wyhash.hash(0, "<embedded:noto_color_emoji>"),
+                    }) catch {
+                        _ = c.FT_Done_Face(emoji_face);
+                    };
+                } else {
+                    _ = c.FT_Done_Face(emoji_face);
+                }
+            }
+        }
     }
 
     fn resolve(
@@ -682,11 +705,12 @@ const FallbackResolver = struct {
             return &self.faces.items[idx];
         }
 
-        // Last resort: check embedded fonts
+        // Last resort: check embedded fonts (nerd symbols + color emoji).
+        const nerd_hash = std.hash.Wyhash.hash(0, "<embedded:nerd_font>");
+        const noto_hash = std.hash.Wyhash.hash(0, "<embedded:noto_color_emoji>");
         for (self.faces.items, 0..) |existing, idx| {
-            if (existing.path_hash == std.hash.Wyhash.hash(0, "<embedded:nerd_font>") and
-                c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0)
-            {
+            const is_embedded = existing.path_hash == nerd_hash or existing.path_hash == noto_hash;
+            if (is_embedded and c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0) {
                 self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
                 return &self.faces.items[idx];
             }

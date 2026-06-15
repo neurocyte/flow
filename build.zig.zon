@@ -62,6 +62,11 @@
             .hash = "N-V-__8AAI9HTABr_zPUAKuMp_GR5p_z-kjPIX_e3EtLjOqI",
             .lazy = true,
         },
+        .flow_fonts = .{
+            .url = "git+https://github.com/neurocyte/flow-fonts?ref=master#4abe8a69466557e67b361472a4dcf9cc82a91e88",
+            .hash = "N-V-__8AABXuogBRBs9o6OJ8VAkYNmEAmZIbUzmZktVMF7Jk",
+            .lazy = true,
+        },
         .diffz = .{
             .url = "git+https://github.com/ziglibs/diffz.git?ref=main#b39fe07e7fdbcf56e43ba2890b9f484f16969f90",
             .hash = "diffz-0.0.1-G2tlISzNAQCldmOcINavGmF1zdt20NFPXeM8d07jp_68",
