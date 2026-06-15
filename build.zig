@@ -592,7 +592,7 @@ pub fn build_exe(
                 const noto_emoji_font_mod = blk2: {
                     const flow_fonts_dep = b.lazyDependency("flow_fonts", .{}) orelse break :blk2 null;
                     break :blk2 b.createModule(.{
-                        .root_source_file = flow_fonts_dep.path("noto-emoji-2.051/NotoColorEmoji.ttf"),
+                        .root_source_file = flow_fonts_dep.path("noto-emoji-2.051/Noto-COLRv1.ttf"),
                     });
                 };
 
