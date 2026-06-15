@@ -8,6 +8,7 @@ const c = @cImport({
 const XY = @import("xy").XY;
 const geometric = @import("geometric");
 pub const font_finder = @import("font_finder");
+const fallback_resolver = @import("fallback_resolver");
 
 const Self = @This();
 
@@ -74,7 +75,7 @@ pub fn init(allocator: std.mem.Allocator) !Self {
 
 pub fn deinit(self: *Self) void {
     if (self.fallback) |fb| {
-        fb.deinit(self.allocator, self.library);
+        fb.deinit(self.library, self.allocator);
         self.allocator.destroy(fb);
     }
     self.fallback = null;
@@ -563,169 +564,57 @@ fn setFaceSize(face: c.FT_Face, size_px: u16) bool {
     return c.FT_Select_Size(face, best) == 0;
 }
 
-const FallbackResolver = struct {
-    const FallbackFace = struct {
+const FtBackend = struct {
+    pub const Context = c.FT_Library;
+    pub const Face = struct {
         ft_face: c.FT_Face,
         has_color: bool,
         ascent_px: i32,
-        path_hash: u64,
     };
 
-    const CacheEntry = struct { found: bool, index: u8 };
+    pub const embedded_fonts = [_]fallback_resolver.EmbeddedFont{
+        .{ .data = nerd_font_data, .is_color = false, .tag = "<embedded:nerd_font>" },
+        .{ .data = noto_emoji_data, .is_color = true, .tag = "<embedded:noto_color_emoji>" },
+    };
 
-    cache: std.AutoHashMapUnmanaged(u21, CacheEntry) = .empty,
-    faces: std.ArrayList(FallbackFace) = .empty,
-    current_size_px: u16 = 0,
-    embedded_loaded: bool = false,
-
-    fn deinit(self: *FallbackResolver, allocator: std.mem.Allocator, library: c.FT_Library) void {
-        _ = library;
-        for (self.faces.items) |f| _ = c.FT_Done_Face(f.ft_face);
-        self.faces.deinit(allocator);
-        self.cache.deinit(allocator);
+    pub fn preferColor(codepoint: u21) bool {
+        return uucode.get(.is_emoji_presentation, @intCast(codepoint));
     }
 
-    fn loadEmbeddedFonts(self: *FallbackResolver, library: c.FT_Library, allocator: std.mem.Allocator, size_px: u16) void {
-        if (self.embedded_loaded) return;
-        self.embedded_loaded = true;
+    fn faceFromHandle(face: c.FT_Face, has_color: bool) Face {
+        const ascent: i32 = @intCast((face.*.size.*.metrics.ascender + 32) >> 6);
+        return .{ .ft_face = face, .has_color = has_color, .ascent_px = ascent };
+    }
 
-        const data = nerd_font_data;
+    pub fn loadEmbedded(library: c.FT_Library, _: std.mem.Allocator, data: []const u8, size_px: u16, is_color: bool) ?Face {
         var face: c.FT_Face = undefined;
-        if (c.FT_New_Memory_Face(library, data.ptr, @intCast(data.len), 0, &face) != 0) return;
+        if (c.FT_New_Memory_Face(library, data.ptr, @intCast(data.len), 0, &face) != 0) return null;
         if (!setFaceSize(face, size_px)) {
             _ = c.FT_Done_Face(face);
-            return;
+            return null;
         }
-        const face_ascent: i32 = @intCast((face.*.size.*.metrics.ascender + 32) >> 6);
-        self.faces.append(allocator, .{
-            .ft_face = face,
-            .has_color = false,
-            .ascent_px = face_ascent,
-            .path_hash = std.hash.Wyhash.hash(0, "<embedded:nerd_font>"),
-        }) catch {
+        return faceFromHandle(face, is_color);
+    }
+
+    pub fn loadPath(library: c.FT_Library, allocator: std.mem.Allocator, cand: font_finder.FallbackCandidate, size_px: u16) ?Face {
+        const path_z = allocator.dupeZ(u8, cand.path) catch return null;
+        defer allocator.free(path_z);
+        var face: c.FT_Face = undefined;
+        if (c.FT_New_Face(library, path_z.ptr, cand.face_index, &face) != 0) return null;
+        if (!setFaceSize(face, size_px)) {
             _ = c.FT_Done_Face(face);
-        };
-
-        if (noto_emoji_data.len > 0) {
-            var emoji_face: c.FT_Face = undefined;
-            if (c.FT_New_Memory_Face(library, noto_emoji_data.ptr, @intCast(noto_emoji_data.len), 0, &emoji_face) == 0) {
-                if (setFaceSize(emoji_face, size_px)) {
-                    const emoji_ascent: i32 = @intCast((emoji_face.*.size.*.metrics.ascender + 32) >> 6);
-                    self.faces.append(allocator, .{
-                        .ft_face = emoji_face,
-                        .has_color = true,
-                        .ascent_px = emoji_ascent,
-                        .path_hash = std.hash.Wyhash.hash(0, "<embedded:noto_color_emoji>"),
-                    }) catch {
-                        _ = c.FT_Done_Face(emoji_face);
-                    };
-                } else {
-                    _ = c.FT_Done_Face(emoji_face);
-                }
-            }
+            return null;
         }
+        return faceFromHandle(face, cand.has_color);
     }
 
-    fn resolve(
-        self: *FallbackResolver,
-        library: c.FT_Library,
-        allocator: std.mem.Allocator,
-        codepoint: u21,
-        size_px: u16,
-    ) ?*const FallbackFace {
-        if (self.current_size_px != 0 and self.current_size_px != size_px) {
-            for (self.faces.items) |f| _ = c.FT_Done_Face(f.ft_face);
-            self.faces.clearRetainingCapacity();
-            self.cache.clearRetainingCapacity();
-            self.embedded_loaded = false;
-        }
-        self.current_size_px = size_px;
-        self.loadEmbeddedFonts(library, allocator, size_px);
-
-        if (self.cache.get(codepoint)) |entry| {
-            return if (entry.found) &self.faces.items[entry.index] else null;
-        }
-
-        // Try system font discovery first
-        const prefer_color = uucode.get(.is_emoji_presentation, @intCast(codepoint));
-        const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color) catch return self.cacheNegative(allocator, codepoint);
-        defer {
-            for (candidates) |cand| allocator.free(cand.path);
-            allocator.free(candidates);
-        }
-
-        for (candidates) |cand| {
-            const path_hash = std.hash.Wyhash.hash(0, cand.path);
-
-            for (self.faces.items, 0..) |existing, idx| {
-                if (existing.path_hash == path_hash) {
-                    if (c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0) {
-                        self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
-                        return &self.faces.items[idx];
-                    }
-                    break;
-                }
-            }
-
-            const path_z = allocator.dupeZ(u8, cand.path) catch continue;
-            defer allocator.free(path_z);
-
-            var face: c.FT_Face = undefined;
-            if (c.FT_New_Face(library, path_z.ptr, cand.face_index, &face) != 0) continue;
-
-            if (!setFaceSize(face, size_px)) {
-                _ = c.FT_Done_Face(face);
-                continue;
-            }
-
-            if (c.FT_Get_Char_Index(face, codepoint) == 0) {
-                _ = c.FT_Done_Face(face);
-                continue;
-            }
-
-            const face_ascent: i32 = @intCast((face.*.size.*.metrics.ascender + 32) >> 6);
-
-            if (self.faces.items.len >= 255) {
-                _ = c.FT_Done_Face(face);
-                return self.cacheNegative(allocator, codepoint);
-            }
-
-            const idx: u8 = @intCast(self.faces.items.len);
-            self.faces.append(allocator, .{
-                .ft_face = face,
-                .has_color = cand.has_color,
-                .ascent_px = face_ascent,
-                .path_hash = path_hash,
-            }) catch {
-                _ = c.FT_Done_Face(face);
-                return self.cacheNegative(allocator, codepoint);
-            };
-
-            self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
-            return &self.faces.items[idx];
-        }
-
-        // Last resort: check embedded fonts (nerd symbols + color emoji).
-        const nerd_hash = std.hash.Wyhash.hash(0, "<embedded:nerd_font>");
-        const noto_hash = std.hash.Wyhash.hash(0, "<embedded:noto_color_emoji>");
-        for (self.faces.items, 0..) |existing, idx| {
-            const is_embedded = existing.path_hash == nerd_hash or existing.path_hash == noto_hash;
-            if (is_embedded and c.FT_Get_Char_Index(existing.ft_face, codepoint) != 0) {
-                self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
-                return &self.faces.items[idx];
-            }
-        }
-
-        return self.cacheNegative(allocator, codepoint);
+    pub fn hasGlyph(face: *const Face, codepoint: u21) bool {
+        return c.FT_Get_Char_Index(face.ft_face, codepoint) != 0;
     }
 
-    fn resolveExisting(self: *FallbackResolver, codepoint: u21) ?*const FallbackFace {
-        const entry = self.cache.get(codepoint) orelse return null;
-        return if (entry.found) &self.faces.items[entry.index] else null;
-    }
-
-    fn cacheNegative(self: *FallbackResolver, allocator: std.mem.Allocator, codepoint: u21) ?*const FallbackFace {
-        self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
-        return null;
+    pub fn deinitFace(_: c.FT_Library, _: std.mem.Allocator, face: *Face) void {
+        _ = c.FT_Done_Face(face.ft_face);
     }
 };
+
+const FallbackResolver = fallback_resolver.FallbackResolver(FtBackend);

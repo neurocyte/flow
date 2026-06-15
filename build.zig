@@ -625,6 +625,14 @@ pub fn build_exe(
                         font_finder_mod.link_libc = true;
                     }
 
+                    const fallback_resolver_mod = b.createModule(.{
+                        .root_source_file = b.path("src/gui/rasterizer/fallback_resolver.zig"),
+                        .target = target,
+                        .imports = &.{
+                            .{ .name = "font_finder", .module = font_finder_mod },
+                        },
+                    });
+
                     const truetype_rasterizer_mod = b.createModule(.{
                         .root_source_file = b.path("src/gui/rasterizer/truetype.zig"),
                         .target = target,
@@ -634,6 +642,7 @@ pub fn build_exe(
                             .{ .name = "xy", .module = gui_xy_mod },
                             .{ .name = "geometric", .module = geometric_mod },
                             .{ .name = "font_finder", .module = font_finder_mod },
+                            .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
                         },
                     });
@@ -650,6 +659,7 @@ pub fn build_exe(
                             .{ .name = "xy", .module = gui_xy_mod },
                             .{ .name = "geometric", .module = geometric_mod },
                             .{ .name = "font_finder", .module = font_finder_mod },
+                            .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
                             .{ .name = "build_options", .module = gui_embed_options_mod },

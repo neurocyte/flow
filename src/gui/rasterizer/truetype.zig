@@ -2,11 +2,74 @@ const std = @import("std");
 const TrueType = @import("TrueType");
 const XY = @import("xy").XY;
 pub const font_finder = @import("font_finder");
+const fallback_resolver = @import("fallback_resolver");
 const geometric = @import("geometric");
 const root = @import("soft_root").root;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 
 const Self = @This();
+
+const nerd_font_data = @embedFile("nerd_font");
+
+fn unitsPerEm(tt: *const TrueType) u16 {
+    const head = tt.table_offsets[@intFromEnum(TrueType.TableId.head)];
+    return std.mem.readInt(u16, tt.ttf_bytes[head + 18 ..][0..2], .big);
+}
+
+const TtBackend = struct {
+    pub const Context = void;
+    pub const Face = struct {
+        tt: TrueType,
+        units_per_em: u16,
+        data: ?[]u8,
+    };
+
+    pub const embedded_fonts = [_]fallback_resolver.EmbeddedFont{
+        .{ .data = nerd_font_data, .is_color = false, .tag = "<embedded:nerd_font>" },
+    };
+
+    pub fn preferColor(_: u21) bool {
+        return false;
+    }
+
+    pub fn loadEmbedded(_: void, _: std.mem.Allocator, data: []const u8, _: u16, _: bool) ?Face {
+        const tt = TrueType.load(data) catch return null;
+        return .{ .tt = tt, .units_per_em = unitsPerEm(&tt), .data = null };
+    }
+
+    pub fn loadPath(_: void, allocator: std.mem.Allocator, cand: font_finder.FallbackCandidate, _: u16) ?Face {
+        const data = readFontFile(allocator, cand.path) catch return null;
+        const tt = TrueType.load(data) catch {
+            allocator.free(data);
+            return null;
+        };
+        if (tt.table_offsets[@intFromEnum(TrueType.TableId.glyf)] == 0) {
+            allocator.free(data);
+            return null;
+        }
+        return .{ .tt = tt, .units_per_em = unitsPerEm(&tt), .data = data };
+    }
+
+    pub fn hasGlyph(face: *const Face, codepoint: u21) bool {
+        return face.tt.codepointGlyphIndex(codepoint) != .notdef;
+    }
+
+    pub fn deinitFace(_: void, allocator: std.mem.Allocator, face: *Face) void {
+        if (face.data) |d| allocator.free(d);
+    }
+};
+
+const FallbackResolver = fallback_resolver.FallbackResolver(TtBackend);
+
+fn readFontFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const io = root.get_io();
+    const f = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer f.close(io);
+    const stat = try f.stat(io);
+    var read_buf: [4096]u8 = undefined;
+    var reader = f.reader(io, &read_buf);
+    return try reader.interface.readAlloc(allocator, @intCast(stat.size));
+}
 
 pub const GlyphSplit = enum {
     single,
@@ -31,6 +94,7 @@ pub const SynthFlags = packed struct(u8) {
 pub const Font = struct {
     cell_size: XY(u16),
     scale: f32 = 0,
+    size_px: u16 = 0,
     ascent_px: i32 = 0,
     /// Top edge of the underline bar, in pixels from the top of the cell.
     underline_position: i32 = 0,
@@ -61,6 +125,7 @@ allocator: std.mem.Allocator,
 font_data: std.ArrayListUnmanaged([]u8),
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,
+fallback: ?*FallbackResolver = null,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     return .{
@@ -70,6 +135,11 @@ pub fn init(allocator: std.mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.fallback) |fb| {
+        fb.deinit({}, self.allocator);
+        self.allocator.destroy(fb);
+    }
+    self.fallback = null;
     if (self.regular_path) |p| self.allocator.free(p);
     self.regular_path = null;
     for (self.font_data.items) |data| {
@@ -141,6 +211,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .tt = tt, // TrueType holds a slice into `data` which is now owned by self.font_data
         .cell_size = .{ .x = cell_w, .y = cell_h },
         .scale = scale,
+        .size_px = size_px,
         .ascent_px = ascent_px,
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
@@ -205,16 +276,51 @@ pub fn render(
         if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
     }
 
-    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    const tt = font.tt orelse return .{ .format = .alpha };
+
+    const glyph = tt.codepointGlyphIndex(codepoint);
+
+    if (glyph == .notdef and codepoint != 0) {
+        if (self.fallbackResolver()) |fb| {
+            if (fb.resolve({}, self.allocator, codepoint, font.size_px)) |fb_face| {
+                const fg = fb_face.tt.codepointGlyphIndex(codepoint);
+                const fscale: f32 = @as(f32, @floatFromInt(font.size_px)) /
+                    @as(f32, @floatFromInt(@max(fb_face.units_per_em, 1)));
+                return rasterizeGlyph(self.allocator, &fb_face.tt, fscale, font.ascent_px, fg, split, font.cell_size, staging_buf);
+            }
+        }
+    }
+
+    return rasterizeGlyph(self.allocator, &tt, font.scale, font.ascent_px, glyph, split, font.cell_size, staging_buf);
+}
+
+fn fallbackResolver(self: *const Self) ?*FallbackResolver {
+    if (self.fallback) |fb| return fb;
+    const fb = self.allocator.create(FallbackResolver) catch return null;
+    fb.* = .{};
+    @constCast(&self.fallback).* = fb;
+    return fb;
+}
+
+fn rasterizeGlyph(
+    allocator: std.mem.Allocator,
+    tt: *const TrueType,
+    scale: f32,
+    ascent_px: i32,
+    glyph: TrueType.GlyphIndex,
+    split: GlyphSplit,
+    cell_size: XY(u16),
+    staging_buf: []u8,
+) RenderResult {
+    const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
+    const buf_h: i32 = @intCast(cell_size.y);
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const tt = font.tt orelse return .{ .format = .alpha };
-
     var pixels = std.ArrayList(u8).empty;
-
-    const glyph = tt.codepointGlyphIndex(codepoint);
-    const dims = tt.glyphBitmap(alloc, &pixels, glyph, font.scale, font.scale) catch return .{ .format = .alpha };
+    const dims = tt.glyphBitmap(alloc, &pixels, glyph, scale, scale) catch return .{ .format = .alpha };
 
     if (dims.width == 0 or dims.height == 0) return .{ .format = .alpha };
 
@@ -225,7 +331,7 @@ pub fn render(
         0;
 
     for (0..dims.height) |row| {
-        const dst_y: i32 = font.ascent_px + @as(i32, dims.off_y) + @as(i32, @intCast(row));
+        const dst_y: i32 = ascent_px + @as(i32, dims.off_y) + @as(i32, @intCast(row));
         if (dst_y < 0 or dst_y >= buf_h) continue;
 
         for (0..dims.width) |col| {
