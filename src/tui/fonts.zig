@@ -257,6 +257,10 @@ pub const font_test_text: []const u8 =
     \\  Math: ∀∃∅∈∉∋∏∑√∞∫≈≠≤≥
     \\  Arrows: ← → ↑ ↓ ↔ ↕ ⇐ ⇒ ⇑ ⇓
     \\
+    \\Nerd Font symbols:
+    \\      󱆃  󰌛     󰌛 󰌜   󰗀      󰦥  󰟓 󰲒    󰌞  
+    \\     󰢱 󰇮 󰍔    󱄅   󰻫   󰌟    󰌠 󱄛 󰴭 󱘗 󰆼 󰌝 󰛥 󱀫 󰛦   
+    \\
 ;
 
 pub const DigitStyle = @import("config").DigitStyle;
