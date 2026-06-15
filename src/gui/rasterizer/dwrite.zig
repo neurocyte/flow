@@ -292,26 +292,26 @@ pub fn render(
     const has_glyph = (face.GetGlyphIndices(@ptrCast(&cps_check), 1, @ptrCast(&gi_check)) >= 0 and gi_check[0] != 0);
 
     if (has_glyph) {
-        return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
     }
 
     // Try fallback
     if (self.fallback) |fb| {
         if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
         }
     } else {
         const fb = self.allocator.create(FallbackResolver) catch
-            return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
         fb.* = FallbackResolver.initResolver(self.factory);
         @constCast(&self.fallback).* = fb;
         if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
         }
     }
 
     // .notdef
-    return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+    return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
 }
 
 fn renderFromFace(
@@ -322,6 +322,7 @@ fn renderFromFace(
     cell_ascent_px: i32,
     cap_height_px: i32,
     synth: SynthFlags,
+    from_fallback: bool,
     codepoint: u21,
     split: GlyphSplit,
     cell_size: XY(u16),
@@ -407,7 +408,7 @@ fn renderFromFace(
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
     const overflows = src_w > target_w or src_h > buf_h or off_y < 0 or off_y + src_h > buf_h;
-    if (overflows) {
+    if (from_fallback and overflows) {
         blitScaledChannels(staging_buf, buf_w, buf_h, tex, src_w, src_h, bytes_per_texel, target_w, cell_ascent_px, cap_height_px);
         return .{ .format = result_fmt };
     }

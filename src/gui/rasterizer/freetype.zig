@@ -229,23 +229,23 @@ pub fn render(
     const face = font.face orelse return .{ .format = .alpha };
 
     if (c.FT_Get_Char_Index(face, codepoint) != 0) {
-        return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
     }
 
     if (self.fallback) |fb| {
         if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
-            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
         }
     } else {
-        const fb = self.allocator.create(FallbackResolver) catch return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+        const fb = self.allocator.create(FallbackResolver) catch return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
         fb.* = .{};
         @constCast(&self.fallback).* = fb;
         if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
-            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
         }
     }
 
-    return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, codepoint, split, font.cell_size, staging_buf);
+    return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
 }
 
 /// FreeType's FT_HAS_COLOR(face) macro:
@@ -261,6 +261,7 @@ fn renderFromFace(
     cell_ascent_px: i32,
     cap_height_px: i32,
     synth: SynthFlags,
+    from_fallback: bool,
     codepoint: u21,
     split: GlyphSplit,
     cell_size: XY(u16),
@@ -315,17 +316,19 @@ fn renderFromFace(
         return .{ .format = .color };
     }
 
-    const too_big = gw > target_w or gh > buf_h;
-    const overflows = too_big or off_y < 0 or off_y + gh > buf_h;
+    if (from_fallback) {
+        const too_big = gw > target_w or gh > buf_h;
+        const overflows = too_big or off_y < 0 or off_y + gh > buf_h;
 
-    if (overflows and uucode_utils.isWideCandidate(codepoint)) {
-        blitScaledAlpha(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w, cell_ascent_px, cap_height_px);
-        return .{ .format = .alpha };
-    }
+        if (overflows and uucode_utils.isWideCandidate(codepoint)) {
+            blitScaledAlpha(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w, cell_ascent_px, cap_height_px);
+            return .{ .format = .alpha };
+        }
 
-    if (too_big) {
-        blitScaledAlphaFit(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w);
-        return .{ .format = .alpha };
+        if (too_big) {
+            blitScaledAlphaFit(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w);
+            return .{ .format = .alpha };
+        }
     }
 
     const glyph_extent: i32 = off_x + gw;
