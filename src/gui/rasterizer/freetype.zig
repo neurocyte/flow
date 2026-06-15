@@ -405,6 +405,28 @@ fn blitScaledAlpha(
 
 const nerd_font_data = @embedFile("nerd_font");
 
+fn setFaceSize(face: c.FT_Face, size_px: u16) bool {
+    if (c.FT_Set_Pixel_Sizes(face, 0, size_px) == 0) return true;
+
+    const n = face.*.num_fixed_sizes;
+    if (n <= 0) return false;
+
+    var best: c_int = 0;
+    var best_score: i32 = std.math.maxInt(i32);
+    var i: c_int = 0;
+    while (i < n) : (i += 1) {
+        const h: i32 = @intCast(face.*.available_sizes[@intCast(i)].height);
+        const d: i32 = @as(i32, @intCast(size_px)) - h;
+        // prefer strikes >= size_px
+        const score: i32 = if (d <= 0) -d else d * 2;
+        if (score < best_score) {
+            best_score = score;
+            best = i;
+        }
+    }
+    return c.FT_Select_Size(face, best) == 0;
+}
+
 const FallbackResolver = struct {
     const FallbackFace = struct {
         ft_face: c.FT_Face,
@@ -434,7 +456,7 @@ const FallbackResolver = struct {
         const data = nerd_font_data;
         var face: c.FT_Face = undefined;
         if (c.FT_New_Memory_Face(library, data.ptr, @intCast(data.len), 0, &face) != 0) return;
-        if (c.FT_Set_Pixel_Sizes(face, 0, size_px) != 0) {
+        if (!setFaceSize(face, size_px)) {
             _ = c.FT_Done_Face(face);
             return;
         }
@@ -496,7 +518,7 @@ const FallbackResolver = struct {
             var face: c.FT_Face = undefined;
             if (c.FT_New_Face(library, path_z.ptr, cand.face_index, &face) != 0) continue;
 
-            if (c.FT_Set_Pixel_Sizes(face, 0, size_px) != 0) {
+            if (!setFaceSize(face, size_px)) {
                 _ = c.FT_Done_Face(face);
                 continue;
             }
