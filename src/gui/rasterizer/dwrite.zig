@@ -363,6 +363,10 @@ fn renderFromFace(
     const transform_ptr: ?*const win32.DWRITE_MATRIX =
         if (synth.italic) &shear_matrix else null;
 
+    if (self.allow_color_glyphs)
+        if (renderColorGlyph(self, &run, transform_ptr, ascent_px, split, cell_size, staging_buf)) |rr|
+            return rr;
+
     const rmode = pickRenderingMode(self.hinting);
     const tex_type: win32.DWRITE_TEXTURE_TYPE = if (rmode == .ALIASED)
         .ALIASED_1x1
@@ -438,6 +442,246 @@ fn renderFromFace(
     }
 
     return .{ .format = result_fmt };
+}
+
+const ColorLayer = struct {
+    mask: []u8, // 1 byte/px grayscale coverage
+    left: i32,
+    top: i32,
+    w: i32,
+    h: i32,
+    color: win32.DWRITE_COLOR_F,
+};
+
+fn renderColorGlyph(
+    self: *const Self,
+    run: *const win32.DWRITE_GLYPH_RUN,
+    transform_ptr: ?*const win32.DWRITE_MATRIX,
+    ascent_px: i32,
+    split: GlyphSplit,
+    cell_size: XY(u16),
+    staging_buf: []u8,
+) ?RenderResult {
+    var factory2: *win32.IDWriteFactory2 = undefined;
+    if (self.factory.IUnknown.QueryInterface(win32.IID_IDWriteFactory2, @ptrCast(&factory2)) < 0)
+        return null;
+    defer _ = factory2.IUnknown.Release();
+
+    var enumerator: *win32.IDWriteColorGlyphRunEnumerator = undefined;
+    const hr = factory2.TranslateColorGlyphRun(
+        0.0,
+        @floatFromInt(ascent_px),
+        run,
+        null,
+        .NATURAL,
+        transform_ptr,
+        0,
+        &enumerator,
+    );
+    if (hr == win32.DWRITE_E_NOCOLOR) return null;
+    if (hr < 0) return null;
+    defer _ = enumerator.IUnknown.Release();
+
+    var layers: std.ArrayList(ColorLayer) = .empty;
+    defer {
+        for (layers.items) |l| self.allocator.free(l.mask);
+        layers.deinit(self.allocator);
+    }
+
+    var min_left: i32 = std.math.maxInt(i32);
+    var min_top: i32 = std.math.maxInt(i32);
+    var max_right: i32 = std.math.minInt(i32);
+    var max_bottom: i32 = std.math.minInt(i32);
+
+    const rmode = pickRenderingMode(self.hinting);
+    const tex_type: win32.DWRITE_TEXTURE_TYPE = if (rmode == .ALIASED)
+        .ALIASED_1x1
+    else
+        .CLEARTYPE_3x1;
+    const bytes_per_texel: i32 = if (tex_type == .ALIASED_1x1) 1 else 3;
+
+    while (true) {
+        var has_run: win32.BOOL = 0;
+        if (enumerator.MoveNext(&has_run) < 0) break;
+        if (has_run == 0) break;
+
+        var color_run: ?*win32.DWRITE_COLOR_GLYPH_RUN = null;
+        if (enumerator.GetCurrentRun(&color_run) < 0) continue;
+        const cr = color_run orelse continue;
+
+        var analysis: *win32.IDWriteGlyphRunAnalysis = undefined;
+        if (self.factory.CreateGlyphRunAnalysis(
+            &cr.glyphRun,
+            1.0,
+            transform_ptr,
+            rmode,
+            .NATURAL,
+            0.0,
+            @floatFromInt(ascent_px),
+            &analysis,
+        ) < 0) continue;
+        defer _ = analysis.IUnknown.Release();
+
+        var bounds: win32.RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+        if (analysis.GetAlphaTextureBounds(tex_type, &bounds) < 0) continue;
+        const lw = bounds.right - bounds.left;
+        const lh = bounds.bottom - bounds.top;
+        if (lw <= 0 or lh <= 0) continue;
+
+        const tex_size: usize = @intCast(lw * lh * bytes_per_texel);
+        const tex = self.allocator.alloc(u8, tex_size) catch continue;
+        defer self.allocator.free(tex);
+        if (analysis.CreateAlphaTexture(tex_type, &bounds, @ptrCast(tex.ptr), @intCast(tex_size)) < 0) {
+            continue;
+        }
+
+        const px_count: usize = @intCast(lw * lh);
+        const mask = self.allocator.alloc(u8, px_count) catch continue;
+        if (bytes_per_texel == 1) {
+            @memcpy(mask, tex[0..px_count]);
+        } else {
+            var i: usize = 0;
+            while (i < px_count) : (i += 1) {
+                const r: u32 = tex[i * 3 + 0];
+                const g: u32 = tex[i * 3 + 1];
+                const b: u32 = tex[i * 3 + 2];
+                mask[i] = @intCast((r + g + b) / 3);
+            }
+        }
+
+        // paletteIndex 0xFFFF means we should use the context foreground colour
+        const color: win32.DWRITE_COLOR_F = if (cr.paletteIndex == 0xFFFF)
+            .{ .r = 1, .g = 1, .b = 1, .a = 1 }
+        else
+            cr.runColor;
+
+        layers.append(self.allocator, .{
+            .mask = mask,
+            .left = bounds.left,
+            .top = bounds.top,
+            .w = lw,
+            .h = lh,
+            .color = color,
+        }) catch {
+            self.allocator.free(mask);
+            continue;
+        };
+
+        min_left = @min(min_left, bounds.left);
+        min_top = @min(min_top, bounds.top);
+        max_right = @max(max_right, bounds.right);
+        max_bottom = @max(max_bottom, bounds.bottom);
+    }
+
+    if (layers.items.len == 0) return null;
+
+    const native_w = max_right - min_left;
+    const native_h = max_bottom - min_top;
+    if (native_w <= 0 or native_h <= 0) return null;
+
+    const composed = self.allocator.alloc(u8, @intCast(native_w * native_h * 4)) catch return null;
+    defer self.allocator.free(composed);
+    @memset(composed, 0);
+
+    for (layers.items) |l| {
+        var y: i32 = 0;
+        while (y < l.h) : (y += 1) {
+            const cy = (l.top - min_top) + y;
+            if (cy < 0 or cy >= native_h) continue;
+            var x: i32 = 0;
+            while (x < l.w) : (x += 1) {
+                const cx = (l.left - min_left) + x;
+                if (cx < 0 or cx >= native_w) continue;
+                const cov: f32 = @as(f32, @floatFromInt(l.mask[@intCast(y * l.w + x)])) / 255.0;
+                const sa = cov * l.color.a;
+                if (sa <= 0.0) continue;
+                const idx: usize = @intCast((cy * native_w + cx) * 4);
+                const inv = 1.0 - sa;
+                const dr: f32 = @floatFromInt(composed[idx + 0]);
+                const dg: f32 = @floatFromInt(composed[idx + 1]);
+                const db: f32 = @floatFromInt(composed[idx + 2]);
+                const da: f32 = @floatFromInt(composed[idx + 3]);
+                composed[idx + 0] = clamp255(sa * l.color.r * 255.0 + dr * inv);
+                composed[idx + 1] = clamp255(sa * l.color.g * 255.0 + dg * inv);
+                composed[idx + 2] = clamp255(sa * l.color.b * 255.0 + db * inv);
+                composed[idx + 3] = clamp255(sa * 255.0 + da * inv);
+            }
+        }
+    }
+
+    const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
+    const buf_h: i32 = @intCast(cell_size.y);
+    const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
+    blitColorRGBA(staging_buf, buf_w, buf_h, composed, native_w, native_h, target_w);
+    return .{ .format = .color };
+}
+
+fn clamp255(v: f32) u8 {
+    return @intFromFloat(std.math.clamp(@round(v), 0.0, 255.0));
+}
+
+fn rgbaChannel(src: []const u8, gw: i32, gh: i32, x: i32, y: i32, ch: usize) u8 {
+    const cx: i32 = std.math.clamp(x, 0, gw - 1);
+    const cy: i32 = std.math.clamp(y, 0, gh - 1);
+    return src[@intCast((cy * gw + cx) * 4 + @as(i32, @intCast(ch)))];
+}
+
+fn sampleRGBABilinear(src: []const u8, gw: i32, gh: i32, fx: f32, fy: f32) [4]u8 {
+    const x0: i32 = @intFromFloat(@floor(fx));
+    const y0: i32 = @intFromFloat(@floor(fy));
+    const tx: f32 = fx - @floor(fx);
+    const ty: f32 = fy - @floor(fy);
+    var out: [4]u8 = undefined;
+    inline for (0..4) |ch| {
+        const c00: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0, y0, ch));
+        const c10: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0 + 1, y0, ch));
+        const c01: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0, y0 + 1, ch));
+        const c11: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0 + 1, y0 + 1, ch));
+        const top = c00 * (1 - tx) + c10 * tx;
+        const bot = c01 * (1 - tx) + c11 * tx;
+        out[ch] = @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
+    }
+    return out;
+}
+
+fn blitColorRGBA(
+    staging_buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    src: []const u8,
+    gw: i32,
+    gh: i32,
+    target_w: i32,
+) void {
+    if (gw <= 0 or gh <= 0) return;
+    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
+    const sy: f32 = @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(gh));
+    const s: f32 = @min(sx, sy);
+    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
+    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
+    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
+    const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
+    const inv_s: f32 = 1.0 / s;
+
+    var dy: i32 = 0;
+    while (dy < sh) : (dy += 1) {
+        const py = dst_y0 + dy;
+        if (py < 0 or py >= buf_h) continue;
+        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
+        var dx: i32 = 0;
+        while (dx < sw) : (dx += 1) {
+            const px = dst_x0 + dx;
+            if (px < 0 or px >= buf_w) continue;
+            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
+            const rgba = sampleRGBABilinear(src, gw, gh, fsx, fsy);
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (dst_idx + 3 >= staging_buf.len) continue;
+            staging_buf[dst_idx + 0] = rgba[0];
+            staging_buf[dst_idx + 1] = rgba[1];
+            staging_buf[dst_idx + 2] = rgba[2];
+            staging_buf[dst_idx + 3] = rgba[3];
+        }
+    }
 }
 
 fn srcChannel(src: []const u8, gw: i32, gh: i32, channels: i32, ch: i32, x: i32, y: i32) u8 {
