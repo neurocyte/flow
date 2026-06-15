@@ -298,9 +298,16 @@ fn renderFromFace(
     const gh: i32 = @intCast(bm.rows);
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
-    const overflows = gw > target_w or gh > buf_h or off_y < 0 or off_y + gh > buf_h;
+    const too_big = gw > target_w or gh > buf_h;
+    const overflows = too_big or off_y < 0 or off_y + gh > buf_h;
+
     if (overflows and uucode_utils.isWideCandidate(codepoint)) {
         blitScaledAlpha(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w, cell_ascent_px, cap_height_px);
+        return .{ .format = .alpha };
+    }
+
+    if (too_big) {
+        blitScaledAlphaFit(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w);
         return .{ .format = .alpha };
     }
 
@@ -383,6 +390,46 @@ fn blitScaledAlpha(
     const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
     const dst_x0: i32 = @divTrunc(target_w - sw, 2);
     const dst_y0: i32 = (baseline - cap) + @divTrunc(cap - sh, 2);
+    const inv_s: f32 = 1.0 / s;
+
+    var dy: i32 = 0;
+    while (dy < sh) : (dy += 1) {
+        const py = dst_y0 + dy;
+        if (py < 0 or py >= buf_h) continue;
+        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
+        var dx: i32 = 0;
+        while (dx < sw) : (dx += 1) {
+            const px = dst_x0 + dx;
+            if (px < 0 or px >= buf_w) continue;
+            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
+            const cov = sampleBilinear(src, gw, gh, pitch, is_mono, fsx, fsy);
+            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
+            if (dst_idx >= staging_buf.len) continue;
+            staging_buf[dst_idx] = cov;
+        }
+    }
+}
+
+/// scale an oversized alpha glyph to fit the full cell box
+fn blitScaledAlphaFit(
+    staging_buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    src: [*c]const u8,
+    gw: i32,
+    gh: i32,
+    pitch: u32,
+    is_mono: bool,
+    target_w: i32,
+) void {
+    if (gw <= 0 or gh <= 0) return;
+    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
+    const sy: f32 = @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(gh));
+    const s: f32 = @min(@min(sx, sy), 1.0);
+    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
+    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
+    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
+    const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
     const inv_s: f32 = 1.0 / s;
 
     var dy: i32 = 0;
