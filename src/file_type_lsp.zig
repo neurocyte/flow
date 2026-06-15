@@ -243,7 +243,7 @@ pub const verilog = .{
 
 pub const toml = .{
     .language_server = .{ "tombi", "lsp" },
-    .formatter = .{ "tombi", "format" },
+    .formatter = .{ "tombi", "format", "-" },
 };
 
 pub const typescript = .{
