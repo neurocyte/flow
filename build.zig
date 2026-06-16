@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
     const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (default), gui") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
+    const embed_emoji = b.option(bool, "embed-emoji", "Embed Noto Color Emoji as a built-in color glyph fallback (default: true)") orelse true;
 
     const run_step = b.step("run", "Run the app");
     const check_step = b.step("check", "Check the app");
@@ -53,6 +54,7 @@ pub fn build(b: *std.Build) void {
         version.written(),
         all_targets,
         test_filters,
+        embed_emoji,
     );
 }
 
@@ -71,6 +73,7 @@ fn build_development(
     version: []const u8,
     _: bool, // all_targets
     test_filters: []const []const u8,
+    embed_emoji: bool,
 ) void {
     // The gui renderer links system GL/X11 libraries which are not available
     // via the musl sysroot, so use the native ABI when building it.
@@ -95,6 +98,7 @@ fn build_development(
         renderer,
         version,
         test_filters,
+        embed_emoji,
     );
 }
 
@@ -113,6 +117,7 @@ fn build_release(
     version: []const u8,
     all_targets: bool,
     test_filters: []const []const u8,
+    embed_emoji: bool,
 ) void {
     const targets: []const struct { std.Target.Query, Renderer } = if (all_targets) &.{
         .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .terminal },
@@ -204,6 +209,7 @@ fn build_release(
             renderer,
             version,
             test_filters,
+            embed_emoji,
         );
 
         build_exe(
@@ -223,6 +229,7 @@ fn build_release(
             renderer,
             version,
             test_filters,
+            embed_emoji,
         );
     }
 }
@@ -244,6 +251,7 @@ pub fn build_exe(
     renderer: Renderer,
     version: []const u8,
     test_filters: []const []const u8,
+    embed_emoji: bool,
 ) void {
     const use_llvm = if (target.result.os.tag == .linux) true else use_llvm_;
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
@@ -584,12 +592,6 @@ pub fn build_exe(
                         .root_source_file = nerd_dep.path("SymbolsNerdFontMono-Regular.ttf"),
                     });
                 };
-
-                const embed_emoji = b.option(
-                    bool,
-                    "embed-emoji",
-                    "Embed Noto Color Emoji as a built-in color glyph fallback (default: true)",
-                ) orelse true;
 
                 const noto_emoji_font_mod = blk2: {
                     const flow_fonts_dep = b.lazyDependency("flow_fonts", .{}) orelse break :blk2 null;
