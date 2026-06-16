@@ -71,6 +71,10 @@
             .url = "git+https://github.com/ziglibs/diffz.git?ref=main#b39fe07e7fdbcf56e43ba2890b9f484f16969f90",
             .hash = "diffz-0.0.1-G2tlISzNAQCldmOcINavGmF1zdt20NFPXeM8d07jp_68",
         },
+        .flow_sprite = .{
+            .url = "git+https://github.com/neurocyte/flow-sprite?ref=master#75803859aa9e566c03b05ead7b30b6706d0af0f3",
+            .hash = "flow_sprite-1.3.2-dev-71wnMjxIBADJF3IPIB1inGMxMo77BBFN6fExBDJHsKYY",
+        },
     },
     .paths = .{
         "include",

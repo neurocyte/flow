@@ -2,6 +2,7 @@
 ///
 const std = @import("std");
 const uucode_utils = @import("uucode_utils");
+const flow_sprite = @import("flow_sprite");
 const win32 = @import("win32").everything;
 const XY = @import("xy").XY;
 
@@ -35,6 +36,7 @@ pub const Font = struct {
     cap_height_px: i32 = 0,
     underline_position: i32 = 0,
     underline_thickness: u16 = 1,
+    box_thickness: u16 = 1,
     size_px: u16 = 16,
     face: ?*win32.IDWriteFontFace = null,
     synth: SynthFlags = .{},
@@ -194,6 +196,7 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
     const ul_pos_px: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(m.underlinePosition)) * scale));
     const ul_thk_px_raw: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(m.underlineThickness)) * scale));
     const ul_thk_px: u16 = @intCast(@max(1, ul_thk_px_raw));
+    const box_thk_px: u16 = @intCast(@max(1, @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(m.underlineThickness)) * scale)))));
     const ul_centre_from_top: i32 = ascent_px - ul_pos_px;
     const ul_top_unclamped: i32 = ul_centre_from_top - @divTrunc(@as(i32, ul_thk_px), 2);
     const cell_h_i: i32 = @intCast(cell_h);
@@ -220,6 +223,7 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
         .cap_height_px = cap_height_px,
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
+        .box_thickness = box_thk_px,
         .size_px = size_px,
         .face = face,
         .synth = .{},
@@ -285,6 +289,19 @@ pub fn render(
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
+    if (self.block_and_line_symbols == .sprite) {
+        const buf_w: i32 = @as(i32, @intCast(font.cell_size.x)) * 2;
+        const buf_h: i32 = @intCast(font.cell_size.y);
+        const x_offset: i32 = switch (split) {
+            .single, .left => 0,
+            .right => @intCast(font.cell_size.x),
+        };
+        const cw: i32 = @intCast(font.cell_size.x);
+        const ch: i32 = @intCast(font.cell_size.y);
+        if (flow_sprite.renderSprite(self.allocator, codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch, font.box_thickness))
+            return .{ .format = .alpha };
+    }
+
     const face = font.face orelse return .{ .format = .alpha };
 
     // Check if primary face has the glyph

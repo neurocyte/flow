@@ -38,7 +38,7 @@ pub const Hinting = enum {
 
 pub const SymbolRasterizer = enum {
     font,
-    geometric,
+    sprite,
 
-    pub const default = .font;
+    pub const default = .sprite;
 };

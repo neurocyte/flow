@@ -3,7 +3,7 @@ const TrueType = @import("TrueType");
 const XY = @import("xy").XY;
 pub const font_finder = @import("font_finder");
 const fallback_resolver = @import("fallback_resolver");
-const geometric = @import("geometric");
+const flow_sprite = @import("flow_sprite");
 const root = @import("soft_root").root;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 const uucode_utils = @import("uucode_utils");
@@ -120,6 +120,7 @@ pub const Font = struct {
     underline_position: i32 = 0,
     /// Thickness of the underline bar, in pixels (>= 1).
     underline_thickness: u16 = 1,
+    box_thickness: u16 = 1,
     tt: ?TrueType = null,
     synth: SynthFlags = .{},
 };
@@ -222,6 +223,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     // matches what most fonts specify: thickness ≈ size / 14, position
     // about ⅓ of the way into the descender region.
     const ul_thk_px: u16 = @max(1, @as(u16, @intCast(@divFloor(@as(i32, @intCast(size_px)), 14))));
+    const box_thk_px: u16 = @max(1, @as(u16, @intCast(@divFloor(@as(i32, @intCast(size_px)) + 13, 14))));
     const cell_h_i: i32 = @intCast(cell_h);
     const descender: i32 = @max(1, cell_h_i - ascent_px);
     const ul_pos_unclamped: i32 = ascent_px + @divFloor(descender, 3);
@@ -235,6 +237,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .ascent_px = ascent_px,
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
+        .box_thickness = box_thk_px,
     };
 }
 
@@ -290,10 +293,9 @@ pub fn render(
     const cw: i32 = @intCast(font.cell_size.x);
     const ch: i32 = @intCast(font.cell_size.y);
 
-    if (self.block_and_line_symbols == .geometric) {
-        if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-        if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-        if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (self.block_and_line_symbols == .sprite) {
+        if (flow_sprite.renderSprite(self.allocator, codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch, font.box_thickness))
+            return .{ .format = .alpha };
     }
 
     const tt = font.tt orelse return .{ .format = .alpha };

@@ -1702,8 +1702,8 @@ const cmds = struct {
         }
         const gui_config = @import("gui_config");
         const next: gui_config.SymbolRasterizer = switch (tui.rdr().get_symbol_rasterizer()) {
-            .font => .geometric,
-            .geometric => .font,
+            .font => .sprite,
+            .sprite => .font,
         };
         tui.rdr().set_symbol_rasterizer(next);
         logger.print("block and line symbols {t}", .{next});

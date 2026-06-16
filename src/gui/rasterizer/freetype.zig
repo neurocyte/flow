@@ -6,7 +6,7 @@ const c = @cImport({
     @cInclude("freetype/ftoutln.h");
 });
 const XY = @import("xy").XY;
-const geometric = @import("geometric");
+const flow_sprite = @import("flow_sprite");
 pub const font_finder = @import("font_finder");
 const fallback_resolver = @import("fallback_resolver");
 
@@ -40,6 +40,7 @@ pub const Font = struct {
     cap_height_px: i32 = 0,
     underline_position: i32 = 0,
     underline_thickness: u16 = 1,
+    box_thickness: u16 = 1,
     face: c.FT_Face = null,
     synth: SynthFlags = .{},
 };
@@ -136,6 +137,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     const ul_pos_px: i32 = @intCast(@divFloor(ul_pos_q6 + 32, 64));
     const ul_thk_px_raw: i32 = @intCast(@divFloor(ul_thk_q6 + 32, 64));
     const ul_thk_px: u16 = @intCast(@max(1, ul_thk_px_raw));
+    const box_thk_px: u16 = @intCast(@max(1, @divFloor(ul_thk_q6 + 63, 64)));
     // Convert from baseline-up centre to cell-top-down top-edge.
     const ul_centre_from_top: i32 = ascent_px - ul_pos_px;
     const ul_top_unclamped: i32 = ul_centre_from_top - @divTrunc(@as(i32, ul_thk_px), 2);
@@ -148,6 +150,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .cap_height_px = cap_height_px,
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
+        .box_thickness = box_thk_px,
         .face = face,
     };
 }
@@ -220,10 +223,9 @@ pub fn render(
     const cw: i32 = @intCast(font.cell_size.x);
     const ch: i32 = @intCast(font.cell_size.y);
 
-    if (self.block_and_line_symbols == .geometric) {
-        if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-        if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
-        if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (self.block_and_line_symbols == .sprite) {
+        if (flow_sprite.renderSprite(self.allocator, codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch, font.box_thickness))
+            return .{ .format = .alpha };
     }
 
     const face = font.face orelse return .{ .format = .alpha };

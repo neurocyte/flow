@@ -555,9 +555,11 @@ pub fn build_exe(
                 const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
                 const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
 
-                const geometric_mod = b.createModule(.{
-                    .root_source_file = b.path("src/gui/rasterizer/geometric.zig"),
-                });
+                const flow_sprite_dep = b.lazyDependency("flow_sprite", .{
+                    .target = target,
+                    .optimize = optimize_deps,
+                }) orelse break :blk tui_renderer_mod;
+                const flow_sprite_mod = flow_sprite_dep.module("sprite");
 
                 const uucode_utils_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/uucode_utils.zig"),
@@ -607,6 +609,7 @@ pub fn build_exe(
                             .{ .name = "gui_config", .module = gui_config_mod },
                             .{ .name = "win32", .module = win32_mod },
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
+                            .{ .name = "flow_sprite", .module = flow_sprite_mod },
                         },
                     });
                     if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
@@ -641,7 +644,7 @@ pub fn build_exe(
                             .{ .name = "soft_root", .module = soft_root_mod },
                             .{ .name = "TrueType", .module = tt_dep.module("TrueType") },
                             .{ .name = "xy", .module = gui_xy_mod },
-                            .{ .name = "geometric", .module = geometric_mod },
+                            .{ .name = "flow_sprite", .module = flow_sprite_mod },
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
@@ -659,7 +662,7 @@ pub fn build_exe(
                         .target = target,
                         .imports = &.{
                             .{ .name = "xy", .module = gui_xy_mod },
-                            .{ .name = "geometric", .module = geometric_mod },
+                            .{ .name = "flow_sprite", .module = flow_sprite_mod },
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
