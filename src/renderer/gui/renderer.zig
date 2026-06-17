@@ -256,6 +256,7 @@ fn resolve_layer_origin(std_plane: Plane, surface: *Layer.Surface, target: Layer
 
 pub fn run(self: *Self, render_pid: ?tp.pid_ref) Error!void {
     if (self.thread) |_| return;
+    Layer.set_root_caps(&self.vx.caps);
     // Do a dummy resize to fully initialise vaxis internal state
     var drop: std.Io.Writer.Discarding = .init(&.{});
     self.vx.resize(

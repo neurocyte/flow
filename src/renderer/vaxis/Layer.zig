@@ -17,6 +17,16 @@ pub fn next_id() Id {
     return @enumFromInt(next_id_counter);
 }
 
+var root_caps: ?*const vaxis.Vaxis.Capabilities = null;
+
+pub fn set_root_caps(caps: *const vaxis.Vaxis.Capabilities) void {
+    root_caps = caps;
+}
+
+fn root_width_method() vaxis.gwidth.Method {
+    return if (root_caps) |caps| caps.unicode else .wcwidth;
+}
+
 allocator: std.mem.Allocator,
 id: Id,
 screen: vaxis.Screen,
@@ -40,6 +50,7 @@ pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error
             .y_pixel = 0,
         }),
     };
+    self.screen.width_method = root_width_method();
     return self;
 }
 
@@ -58,6 +69,7 @@ pub fn resize(self: *Layer, w: u16, h: u16, w_pix: u16, h_pix: u16) std.mem.Allo
         .x_pixel = w_pix,
         .y_pixel = h_pix,
     });
+    self.screen.width_method = root_width_method();
     self.cache_storage = .{};
 }
 

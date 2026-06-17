@@ -237,6 +237,8 @@ pub fn run(self: *Self, render_pid: ?@import("thespian").pid_ref) Error!void {
     self.vx.sgr = .legacy;
     self.vx.enable_workarounds = true;
 
+    Layer.set_root_caps(&self.vx.caps);
+
     panic_cleanup = .{ .allocator = self.allocator, .tty = &self.tty, .vx = &self.vx };
     if (!self.no_alternate) self.vx.enterAltScreen(self.tty.writer()) catch return error.TtyWriteError;
     if (builtin.os.tag == .windows) {
