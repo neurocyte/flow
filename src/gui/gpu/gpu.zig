@@ -424,6 +424,7 @@ pub const WindowState = struct {
         font: Font,
         face: Face,
         codepoint: u21,
+        emoji_presentation: bool,
         split: Rasterizer.GlyphSplit,
     ) u32 {
         const atlas_cell_count = getAtlasCellCount(font.cell_size);
@@ -466,6 +467,7 @@ pub const WindowState = struct {
             codepoint,
             right_half,
             wide,
+            emoji_presentation,
             @intFromEnum(face),
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
@@ -479,7 +481,7 @@ pub const WindowState = struct {
                 defer global.glyph_cache_arena.allocator().free(staging_buf);
                 @memset(staging_buf, 0);
 
-                const rr = global.rasterizer.render(font, codepoint, split, staging_buf);
+                const rr = global.rasterizer.render(font, codepoint, emoji_presentation, split, staging_buf);
                 cache.nodes[reserved.index].kind = @intFromEnum(rr.format);
 
                 // Atlas cell position for this glyph index
@@ -1041,7 +1043,7 @@ pub fn paint(
     const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font_set.cell_size.y));
 
     const copy_col_count: u16 = @min(col_count, shader_col_count);
-    const blank_glyph_index = state.generateGlyph(font_set.faces[@intFromEnum(Face.regular)], .regular, ' ', .single);
+    const blank_glyph_index = state.generateGlyph(font_set.faces[@intFromEnum(Face.regular)], .regular, ' ', false, .single);
 
     const alloc = global.glyph_cache_arena.allocator();
     state.updateCellImage(alloc, shader_col_count, shader_row_count);

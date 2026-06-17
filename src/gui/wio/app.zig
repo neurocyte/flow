@@ -82,6 +82,7 @@ const LayerSnapshot = struct {
     cells: []gpu.Cell,
     codepoints: []u21,
     widths: []u8,
+    emoji: []bool,
     width: u16,
     height: u16,
     cursors: []gpu.CursorInfo,
@@ -240,6 +241,23 @@ pub fn updateScreen(
     if (render_pid) |*rp| rp.send(.{ "tick", @as(usize, 0) }) catch {};
 }
 
+fn graphemeEmojiPresentation(g: []const u8) bool {
+    if (g.len < 2) return false; // empty or single-byte ASCII: never emoji
+    var has_emoji_vs = false;
+    var base_emoji = false;
+    var first = true;
+    var it = (std.unicode.Utf8View.init(g) catch return false).iterator();
+    while (it.nextCodepoint()) |cp| {
+        if (cp == 0xFE0E) return false; // text presentation selector
+        if (cp == 0xFE0F) has_emoji_vs = true;
+        if (first) {
+            base_emoji = uucode.get(.is_emoji_presentation, @intCast(cp));
+            first = false;
+        }
+    }
+    return has_emoji_vs or base_emoji;
+}
+
 fn buildLayerSnapshot(
     allocator: std.mem.Allocator,
     lv: *const LayerView,
@@ -252,6 +270,8 @@ fn buildLayerSnapshot(
     errdefer allocator.free(codepoints);
     const widths = try allocator.alloc(u8, cell_count);
     errdefer allocator.free(widths);
+    const emoji = try allocator.alloc(bool, cell_count);
+    errdefer allocator.free(emoji);
     const cursors = try allocator.alloc(gpu.CursorInfo, lv.secondary_cursors.len + 1);
     @memcpy(cursors[0..lv.secondary_cursors.len], lv.secondary_cursors);
     cursors[lv.secondary_cursors.len] = lv.cursor;
@@ -261,7 +281,7 @@ fn buildLayerSnapshot(
     const transparent = window_transparency;
 
     // Convert vaxis cells to gpu.Cell (colours only; glyph indices filled on GPU thread).
-    for (lv.screen.buf[0..cell_count], cells, codepoints, widths) |*vc, *gc, *cp, *wt| {
+    for (lv.screen.buf[0..cell_count], cells, codepoints, widths, emoji) |*vc, *gc, *cp, *wt, *em| {
         const ul_color: RGBA = switch (vc.style.ul) {
             .default => RGBA.init(0, 0, 0, 0),
             else => colorFromVaxis(vc.style.ul),
@@ -295,6 +315,7 @@ fn buildLayerSnapshot(
             break :blk std.unicode.utf8Decode(g[0..@min(seq_len, g.len)]) catch ' ';
         } else ' ';
         wt.* = vc.char.width;
+        em.* = graphemeEmojiPresentation(g);
     }
 
     // Set cursor width from it's cell
@@ -308,6 +329,7 @@ fn buildLayerSnapshot(
         .cells = cells,
         .codepoints = codepoints,
         .widths = widths,
+        .emoji = emoji,
         .width = lv.screen.width,
         .height = lv.screen.height,
         .cursors = cursors,
@@ -318,6 +340,7 @@ fn freeLayerSnapshot(allocator: std.mem.Allocator, ls: *LayerSnapshot) void {
     allocator.free(ls.cells);
     allocator.free(ls.codepoints);
     allocator.free(ls.widths);
+    allocator.free(ls.emoji);
     allocator.free(ls.cursors);
 }
 
@@ -1099,6 +1122,7 @@ pub fn renderActorTick() void {
         @memcpy(layer_cells, ls.cells);
 
         var layer_prev_cp: u21 = ' ';
+        var layer_prev_emoji: bool = false;
         var ci: usize = 0;
         while (ci < layer_cells.len) : (ci += 1) {
             const cell = &layer_cells[ci];
@@ -1110,25 +1134,30 @@ pub fn renderActorTick() void {
                 else => .single,
             };
             const glyph_cp = if (w == 0) layer_prev_cp else cp;
+            const emoji = if (w == 0) layer_prev_emoji else ls.emoji[ci];
             const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
             const per_face = font_set.faces[@intFromEnum(face)];
 
             // Terminal-assigned double-width: generate both halves now
             if (w == 2) {
-                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .left);
+                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .left);
                 const same_row = (ci % ls.width) + 1 < ls.width;
                 if (same_row and ci + 1 < layer_cells.len) {
                     const placeholder = &layer_cells[ci + 1];
                     placeholder.* = cell.*;
-                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
+                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .right);
                     ci += 1;
                 }
                 layer_prev_cp = cp;
+                layer_prev_emoji = emoji;
                 continue;
             }
 
-            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
-            if (w != 0) layer_prev_cp = cp;
+            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, split);
+            if (w != 0) {
+                layer_prev_cp = cp;
+                layer_prev_emoji = emoji;
+            }
         }
 
         // layers[0] size the full window

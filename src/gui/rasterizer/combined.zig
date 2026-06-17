@@ -377,24 +377,25 @@ pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
+    emoji_presentation: bool,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
     if (is_windows) {
         return switch (font.backend) {
             .dwrite => |f| blk: {
-                const r = self.dw.render(f, codepoint, split, staging_buf);
+                const r = self.dw.render(f, codepoint, emoji_presentation, split, staging_buf);
                 break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
             },
         };
     } else {
         return switch (font.backend) {
             .truetype => |f| blk: {
-                const r = self.tt.render(f, codepoint, split, staging_buf);
+                const r = self.tt.render(f, codepoint, emoji_presentation, split, staging_buf);
                 break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
             },
             .freetype => |f| blk: {
-                const r = self.ft.render(f, codepoint, @enumFromInt(@intFromEnum(split)), staging_buf);
+                const r = self.ft.render(f, codepoint, emoji_presentation, @enumFromInt(@intFromEnum(split)), staging_buf);
                 break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
             },
         };

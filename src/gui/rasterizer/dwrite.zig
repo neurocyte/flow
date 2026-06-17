@@ -286,6 +286,7 @@ pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
+    emoji_presentation: bool,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
@@ -309,7 +310,8 @@ pub fn render(
     const cps_check = [_]u32{@intCast(codepoint)};
     const has_glyph = (face.GetGlyphIndices(@ptrCast(&cps_check), 1, @ptrCast(&gi_check)) >= 0 and gi_check[0] != 0);
 
-    if (has_glyph) {
+    const want_color = emoji_presentation and self.allow_color_glyphs;
+    if (has_glyph and !want_color) {
         return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
     }
 

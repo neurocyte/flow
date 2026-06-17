@@ -7,6 +7,7 @@ pub const Node = struct {
     codepoint: ?u21,
     right_half: ?bool,
     wide: ?bool,
+    emoji: ?bool,
     face: u2,
     /// glyph format: 0=alpha, 1=subpixel, 2=color.
     kind: u2 = 0,
@@ -16,6 +17,7 @@ const MapKey = struct {
     codepoint: u21,
     right_half: bool,
     wide: bool,
+    emoji: bool,
     face: u2,
 };
 
@@ -43,6 +45,7 @@ pub fn clearRetainingCapacity(self: *GlyphIndexCache) void {
         .codepoint = null,
         .right_half = null,
         .wide = null,
+        .emoji = null,
         .face = 0,
         .kind = 0,
     };
@@ -52,6 +55,7 @@ pub fn clearRetainingCapacity(self: *GlyphIndexCache) void {
         .codepoint = null,
         .right_half = null,
         .wide = null,
+        .emoji = null,
         .face = 0,
         .kind = 0,
     };
@@ -62,6 +66,7 @@ pub fn clearRetainingCapacity(self: *GlyphIndexCache) void {
             .codepoint = null,
             .right_half = null,
             .wide = null,
+            .emoji = null,
             .face = 0,
             .kind = 0,
         };
@@ -83,12 +88,12 @@ const Reserved = struct {
     index: u32,
     replaced: ?u21,
 };
-pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: u21, right_half: bool, wide: bool, face: u2) error{OutOfMemory}!union(enum) {
+pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: u21, right_half: bool, wide: bool, emoji: bool, face: u2) error{OutOfMemory}!union(enum) {
     newly_reserved: Reserved,
     already_reserved: u32,
 } {
     {
-        const entry = try self.map.getOrPut(allocator, .{ .codepoint = codepoint, .right_half = right_half, .wide = wide, .face = face });
+        const entry = try self.map.getOrPut(allocator, .{ .codepoint = codepoint, .right_half = right_half, .wide = wide, .emoji = emoji, .face = face });
         if (entry.found_existing) {
             self.moveToBack(entry.value_ptr.*);
             return .{ .already_reserved = entry.value_ptr.* };
@@ -105,6 +110,7 @@ pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: 
             .codepoint = r,
             .right_half = front_node.right_half orelse false,
             .wide = front_node.wide orelse false,
+            .emoji = front_node.emoji orelse false,
             .face = front_node.face,
         });
         std.debug.assert(removed);
@@ -112,6 +118,7 @@ pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: 
     front_node.codepoint = codepoint;
     front_node.right_half = right_half;
     front_node.wide = wide;
+    front_node.emoji = emoji;
     front_node.face = face;
     const save_front = self.front;
     self.moveToBack(self.front);
@@ -179,7 +186,7 @@ test "GlyphIndexCache" {
 
     try cache.testValidate(&validation_buf);
 
-    switch (try cache.reserve(allocator, 'A', false, false, 0)) {
+    switch (try cache.reserve(allocator, 'A', false, false, false, 0)) {
         .newly_reserved => |reserved| {
             try cache.testValidate(&validation_buf);
             try testing.expectEqual(0, reserved.index);
@@ -189,7 +196,7 @@ test "GlyphIndexCache" {
         },
         else => return error.TestUnexpectedResult,
     }
-    switch (try cache.reserve(allocator, 'A', false, false, 0)) {
+    switch (try cache.reserve(allocator, 'A', false, false, false, 0)) {
         .already_reserved => |index| {
             try cache.testValidate(&validation_buf);
             try testing.expectEqual(0, index);
@@ -199,7 +206,7 @@ test "GlyphIndexCache" {
         else => return error.TestUnexpectedResult,
     }
 
-    switch (try cache.reserve(allocator, 'B', false, false, 0)) {
+    switch (try cache.reserve(allocator, 'B', false, false, false, 0)) {
         .newly_reserved => |reserved| {
             try cache.testValidate(&validation_buf);
             try testing.expectEqual(1, reserved.index);
@@ -209,7 +216,7 @@ test "GlyphIndexCache" {
         },
         else => return error.TestUnexpectedResult,
     }
-    switch (try cache.reserve(allocator, 'A', false, false, 0)) {
+    switch (try cache.reserve(allocator, 'A', false, false, false, 0)) {
         .already_reserved => |index| {
             try cache.testValidate(&validation_buf);
             try testing.expectEqual(0, index);
@@ -229,7 +236,7 @@ test "GlyphIndexCache" {
         try testing.expect(!cache.isFull());
     }
 
-    switch (try cache.reserve(allocator, 'C', false, false, 0)) {
+    switch (try cache.reserve(allocator, 'C', false, false, false, 0)) {
         .newly_reserved => |reserved| {
             try cache.testValidate(&validation_buf);
             try testing.expectEqual(2, reserved.index);
@@ -251,7 +258,7 @@ test "GlyphIndexCache" {
     {
         const expected_index = cache.front;
         const expected_replaced = cache.nodes[cache.front].codepoint.?;
-        switch (try cache.reserve(allocator, 'D', false, false, 0)) {
+        switch (try cache.reserve(allocator, 'D', false, false, false, 0)) {
             .newly_reserved => |reserved| {
                 try cache.testValidate(&validation_buf);
                 try testing.expectEqual(expected_index, reserved.index);

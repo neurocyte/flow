@@ -23,8 +23,9 @@ pub fn FallbackResolver(comptime Backend: type) type {
             embedded: bool,
         };
         const CacheEntry = struct { found: bool, index: u8 };
+        const CacheKey = struct { cp: u21, color: bool };
 
-        cache: std.AutoHashMapUnmanaged(u21, CacheEntry) = .empty,
+        cache: std.AutoHashMapUnmanaged(CacheKey, CacheEntry) = .empty,
         faces: std.ArrayList(Entry) = .empty,
         current_size_px: u16 = 0,
         embedded_loaded: bool = false,
@@ -60,6 +61,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
             allocator: std.mem.Allocator,
             codepoint: u21,
             size_px: u16,
+            prefer_color_override: bool,
         ) ?*const Backend.Face {
             if (self.current_size_px != 0 and self.current_size_px != size_px) {
                 for (self.faces.items) |*e| Backend.deinitFace(ctx, allocator, &e.face);
@@ -70,12 +72,14 @@ pub fn FallbackResolver(comptime Backend: type) type {
             self.current_size_px = size_px;
             self.loadEmbedded(ctx, allocator, size_px);
 
-            if (self.cache.get(codepoint)) |entry|
+            const prefer_color = prefer_color_override or Backend.preferColor(codepoint);
+            const key: CacheKey = .{ .cp = codepoint, .color = prefer_color };
+
+            if (self.cache.get(key)) |entry|
                 return if (entry.found) &self.faces.items[entry.index].face else null;
 
-            const prefer_color = Backend.preferColor(codepoint);
             const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color) catch
-                return self.cacheNegative(allocator, codepoint);
+                return self.cacheNegative(allocator, key);
             defer {
                 for (candidates) |cand| allocator.free(cand.path);
                 allocator.free(candidates);
@@ -88,7 +92,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
                 for (self.faces.items, 0..) |*existing, idx| {
                     if (existing.path_hash == path_hash) {
                         if (Backend.hasGlyph(&existing.face, codepoint)) {
-                            self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
+                            self.cache.put(allocator, key, .{ .found = true, .index = @intCast(idx) }) catch {};
                             return &self.faces.items[idx].face;
                         }
                         seen = true;
@@ -106,35 +110,35 @@ pub fn FallbackResolver(comptime Backend: type) type {
                 if (self.faces.items.len >= max_faces) {
                     var f = face;
                     Backend.deinitFace(ctx, allocator, &f);
-                    return self.cacheNegative(allocator, codepoint);
+                    return self.cacheNegative(allocator, key);
                 }
                 const idx: u8 = @intCast(self.faces.items.len);
                 self.faces.append(allocator, .{ .face = face, .path_hash = path_hash, .embedded = false }) catch {
                     var f = face;
                     Backend.deinitFace(ctx, allocator, &f);
-                    return self.cacheNegative(allocator, codepoint);
+                    return self.cacheNegative(allocator, key);
                 };
-                self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
+                self.cache.put(allocator, key, .{ .found = true, .index = idx }) catch {};
                 return &self.faces.items[idx].face;
             }
 
             for (self.faces.items, 0..) |*e, idx| {
                 if (e.embedded and Backend.hasGlyph(&e.face, codepoint)) {
-                    self.cache.put(allocator, codepoint, .{ .found = true, .index = @intCast(idx) }) catch {};
+                    self.cache.put(allocator, key, .{ .found = true, .index = @intCast(idx) }) catch {};
                     return &self.faces.items[idx].face;
                 }
             }
 
-            return self.cacheNegative(allocator, codepoint);
+            return self.cacheNegative(allocator, key);
         }
 
-        pub fn resolveExisting(self: *Resolver, codepoint: u21) ?*const Backend.Face {
-            const entry = self.cache.get(codepoint) orelse return null;
+        pub fn resolveExisting(self: *Resolver, codepoint: u21, prefer_color: bool) ?*const Backend.Face {
+            const entry = self.cache.get(.{ .cp = codepoint, .color = prefer_color }) orelse return null;
             return if (entry.found) &self.faces.items[entry.index].face else null;
         }
 
-        fn cacheNegative(self: *Resolver, allocator: std.mem.Allocator, codepoint: u21) ?*const Backend.Face {
-            self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+        fn cacheNegative(self: *Resolver, allocator: std.mem.Allocator, key: CacheKey) ?*const Backend.Face {
+            self.cache.put(allocator, key, .{ .found = false, .index = 0 }) catch {};
             return null;
         }
     };

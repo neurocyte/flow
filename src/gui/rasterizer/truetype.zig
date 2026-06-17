@@ -281,9 +281,11 @@ pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
+    emoji_presentation: bool,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
+    _ = emoji_presentation; // truetype has no color path
     const buf_w: i32 = @as(i32, @intCast(font.cell_size.x)) * 2;
     const buf_h: i32 = @intCast(font.cell_size.y);
     const x_offset: i32 = switch (split) {
@@ -305,7 +307,7 @@ pub fn render(
 
     if (glyph == .notdef and codepoint != 0) {
         if (self.fallbackResolver()) |fb| {
-            if (fb.resolve({}, self.allocator, codepoint, font.size_px)) |fb_face| {
+            if (fb.resolve({}, self.allocator, codepoint, font.size_px, false)) |fb_face| {
                 const fg = fb_face.tt.codepointGlyphIndex(codepoint);
                 const fscale: f32 = @as(f32, @floatFromInt(font.size_px)) /
                     @as(f32, @floatFromInt(@max(fb_face.units_per_em, 1)));

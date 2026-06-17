@@ -193,7 +193,7 @@ pub fn glyphAdvance(self: *const Self, font: Font, codepoint: u21) ?u16 {
     if (c.FT_Get_Char_Index(face, codepoint) == 0) {
         // Check fallback faces
         if (self.fallback) |fb| {
-            if (fb.resolveExisting(codepoint)) |fb_face| {
+            if (fb.resolveExisting(codepoint, false)) |fb_face| {
                 if (c.FT_Load_Char(fb_face.ft_face, codepoint, c.FT_LOAD_DEFAULT) == 0) {
                     const adv: i32 = @intCast((fb_face.ft_face.*.glyph.*.advance.x + 32) >> 6);
                     return if (adv > 0) @intCast(adv) else null;
@@ -211,6 +211,7 @@ pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
+    emoji_presentation: bool,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
@@ -230,19 +231,20 @@ pub fn render(
 
     const face = font.face orelse return .{ .format = .alpha };
 
-    if (c.FT_Get_Char_Index(face, codepoint) != 0) {
+    // For emoji presentation prefer a color fallback over a monochrome primary
+    const want_color = emoji_presentation and self.allow_color_glyphs;
+    if (c.FT_Get_Char_Index(face, codepoint) != 0 and (!want_color or ftHasColor(face))) {
         return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
     }
 
-    if (self.fallback) |fb| {
-        if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
-            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
-        }
-    } else {
-        const fb = self.allocator.create(FallbackResolver) catch return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
-        fb.* = .{};
-        @constCast(&self.fallback).* = fb;
-        if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y)) |fb_face| {
+    const resolver: ?*FallbackResolver = if (self.fallback) |existing| existing else blk: {
+        const new_fb = self.allocator.create(FallbackResolver) catch break :blk null;
+        new_fb.* = .{};
+        @constCast(&self.fallback).* = new_fb;
+        break :blk new_fb;
+    };
+    if (resolver) |fb| {
+        if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y, want_color)) |fb_face| {
             return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
         }
     }
