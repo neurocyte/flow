@@ -554,6 +554,7 @@ pub fn build_exe(
                 }) catch |e| std.debug.panic("sokol-shdc createModule failed: {s}", .{@errorName(e)});
 
                 const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
+                const gui_glyph_constraint_mod = b.createModule(.{ .root_source_file = b.path("src/gui/glyph_constraint.zig") });
                 const gui_cell_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/cell.zig"),
                     .imports = &.{
@@ -583,6 +584,7 @@ pub fn build_exe(
                     .imports = &.{
                         .{ .name = "xy", .module = gui_xy_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
+                        .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                     },
                 });
 
@@ -612,6 +614,7 @@ pub fn build_exe(
                             .{ .name = "win32", .module = win32_mod },
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
                             .{ .name = "flow_sprite", .module = flow_sprite_mod },
+                            .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                         },
                     });
                     if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
@@ -651,6 +654,7 @@ pub fn build_exe(
                             .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
+                            .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                         },
                     });
                     if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);
@@ -670,6 +674,7 @@ pub fn build_exe(
                             .{ .name = "gui_config", .module = gui_config_mod },
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
                             .{ .name = "build_options", .module = gui_embed_options_mod },
+                            .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                         },
                     });
                     if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
@@ -799,6 +804,15 @@ pub fn build_exe(
     const match_test_run_cmd = b.addRunArtifact(b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/match.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+        .filters = test_filters,
+    }));
+
+    const glyph_constraint_test_run_cmd = b.addRunArtifact(b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/gui/glyph_constraint.zig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -1090,6 +1104,7 @@ pub fn build_exe(
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
+    test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
 
     const lints = b.addFmt(.{

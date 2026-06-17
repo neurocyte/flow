@@ -17,6 +17,8 @@ const log = std.log.scoped(.rasterizer);
 pub const GlyphSplit = Primary.GlyphSplit;
 pub const RasterFormat = Primary.RasterFormat;
 pub const RenderResult = Primary.RenderResult;
+pub const glyph_constraint = @import("glyph_constraint");
+pub const Constraint = glyph_constraint.Constraint;
 pub const Fonts = struct {};
 pub const font_finder = Primary.font_finder;
 
@@ -378,24 +380,26 @@ pub fn render(
     font: Font,
     codepoint: u21,
     emoji_presentation: bool,
+    constraint: Constraint,
+    constraint_width: u2,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
     if (is_windows) {
         return switch (font.backend) {
             .dwrite => |f| blk: {
-                const r = self.dw.render(f, codepoint, emoji_presentation, split, staging_buf);
+                const r = self.dw.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
                 break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
             },
         };
     } else {
         return switch (font.backend) {
             .truetype => |f| blk: {
-                const r = self.tt.render(f, codepoint, emoji_presentation, split, staging_buf);
+                const r = self.tt.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
                 break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
             },
             .freetype => |f| blk: {
-                const r = self.ft.render(f, codepoint, emoji_presentation, @enumFromInt(@intFromEnum(split)), staging_buf);
+                const r = self.ft.render(f, codepoint, emoji_presentation, constraint, constraint_width, @enumFromInt(@intFromEnum(split)), staging_buf);
                 break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
             },
         };

@@ -4,6 +4,7 @@ const c = @cImport({
     @cInclude("ft2build.h");
     @cInclude("freetype/freetype.h");
     @cInclude("freetype/ftoutln.h");
+    @cInclude("freetype/ftbbox.h");
 });
 const XY = @import("xy").XY;
 const flow_sprite = @import("flow_sprite");
@@ -17,6 +18,7 @@ const Hinting = @import("gui_config").Hinting;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 const uucode_utils = @import("uucode_utils");
 const uucode = uucode_utils.uucode;
+const glyph_constraint = @import("glyph_constraint");
 
 pub const RasterFormat = enum(u2) {
     alpha = 0,
@@ -43,7 +45,25 @@ pub const Font = struct {
     box_thickness: u16 = 1,
     face: c.FT_Face = null,
     synth: SynthFlags = .{},
+
+    face_width: f64 = 0,
+    face_height: f64 = 0,
+    face_y: f64 = 0,
+    icon_height: f64 = 0,
+    icon_height_single: f64 = 0,
 };
+
+pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
+    return .{
+        .cell_width = font.cell_size.x,
+        .cell_height = font.cell_size.y,
+        .face_width = font.face_width,
+        .face_height = font.face_height,
+        .face_y = font.face_y,
+        .icon_height = font.icon_height,
+        .icon_height_single = font.icon_height_single,
+    };
+}
 
 pub const FaceRequest = struct {
     family: []const u8,
@@ -118,12 +138,18 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     // Cell width from advance of 'M', cap height from its top bearing
     var cell_w: u16 = @max(1, size_px / 2);
     var cap_height_px: i32 = @divTrunc(ascent_px * 7, 10); // fallback
+    var face_advance_px: f64 = @floatFromInt(cell_w); // unrounded advance
     if (c.FT_Load_Char(face, 'M', c.FT_LOAD_DEFAULT) == 0) {
         const adv: i32 = @intCast((face.*.glyph.*.advance.x + 32) >> 6);
-        if (adv > 0) cell_w = @intCast(adv);
+        if (adv > 0) {
+            cell_w = @intCast(adv);
+            face_advance_px = @as(f64, @floatFromInt(face.*.glyph.*.advance.x)) / 64.0;
+        }
         const cap: i32 = @intCast((face.*.glyph.*.metrics.horiBearingY + 32) >> 6);
         if (cap > 0) cap_height_px = cap;
     }
+
+    const grid_metrics = glyph_constraint.metricsFromCell(cell_w, cell_h, face_advance_px, @floatFromInt(cap_height_px));
 
     // Underline metrics: face fields are in font units. y_scale is 16.16 fixed
     // and produces 26.6 pixel values when multiplied with font units >> 16.
@@ -152,6 +178,11 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .underline_thickness = ul_thk_px,
         .box_thickness = box_thk_px,
         .face = face,
+        .face_width = grid_metrics.face_width,
+        .face_height = grid_metrics.face_height,
+        .face_y = grid_metrics.face_y,
+        .icon_height = grid_metrics.icon_height,
+        .icon_height_single = grid_metrics.icon_height_single,
     };
 }
 
@@ -212,6 +243,8 @@ pub fn render(
     font: Font,
     codepoint: u21,
     emoji_presentation: bool,
+    constraint: glyph_constraint.Constraint,
+    constraint_width: u2,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
@@ -230,11 +263,12 @@ pub fn render(
     }
 
     const face = font.face orelse return .{ .format = .alpha };
+    const metrics = constraintMetrics(font);
 
     // For emoji presentation prefer a color fallback over a monochrome primary
     const want_color = emoji_presentation and self.allow_color_glyphs;
     if (c.FT_Get_Char_Index(face, codepoint) != 0 and (!want_color or ftHasColor(face))) {
-        return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
+        return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.synth, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
     }
 
     const resolver: ?*FallbackResolver = if (self.fallback) |existing| existing else blk: {
@@ -245,11 +279,11 @@ pub fn render(
     };
     if (resolver) |fb| {
         if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y, want_color)) |fb_face| {
-            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, .{}, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
         }
     }
 
-    return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
+    return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.synth, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
 }
 
 /// FreeType's FT_HAS_COLOR(face) macro:
@@ -263,16 +297,20 @@ fn renderFromFace(
     face: c.FT_Face,
     ascent_px: i32,
     cell_ascent_px: i32,
-    cap_height_px: i32,
     synth: SynthFlags,
-    from_fallback: bool,
     codepoint: u21,
+    constraint: glyph_constraint.Constraint,
+    constraint_width: u2,
     split: GlyphSplit,
     cell_size: XY(u16),
+    metrics: glyph_constraint.Metrics,
     staging_buf: []u8,
 ) RenderResult {
     const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
     const buf_h: i32 = @intCast(cell_size.y);
+
+    const has_color_face = self.allow_color_glyphs and ftHasColor(face);
+    const constrained = constraint.doesAnything() and !has_color_face;
 
     const hint_flags: c_long = switch (self.hinting) {
         .none => c.FT_LOAD_NO_HINTING,
@@ -280,11 +318,12 @@ fn renderFromFace(
         .normal => c.FT_LOAD_TARGET_NORMAL,
         .mono => c.FT_LOAD_TARGET_MONO,
     };
-    const has_color_face = self.allow_color_glyphs and ftHasColor(face);
+
+    const glyph_hint_flags: c_long = if (constrained) c.FT_LOAD_NO_HINTING else hint_flags;
     const load_flags: c.FT_Int32 = if (has_color_face)
         @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_COLOR | hint_flags)
     else
-        @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP | hint_flags);
+        @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP | glyph_hint_flags);
     if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return .{ .format = .alpha };
 
     if (synth.italic and !has_color_face) {
@@ -297,23 +336,8 @@ fn renderFromFace(
         c.FT_Outline_Transform(&face.*.glyph.*.outline, &shear);
     }
 
-    const wide_pua = split != .single and !has_color_face and uucode_utils.isPrivateUse(codepoint);
-    if (wide_pua and face.*.glyph.*.outline.n_points > 0) {
-        var cbox: c.FT_BBox = undefined;
-        c.FT_Outline_Get_CBox(&face.*.glyph.*.outline, &cbox);
-        const ow: f32 = @as(f32, @floatFromInt(cbox.xMax - cbox.xMin)) / 64.0;
-        const oh: f32 = @as(f32, @floatFromInt(cbox.yMax - cbox.yMin)) / 64.0;
-        if (ow > 0 and oh > 0) {
-            const tw: f32 = @as(f32, @floatFromInt(cell_size.x)) * 1.5;
-            const th: f32 = @floatFromInt(cell_size.y);
-            const s: f32 = @min(tw / ow, th / oh);
-            if (s > 1.0) {
-                const fixed: c.FT_Fixed = @intFromFloat(@round(s * 65536.0));
-                var m: c.FT_Matrix = .{ .xx = fixed, .xy = 0, .yx = 0, .yy = fixed };
-                c.FT_Outline_Transform(&face.*.glyph.*.outline, &m);
-            }
-        }
-    }
+    if (constrained and face.*.glyph.*.outline.n_points > 0)
+        applyConstraintOutline(&face.*.glyph.*.outline, constraint, metrics, constraint_width, @intCast(cell_size.y), cell_ascent_px);
 
     const render_mode: c.FT_Render_Mode = if (self.hinting == .mono and !has_color_face)
         c.FT_RENDER_MODE_MONO
@@ -326,11 +350,8 @@ fn renderFromFace(
     if (bm.pitch <= 0) return .{ .format = .alpha };
 
     const pitch: u32 = @intCast(bm.pitch);
-    const off_x: i32 = face.*.glyph.*.bitmap_left;
-    const off_y: i32 = ascent_px - face.*.glyph.*.bitmap_top;
     const is_mono = bm.pixel_mode == c.FT_PIXEL_MODE_MONO;
     const gw: i32 = @intCast(bm.width);
-    const gh: i32 = @intCast(bm.rows);
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
     if (bm.pixel_mode == c.FT_PIXEL_MODE_BGRA) {
@@ -338,28 +359,14 @@ fn renderFromFace(
         return .{ .format = .color };
     }
 
-    if (wide_pua) {
-        blitWideSymbol(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono);
-        return .{ .format = .alpha };
-    }
-
-    if (from_fallback) {
-        const too_big = gw > target_w or gh > buf_h;
-        const overflows = too_big or off_y < 0 or off_y + gh > buf_h;
-
-        if (overflows and uucode_utils.isWideCandidate(codepoint)) {
-            blitScaledAlpha(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w, cell_ascent_px, cap_height_px);
-            return .{ .format = .alpha };
-        }
-
-        if (too_big) {
-            blitScaledAlphaFit(staging_buf, buf_w, buf_h, bm.buffer, gw, gh, pitch, is_mono, target_w);
-            return .{ .format = .alpha };
-        }
-    }
+    const off_x: i32 = face.*.glyph.*.bitmap_left;
+    const off_y: i32 = if (constrained)
+        @as(i32, @intCast(cell_size.y)) - face.*.glyph.*.bitmap_top
+    else
+        ascent_px - face.*.glyph.*.bitmap_top;
 
     const glyph_extent: i32 = off_x + gw;
-    const center_offset: i32 = if (split != .single and glyph_extent < buf_w)
+    const center_offset: i32 = if (!constrained and split != .single and glyph_extent < buf_w)
         @divTrunc(buf_w - glyph_extent, 2)
     else
         0;
@@ -389,145 +396,48 @@ fn renderFromFace(
     return .{ .format = .alpha };
 }
 
-fn srcCoverage(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, is_mono: bool, x: i32, y: i32) u8 {
-    const cx: u32 = @intCast(std.math.clamp(x, 0, gw - 1));
-    const cy: u32 = @intCast(std.math.clamp(y, 0, gh - 1));
-    if (is_mono) {
-        const byte = src[cy * pitch + (cx >> 3)];
-        const bit: u3 = @intCast(7 - (cx & 7));
-        return if ((byte >> bit) & 1 != 0) 0xFF else 0x00;
-    }
-    return src[cy * pitch + cx];
-}
-
-fn sampleBilinear(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, is_mono: bool, fx: f32, fy: f32) u8 {
-    const x0: i32 = @intFromFloat(@floor(fx));
-    const y0: i32 = @intFromFloat(@floor(fy));
-    const tx: f32 = fx - @floor(fx);
-    const ty: f32 = fy - @floor(fy);
-    const c00: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0, y0));
-    const c10: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0 + 1, y0));
-    const c01: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0, y0 + 1));
-    const c11: f32 = @floatFromInt(srcCoverage(src, gw, gh, pitch, is_mono, x0 + 1, y0 + 1));
-    const top = c00 * (1 - tx) + c10 * tx;
-    const bot = c01 * (1 - tx) + c11 * tx;
-    return @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
-}
-
-fn blitScaledAlpha(
-    staging_buf: []u8,
-    buf_w: i32,
-    buf_h: i32,
-    src: [*c]const u8,
-    gw: i32,
-    gh: i32,
-    pitch: u32,
-    is_mono: bool,
-    target_w: i32,
-    cell_ascent_px: i32,
-    cap_height_px: i32,
+fn applyConstraintOutline(
+    outline: *c.FT_Outline,
+    constraint: glyph_constraint.Constraint,
+    metrics: glyph_constraint.Metrics,
+    constraint_width: u2,
+    cell_height: i32,
+    cell_baseline_from_top: i32,
 ) void {
-    if (gw <= 0 or gh <= 0) return;
-    const baseline: i32 = if (cell_ascent_px > 0 and cell_ascent_px <= buf_h) cell_ascent_px else buf_h;
-    const cap: i32 = if (cap_height_px > 0 and cap_height_px <= baseline) cap_height_px else baseline;
-    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
-    const sy: f32 = @as(f32, @floatFromInt(cap)) / @as(f32, @floatFromInt(gh));
-    const s: f32 = @min(@min(sx, sy), 1.0);
-    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
-    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
-    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
-    const dst_y0: i32 = (baseline - cap) + @divTrunc(cap - sh, 2);
-    const inv_s: f32 = 1.0 / s;
+    if (outline.n_points <= 0) return;
 
-    var dy: i32 = 0;
-    while (dy < sh) : (dy += 1) {
-        const py = dst_y0 + dy;
-        if (py < 0 or py >= buf_h) continue;
-        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
-        var dx: i32 = 0;
-        while (dx < sw) : (dx += 1) {
-            const px = dst_x0 + dx;
-            if (px < 0 or px >= buf_w) continue;
-            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
-            const cov = sampleBilinear(src, gw, gh, pitch, is_mono, fsx, fsy);
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (dst_idx >= staging_buf.len) continue;
-            staging_buf[dst_idx] = cov;
-        }
-    }
-}
+    var bbox: c.FT_BBox = undefined;
+    _ = c.FT_Outline_Get_BBox(outline, &bbox);
+    const rect_x: f64 = @as(f64, @floatFromInt(bbox.xMin)) / 64.0;
+    const rect_y: f64 = @as(f64, @floatFromInt(bbox.yMin)) / 64.0;
+    const rect_w: f64 = @as(f64, @floatFromInt(bbox.xMax - bbox.xMin)) / 64.0;
+    const rect_h: f64 = @as(f64, @floatFromInt(bbox.yMax - bbox.yMin)) / 64.0;
+    if (rect_w <= 0 or rect_h <= 0) return;
 
-fn blitWideSymbol(
-    staging_buf: []u8,
-    buf_w: i32,
-    buf_h: i32,
-    src: [*c]const u8,
-    gw: i32,
-    gh: i32,
-    pitch: u32,
-    is_mono: bool,
-) void {
-    if (gw <= 0 or gh <= 0) return;
-    const dst_x0: i32 = 0;
-    const dst_y0: i32 = @divTrunc(buf_h - gh, 2);
-    var row: i32 = 0;
-    while (row < gh) : (row += 1) {
-        const py = dst_y0 + row;
-        if (py < 0 or py >= buf_h) continue;
-        var col: i32 = 0;
-        while (col < gw) : (col += 1) {
-            const px = dst_x0 + col;
-            if (px < 0 or px >= buf_w) continue;
-            const ucol: u32 = @intCast(col);
-            const urow: u32 = @intCast(row);
-            const cov: u8 = if (is_mono) blk: {
-                const byte = src[urow * pitch + (ucol >> 3)];
-                const bit: u3 = @intCast(7 - (ucol & 7));
-                break :blk if ((byte >> bit) & 1 != 0) 0xFF else 0x00;
-            } else src[urow * pitch + ucol];
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (dst_idx >= staging_buf.len) continue;
-            staging_buf[dst_idx] = cov;
-        }
-    }
-}
+    const baseline_from_bottom: f64 = @as(f64, @floatFromInt(cell_height)) -
+        @as(f64, @floatFromInt(cell_baseline_from_top));
 
-fn blitScaledAlphaFit(
-    staging_buf: []u8,
-    buf_w: i32,
-    buf_h: i32,
-    src: [*c]const u8,
-    gw: i32,
-    gh: i32,
-    pitch: u32,
-    is_mono: bool,
-    target_w: i32,
-) void {
-    if (gw <= 0 or gh <= 0) return;
-    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
-    const sy: f32 = @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(gh));
-    const s: f32 = @min(@min(sx, sy), 1.0);
-    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
-    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
-    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
-    const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
-    const inv_s: f32 = 1.0 / s;
+    const cg = constraint.constrain(.{
+        .width = rect_w,
+        .height = rect_h,
+        .x = rect_x,
+        .y = rect_y + baseline_from_bottom,
+    }, metrics, constraint_width);
 
-    var dy: i32 = 0;
-    while (dy < sh) : (dy += 1) {
-        const py = dst_y0 + dy;
-        if (py < 0 or py >= buf_h) continue;
-        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
-        var dx: i32 = 0;
-        while (dx < sw) : (dx += 1) {
-            const px = dst_x0 + dx;
-            if (px < 0 or px >= buf_w) continue;
-            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
-            const cov = sampleBilinear(src, gw, gh, pitch, is_mono, fsx, fsy);
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (dst_idx >= staging_buf.len) continue;
-            staging_buf[dst_idx] = cov;
-        }
+    const cell_w_f: f64 = @floatFromInt(metrics.cell_width);
+    var gx: f64 = cg.x;
+    if (constraint.size != .stretch and metrics.face_width < cell_w_f)
+        gx += @round((cell_w_f - metrics.face_width) / 2.0);
+
+    const scale_x: f64 = cg.width / rect_w;
+    const scale_y: f64 = cg.height / rect_h;
+
+    const points = outline.points[0..@intCast(outline.n_points)];
+    for (points) |*p| {
+        const px: f64 = (@as(f64, @floatFromInt(p.x)) / 64.0 - rect_x) * scale_x + gx;
+        const py: f64 = (@as(f64, @floatFromInt(p.y)) / 64.0 - rect_y) * scale_y + cg.y;
+        p.x = @intFromFloat(@round(px * 64.0));
+        p.y = @intFromFloat(@round(py * 64.0));
     }
 }
 

@@ -16,6 +16,7 @@ pub const RasterizerFont = Rasterizer.RasterizerFont;
 pub const FontSet = Rasterizer.FontSet;
 pub const Face = Rasterizer.Face;
 pub const GlyphSplit = Rasterizer.GlyphSplit;
+pub const Constraint = Rasterizer.Constraint;
 pub const RasterFormat = Rasterizer.RasterFormat;
 pub const RasterizerBackend = Rasterizer.Backend;
 pub const Hinting = Rasterizer.Hinting;
@@ -425,6 +426,8 @@ pub const WindowState = struct {
         face: Face,
         codepoint: u21,
         emoji_presentation: bool,
+        constraint: Rasterizer.Constraint,
+        constraint_width: u2,
         split: Rasterizer.GlyphSplit,
     ) u32 {
         const atlas_cell_count = getAtlasCellCount(font.cell_size);
@@ -481,7 +484,7 @@ pub const WindowState = struct {
                 defer global.glyph_cache_arena.allocator().free(staging_buf);
                 @memset(staging_buf, 0);
 
-                const rr = global.rasterizer.render(font, codepoint, emoji_presentation, split, staging_buf);
+                const rr = global.rasterizer.render(font, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
                 cache.nodes[reserved.index].kind = @intFromEnum(rr.format);
 
                 // Atlas cell position for this glyph index
@@ -1043,7 +1046,7 @@ pub fn paint(
     const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font_set.cell_size.y));
 
     const copy_col_count: u16 = @min(col_count, shader_col_count);
-    const blank_glyph_index = state.generateGlyph(font_set.faces[@intFromEnum(Face.regular)], .regular, ' ', false, .single);
+    const blank_glyph_index = state.generateGlyph(font_set.faces[@intFromEnum(Face.regular)], .regular, ' ', false, .none, 1, .single);
 
     const alloc = global.glyph_cache_arena.allocator();
     state.updateCellImage(alloc, shader_col_count, shader_row_count);

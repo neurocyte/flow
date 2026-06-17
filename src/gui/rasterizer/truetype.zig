@@ -6,7 +6,7 @@ const fallback_resolver = @import("fallback_resolver");
 const flow_sprite = @import("flow_sprite");
 const root = @import("soft_root").root;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
-const uucode_utils = @import("uucode_utils");
+const glyph_constraint = @import("glyph_constraint");
 
 const Self = @This();
 
@@ -17,10 +17,8 @@ fn unitsPerEm(tt: *const TrueType) u16 {
     return std.mem.readInt(u16, tt.ttf_bytes[head + 18 ..][0..2], .big);
 }
 
-fn blitWideSymbol(staging_buf: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32, gh: i32) void {
+fn blitAlphaAt(staging_buf: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32, gh: i32, dst_x0: i32, dst_y0: i32) void {
     if (gw <= 0 or gh <= 0) return;
-    const dst_x0: i32 = 0;
-    const dst_y0: i32 = @divTrunc(buf_h - gh, 2);
     var row: i32 = 0;
     while (row < gh) : (row += 1) {
         const py = dst_y0 + row;
@@ -123,7 +121,25 @@ pub const Font = struct {
     box_thickness: u16 = 1,
     tt: ?TrueType = null,
     synth: SynthFlags = .{},
+
+    face_width: f64 = 0,
+    face_height: f64 = 0,
+    face_y: f64 = 0,
+    icon_height: f64 = 0,
+    icon_height_single: f64 = 0,
 };
+
+pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
+    return .{
+        .cell_width = font.cell_size.x,
+        .cell_height = font.cell_size.y,
+        .face_width = font.face_width,
+        .face_height = font.face_height,
+        .face_y = font.face_y,
+        .icon_height = font.icon_height,
+        .icon_height_single = font.icon_height_single,
+    };
+}
 
 pub const Fonts = struct {};
 
@@ -216,6 +232,13 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     const cell_w_f: f32 = @as(f32, @floatFromInt(m_hmetrics.advance_width)) * scale;
     const cell_w: u16 = @max(1, @as(u16, @intFromFloat(@ceil(cell_w_f))));
 
+    const m_bbox = tt.glyphBitmapBox(m_glyph, scale, scale);
+    const cap_height_px: f64 = if (m_glyph != .notdef and m_bbox.y1 > m_bbox.y0)
+        @floatFromInt(-@as(i32, m_bbox.y0))
+    else
+        @as(f64, @floatFromInt(ascent_px)) * 0.7;
+    const grid_metrics = glyph_constraint.metricsFromCell(cell_w, cell_h, @as(f64, cell_w_f), cap_height_px);
+
     try self.font_data.append(self.allocator, data);
 
     // Underline metrics: the TrueType package doesn't expose post/OS-2
@@ -238,6 +261,11 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
         .box_thickness = box_thk_px,
+        .face_width = grid_metrics.face_width,
+        .face_height = grid_metrics.face_height,
+        .face_y = grid_metrics.face_y,
+        .icon_height = grid_metrics.icon_height,
+        .icon_height_single = grid_metrics.icon_height_single,
     };
 }
 
@@ -282,6 +310,8 @@ pub fn render(
     font: Font,
     codepoint: u21,
     emoji_presentation: bool,
+    constraint: glyph_constraint.Constraint,
+    constraint_width: u2,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
@@ -303,7 +333,8 @@ pub fn render(
     const tt = font.tt orelse return .{ .format = .alpha };
 
     const glyph = tt.codepointGlyphIndex(codepoint);
-    const wide_pua = split != .single and uucode_utils.isPrivateUse(codepoint);
+
+    const metrics = constraintMetrics(font);
 
     if (glyph == .notdef and codepoint != 0) {
         if (self.fallbackResolver()) |fb| {
@@ -311,12 +342,12 @@ pub fn render(
                 const fg = fb_face.tt.codepointGlyphIndex(codepoint);
                 const fscale: f32 = @as(f32, @floatFromInt(font.size_px)) /
                     @as(f32, @floatFromInt(@max(fb_face.units_per_em, 1)));
-                return rasterizeGlyph(self.allocator, &fb_face.tt, fscale, font.ascent_px, fg, split, wide_pua, font.cell_size, staging_buf);
+                return rasterizeGlyph(self.allocator, &fb_face.tt, fscale, font.ascent_px, fg, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
             }
         }
     }
 
-    return rasterizeGlyph(self.allocator, &tt, font.scale, font.ascent_px, glyph, split, wide_pua, font.cell_size, staging_buf);
+    return rasterizeGlyph(self.allocator, &tt, font.scale, font.ascent_px, glyph, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
 }
 
 fn fallbackResolver(self: *const Self) ?*FallbackResolver {
@@ -334,7 +365,9 @@ fn rasterizeGlyph(
     ascent_px: i32,
     glyph: TrueType.GlyphIndex,
     split: GlyphSplit,
-    wide_pua: bool,
+    constraint: glyph_constraint.Constraint,
+    constraint_width: u2,
+    metrics: glyph_constraint.Metrics,
     cell_size: XY(u16),
     staging_buf: []u8,
 ) RenderResult {
@@ -345,27 +378,44 @@ fn rasterizeGlyph(
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    if (constraint.doesAnything()) {
+        const box = tt.glyphBitmapBox(glyph, scale, scale);
+        const rect_w: f64 = @floatFromInt(@as(i32, box.x1) - @as(i32, box.x0));
+        const rect_h: f64 = @floatFromInt(@as(i32, box.y1) - @as(i32, box.y0));
+        if (rect_w > 0 and rect_h > 0) {
+            const rect_x: f64 = @floatFromInt(box.x0);
+            const rect_y: f64 = @floatFromInt(-@as(i32, box.y1));
+            const baseline_from_bottom: f64 = @as(f64, @floatFromInt(cell_size.y)) -
+                @as(f64, @floatFromInt(ascent_px));
+            const cg = constraint.constrain(.{
+                .width = rect_w,
+                .height = rect_h,
+                .x = rect_x,
+                .y = rect_y + baseline_from_bottom,
+            }, metrics, constraint_width);
+
+            const cell_w_f: f64 = @floatFromInt(metrics.cell_width);
+            var gx: f64 = cg.x;
+            if (constraint.size != .stretch and metrics.face_width < cell_w_f)
+                gx += @round((cell_w_f - metrics.face_width) / 2.0);
+
+            const sx: f32 = scale * @as(f32, @floatCast(cg.width / rect_w));
+            const sy: f32 = scale * @as(f32, @floatCast(cg.height / rect_h));
+            var big = std.ArrayList(u8).empty;
+            const bdims = tt.glyphBitmap(alloc, &big, glyph, sx, sy) catch return .{ .format = .alpha };
+            if (bdims.width == 0 or bdims.height == 0) return .{ .format = .alpha };
+
+            const dst_x0: i32 = @intFromFloat(@round(gx));
+            const dst_y0: i32 = @intFromFloat(@round(@as(f64, @floatFromInt(cell_size.y)) - (cg.y + cg.height)));
+            blitAlphaAt(staging_buf, buf_w, buf_h, big.items, @intCast(bdims.width), @intCast(bdims.height), dst_x0, dst_y0);
+        }
+        return .{ .format = .alpha };
+    }
+
     var pixels = std.ArrayList(u8).empty;
     const dims = tt.glyphBitmap(alloc, &pixels, glyph, scale, scale) catch return .{ .format = .alpha };
 
     if (dims.width == 0 or dims.height == 0) return .{ .format = .alpha };
-
-    if (wide_pua) {
-        const wide_w: f32 = @as(f32, @floatFromInt(cell_size.x)) * 1.5;
-        const fit: f32 = @min(
-            wide_w / @as(f32, @floatFromInt(dims.width)),
-            @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(dims.height)),
-        );
-        if (fit > 1.0) {
-            var big = std.ArrayList(u8).empty;
-            if (tt.glyphBitmap(alloc, &big, glyph, scale * fit, scale * fit)) |bdims| {
-                blitWideSymbol(staging_buf, buf_w, buf_h, big.items, @intCast(bdims.width), @intCast(bdims.height));
-                return .{ .format = .alpha };
-            } else |_| {}
-        }
-        blitWideSymbol(staging_buf, buf_w, buf_h, pixels.items, @intCast(dims.width), @intCast(dims.height));
-        return .{ .format = .alpha };
-    }
 
     const glyph_extent: i32 = @as(i32, dims.off_x) + @as(i32, @intCast(dims.width));
     const center_offset: i32 = if (split != .single and glyph_extent < buf_w)

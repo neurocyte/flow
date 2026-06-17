@@ -1,7 +1,7 @@
 /// DirectWrite glyph rasterizer
 ///
 const std = @import("std");
-const uucode_utils = @import("uucode_utils");
+const glyph_constraint = @import("glyph_constraint");
 const flow_sprite = @import("flow_sprite");
 const win32 = @import("win32").everything;
 const XY = @import("xy").XY;
@@ -40,7 +40,25 @@ pub const Font = struct {
     size_px: u16 = 16,
     face: ?*win32.IDWriteFontFace = null,
     synth: SynthFlags = .{},
+
+    face_width: f64 = 0,
+    face_height: f64 = 0,
+    face_y: f64 = 0,
+    icon_height: f64 = 0,
+    icon_height_single: f64 = 0,
 };
+
+pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
+    return .{
+        .cell_width = font.cell_size.x,
+        .cell_height = font.cell_size.y,
+        .face_width = font.face_width,
+        .face_height = font.face_height,
+        .face_y = font.face_y,
+        .icon_height = font.icon_height,
+        .icon_height_single = font.icon_height_single,
+    };
+}
 
 pub const FaceRequest = struct {
     family: []const u8,
@@ -203,6 +221,7 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
     const ul_top: i32 = @max(0, @min(cell_h_i - @as(i32, ul_thk_px), ul_top_unclamped));
 
     var cell_w: u16 = @max(1, size_px / 2);
+    var face_advance_px: f64 = @floatFromInt(cell_w); // unrounded advance
     {
         const cps = [_]u32{'M'};
         var gi: [2]u16 = .{ 0, 0 };
@@ -212,10 +231,15 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
             if (face.GetDesignGlyphMetrics(@ptrCast(&gi_sentinel), 1, &gm, 0) == 0) {
                 const adv_f: f32 = @as(f32, @floatFromInt(gm[0].advanceWidth)) * scale;
                 const adv_i: i32 = @intFromFloat(@round(adv_f));
-                if (adv_i > 0) cell_w = @intCast(adv_i);
+                if (adv_i > 0) {
+                    cell_w = @intCast(adv_i);
+                    face_advance_px = adv_f;
+                }
             }
         }
     }
+
+    const grid_metrics = glyph_constraint.metricsFromCell(cell_w, cell_h, face_advance_px, @floatFromInt(cap_height_px));
 
     out.* = .{
         .cell_size = .{ .x = cell_w, .y = cell_h },
@@ -227,6 +251,11 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
         .size_px = size_px,
         .face = face,
         .synth = .{},
+        .face_width = grid_metrics.face_width,
+        .face_height = grid_metrics.face_height,
+        .face_y = grid_metrics.face_y,
+        .icon_height = grid_metrics.icon_height,
+        .icon_height_single = grid_metrics.icon_height_single,
     };
 }
 
@@ -287,6 +316,8 @@ pub fn render(
     font: Font,
     codepoint: u21,
     emoji_presentation: bool,
+    constraint: glyph_constraint.Constraint,
+    constraint_width: u2,
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
@@ -305,6 +336,8 @@ pub fn render(
 
     const face = font.face orelse return .{ .format = .alpha };
 
+    const metrics = constraintMetrics(font);
+
     // Check if primary face has the glyph
     var gi_check: [2]u16 = .{ 0, 0 };
     const cps_check = [_]u32{@intCast(codepoint)};
@@ -312,26 +345,26 @@ pub fn render(
 
     const want_color = emoji_presentation and self.allow_color_glyphs;
     if (has_glyph and !want_color) {
-        return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
+        return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
     }
 
     // Try fallback
     if (self.fallback) |fb| {
         if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
         }
     } else {
         const fb = self.allocator.create(FallbackResolver) catch
-            return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
         fb.* = FallbackResolver.initResolver(self.factory);
         @constCast(&self.fallback).* = fb;
         if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, font.ascent_px, font.cap_height_px, .{}, true, codepoint, split, font.cell_size, staging_buf);
+            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
         }
     }
 
     // .notdef
-    return renderFromFace(self, face, font.size_px, font.ascent_px, font.ascent_px, font.cap_height_px, font.synth, false, codepoint, split, font.cell_size, staging_buf);
+    return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
 }
 
 fn renderFromFace(
@@ -339,12 +372,12 @@ fn renderFromFace(
     face: *win32.IDWriteFontFace,
     size_px: u16,
     ascent_px: i32,
-    cell_ascent_px: i32,
-    cap_height_px: i32,
     synth: SynthFlags,
-    from_fallback: bool,
     codepoint: u21,
     split: GlyphSplit,
+    constraint: glyph_constraint.Constraint,
+    constraint_width: u2,
+    metrics: glyph_constraint.Metrics,
     cell_size: XY(u16),
     staging_buf: []u8,
 ) RenderResult {
@@ -425,17 +458,33 @@ fn renderFromFace(
 
     const off_x: i32 = bounds.left;
     const off_y: i32 = bounds.top;
-    const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
-    if (split != .single and uucode_utils.isPrivateUse(codepoint)) {
-        const wide_w: f32 = @as(f32, @floatFromInt(cell_size.x)) * 1.5;
-        const fit: f32 = @min(
-            wide_w / @as(f32, @floatFromInt(src_w)),
-            @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(src_h)),
-        );
+    if (constraint.doesAnything()) {
+        const rect_w: f64 = @floatFromInt(src_w);
+        const rect_h: f64 = @floatFromInt(src_h);
+        const cell_h_f: f64 = @floatFromInt(cell_size.y);
+
+        const cg = constraint.constrain(.{
+            .width = rect_w,
+            .height = rect_h,
+            .x = @floatFromInt(bounds.left),
+            .y = cell_h_f - @as(f64, @floatFromInt(bounds.bottom)),
+        }, metrics, constraint_width);
+
+        const cell_w_f: f64 = @floatFromInt(metrics.cell_width);
+        var gx: f64 = cg.x;
+        if (constraint.size != .stretch and metrics.face_width < cell_w_f)
+            gx += @round((cell_w_f - metrics.face_width) / 2.0);
+
         rescale: {
-            if (fit <= 1.0) break :rescale;
-            var sm: win32.DWRITE_MATRIX = .{ .m11 = fit, .m12 = 0, .m21 = 0, .m22 = fit, .dx = 0, .dy = 0 };
+            var sm: win32.DWRITE_MATRIX = .{
+                .m11 = @floatCast(cg.width / rect_w),
+                .m12 = 0,
+                .m21 = 0,
+                .m22 = @floatCast(cg.height / rect_h),
+                .dx = 0,
+                .dy = 0,
+            };
             var a2: *win32.IDWriteGlyphRunAnalysis = undefined;
             if (self.factory.CreateGlyphRunAnalysis(&run, 1.0, &sm, rmode, .NATURAL, 0.0, @floatFromInt(ascent_px), &a2) < 0) break :rescale;
             defer _ = a2.IUnknown.Release();
@@ -448,18 +497,12 @@ fn renderFromFace(
             const tex2 = self.allocator.alloc(u8, sz2) catch break :rescale;
             defer self.allocator.free(tex2);
             if (a2.CreateAlphaTexture(tex_type, &b2, @ptrCast(tex2.ptr), @intCast(sz2)) < 0) break :rescale;
-            blitWideSymbol(staging_buf, buf_w, buf_h, tex2, w2, h2, bytes_per_texel, tex_type);
+            const dst_x0: i32 = @intFromFloat(@round(gx));
+            const dst_y0: i32 = @intFromFloat(@round(cell_h_f - (cg.y + cg.height)));
+            blitChannelsAt(staging_buf, buf_w, buf_h, tex2, w2, h2, bytes_per_texel, tex_type, dst_x0, dst_y0);
             return .{ .format = result_fmt };
         }
-
-        blitWideSymbol(staging_buf, buf_w, buf_h, tex, src_w, src_h, bytes_per_texel, tex_type);
-        return .{ .format = result_fmt };
-    }
-
-    const overflows = src_w > target_w or src_h > buf_h or off_y < 0 or off_y + src_h > buf_h;
-    if (from_fallback and overflows) {
-        blitScaledChannels(staging_buf, buf_w, buf_h, tex, src_w, src_h, bytes_per_texel, target_w, cell_ascent_px, cap_height_px);
-        return .{ .format = result_fmt };
+        // fall through to unconstrained blit
     }
 
     const glyph_extent: i32 = bounds.right;
@@ -734,29 +777,7 @@ fn blitColorRGBA(
     }
 }
 
-fn srcChannel(src: []const u8, gw: i32, gh: i32, channels: i32, ch: i32, x: i32, y: i32) u8 {
-    const cx: i32 = std.math.clamp(x, 0, gw - 1);
-    const cy: i32 = std.math.clamp(y, 0, gh - 1);
-    const idx: usize = @intCast((cy * gw + cx) * channels + ch);
-    if (idx >= src.len) return 0;
-    return src[idx];
-}
-
-fn sampleChannelBilinear(src: []const u8, gw: i32, gh: i32, channels: i32, ch: i32, fx: f32, fy: f32) u8 {
-    const x0: i32 = @intFromFloat(@floor(fx));
-    const y0: i32 = @intFromFloat(@floor(fy));
-    const tx: f32 = fx - @floor(fx);
-    const ty: f32 = fy - @floor(fy);
-    const c00: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0, y0));
-    const c10: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0 + 1, y0));
-    const c01: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0, y0 + 1));
-    const c11: f32 = @floatFromInt(srcChannel(src, gw, gh, channels, ch, x0 + 1, y0 + 1));
-    const top = c00 * (1 - tx) + c10 * tx;
-    const bot = c01 * (1 - tx) + c11 * tx;
-    return @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
-}
-
-fn blitWideSymbol(
+fn blitChannelsAt(
     staging_buf: []u8,
     buf_w: i32,
     buf_h: i32,
@@ -765,10 +786,10 @@ fn blitWideSymbol(
     gh: i32,
     channels: i32,
     tex_type: win32.DWRITE_TEXTURE_TYPE,
+    dst_x0: i32,
+    dst_y0: i32,
 ) void {
     if (gw <= 0 or gh <= 0) return;
-    const dst_x0: i32 = 0;
-    const dst_y0: i32 = @divTrunc(buf_h - gh, 2);
     var row: i32 = 0;
     while (row < gh) : (row += 1) {
         const py = dst_y0 + row;
@@ -787,50 +808,6 @@ fn blitWideSymbol(
                 staging_buf[dst_idx + 1] = src[src_idx + 1];
                 staging_buf[dst_idx + 2] = src[src_idx + 2];
             }
-        }
-    }
-}
-
-fn blitScaledChannels(
-    staging_buf: []u8,
-    buf_w: i32,
-    buf_h: i32,
-    src: []const u8,
-    gw: i32,
-    gh: i32,
-    channels: i32,
-    target_w: i32,
-    cell_ascent_px: i32,
-    cap_height_px: i32,
-) void {
-    if (gw <= 0 or gh <= 0) return;
-    const baseline: i32 = if (cell_ascent_px > 0 and cell_ascent_px <= buf_h) cell_ascent_px else buf_h;
-    const cap: i32 = if (cap_height_px > 0 and cap_height_px <= baseline) cap_height_px else baseline;
-    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
-    const sy: f32 = @as(f32, @floatFromInt(cap)) / @as(f32, @floatFromInt(gh));
-    const s: f32 = @min(@min(sx, sy), 1.0);
-    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
-    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
-    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
-    const dst_y0: i32 = (baseline - cap) + @divTrunc(cap - sh, 2);
-    const inv_s: f32 = 1.0 / s;
-
-    var dy: i32 = 0;
-    while (dy < sh) : (dy += 1) {
-        const py = dst_y0 + dy;
-        if (py < 0 or py >= buf_h) continue;
-        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
-        var dx: i32 = 0;
-        while (dx < sw) : (dx += 1) {
-            const px = dst_x0 + dx;
-            if (px < 0 or px >= buf_w) continue;
-            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (dst_idx + 3 >= staging_buf.len) continue;
-            var ch: i32 = 0;
-            while (ch < channels) : (ch += 1)
-                staging_buf[dst_idx + @as(usize, @intCast(ch))] =
-                    sampleChannelBilinear(src, gw, gh, channels, ch, fsx, fsy);
         }
     }
 }

@@ -24,6 +24,7 @@ const thespian = @import("thespian");
 const cbor = @import("cbor");
 const vaxis = @import("vaxis");
 const uucode_utils = @import("uucode_utils");
+const nerd_font_attributes = @import("nerd_font_attributes");
 const RGBA = @import("color").RGBA;
 
 const input_translate = @import("input.zig");
@@ -256,6 +257,70 @@ fn graphemeEmojiPresentation(g: []const u8) bool {
         }
     }
     return has_emoji_vs or base_emoji;
+}
+
+fn isPrivateUseCp(cp: u21) bool {
+    return (cp >= 0xE000 and cp <= 0xF8FF) or
+        (cp >= 0xF0000 and cp <= 0xFFFFD) or
+        (cp >= 0x100000 and cp <= 0x10FFFD);
+}
+
+/// cell constrained symbols
+fn isSymbol(cp: u21) bool {
+    if (isPrivateUseCp(cp)) return true;
+    if ((cp >= 0x2700 and cp <= 0x27BF) or (cp >= 0x1F100 and cp <= 0x1F1FF))
+        return !uucode.get(.is_emoji_presentation, @intCast(cp));
+    return switch (uucode.get(.general_category, @intCast(cp))) {
+        .symbol_math, .symbol_currency, .symbol_modifier, .symbol_other => true,
+        else => false,
+    };
+}
+
+/// symbols that may grow into a trailing blank cell
+fn isBlockSymbol(cp: u21) bool {
+    if (isPrivateUseCp(cp)) return true;
+    return (cp >= 0x2190 and cp <= 0x21FF) or // arrows
+        (cp >= 0x2460 and cp <= 0x24FF) or // enclosed alphanumerics
+        (cp >= 0x2600 and cp <= 0x26FF) or // miscellaneous symbols (incl. chess)
+        (cp >= 0x2700 and cp <= 0x27BF) or // dingbats
+        (cp >= 0x1F100 and cp <= 0x1F1FF) or // enclosed alphanumeric supplement
+        (cp >= 0x1F300 and cp <= 0x1F5FF) or // misc symbols and pictographs
+        (cp >= 0x1F600 and cp <= 0x1F64F) or // emoticons
+        (cp >= 0x1F680 and cp <= 0x1F6FF); // transport and map symbols
+}
+
+/// Box drawing, block elements, legacy computing and Powerline glyphs
+fn isGraphicsElement(cp: u21) bool {
+    return (cp >= 0x2500 and cp <= 0x257F) or // box drawing
+        (cp >= 0x2580 and cp <= 0x259F) or // block elements
+        (cp >= 0x1FB00 and cp <= 0x1FBFF) or // legacy computing
+        (cp >= 0x1CC00 and cp <= 0x1CEBF) or // legacy computing supplement
+        (cp >= 0xE0B0 and cp <= 0xE0D7); // powerline
+}
+
+fn isSpaceLike(cp: u21) bool {
+    return cp == ' ' or cp == 0x2002 or cp == 0;
+}
+
+fn selectConstraint(cp: u21, emoji: bool) gpu.Constraint {
+    if (emoji) return .{};
+    if (nerd_font_attributes.getConstraint(cp)) |c| return c;
+    if (isSymbol(cp)) return .{ .size = .fit };
+    return .{};
+}
+
+fn symbolConstraintWidth(ls: *const LayerSnapshot, ci: usize) u2 {
+    const cp = ls.codepoints[ci];
+    if (!isBlockSymbol(cp)) return 1;
+    const col = ci % ls.width;
+    if (col + 1 >= ls.width) return 1; // last column on the row
+    if (ci + 1 >= ls.codepoints.len) return 1;
+    if (col >= 1) {
+        const prev = ls.codepoints[ci - 1];
+        if (isBlockSymbol(prev) and !isGraphicsElement(prev)) return 1;
+    }
+    if (isSpaceLike(ls.codepoints[ci + 1])) return 2;
+    return 1;
 }
 
 fn buildLayerSnapshot(
@@ -1140,12 +1205,13 @@ pub fn renderActorTick() void {
 
             // Terminal-assigned double-width: generate both halves now
             if (w == 2) {
-                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .left);
+                const wide_constraint: gpu.Constraint = if (emoji) .{} else .{ .size = .fit };
+                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, wide_constraint, 2, .left);
                 const same_row = (ci % ls.width) + 1 < ls.width;
                 if (same_row and ci + 1 < layer_cells.len) {
                     const placeholder = &layer_cells[ci + 1];
                     placeholder.* = cell.*;
-                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .right);
+                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, wide_constraint, 2, .right);
                     ci += 1;
                 }
                 layer_prev_cp = cp;
@@ -1153,7 +1219,23 @@ pub fn renderActorTick() void {
                 continue;
             }
 
-            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, split);
+            const constraint = selectConstraint(glyph_cp, emoji);
+            const cwidth: u2 = if (w == 0) 1 else symbolConstraintWidth(ls, ci);
+
+            if (constraint.doesAnything() and cwidth == 2 and w != 0) {
+                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, constraint, 2, .left);
+                if (ci + 1 < layer_cells.len) {
+                    const placeholder = &layer_cells[ci + 1];
+                    placeholder.foreground = cell.foreground;
+                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, constraint, 2, .right);
+                    ci += 1;
+                }
+                layer_prev_cp = cp;
+                layer_prev_emoji = emoji;
+                continue;
+            }
+
+            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, constraint, cwidth, split);
             if (w != 0) {
                 layer_prev_cp = cp;
                 layer_prev_emoji = emoji;
