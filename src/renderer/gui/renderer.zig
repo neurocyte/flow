@@ -204,8 +204,21 @@ pub fn init(
         .stdplane_id = Layer.next_id(),
     };
     result.vx.caps.unicode = .unicode;
-    result.vx.caps.multi_cursor = true;
     result.vx.screen.width_method = .unicode;
+    std.log.info("unicode capability detected", .{});
+    result.vx.caps.multi_cursor = true;
+    std.log.info("multi cursor capability detected", .{});
+    result.vx.caps.explicit_width = true;
+    std.log.info("explicit width capability enabled", .{});
+    result.vx.caps.kitty_keyboard = true;
+    std.log.info("kitty keyboard capability detected", .{});
+    result.vx.caps.sgr_pixels = true;
+    std.log.info("pixel mouse capability detected", .{});
+    result.vx.state.in_band_resize = true;
+    std.log.info("in band resize capability detected", .{});
+    // TODO
+    // result.vx.caps.color_scheme_updates = true;
+    // std.log.info("color scheme updates capability detected", .{});
     return result;
 }
 
