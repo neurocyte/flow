@@ -695,6 +695,18 @@ pub fn build_exe(
                     },
                 });
 
+                const nerd_font_attributes_mod = b.createModule(.{
+                    .root_source_file = flow_sprite_dep.path("src/font/nerd_font_attributes.zig"),
+                    .imports = &.{
+                        .{ .name = "Glyph.zig", .module = b.createModule(.{
+                            .root_source_file = b.path("src/gui/GlyphAdaptor.zig"),
+                            .imports = &.{
+                                .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
+                            },
+                        }) },
+                    },
+                });
+
                 const app_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/wio/app.zig"),
                     .imports = &.{
@@ -706,6 +718,7 @@ pub fn build_exe(
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
                         .{ .name = "uucode_utils", .module = uucode_utils_mod },
+                        .{ .name = "nerd_font_attributes", .module = nerd_font_attributes_mod },
                         .{ .name = "xterm", .module = gui_xterm_mod },
                         .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },

@@ -72,8 +72,8 @@
             .hash = "diffz-0.0.1-G2tlISzNAQCldmOcINavGmF1zdt20NFPXeM8d07jp_68",
         },
         .flow_sprite = .{
-            .url = "git+https://github.com/neurocyte/flow-sprite?ref=master#75803859aa9e566c03b05ead7b30b6706d0af0f3",
-            .hash = "flow_sprite-1.3.2-dev-71wnMjxIBADJF3IPIB1inGMxMo77BBFN6fExBDJHsKYY",
+            .url = "git+https://github.com/neurocyte/flow-sprite?ref=master#39f14507763a8951b11dd5913a39fb758b096537",
+            .hash = "flow_sprite-1.3.2-dev-71wnMmuZBQBmLwiee1Ya5U-LetIl9086v-dR9obRMNmF",
         },
     },
     .paths = .{
