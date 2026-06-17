@@ -244,19 +244,17 @@ pub fn updateScreen(
 
 fn graphemeEmojiPresentation(g: []const u8) bool {
     if (g.len < 2) return false; // empty or single-byte ASCII: never emoji
-    var has_emoji_vs = false;
-    var base_emoji = false;
-    var first = true;
     var it = (std.unicode.Utf8View.init(g) catch return false).iterator();
-    while (it.nextCodepoint()) |cp| {
-        if (cp == 0xFE0E) return false; // text presentation selector
-        if (cp == 0xFE0F) has_emoji_vs = true;
-        if (first) {
-            base_emoji = uucode.get(.is_emoji_presentation, @intCast(cp));
-            first = false;
-        }
+    const base = it.nextCodepoint() orelse return false;
+    const base_default_emoji = uucode.get(.is_emoji_presentation, @intCast(base));
+    if (uucode.get(.is_emoji_vs_base, @intCast(base))) {
+        while (it.nextCodepoint()) |cp| switch (cp) {
+            0xFE0E => return false, // VS15: explicit text presentation
+            0xFE0F => return true, // VS16: explicit emoji presentation
+            else => {},
+        };
     }
-    return has_emoji_vs or base_emoji;
+    return base_default_emoji;
 }
 
 fn isPrivateUseCp(cp: u21) bool {
