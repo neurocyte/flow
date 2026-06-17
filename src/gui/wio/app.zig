@@ -1099,7 +1099,6 @@ pub fn renderActorTick() void {
         @memcpy(layer_cells, ls.cells);
 
         var layer_prev_cp: u21 = ' ';
-        const cell_w = font_set.cell_size.x;
         var ci: usize = 0;
         while (ci < layer_cells.len) : (ci += 1) {
             const cell = &layer_cells[ci];
@@ -1126,50 +1125,6 @@ pub fn renderActorTick() void {
                 }
                 layer_prev_cp = cp;
                 continue;
-            }
-
-            // Opportunistic wide rendering for PUA / symbol glyphs
-            if (w == 1 and uucode_utils.isWideCandidate(glyph_cp)) {
-                const same_row = (ci % ls.width) + 1 < ls.width;
-                const next_cp = if (!same_row) null else if (ci + 1 < layer_cells.len) ls.codepoints[ci + 1] else null;
-                const next_is_space = next_cp == ' ';
-                if (same_row and next_is_space) {
-                    const advance_cells: usize = if (gpu.glyphAdvance(per_face, glyph_cp)) |advance|
-                        @intCast((@as(u32, advance) + cell_w - 1) / cell_w)
-                    else
-                        1;
-                    const desired: usize = if (uucode_utils.isPrivateUse(glyph_cp))
-                        @max(advance_cells, 2)
-                    else
-                        advance_cells;
-                    if (desired > 1) {
-                        const col = ci % ls.width;
-                        const max_extra = @min(desired - 1, 4);
-                        var num_spaces: usize = 0;
-                        while (num_spaces < max_extra and
-                            col + 1 + num_spaces < ls.width and
-                            ci + 1 + num_spaces < layer_cells.len and
-                            (ls.codepoints[ci + 1 + num_spaces] == ' ' or
-                                ls.codepoints[ci + 1 + num_spaces] == 0x2002) and
-                            ls.widths[ci + 1 + num_spaces] == 1)
-                        {
-                            num_spaces += 1;
-                        }
-                        if (num_spaces > 0) {
-                            cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .left);
-                            const fg_color = cell.foreground;
-                            var s: usize = 0;
-                            while (s < num_spaces) : (s += 1) {
-                                const sc = &layer_cells[ci + 1 + s];
-                                sc.foreground = fg_color;
-                                sc.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, .right);
-                            }
-                            layer_prev_cp = cp;
-                            ci += num_spaces;
-                            continue;
-                        }
-                    }
-                }
             }
 
             cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
