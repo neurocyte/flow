@@ -50,19 +50,6 @@ pub fn metricsFromFace(f: FaceInputs) Metrics {
     };
 }
 
-pub fn metricsFromCell(cell_width: u32, cell_height: u32, face_advance: f64, cap_height: f64) Metrics {
-    const ch: f64 = @floatFromInt(cell_height);
-    return .{
-        .cell_width = cell_width,
-        .cell_height = cell_height,
-        .face_width = face_advance,
-        .face_height = ch,
-        .face_y = 0,
-        .icon_height = ch,
-        .icon_height_single = (2.0 * cap_height + ch) / 3.0,
-    };
-}
-
 pub const Constraint = struct {
     pub const none: Constraint = .{};
 

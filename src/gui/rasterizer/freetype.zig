@@ -123,17 +123,16 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     if (c.FT_Set_Pixel_Sizes(face, 0, size_px) != 0)
         return error.SetSizeFailed;
 
-    // Derive cell metrics from the full block glyph (U+2588), same strategy
-    // as truetype.zig: the rendered bitmap defines exact cell dimensions.
-    var ascent_px: i32 = @intCast((face.*.size.*.metrics.ascender + 32) >> 6);
-    var cell_h: u16 = size_px;
-    if (c.FT_Load_Char(face, 0x2588, c.FT_LOAD_RENDER) == 0) {
-        const bm = face.*.glyph.*.bitmap;
-        if (bm.rows > 0) {
-            cell_h = @intCast(bm.rows);
-            ascent_px = face.*.glyph.*.bitmap_top;
-        }
-    }
+    const sm = face.*.size.*.metrics;
+    const m_ascent: f64 = @as(f64, @floatFromInt(sm.ascender)) / 64.0;
+    const m_descent: f64 = @as(f64, @floatFromInt(sm.descender)) / 64.0; // < 0, below baseline
+    const m_line_height: f64 = @as(f64, @floatFromInt(sm.height)) / 64.0;
+    const m_line_gap: f64 = @max(0.0, m_line_height - (m_ascent - m_descent));
+    const m_face_baseline: f64 = (m_line_gap / 2.0) - m_descent; // baseline up from cell bottom
+    const cell_h_f: f64 = @max(1.0, @round(m_line_height));
+    const cell_h: u16 = @intFromFloat(cell_h_f);
+    const cell_baseline: f64 = @round(m_face_baseline - (cell_h_f - m_line_height) / 2.0);
+    const ascent_px: i32 = @intFromFloat(cell_h_f - cell_baseline);
 
     // Cell width from advance of 'M', cap height from its top bearing
     var cell_w: u16 = @max(1, size_px / 2);
@@ -149,7 +148,16 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         if (cap > 0) cap_height_px = cap;
     }
 
-    const grid_metrics = glyph_constraint.metricsFromCell(cell_w, cell_h, face_advance_px, @floatFromInt(cap_height_px));
+    const grid_metrics = glyph_constraint.metricsFromFace(.{
+        .cell_width = cell_w,
+        .cell_height = cell_h,
+        .cell_baseline_from_top = @floatFromInt(ascent_px),
+        .face_advance = face_advance_px,
+        .face_ascent = m_ascent,
+        .face_descent = m_descent,
+        .face_line_gap = m_line_gap,
+        .cap_height = @floatFromInt(cap_height_px),
+    });
 
     // Underline metrics: face fields are in font units. y_scale is 16.16 fixed
     // and produces 26.6 pixel values when multiplied with font units >> 16.

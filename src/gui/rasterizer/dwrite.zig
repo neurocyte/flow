@@ -203,13 +203,17 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
     const scale: f32 = em / @as(f32, @floatFromInt(m.designUnitsPerEm));
 
     const ascent_f: f32 = @as(f32, @floatFromInt(m.ascent)) * scale;
-    const descent_f: f32 = @as(f32, @floatFromInt(m.descent)) * scale;
-    const linegap_f: f32 = @as(f32, @floatFromInt(m.lineGap)) * scale;
-    const ascent_px: i32 = @intFromFloat(@round(ascent_f));
+    const descent_f: f32 = @as(f32, @floatFromInt(m.descent)) * scale; // DWrite descent is positive (below baseline)
+    const linegap_f: f32 = @max(0.0, @as(f32, @floatFromInt(m.lineGap)) * scale);
+
+    const face_height_f: f32 = ascent_f + descent_f + linegap_f;
+    const face_baseline_f: f32 = linegap_f / 2.0 + descent_f;
+    const cell_h_f: f32 = @max(1.0, @round(face_height_f));
+    const cell_h: u16 = @intFromFloat(cell_h_f);
+    const cell_baseline_f: f32 = @round(face_baseline_f - (cell_h_f - face_height_f) / 2.0);
+    const ascent_px: i32 = @intFromFloat(cell_h_f - cell_baseline_f);
     const cap_raw: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(m.capHeight)) * scale));
     const cap_height_px: i32 = if (cap_raw > 0) cap_raw else @divTrunc(ascent_px * 7, 10);
-    const cell_h_f: f32 = ascent_f + descent_f + @max(0.0, linegap_f);
-    const cell_h: u16 = @intCast(@max(1, @as(i32, @intFromFloat(@ceil(cell_h_f)))));
 
     const ul_pos_px: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(m.underlinePosition)) * scale));
     const ul_thk_px_raw: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(m.underlineThickness)) * scale));
@@ -239,7 +243,16 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
         }
     }
 
-    const grid_metrics = glyph_constraint.metricsFromCell(cell_w, cell_h, face_advance_px, @floatFromInt(cap_height_px));
+    const grid_metrics = glyph_constraint.metricsFromFace(.{
+        .cell_width = cell_w,
+        .cell_height = cell_h,
+        .cell_baseline_from_top = @floatFromInt(ascent_px),
+        .face_advance = face_advance_px,
+        .face_ascent = @as(f64, ascent_f),
+        .face_descent = -@as(f64, descent_f),
+        .face_line_gap = @as(f64, linegap_f),
+        .cap_height = @floatFromInt(cap_height_px),
+    });
 
     out.* = .{
         .cell_size = .{ .x = cell_w, .y = cell_h },

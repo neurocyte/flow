@@ -208,24 +208,16 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     const scale: f32 = @as(f32, @floatFromInt(size_px)) / @as(f32, @floatFromInt(@max(units_per_em, 1)));
     const vm = tt.verticalMetrics();
 
-    // Use the full block glyph (U+2588) to derive exact cell dimensions.
-    // Its rasterized bbox defines exactly how many pixels tall a full-height
-    // character is, and where the baseline sits within the cell.  Using font
-    // metrics (vm.ascent/vm.descent) produces a cell_h that may differ from
-    // the glyph because the font bbox can diverge from nominal metrics.
-    const full_block_glyph = tt.codepointGlyphIndex('█');
-    const block_bbox = tt.glyphBitmapBox(full_block_glyph, scale, scale);
-    const has_block = full_block_glyph != .notdef and block_bbox.y1 > block_bbox.y0;
-    const ascent_px: i32 = if (has_block)
-        -@as(i32, block_bbox.y0)
-    else
-        @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(vm.ascent)) * scale)));
-    const cell_h: u16 = if (has_block)
-        @intCast(@max(block_bbox.y1 - block_bbox.y0, 1))
-    else blk: {
-        const d: i32 = @intFromFloat(@floor(@as(f32, @floatFromInt(vm.descent)) * scale));
-        break :blk @intCast(@max(ascent_px - d, 1));
-    };
+    const sc: f64 = scale;
+    const m_ascent: f64 = @as(f64, @floatFromInt(vm.ascent)) * sc;
+    const m_descent: f64 = @as(f64, @floatFromInt(vm.descent)) * sc; // < 0, below baseline
+    const m_line_gap: f64 = @max(0.0, @as(f64, @floatFromInt(vm.line_gap)) * sc);
+    const m_line_height: f64 = (m_ascent - m_descent) + m_line_gap;
+    const m_face_baseline: f64 = (m_line_gap / 2.0) - m_descent;
+    const cell_h_f: f64 = @max(1.0, @round(m_line_height));
+    const cell_h: u16 = @intFromFloat(cell_h_f);
+    const cell_baseline: f64 = @round(m_face_baseline - (cell_h_f - m_line_height) / 2.0);
+    const ascent_px: i32 = @intFromFloat(cell_h_f - cell_baseline);
 
     const m_glyph = tt.codepointGlyphIndex('M');
     const m_hmetrics = tt.glyphHMetrics(m_glyph);
@@ -237,7 +229,17 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         @floatFromInt(-@as(i32, m_bbox.y0))
     else
         @as(f64, @floatFromInt(ascent_px)) * 0.7;
-    const grid_metrics = glyph_constraint.metricsFromCell(cell_w, cell_h, @as(f64, cell_w_f), cap_height_px);
+
+    const grid_metrics = glyph_constraint.metricsFromFace(.{
+        .cell_width = cell_w,
+        .cell_height = cell_h,
+        .cell_baseline_from_top = @floatFromInt(ascent_px),
+        .face_advance = @as(f64, cell_w_f),
+        .face_ascent = m_ascent,
+        .face_descent = m_descent,
+        .face_line_gap = m_line_gap,
+        .cap_height = cap_height_px,
+    });
 
     try self.font_data.append(self.allocator, data);
 
