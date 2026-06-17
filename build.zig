@@ -555,6 +555,7 @@ pub fn build_exe(
 
                 const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
                 const gui_glyph_constraint_mod = b.createModule(.{ .root_source_file = b.path("src/gui/glyph_constraint.zig") });
+                const gui_face_metrics_mod = b.createModule(.{ .root_source_file = b.path("src/gui/rasterizer/face_metrics.zig") });
                 const gui_cell_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/cell.zig"),
                     .imports = &.{
@@ -615,6 +616,7 @@ pub fn build_exe(
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
                             .{ .name = "flow_sprite", .module = flow_sprite_mod },
                             .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
+                            .{ .name = "face_metrics", .module = gui_face_metrics_mod },
                         },
                     });
                     if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
@@ -639,6 +641,7 @@ pub fn build_exe(
                         .target = target,
                         .imports = &.{
                             .{ .name = "font_finder", .module = font_finder_mod },
+                            .{ .name = "face_metrics", .module = gui_face_metrics_mod },
                         },
                     });
 

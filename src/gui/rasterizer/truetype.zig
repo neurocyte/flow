@@ -17,6 +17,91 @@ fn unitsPerEm(tt: *const TrueType) u16 {
     return std.mem.readInt(u16, tt.ttf_bytes[head + 18 ..][0..2], .big);
 }
 
+const ttcf_tag: u32 = 0x74746366; // 'ttcf'
+
+fn rdU16(d: []const u8, off: usize) ?u16 {
+    if (off + 2 > d.len) return null;
+    return std.mem.readInt(u16, d[off..][0..2], .big);
+}
+fn rdU32(d: []const u8, off: usize) ?u32 {
+    if (off + 4 > d.len) return null;
+    return std.mem.readInt(u32, d[off..][0..4], .big);
+}
+fn pad4(n: u32) u32 {
+    return (n + 3) & ~@as(u32, 3);
+}
+
+/// TrueType.load() does no bounds-checking
+fn isLoadableSfnt(data: []const u8) bool {
+    if (data.len < 12) return false;
+    switch (std.mem.readInt(u32, data[0..4], .big)) {
+        0x00010000, // TrueType outlines
+        0x74727565, // 'true'
+        => {},
+        // reject 'OTTO' (CFF), 'typ1', 'ttcf', WOFF, etc.
+        else => return false,
+    }
+    const num_tables = std.mem.readInt(u16, data[4..6], .big);
+    const dir_end = 12 + 16 * @as(usize, num_tables);
+    if (dir_end > data.len) return false;
+
+    var i: usize = 0;
+    while (i < num_tables) : (i += 1) {
+        if (std.mem.eql(u8, data[12 + 16 * i ..][0..4], "glyf")) return true;
+    }
+    return false;
+}
+
+fn extractTtcSubfont(allocator: std.mem.Allocator, data: []const u8, face_index: i32) ![]u8 {
+    const num_fonts = rdU32(data, 8) orelse return error.BadFont;
+    const idx: u32 = if (face_index < 0) 0 else @intCast(face_index);
+    if (idx >= num_fonts) return error.BadFont;
+    const off_table = rdU32(data, 12 + 4 * idx) orelse return error.BadFont;
+    const num_tables = rdU16(data, off_table + 4) orelse return error.BadFont;
+    const dir = off_table + 12;
+
+    var total: usize = 12 + 16 * @as(usize, num_tables);
+    var i: usize = 0;
+    while (i < num_tables) : (i += 1) {
+        const e = dir + 16 * i;
+        const offset = rdU32(data, e + 8) orelse return error.BadFont;
+        const length = rdU32(data, e + 12) orelse return error.BadFont;
+        if (@as(usize, offset) + length > data.len) return error.BadFont;
+        total += pad4(length);
+    }
+
+    var out = try allocator.alloc(u8, total);
+    errdefer allocator.free(out);
+    // Offset table header (sfnt version + table count + search hints).
+    @memcpy(out[0..12], data[off_table..][0..12]);
+    var write_pos: u32 = @intCast(12 + 16 * @as(usize, num_tables));
+    @memset(out[write_pos..], 0); // zero padding between tables
+    i = 0;
+    while (i < num_tables) : (i += 1) {
+        const e_src = dir + 16 * i;
+        const e_dst = 12 + 16 * i;
+        @memcpy(out[e_dst..][0..16], data[e_src..][0..16]);
+        const offset = std.mem.readInt(u32, data[e_src + 8 ..][0..4], .big);
+        const length = std.mem.readInt(u32, data[e_src + 12 ..][0..4], .big);
+        std.mem.writeInt(u32, out[e_dst + 8 ..][0..4], write_pos, .big);
+        @memcpy(out[write_pos..][0..length], data[offset..][0..length]);
+        write_pos += pad4(length);
+    }
+    return out;
+}
+
+fn loadFontData(allocator: std.mem.Allocator, raw: []u8, face_index: i32) ?[]u8 {
+    if (raw.len >= 12 and std.mem.readInt(u32, raw[0..4], .big) == ttcf_tag) {
+        const sub = extractTtcSubfont(allocator, raw, face_index) catch {
+            allocator.free(raw);
+            return null;
+        };
+        allocator.free(raw);
+        return sub;
+    }
+    return raw;
+}
+
 fn blitAlphaAt(staging_buf: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32, gh: i32, dst_x0: i32, dst_y0: i32) void {
     if (gw <= 0 or gh <= 0) return;
     var row: i32 = 0;
@@ -40,6 +125,7 @@ const TtBackend = struct {
         tt: TrueType,
         units_per_em: u16,
         data: ?[]u8,
+        size_px: u16,
     };
 
     pub const embedded_fonts = [_]fallback_resolver.EmbeddedFont{
@@ -50,13 +136,18 @@ const TtBackend = struct {
         return false;
     }
 
-    pub fn loadEmbedded(_: void, _: std.mem.Allocator, data: []const u8, _: u16, _: bool) ?Face {
+    pub fn loadEmbedded(_: void, _: std.mem.Allocator, data: []const u8, size_px: u16, _: bool) ?Face {
         const tt = TrueType.load(data) catch return null;
-        return .{ .tt = tt, .units_per_em = unitsPerEm(&tt), .data = null };
+        return .{ .tt = tt, .units_per_em = unitsPerEm(&tt), .data = null, .size_px = size_px };
     }
 
-    pub fn loadPath(_: void, allocator: std.mem.Allocator, cand: font_finder.FallbackCandidate, _: u16) ?Face {
-        const data = readFontFile(allocator, cand.path) catch return null;
+    pub fn loadPath(_: void, allocator: std.mem.Allocator, cand: font_finder.FallbackCandidate, size_px: u16) ?Face {
+        const raw = readFontFile(allocator, cand.path) catch return null;
+        const data = loadFontData(allocator, raw, cand.face_index) orelse return null;
+        if (!isLoadableSfnt(data)) {
+            allocator.free(data);
+            return null;
+        }
         const tt = TrueType.load(data) catch {
             allocator.free(data);
             return null;
@@ -65,17 +156,56 @@ const TtBackend = struct {
             allocator.free(data);
             return null;
         }
-        return .{ .tt = tt, .units_per_em = unitsPerEm(&tt), .data = data };
+        return .{ .tt = tt, .units_per_em = unitsPerEm(&tt), .data = data, .size_px = size_px };
     }
 
     pub fn hasGlyph(face: *const Face, codepoint: u21) bool {
         return face.tt.codepointGlyphIndex(codepoint) != .notdef;
     }
 
+    pub fn faceMetrics(face: *const Face) fallback_resolver.FaceMetrics {
+        return ttFaceMetrics(&face.tt, face.size_px);
+    }
+
+    pub fn setFaceSize(_: void, face: *Face, size_px: u16) void {
+        face.size_px = size_px;
+    }
+
     pub fn deinitFace(_: void, allocator: std.mem.Allocator, face: *Face) void {
         if (face.data) |d| allocator.free(d);
     }
 };
+
+fn ttFaceMetrics(tt: *const TrueType, size_px: u16) fallback_resolver.FaceMetrics {
+    const upm: u16 = unitsPerEm(tt);
+    const scale: f64 = @as(f64, @floatFromInt(size_px)) / @as(f64, @floatFromInt(@max(upm, 1)));
+    const vm = tt.verticalMetrics();
+    const ascent: f64 = @as(f64, @floatFromInt(vm.ascent)) * scale;
+    const descent: f64 = @as(f64, @floatFromInt(vm.descent)) * scale;
+    const line_gap: f64 = @max(0.0, @as(f64, @floatFromInt(vm.line_gap)) * scale);
+
+    var advance: f64 = @as(f64, @floatFromInt(size_px)) * 0.5;
+    const m_glyph = tt.codepointGlyphIndex('M');
+    if (m_glyph != .notdef) {
+        const adv = @as(f64, @floatFromInt(tt.glyphHMetrics(m_glyph).advance_width)) * scale;
+        if (adv > 0) advance = adv;
+    }
+
+    var ic: ?f64 = null;
+    const ic_glyph = tt.codepointGlyphIndex('\u{6C34}');
+    if (ic_glyph != .notdef) {
+        const adv = @as(f64, @floatFromInt(tt.glyphHMetrics(ic_glyph).advance_width)) * scale;
+        if (adv > 0) ic = adv;
+    }
+
+    return .{
+        .px_per_em = @floatFromInt(@max(size_px, 1)),
+        .advance = advance,
+        .ascent = ascent,
+        .line_height = (ascent - descent) + line_gap,
+        .ic_width = ic,
+    };
+}
 
 const FallbackResolver = fallback_resolver.FallbackResolver(TtBackend);
 
@@ -127,6 +257,8 @@ pub const Font = struct {
     face_y: f64 = 0,
     icon_height: f64 = 0,
     icon_height_single: f64 = 0,
+
+    primary_metrics: fallback_resolver.FaceMetrics = .{},
 };
 
 pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
@@ -268,6 +400,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .face_y = grid_metrics.face_y,
         .icon_height = grid_metrics.icon_height,
         .icon_height_single = grid_metrics.icon_height_single,
+        .primary_metrics = ttFaceMetrics(&tt, size_px),
     };
 }
 
@@ -340,9 +473,9 @@ pub fn render(
 
     if (glyph == .notdef and codepoint != 0) {
         if (self.fallbackResolver()) |fb| {
-            if (fb.resolve({}, self.allocator, codepoint, font.size_px, false)) |fb_face| {
+            if (fb.resolve({}, self.allocator, codepoint, font.size_px, false, font.primary_metrics)) |fb_face| {
                 const fg = fb_face.tt.codepointGlyphIndex(codepoint);
-                const fscale: f32 = @as(f32, @floatFromInt(font.size_px)) /
+                const fscale: f32 = @as(f32, @floatFromInt(fb_face.size_px)) /
                     @as(f32, @floatFromInt(@max(fb_face.units_per_em, 1)));
                 return rasterizeGlyph(self.allocator, &fb_face.tt, fscale, font.ascent_px, fg, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
             }

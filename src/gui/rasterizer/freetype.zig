@@ -5,6 +5,7 @@ const c = @cImport({
     @cInclude("freetype/freetype.h");
     @cInclude("freetype/ftoutln.h");
     @cInclude("freetype/ftbbox.h");
+    @cInclude("freetype/tttables.h");
 });
 const XY = @import("xy").XY;
 const flow_sprite = @import("flow_sprite");
@@ -38,6 +39,7 @@ pub const SynthFlags = packed struct(u8) {
 
 pub const Font = struct {
     cell_size: XY(u16) = .{ .x = 8, .y = 16 },
+    size_px: u16 = 16,
     ascent_px: i32 = 0,
     cap_height_px: i32 = 0,
     underline_position: i32 = 0,
@@ -51,6 +53,8 @@ pub const Font = struct {
     face_y: f64 = 0,
     icon_height: f64 = 0,
     icon_height_single: f64 = 0,
+
+    primary_metrics: fallback_resolver.FaceMetrics = .{},
 };
 
 pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
@@ -180,6 +184,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
 
     return .{
         .cell_size = .{ .x = cell_w, .y = cell_h },
+        .size_px = size_px,
         .ascent_px = ascent_px,
         .cap_height_px = cap_height_px,
         .underline_position = ul_top,
@@ -191,6 +196,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .face_y = grid_metrics.face_y,
         .icon_height = grid_metrics.icon_height,
         .icon_height_single = grid_metrics.icon_height_single,
+        .primary_metrics = ftFaceMetrics(face),
     };
 }
 
@@ -276,7 +282,7 @@ pub fn render(
     // For emoji presentation prefer a color fallback over a monochrome primary
     const want_color = emoji_presentation and self.allow_color_glyphs;
     if (c.FT_Get_Char_Index(face, codepoint) != 0 and (!want_color or ftHasColor(face))) {
-        return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.synth, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
+        return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
     }
 
     const resolver: ?*FallbackResolver = if (self.fallback) |existing| existing else blk: {
@@ -286,12 +292,12 @@ pub fn render(
         break :blk new_fb;
     };
     if (resolver) |fb| {
-        if (fb.resolve(self.library, self.allocator, codepoint, font.cell_size.y, want_color)) |fb_face| {
-            return renderFromFace(self, fb_face.ft_face, fb_face.ascent_px, font.ascent_px, .{}, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
+        if (fb.resolve(self.library, self.allocator, codepoint, font.size_px, want_color, font.primary_metrics)) |fb_face| {
+            return renderFromFace(self, fb_face.ft_face, font.ascent_px, .{}, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
         }
     }
 
-    return renderFromFace(self, face, font.ascent_px, font.ascent_px, font.synth, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
+    return renderFromFace(self, face, font.ascent_px, font.synth, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
 }
 
 /// FreeType's FT_HAS_COLOR(face) macro:
@@ -303,7 +309,6 @@ inline fn ftHasColor(face: c.FT_Face) bool {
 fn renderFromFace(
     self: *const Self,
     face: c.FT_Face,
-    ascent_px: i32,
     cell_ascent_px: i32,
     synth: SynthFlags,
     codepoint: u21,
@@ -371,7 +376,7 @@ fn renderFromFace(
     const off_y: i32 = if (constrained)
         @as(i32, @intCast(cell_size.y)) - face.*.glyph.*.bitmap_top
     else
-        ascent_px - face.*.glyph.*.bitmap_top;
+        cell_ascent_px - face.*.glyph.*.bitmap_top;
 
     const glyph_extent: i32 = off_x + gw;
     const center_offset: i32 = if (!constrained and split != .single and glyph_extent < buf_w)
@@ -524,7 +529,7 @@ const build_options = @import("build_options");
 
 const noto_emoji_data: []const u8 = if (build_options.embed_emoji) @embedFile("noto_emoji_font") else "";
 
-fn setFaceSize(face: c.FT_Face, size_px: u16) bool {
+fn setFacePixelSize(face: c.FT_Face, size_px: u16) bool {
     if (c.FT_Set_Pixel_Sizes(face, 0, size_px) == 0) return true;
 
     const n = face.*.num_fixed_sizes;
@@ -571,7 +576,7 @@ const FtBackend = struct {
     pub fn loadEmbedded(library: c.FT_Library, _: std.mem.Allocator, data: []const u8, size_px: u16, is_color: bool) ?Face {
         var face: c.FT_Face = undefined;
         if (c.FT_New_Memory_Face(library, data.ptr, @intCast(data.len), 0, &face) != 0) return null;
-        if (!setFaceSize(face, size_px)) {
+        if (!setFacePixelSize(face, size_px)) {
             _ = c.FT_Done_Face(face);
             return null;
         }
@@ -583,7 +588,7 @@ const FtBackend = struct {
         defer allocator.free(path_z);
         var face: c.FT_Face = undefined;
         if (c.FT_New_Face(library, path_z.ptr, cand.face_index, &face) != 0) return null;
-        if (!setFaceSize(face, size_px)) {
+        if (!setFacePixelSize(face, size_px)) {
             _ = c.FT_Done_Face(face);
             return null;
         }
@@ -594,9 +599,59 @@ const FtBackend = struct {
         return c.FT_Get_Char_Index(face.ft_face, codepoint) != 0;
     }
 
+    pub fn faceMetrics(face: *const Face) fallback_resolver.FaceMetrics {
+        return ftFaceMetrics(face.ft_face);
+    }
+
+    pub fn setFaceSize(_: c.FT_Library, face: *Face, size_px: u16) void {
+        if (!setFacePixelSize(face.ft_face, size_px)) return;
+        face.ascent_px = @intCast((face.ft_face.*.size.*.metrics.ascender + 32) >> 6);
+    }
+
     pub fn deinitFace(_: c.FT_Library, _: std.mem.Allocator, face: *Face) void {
         _ = c.FT_Done_Face(face.ft_face);
     }
 };
+
+fn ftFaceMetrics(ft_face: c.FT_Face) fallback_resolver.FaceMetrics {
+    const sm = ft_face.*.size.*.metrics;
+    const ppem: f64 = @floatFromInt(sm.y_ppem);
+    const ascent: f64 = @as(f64, @floatFromInt(sm.ascender)) / 64.0;
+    const line_height: f64 = @as(f64, @floatFromInt(sm.height)) / 64.0;
+
+    var advance: f64 = if (ppem > 0) ppem * 0.5 else 8.0;
+    if (c.FT_Load_Char(ft_face, 'M', c.FT_LOAD_DEFAULT) == 0) {
+        const adv = @as(f64, @floatFromInt(ft_face.*.glyph.*.advance.x)) / 64.0;
+        if (adv > 0) advance = adv;
+    }
+
+    var cap: ?f64 = null;
+    var ex: ?f64 = null;
+    const upm: f64 = @floatFromInt(@max(ft_face.*.units_per_EM, 1));
+    const ppu: f64 = if (ppem > 0) ppem / upm else 0;
+    if (c.FT_Get_Sfnt_Table(ft_face, c.FT_SFNT_OS2)) |os2_ptr| {
+        const os2: *c.TT_OS2 = @ptrCast(@alignCast(os2_ptr));
+        if (os2.*.version != 0xFFFF and os2.*.version >= 2 and ppu > 0) {
+            if (os2.*.sCapHeight > 0) cap = @as(f64, @floatFromInt(os2.*.sCapHeight)) * ppu;
+            if (os2.*.sxHeight > 0) ex = @as(f64, @floatFromInt(os2.*.sxHeight)) * ppu;
+        }
+    }
+
+    var ic: ?f64 = null;
+    if (c.FT_Get_Char_Index(ft_face, 0x6C34) != 0 and c.FT_Load_Char(ft_face, 0x6C34, c.FT_LOAD_DEFAULT) == 0) {
+        const adv = @as(f64, @floatFromInt(ft_face.*.glyph.*.advance.x)) / 64.0;
+        if (adv > 0) ic = adv;
+    }
+
+    return .{
+        .px_per_em = if (ppem > 0) ppem else 1.0,
+        .advance = advance,
+        .ascent = ascent,
+        .line_height = line_height,
+        .cap_height = cap,
+        .ex_height = ex,
+        .ic_width = ic,
+    };
+}
 
 const FallbackResolver = fallback_resolver.FallbackResolver(FtBackend);

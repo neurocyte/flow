@@ -1205,13 +1205,12 @@ pub fn renderActorTick() void {
 
             // Terminal-assigned double-width: generate both halves now
             if (w == 2) {
-                const wide_constraint: gpu.Constraint = if (emoji) .{} else .{ .size = .fit };
-                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, wide_constraint, 2, .left);
+                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .{}, 2, .left);
                 const same_row = (ci % ls.width) + 1 < ls.width;
                 if (same_row and ci + 1 < layer_cells.len) {
                     const placeholder = &layer_cells[ci + 1];
                     placeholder.* = cell.*;
-                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, wide_constraint, 2, .right);
+                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .{}, 2, .right);
                     ci += 1;
                 }
                 layer_prev_cp = cp;

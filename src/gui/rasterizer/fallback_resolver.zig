@@ -11,6 +11,10 @@ pub const EmbeddedFont = struct {
 
 const max_faces = 255;
 
+const face_metrics = @import("face_metrics");
+pub const FaceMetrics = face_metrics.FaceMetrics;
+pub const faceScaleFactor = face_metrics.faceScaleFactor;
+
 pub fn FallbackResolver(comptime Backend: type) type {
     return struct {
         const Resolver = @This();
@@ -62,6 +66,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
             codepoint: u21,
             size_px: u16,
             prefer_color_override: bool,
+            primary: FaceMetrics,
         ) ?*const Backend.Face {
             if (self.current_size_px != 0 and self.current_size_px != size_px) {
                 for (self.faces.items) |*e| Backend.deinitFace(ctx, allocator, &e.face);
@@ -101,21 +106,21 @@ pub fn FallbackResolver(comptime Backend: type) type {
                 }
                 if (seen) continue;
 
-                const face = Backend.loadPath(ctx, allocator, cand, size_px) orelse continue;
+                var face = Backend.loadPath(ctx, allocator, cand, size_px) orelse continue;
                 if (!Backend.hasGlyph(&face, codepoint)) {
-                    var f = face;
-                    Backend.deinitFace(ctx, allocator, &f);
+                    Backend.deinitFace(ctx, allocator, &face);
                     continue;
                 }
+                const scale = faceScaleFactor(primary, Backend.faceMetrics(&face));
+                const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * scale)));
+                if (adj != size_px) Backend.setFaceSize(ctx, &face, adj);
                 if (self.faces.items.len >= max_faces) {
-                    var f = face;
-                    Backend.deinitFace(ctx, allocator, &f);
+                    Backend.deinitFace(ctx, allocator, &face);
                     return self.cacheNegative(allocator, key);
                 }
                 const idx: u8 = @intCast(self.faces.items.len);
                 self.faces.append(allocator, .{ .face = face, .path_hash = path_hash, .embedded = false }) catch {
-                    var f = face;
-                    Backend.deinitFace(ctx, allocator, &f);
+                    Backend.deinitFace(ctx, allocator, &face);
                     return self.cacheNegative(allocator, key);
                 };
                 self.cache.put(allocator, key, .{ .found = true, .index = idx }) catch {};

@@ -2,6 +2,7 @@
 ///
 const std = @import("std");
 const glyph_constraint = @import("glyph_constraint");
+const face_metrics = @import("face_metrics");
 const flow_sprite = @import("flow_sprite");
 const win32 = @import("win32").everything;
 const XY = @import("xy").XY;
@@ -46,7 +47,44 @@ pub const Font = struct {
     face_y: f64 = 0,
     icon_height: f64 = 0,
     icon_height_single: f64 = 0,
+
+    primary_metrics: face_metrics.FaceMetrics = .{},
 };
+
+fn dwriteFaceMetrics(face: *win32.IDWriteFontFace, size_px: u16) face_metrics.FaceMetrics {
+    var m: win32.DWRITE_FONT_METRICS = undefined;
+    face.GetMetrics(&m);
+    const ppem: f64 = @floatFromInt(@max(size_px, 1));
+    const ppu: f64 = ppem / @as(f64, @floatFromInt(@max(m.designUnitsPerEm, 1)));
+    const ascent: f64 = @as(f64, @floatFromInt(m.ascent)) * ppu;
+
+    const descent: f64 = @as(f64, @floatFromInt(m.descent)) * ppu;
+    const line_gap: f64 = @max(0.0, @as(f64, @floatFromInt(m.lineGap)) * ppu);
+
+    const cap: ?f64 = if (m.capHeight > 0) @as(f64, @floatFromInt(m.capHeight)) * ppu else null;
+    const ex: ?f64 = if (m.xHeight > 0) @as(f64, @floatFromInt(m.xHeight)) * ppu else null;
+
+    return .{
+        .px_per_em = ppem,
+        .advance = designGlyphAdvancePx(face, 'M', ppu) orelse (ppem * 0.5),
+        .ascent = ascent,
+        .line_height = ascent + descent + line_gap,
+        .cap_height = cap,
+        .ex_height = ex,
+        .ic_width = designGlyphAdvancePx(face, '\u{6C34}', ppu),
+    };
+}
+
+fn designGlyphAdvancePx(face: *win32.IDWriteFontFace, codepoint: u32, ppu: f64) ?f64 {
+    var gi: [2]u16 = .{ 0, 0 };
+    const cps = [_]u32{codepoint};
+    if (face.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) < 0 or gi[0] == 0) return null;
+    var gm: [1]win32.DWRITE_GLYPH_METRICS = undefined;
+    const gi_arr: [2]u16 = .{ gi[0], 0 };
+    if (face.GetDesignGlyphMetrics(@ptrCast(&gi_arr), 1, &gm, 0) < 0) return null;
+    const adv = @as(f64, @floatFromInt(gm[0].advanceWidth)) * ppu;
+    return if (adv > 0) adv else null;
+}
 
 pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
     return .{
@@ -269,6 +307,7 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
         .face_y = grid_metrics.face_y,
         .icon_height = grid_metrics.icon_height,
         .icon_height_single = grid_metrics.icon_height_single,
+        .primary_metrics = dwriteFaceMetrics(face, size_px),
     };
 }
 
@@ -363,16 +402,16 @@ pub fn render(
 
     // Try fallback
     if (self.fallback) |fb| {
-        if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
+        if (fb.resolve(self.allocator, codepoint, font.size_px, font.primary_metrics)) |fb_face| {
+            return renderFromFace(self, fb_face.face, fb_face.size_px, font.ascent_px, .{}, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
         }
     } else {
         const fb = self.allocator.create(FallbackResolver) catch
             return renderFromFace(self, face, font.size_px, font.ascent_px, font.synth, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
         fb.* = FallbackResolver.initResolver(self.factory);
         @constCast(&self.fallback).* = fb;
-        if (fb.resolve(self.allocator, codepoint, font.size_px)) |fb_face| {
-            return renderFromFace(self, fb_face.face, font.size_px, fb_face.ascent_px, .{}, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
+        if (fb.resolve(self.allocator, codepoint, font.size_px, font.primary_metrics)) |fb_face| {
+            return renderFromFace(self, fb_face.face, fb_face.size_px, font.ascent_px, .{}, codepoint, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
         }
     }
 
@@ -834,6 +873,7 @@ const FallbackResolver = struct {
     const FallbackFace = struct {
         face: *win32.IDWriteFontFace,
         ascent_px: i32,
+        size_px: u16,
     };
 
     const CacheEntry = struct { found: bool, index: u8 };
@@ -910,6 +950,7 @@ const FallbackResolver = struct {
         allocator: std.mem.Allocator,
         codepoint: u21,
         size_px: u16,
+        primary: face_metrics.FaceMetrics,
     ) ?*const FallbackFace {
         if (self.current_size_px != 0 and self.current_size_px != size_px) {
             for (self.faces.items) |f| _ = f.face.IUnknown.Release();
@@ -923,7 +964,7 @@ const FallbackResolver = struct {
         }
 
         // Try system font fallback first
-        const fb = self.font_fallback orelse return self.resolveEmbedded(allocator, codepoint, size_px);
+        const fb = self.font_fallback orelse return self.resolveEmbedded(allocator, codepoint, size_px, primary);
 
         // Encode codepoint as UTF-16 for MapCharacters
         var text_buf: [2]u16 = undefined;
@@ -959,26 +1000,30 @@ const FallbackResolver = struct {
         );
 
         if (hr < 0 or mapped_length == 0)
-            return self.resolveEmbedded(allocator, codepoint, size_px);
+            return self.resolveEmbedded(allocator, codepoint, size_px, primary);
 
         // Check if MapCharacters actually returned a font (it can return S_OK with null)
         const font_ptr: ?*win32.IDWriteFont = @ptrCast(mapped_font);
         const mapped = font_ptr orelse
-            return self.resolveEmbedded(allocator, codepoint, size_px);
+            return self.resolveEmbedded(allocator, codepoint, size_px, primary);
         defer _ = mapped.IUnknown.Release();
 
         var face: *win32.IDWriteFontFace = undefined;
         if (mapped.CreateFontFace(&face) < 0)
-            return self.resolveEmbedded(allocator, codepoint, size_px);
+            return self.resolveEmbedded(allocator, codepoint, size_px, primary);
 
-        // Compute ascent for the fallback face
+        // Size-adjust the fallback to match the primary face
+        const size_scale = face_metrics.faceScaleFactor(primary, dwriteFaceMetrics(face, size_px));
+        const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * size_scale)));
+
+        // Compute ascent for the fallback face at its adjusted size.
         var metrics: win32.DWRITE_FONT_METRICS = undefined;
         face.GetMetrics(&metrics);
         const face_ascent: i32 = if (metrics.designUnitsPerEm != 0) blk: {
-            const em: f32 = @floatFromInt(size_px);
+            const em: f32 = @floatFromInt(adj);
             const s: f32 = em / @as(f32, @floatFromInt(metrics.designUnitsPerEm));
             break :blk @intFromFloat(@round(@as(f32, @floatFromInt(metrics.ascent)) * s));
-        } else @intCast(size_px);
+        } else @intCast(adj);
 
         if (self.faces.items.len >= 255) {
             _ = face.IUnknown.Release();
@@ -990,6 +1035,7 @@ const FallbackResolver = struct {
         self.faces.append(allocator, .{
             .face = face,
             .ascent_px = face_ascent,
+            .size_px = adj,
         }) catch {
             _ = face.IUnknown.Release();
             self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
@@ -1005,21 +1051,24 @@ const FallbackResolver = struct {
         allocator: std.mem.Allocator,
         codepoint: u21,
         size_px: u16,
+        primary: face_metrics.FaceMetrics,
     ) ?*const FallbackFace {
         if (self.embedded_face) |ef| {
             var gi: [2]u16 = .{ 0, 0 };
             const cps = [_]u32{@intCast(codepoint)};
             if (ef.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) >= 0 and gi[0] != 0) {
+                const scale = face_metrics.faceScaleFactor(primary, dwriteFaceMetrics(ef, size_px));
+                const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * scale)));
                 var m: win32.DWRITE_FONT_METRICS = undefined;
                 ef.GetMetrics(&m);
                 const ascent: i32 = if (m.designUnitsPerEm != 0) blk: {
-                    const em: f32 = @floatFromInt(size_px);
+                    const em: f32 = @floatFromInt(adj);
                     const s: f32 = em / @as(f32, @floatFromInt(m.designUnitsPerEm));
                     break :blk @intFromFloat(@round(@as(f32, @floatFromInt(m.ascent)) * s));
-                } else @intCast(size_px);
+                } else @intCast(adj);
 
                 const idx: u8 = @intCast(self.faces.items.len);
-                self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent }) catch {};
+                self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent, .size_px = adj }) catch {};
                 self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
                 return &self.faces.items[idx];
             }
