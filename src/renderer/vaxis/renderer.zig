@@ -487,7 +487,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
                 self.logger.print("explicit width capability detected", .{});
                 self.vx.caps.explicit_width = true;
                 self.vx.caps.unicode = .unicode;
-                self.vx.screen.width_method = .unicode;
+                self.vx.screen.width_method = self.vx.caps.widthMethod();
                 return;
             }
             // Check for a cursor position response for our scaled text query. This will
@@ -606,7 +606,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         .cap_unicode => {
             self.logger.print("unicode capability detected", .{});
             self.vx.caps.unicode = .unicode;
-            self.vx.screen.width_method = .unicode;
+            self.vx.screen.width_method = self.vx.caps.widthMethod();
         },
         .cap_sgr_pixels => {
             self.logger.print("pixel mouse capability detected", .{});

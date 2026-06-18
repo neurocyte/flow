@@ -246,7 +246,8 @@ fn graphemeEmojiPresentation(g: []const u8) bool {
     if (g.len < 2) return false; // empty or single-byte ASCII: never emoji
     var it = (std.unicode.Utf8View.init(g) catch return false).iterator();
     const base = it.nextCodepoint() orelse return false;
-    const base_default_emoji = uucode.get(.is_emoji_presentation, @intCast(base));
+    const base_default_emoji = uucode.get(.is_emoji_presentation, @intCast(base)) or
+        uucode.get(.is_emoji_modifier_base, @intCast(base));
     if (uucode.get(.is_emoji_vs_base, @intCast(base))) {
         while (it.nextCodepoint()) |cp| switch (cp) {
             0xFE0E => return false, // VS15: explicit text presentation

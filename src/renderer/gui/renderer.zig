@@ -204,12 +204,12 @@ pub fn init(
         .stdplane_id = Layer.next_id(),
     };
     result.vx.caps.unicode = .unicode;
-    result.vx.screen.width_method = .unicode;
     std.log.info("unicode capability detected", .{});
     result.vx.caps.multi_cursor = true;
     std.log.info("multi cursor capability detected", .{});
     result.vx.caps.explicit_width = true;
     std.log.info("explicit width capability enabled", .{});
+    result.vx.screen.width_method = result.vx.caps.widthMethod();
     result.vx.caps.kitty_keyboard = true;
     std.log.info("kitty keyboard capability detected", .{});
     result.vx.caps.sgr_pixels = true;

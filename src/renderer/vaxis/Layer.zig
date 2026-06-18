@@ -24,7 +24,7 @@ pub fn set_root_caps(caps: *const vaxis.Vaxis.Capabilities) void {
 }
 
 fn root_width_method() vaxis.gwidth.Method {
-    return if (root_caps) |caps| caps.unicode else .wcwidth;
+    return if (root_caps) |caps| caps.widthMethod() else .wcwidth;
 }
 
 allocator: std.mem.Allocator,
