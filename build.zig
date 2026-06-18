@@ -501,11 +501,20 @@ pub fn build_exe(
         },
     });
 
+    const MouseEvent_mod = b.createModule(.{
+        .root_source_file = b.path("src/MouseEvent.zig"),
+        .imports = &.{
+            .{ .name = "vaxis", .module = vaxis_mod },
+            .{ .name = "cbor", .module = cbor_mod },
+        },
+    });
+
     const tui_renderer_mod = b.createModule(.{
         .root_source_file = b.path("src/renderer/vaxis/renderer.zig"),
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "input", .module = input_mod },
+            .{ .name = "MouseEvent", .module = MouseEvent_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "log", .module = log_mod },
@@ -822,6 +831,20 @@ pub fn build_exe(
         .filters = test_filters,
     }));
 
+    const mouse_event_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/MouseEvent.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("vaxis", vaxis_mod);
+        tests.root_module.addImport("cbor", cbor_mod);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const syntax_validator_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .root_module = b.createModule(.{
@@ -921,6 +944,7 @@ pub fn build_exe(
             .{ .name = "file_link", .module = file_link_mod },
             .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "input", .module = input_mod },
+            .{ .name = "MouseEvent", .module = MouseEvent_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "config", .module = config_mod },
@@ -1108,6 +1132,7 @@ pub fn build_exe(
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
+    test_step.dependOn(&mouse_event_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
 
     const lints = b.addFmt(.{
