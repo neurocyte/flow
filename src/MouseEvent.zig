@@ -10,10 +10,10 @@ pub const Type = enum {
     drag,
 
     pub fn to_vaxis(self: @This()) vaxis.Mouse.Type {
-        return @bitCast(self);
+        return @enumFromInt(@intFromEnum(self));
     }
-    pub fn from_vaxis(mods: vaxis.Mouse.Type) Button {
-        return @bitCast(mods);
+    pub fn from_vaxis(t: vaxis.Mouse.Type) Type {
+        return @enumFromInt(@intFromEnum(t));
     }
 };
 
@@ -33,10 +33,10 @@ pub const Button = enum(u8) {
     _,
 
     pub fn to_vaxis(self: @This()) vaxis.Mouse.Button {
-        return @bitCast(self);
+        return @enumFromInt(@intFromEnum(self));
     }
-    pub fn from_vaxis(mods: vaxis.Mouse.Button) Button {
-        return @bitCast(mods);
+    pub fn from_vaxis(b: vaxis.Mouse.Button) Button {
+        return @enumFromInt(@intFromEnum(b));
     }
 };
 
@@ -123,6 +123,22 @@ pub const Cell = struct {
     row: i32,
     xoffset: u16 = 0,
     yoffset: u16 = 0,
+
+    pub fn from_vaxis(m: vaxis.Mouse) @This() {
+        return .{
+            .col = m.col,
+            .row = m.row,
+            .xoffset = m.xoffset,
+            .yoffset = m.yoffset,
+        };
+    }
+
+    pub fn to_coord(self: @This(), geom: Geometry) Coord {
+        return .{
+            .x = self.col * @as(i32, @max(1, geom.cell_width)) + self.xoffset,
+            .y = self.row * @as(i32, @max(1, geom.cell_height)) + self.yoffset,
+        };
+    }
 };
 
 const expect = std.testing.expect;

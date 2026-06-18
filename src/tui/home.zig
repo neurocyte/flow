@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
@@ -213,9 +214,9 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         tui.need_render(@src());
         return true;
     }
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.more }) or
-        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON2), tp.more }) or
-        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON3), tp.more }))
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.more }) or
+        try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.middle, tp.more }) or
+        try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.more }))
         return switch (tui.set_focus_by_mouse_event()) {
             .changed, .same => true,
             .notfound => false,

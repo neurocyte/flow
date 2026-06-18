@@ -18,6 +18,7 @@ const syntax_validator = @import("syntax_validator");
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const snippet = @import("snippet");
@@ -7802,7 +7803,7 @@ pub const EditorWidget = struct {
     commands: Commands = undefined,
     focused: bool = false,
 
-    last_btn: input.Mouse = .none,
+    last_btn: MouseEvent.Button = .none,
     last_btn_time_ms: i64 = 0,
     last_btn_count: usize = 0,
     last_btn_x: c_int = 0,
@@ -7887,20 +7888,18 @@ pub const EditorWidget = struct {
     }
 
     fn receive_safe(self: *Self, m: tp.message) !bool {
-        var event: input.Event = undefined;
-        var btn: input.MouseType = undefined;
-        var x: c_int = undefined;
-        var y: c_int = undefined;
-        var xpx: c_int = undefined;
-        var ypx: c_int = undefined;
+        var mouse_type: MouseEvent.Type = undefined;
+        var btn: MouseEvent.Button = undefined;
+        var coord: MouseEvent.Coord = undefined;
         var pos: u32 = 0;
         var bytes: []const u8 = "";
         var whitespace_mode: WhitespaceMode = .none;
 
         const io = root_mod.get_io();
         const now = root_mod.get_now();
-        if (try m.match(.{ "M", tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
-            const hover_y, const hover_x = self.editor.plane.abs_yx_to_rel(y, x);
+        if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.any })) {
+            const cell = coord.to_cell(self.editor.plane.mouse_geometry());
+            const hover_y, const hover_x = .{ cell.row, cell.col };
             if (hover_y != self.hover_y or hover_x != self.hover_x) {
                 self.hover_y, self.hover_x = .{ hover_y, hover_x };
                 if (tui.jump_mode()) {
@@ -7914,10 +7913,12 @@ pub const EditorWidget = struct {
                     self.editor.reset_hover_pos();
                 }
             }
-        } else if (try m.match(.{ "B", tp.extract(&event), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
-            try self.mouse_click_event(event, @enumFromInt(btn), y, x, ypx, xpx);
-        } else if (try m.match(.{ "D", tp.extract(&event), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
-            try self.mouse_drag_event(event, @enumFromInt(btn), y, x, ypx, xpx);
+        } else if (try m.match(.{ tp.extract(&mouse_type), tp.extract(&btn), tp.extract(&coord), tp.any })) {
+            switch (mouse_type) {
+                .press, .release => try self.mouse_click_event(mouse_type, btn, coord),
+                .drag => try self.mouse_drag_event(mouse_type, btn, coord),
+                .motion => {},
+            }
         } else if (try m.match(.{ "scroll_to", tp.extract(&pos) })) {
             self.editor.scroll_to(pos, root_mod.get_now());
         } else if (self.editor.is_filter_running() and try m.match(.{ "filter", "stdout", tp.extract(&bytes) })) {
@@ -7985,53 +7986,55 @@ pub const EditorWidget = struct {
 
     const Result = command.Result;
 
-    fn mouse_click_event(self: *Self, event: input.Event, btn: input.Mouse, y: c_int, x: c_int, ypx: c_int, xpx: c_int) Result {
-        if (event != input.event.press) return;
+    fn mouse_click_event(self: *Self, mouse_type: MouseEvent.Type, btn: MouseEvent.Button, coord: MouseEvent.Coord) Result {
+        if (mouse_type != .press) return;
         if (!self.focused or tui.is_keyboard_focused()) switch (btn) {
-            input.mouse.BUTTON1, input.mouse.BUTTON2, input.mouse.BUTTON3 => _ = tui.set_focus_by_mouse_event(),
+            .left, .middle, .right => _ = tui.set_focus_by_mouse_event(),
             else => {},
         };
         const ret = (switch (btn) {
-            input.mouse.BUTTON1 => &mouse_click_button1,
-            input.mouse.BUTTON2 => &mouse_click_button2,
-            input.mouse.BUTTON3 => &mouse_click_button3,
-            input.mouse.BUTTON4 => &mouse_click_button4,
-            input.mouse.BUTTON5 => &mouse_click_button5,
-            input.mouse.BUTTON6 => &mouse_click_button6,
-            input.mouse.BUTTON7 => &mouse_click_button7,
-            input.mouse.BUTTON8 => &mouse_click_button8, //back
-            input.mouse.BUTTON9 => &mouse_click_button9, //forward
+            .left => &mouse_click_button1,
+            .middle => &mouse_click_button2,
+            .right => &mouse_click_button3,
+            .wheel_up => &mouse_click_button4,
+            .wheel_down => &mouse_click_button5,
+            .wheel_right => &mouse_click_button6,
+            .wheel_left => &mouse_click_button7,
+            .button_8 => &mouse_click_button8, //back
+            .button_9 => &mouse_click_button9, //forward
             else => return,
-        })(self, y, x, ypx, xpx);
+        })(self, coord);
         self.last_btn = btn;
         self.last_btn_time_ms = root_mod.get_now().toMilliseconds();
         return ret;
     }
 
-    fn mouse_drag_event(self: *Self, event: input.Event, btn: input.Mouse, y: c_int, x: c_int, ypx: c_int, xpx: c_int) Result {
-        if (event != input.event.press) return;
+    fn mouse_drag_event(self: *Self, mouse_type: MouseEvent.Type, btn: MouseEvent.Button, coord: MouseEvent.Coord) Result {
+        if (mouse_type != .drag) return;
         return (switch (btn) {
-            input.mouse.BUTTON1 => &mouse_drag_button1,
-            input.mouse.BUTTON2 => &mouse_drag_button2,
-            input.mouse.BUTTON3 => &mouse_drag_button3,
+            .left => &mouse_drag_button1,
+            .middle => &mouse_drag_button2,
+            .right => &mouse_drag_button3,
             else => return,
-        })(self, y, x, ypx, xpx);
+        })(self, coord);
     }
 
-    fn mouse_pos_abs(self: *Self, y: c_int, x: c_int, xoffset: c_int) struct { c_int, c_int } {
-        return if (tui.is_cursor_beam())
-            self.editor.plane.abs_yx_to_rel_nearest_x(y, x, xoffset)
+    fn mouse_pos_abs(self: *Self, coord: MouseEvent.Coord) struct { c_int, c_int } {
+        const geom = self.editor.plane.mouse_geometry();
+        const cell = if (tui.is_cursor_beam())
+            coord.to_cell_nearest_x(geom)
         else
-            self.editor.plane.abs_yx_to_rel(y, x);
+            coord.to_cell(geom);
+        return .{ cell.row, cell.col };
     }
 
-    fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
-        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
+    fn mouse_click_button1(self: *Self, coord: MouseEvent.Coord) Result {
+        const y_, const x_ = self.mouse_pos_abs(coord);
         defer {
             self.last_btn_y = y_;
             self.last_btn_x = x_;
         }
-        if (self.last_btn == input.mouse.BUTTON1) {
+        if (self.last_btn == .left) {
             const click_time_ms = root_mod.get_now().toMilliseconds() - self.last_btn_time_ms;
             if (click_time_ms <= double_click_time_ms and
                 self.last_btn_y == y_ and
@@ -8052,46 +8055,46 @@ pub const EditorWidget = struct {
         return;
     }
 
-    fn mouse_drag_button1(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
-        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
+    fn mouse_drag_button1(self: *Self, coord: MouseEvent.Coord) Result {
+        const y_, const x_ = self.mouse_pos_abs(coord);
         self.editor.primary_drag(y_, x_, root_mod.get_now());
     }
 
-    fn mouse_click_button2(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {}
+    fn mouse_click_button2(_: *Self, _: MouseEvent.Coord) Result {}
 
-    fn mouse_drag_button2(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {}
+    fn mouse_drag_button2(_: *Self, _: MouseEvent.Coord) Result {}
 
-    fn mouse_click_button3(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
-        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
+    fn mouse_click_button3(self: *Self, coord: MouseEvent.Coord) Result {
+        const y_, const x_ = self.mouse_pos_abs(coord);
         try self.editor.secondary_click(y_, x_);
     }
 
-    fn mouse_drag_button3(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
-        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
+    fn mouse_drag_button3(self: *Self, coord: MouseEvent.Coord) Result {
+        const y_, const x_ = self.mouse_pos_abs(coord);
         try self.editor.secondary_drag(y_, x_);
     }
 
-    fn mouse_click_button4(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+    fn mouse_click_button4(self: *Self, _: MouseEvent.Coord) Result {
         self.editor.mouse_scroll_up(root_mod.get_now());
     }
 
-    fn mouse_click_button5(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+    fn mouse_click_button5(self: *Self, _: MouseEvent.Coord) Result {
         self.editor.mouse_scroll_down(root_mod.get_now());
     }
 
-    fn mouse_click_button6(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+    fn mouse_click_button6(self: *Self, _: MouseEvent.Coord) Result {
         self.editor.mouse_scroll_left();
     }
 
-    fn mouse_click_button7(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+    fn mouse_click_button7(self: *Self, _: MouseEvent.Coord) Result {
         self.editor.mouse_scroll_right();
     }
 
-    fn mouse_click_button8(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+    fn mouse_click_button8(_: *Self, _: MouseEvent.Coord) Result {
         try command.executeName("jump_back", .empty());
     }
 
-    fn mouse_click_button9(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+    fn mouse_click_button9(_: *Self, _: MouseEvent.Coord) Result {
         try command.executeName("jump_forward", .empty());
     }
 

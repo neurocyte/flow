@@ -12,6 +12,7 @@ const Buffer = @import("Buffer");
 
 pub const renderer = @import("renderer");
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const keybind = @import("keybind");
@@ -808,13 +809,13 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     self.update_mouse_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
-    if (!(m.match(.{ "M", tp.more }) catch false))
+    if (!(m.match(.{ MouseEvent.Type.motion, tp.more }) catch false))
         self.unrendered_input_events_count += 1;
     const send_func = if (self.drag_source) |_| &send_mouse_drag else &send_mouse;
     send_func(self, y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
-    var btn: input.MouseType = 0;
-    _ = m.match(.{ tp.string, tp.any, tp.extract(&btn), tp.more }) catch false;
-    self.maybe_reset_drag_source(btn);
+    var btn: MouseEvent.Button = .none;
+    _ = m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false;
+    self.maybe_reset_drag_source(@intFromEnum(btn));
 }
 
 fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
@@ -823,10 +824,10 @@ fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
-    var btn: input.MouseType = undefined;
-    if (m.match(.{ tp.string, tp.any, tp.extract(&btn), tp.more }) catch false)
+    var btn: MouseEvent.Button = .none;
+    if (m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false)
         if (self.drag_source == null and y >= 0 and x >= 0)
-            self.set_drag_source(self.find_coord_widget(@intCast(y), @intCast(x)), btn);
+            self.set_drag_source(self.find_coord_widget(@intCast(y), @intCast(x)), @intFromEnum(btn));
     self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
 

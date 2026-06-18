@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
+const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 
@@ -79,8 +80,7 @@ fn format(self: *Self) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var btn: u32 = 0;
-    if (try m.match(.{ "D", tp.any, tp.extract(&btn), tp.more })) {
+    if (try m.match(.{ MouseEvent.Type.drag, tp.more })) {
         if (self.on_event) |h| h.send(from, m) catch {};
         return true;
     }

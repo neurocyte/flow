@@ -3,7 +3,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 
 const Plane = @import("renderer").Plane;
-const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
@@ -63,28 +63,23 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var y: i32 = undefined;
-    var ypx: i32 = undefined;
+    var coord: MouseEvent.Coord = undefined;
     const old_hover = self.hover;
 
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
         self.active = true;
-        self.update_max_ypx(ypx);
-        self.click_at(y, ypx);
+        self.update_max_ypx(cell.yoffset);
+        self.click_at(cell.row, cell.yoffset);
         return true;
-    } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
+    } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.more })) {
         self.active = false;
         return true;
-    } else if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
+    } else if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
         self.active = true;
-        self.update_max_ypx(ypx);
-        self.drag_to(y, ypx);
-        return true;
-    } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
-        self.active = false;
-        return true;
-    } else if (try m.match(.{ "D", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
-        self.active = false;
+        self.update_max_ypx(cell.yoffset);
+        self.drag_to(cell.row, cell.yoffset);
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         if (old_hover != self.hover)

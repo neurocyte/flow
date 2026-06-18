@@ -5,6 +5,7 @@ const tracy = @import("tracy");
 
 const Plane = @import("renderer").Plane;
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -167,7 +168,7 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.more })) {
         command.executeName("toggle_inputview", .empty()) catch {};
         return true;
     }

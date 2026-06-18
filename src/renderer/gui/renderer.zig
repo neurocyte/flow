@@ -16,6 +16,7 @@ const GraphemeCache = @import("tuirenderer").GraphemeCache;
 pub const Plane = @import("tuirenderer").Plane;
 pub const Layer = @import("tuirenderer").Layer;
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const app = @import("app");
 const root = @import("soft_root").root;
 
@@ -430,6 +431,20 @@ pub fn stdplane(self: *Self) Plane {
     return plane;
 }
 
+fn dispatch_mouse_event(self: *Self, event: MouseEvent.Event) Error!void {
+    const mouse_type, _, const coord, _ = event;
+    const screen = self.vx.screen;
+    const cell_width: u16 = if (screen.width > 0 and screen.width_pix > 0) @intCast(screen.width_pix / screen.width) else 1;
+    const cell_height: u16 = if (screen.height > 0 and screen.height_pix > 0) @intCast(screen.height_pix / screen.height) else 1;
+    const row = @divFloor(coord.y, @as(i32, cell_height));
+    const col = @divFloor(coord.x, @as(i32, cell_width));
+    const mouse_msg = try self.fmtmsg(event);
+    switch (mouse_type) {
+        .drag => if (self.dispatch_mouse_drag) |f| f(self.handler_ctx, row, col, mouse_msg),
+        else => if (self.dispatch_mouse) |f| f(self.handler_ctx, row, col, mouse_msg),
+    }
+}
+
 pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     const Input = struct {
         kind: u8,
@@ -437,12 +452,6 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         shifted_codepoint: u21,
         text: []const u8,
         mods: u8,
-    };
-    const MousePos = struct {
-        col: i32,
-        row: i32,
-        xoffset: i32,
-        yoffset: i32,
     };
     const Winsize = struct {
         cell_width: u16,
@@ -499,94 +508,9 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     }
 
     {
-        var args: MousePos = undefined;
-        if (try cbor.match(msg, .{
-            cbor.any,
-            "M",
-            cbor.extract(&args.col),
-            cbor.extract(&args.row),
-            cbor.extract(&args.xoffset),
-            cbor.extract(&args.yoffset),
-        })) {
-            if (self.dispatch_mouse) |f| f(
-                self.handler_ctx,
-                @intCast(args.row),
-                @intCast(args.col),
-                try self.fmtmsg(.{
-                    "M",
-                    args.col,
-                    args.row,
-                    args.xoffset,
-                    args.yoffset,
-                }),
-            );
-            return;
-        }
-    }
-
-    {
-        var args: struct {
-            pos: MousePos,
-            button_id: u8,
-        } = undefined;
-        if (try cbor.match(msg, .{
-            cbor.any,
-            "D",
-            cbor.extract(&args.button_id),
-            cbor.extract(&args.pos.col),
-            cbor.extract(&args.pos.row),
-            cbor.extract(&args.pos.xoffset),
-            cbor.extract(&args.pos.yoffset),
-        })) {
-            if (self.dispatch_mouse_drag) |f| f(
-                self.handler_ctx,
-                @intCast(args.pos.row),
-                @intCast(args.pos.col),
-                try self.fmtmsg(.{
-                    "D",
-                    input.event.press,
-                    args.button_id,
-                    input.utils.button_id_string(@enumFromInt(args.button_id)),
-                    args.pos.col,
-                    args.pos.row,
-                    args.pos.xoffset,
-                    args.pos.yoffset,
-                }),
-            );
-            return;
-        }
-    }
-
-    {
-        var args: struct {
-            pos: MousePos,
-            button: struct { press: u8, id: u8 },
-        } = undefined;
-        if (try cbor.match(msg, .{
-            cbor.any,
-            "B",
-            cbor.extract(&args.button.press),
-            cbor.extract(&args.button.id),
-            cbor.extract(&args.pos.col),
-            cbor.extract(&args.pos.row),
-            cbor.extract(&args.pos.xoffset),
-            cbor.extract(&args.pos.yoffset),
-        })) {
-            if (self.dispatch_mouse) |f| f(
-                self.handler_ctx,
-                @intCast(args.pos.row),
-                @intCast(args.pos.col),
-                try self.fmtmsg(.{
-                    "B",
-                    args.button.press,
-                    args.button.id,
-                    input.utils.button_id_string(@enumFromInt(args.button.id)),
-                    args.pos.col,
-                    args.pos.row,
-                    args.pos.xoffset,
-                    args.pos.yoffset,
-                }),
-            );
+        var event: MouseEvent.Event = undefined;
+        if (try cbor.match(msg, .{ cbor.any, cbor.extract(&event) })) {
+            try self.dispatch_mouse_event(event);
             return;
         }
     }

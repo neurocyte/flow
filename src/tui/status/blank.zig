@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const MouseEvent = @import("MouseEvent");
 const Plane = @import("renderer").Plane;
 const EventHandler = @import("EventHandler");
 
@@ -51,8 +52,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var btn: u32 = 0;
-    if (try m.match(.{ "D", tp.any, tp.extract(&btn), tp.more })) {
+    if (try m.match(.{ MouseEvent.Type.drag, tp.more })) {
         if (self.on_event) |h| h.send(from, m) catch {};
         return true;
     }

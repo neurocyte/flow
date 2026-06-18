@@ -8,6 +8,7 @@ const Plane = @import("renderer").Plane;
 const styles = @import("renderer").styles;
 const Buffer = @import("Buffer");
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 
 const tui = @import("../tui.zig");
 const Widget = @import("../Widget.zig");
@@ -267,7 +268,7 @@ pub const TabBar = struct {
 
     fn handle_event(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         if (self.event_handler) |event_handler| try event_handler.send(from, m);
-        if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
+        if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.more })) {
             const dragging = for (self.tabs, 0..) |*tab, idx| {
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
                     if (btn.drag_pos) |_| break idx;
@@ -1154,8 +1155,7 @@ const spacer = struct {
     }
 
     pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        var btn: u32 = 0;
-        if (try m.match(.{ "D", tp.any, tp.extract(&btn), tp.more })) {
+        if (try m.match(.{ MouseEvent.Type.drag, tp.more })) {
             if (self.on_event) |h| h.send(from, m) catch {};
             return true;
         }

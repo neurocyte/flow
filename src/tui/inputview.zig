@@ -7,6 +7,7 @@ const Writer = @import("std").Io.Writer;
 
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const MouseEvent = @import("MouseEvent");
 
 const Plane = @import("renderer").Plane;
 const EventHandler = @import("EventHandler");
@@ -110,7 +111,7 @@ fn append(self: *Self, json: []const u8) !void {
 }
 
 fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    if (try m.match(.{ "M", tp.more })) return;
+    if (try m.match(.{ MouseEvent.Type.motion, tp.more })) return;
     var buf: [4096]u8 = undefined;
     const json = m.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
     var result: Writer.Allocating = .init(self.allocator);

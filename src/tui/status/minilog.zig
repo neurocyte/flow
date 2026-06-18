@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const MouseEvent = @import("MouseEvent");
 const log = @import("log");
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
@@ -54,8 +55,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var btn: u32 = 0;
-    if (try m.match(.{ "D", tp.any, tp.extract(&btn), tp.more })) {
+    if (try m.match(.{ MouseEvent.Type.drag, tp.more })) {
         if (self.on_event) |h| h.send(from, m) catch {};
         return true;
     }

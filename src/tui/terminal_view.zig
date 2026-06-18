@@ -17,6 +17,7 @@ const WidgetList = @import("WidgetList.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const keybind = @import("keybind");
 pub const Mode = keybind.Mode;
 const color = @import("color");
@@ -167,16 +168,14 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     }
     // Mouse button press - set focus first, then forward to terminal if reporting is on
     {
-        var btn: i64 = 0;
-        var col: i64 = 0;
-        var row: i64 = 0;
-        var xoffset: i64 = 0;
-        var yoffset: i64 = 0;
-        if (try m.match(.{ "B", input.event.press, tp.extract(&btn), tp.any, tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) }) or
-            try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.any, tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) }))
+        var btn: MouseEvent.Button = .none;
+        var coord: MouseEvent.Coord = undefined;
+        var mods: MouseEvent.Modifiers = .{};
+        if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.extract(&coord), tp.extract(&mods) }) or
+            try m.match(.{ MouseEvent.Type.release, tp.extract(&btn), tp.extract(&coord), tp.extract(&mods) }))
         {
-            const button: vaxis.Mouse.Button = @enumFromInt(btn);
-            const is_press = try m.match(.{ "B", input.event.press, tp.more });
+            const button = btn.to_vaxis();
+            const is_press = try m.match(.{ MouseEvent.Type.press, tp.more });
 
             if (tui.jump_mode()) if (self.file_link_) |*link| switch (link.*) {
                 .file => |*fl| {
@@ -209,14 +208,14 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             };
             // Forward to vt if terminal mouse reporting is active
             if (self.focused and self.vt.vt.mode.mouse != .none) {
-                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
+                const cell = coord.to_cell(self.plane.mouse_geometry());
                 const mouse_event: vaxis.Mouse = .{
-                    .col = @intCast(rel[1]),
-                    .row = @intCast(rel[0]),
-                    .xoffset = @intCast(xoffset),
-                    .yoffset = @intCast(yoffset),
+                    .col = @intCast(cell.col),
+                    .row = @intCast(cell.row),
+                    .xoffset = cell.xoffset,
+                    .yoffset = cell.yoffset,
                     .button = button,
-                    .mods = .{},
+                    .mods = mods.to_vaxis(),
                     .type = if (is_press) .press else .release,
                 };
                 self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
@@ -226,16 +225,16 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             return false;
         }
         // Mouse drag
-        if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) })) {
+        if (try m.match(.{ MouseEvent.Type.drag, tp.extract(&btn), tp.extract(&coord), tp.extract(&mods) })) {
             if (self.focused and self.vt.vt.mode.mouse != .none) {
-                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
+                const cell = coord.to_cell(self.plane.mouse_geometry());
                 const mouse_event: vaxis.Mouse = .{
-                    .col = @intCast(rel[1]),
-                    .row = @intCast(rel[0]),
-                    .xoffset = @intCast(xoffset),
-                    .yoffset = @intCast(yoffset),
-                    .button = @enumFromInt(btn),
-                    .mods = .{},
+                    .col = @intCast(cell.col),
+                    .row = @intCast(cell.row),
+                    .xoffset = cell.xoffset,
+                    .yoffset = cell.yoffset,
+                    .button = btn.to_vaxis(),
+                    .mods = mods.to_vaxis(),
                     .type = .drag,
                 };
                 self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
@@ -245,16 +244,16 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             return false;
         }
         // Mouse motion (no button held)
-        if (try m.match(.{ "M", tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) })) {
+        if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
+            const cell = coord.to_cell(self.plane.mouse_geometry());
             if (self.focused and self.vt.vt.mode.mouse == .any_event) {
-                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
                 const mouse_event: vaxis.Mouse = .{
-                    .col = @intCast(rel[1]),
-                    .row = @intCast(rel[0]),
-                    .xoffset = @intCast(xoffset),
-                    .yoffset = @intCast(yoffset),
+                    .col = @intCast(cell.col),
+                    .row = @intCast(cell.row),
+                    .xoffset = cell.xoffset,
+                    .yoffset = cell.yoffset,
                     .button = .none,
-                    .mods = .{},
+                    .mods = mods.to_vaxis(),
                     .type = .motion,
                 };
                 self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
@@ -262,9 +261,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 return true;
             }
             if (tui.jump_mode()) {
-                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
-                if (rel[0] >= 0 and rel[1] >= 0)
-                    self.update_hover_pos(@intCast(rel[0]), @intCast(rel[1]));
+                if (cell.row >= 0 and cell.col >= 0)
+                    self.update_hover_pos(@intCast(cell.row), @intCast(cell.col));
             } else {
                 self.reset_hover_pos();
             }

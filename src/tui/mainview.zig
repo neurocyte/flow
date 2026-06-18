@@ -16,6 +16,7 @@ const build_options = @import("build_options");
 
 const Plane = @import("renderer").Plane;
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const Buffer = @import("Buffer");
 
@@ -285,9 +286,11 @@ pub fn box(self: *const Self) Box {
 }
 
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var y: usize = undefined;
-    if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.any }))
-        return self.bottom_bar_primary_drag(y);
+    var coord: MouseEvent.Coord = undefined;
+    if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+        return self.bottom_bar_primary_drag(@intCast(cell.row));
+    }
 }
 
 fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {

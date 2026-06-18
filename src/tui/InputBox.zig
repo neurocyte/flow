@@ -3,6 +3,7 @@ const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 
 const Widget = @import("Widget.zig");
 const tui = @import("tui.zig");
@@ -122,16 +123,11 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.more })) {
                 self.active = true;
                 tui.need_render(@src());
                 return true;
-            } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
-                self.opts.on_click(self.opts.ctx, self);
-                self.active = false;
-                tui.need_render(@src());
-                return true;
-            } else if (try m.match(.{ "D", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.more })) {
                 self.opts.on_click(self.opts.ctx, self);
                 self.active = false;
                 tui.need_render(@src());

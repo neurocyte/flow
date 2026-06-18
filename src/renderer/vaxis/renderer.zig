@@ -7,6 +7,7 @@ const Color = @import("theme").Color;
 const ColorScheme = @import("theme").Type;
 pub const vaxis = @import("vaxis");
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const builtin = @import("builtin");
 const RGB = @import("color").RGB;
 
@@ -536,46 +537,23 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
 
             const mouse = self.vx.translateMouse(mouse_);
             try self.sync_mod_state(0, .{ .ctrl = mouse.mods.ctrl, .shift = mouse.mods.shift, .alt = mouse.mods.alt });
-            if (self.dispatch_mouse) |f| switch (mouse.type) {
-                .motion => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                    "M",
-                    mouse.col,
-                    mouse.row,
-                    mouse.xoffset,
-                    mouse.yoffset,
-                })),
-                .press => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                    "B",
-                    input.event.press,
-                    @intFromEnum(mouse.button),
-                    input.utils.button_id_string(mouse.button),
-                    mouse.col,
-                    mouse.row,
-                    mouse.xoffset,
-                    mouse.yoffset,
-                })),
-                .release => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                    "B",
-                    input.event.release,
-                    @intFromEnum(mouse.button),
-                    input.utils.button_id_string(mouse.button),
-                    mouse.col,
-                    mouse.row,
-                    mouse.xoffset,
-                    mouse.yoffset,
-                })),
-                .drag => if (self.dispatch_mouse_drag) |f_|
-                    f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                        "D",
-                        input.event.press,
-                        @intFromEnum(mouse.button),
-                        input.utils.button_id_string(mouse.button),
-                        mouse.col,
-                        mouse.row,
-                        mouse.xoffset,
-                        mouse.yoffset,
-                    })),
+
+            const screen = self.vx.screen;
+            const cell_width: u16 = if (screen.width > 0 and screen.width_pix > 0) @intCast(screen.width_pix / screen.width) else 1;
+            const cell_height: u16 = if (screen.height > 0 and screen.height_pix > 0) @intCast(screen.height_pix / screen.height) else 1;
+            const mouse_event: MouseEvent.Event = .{
+                MouseEvent.Type.from_vaxis(mouse.type),
+                MouseEvent.Button.from_vaxis(mouse.button),
+                MouseEvent.Cell.from_vaxis(mouse).to_coord(.{ .cell_width = cell_width, .cell_height = cell_height }),
+                MouseEvent.Modifiers.from_vaxis(mouse.mods),
             };
+            const mouse_msg = try self.fmtmsg(mouse_event);
+            switch (mouse.type) {
+                .drag => if (self.dispatch_mouse_drag) |f|
+                    f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), mouse_msg),
+                else => if (self.dispatch_mouse) |f|
+                    f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), mouse_msg),
+            }
         },
         .mouse_leave => {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"mouse_leave"}));

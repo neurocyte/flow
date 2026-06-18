@@ -23,6 +23,7 @@ const gpu = @import("gpu");
 const thespian = @import("thespian");
 const cbor = @import("cbor");
 const vaxis = @import("vaxis");
+const MouseEvent = @import("MouseEvent");
 const uucode_utils = @import("uucode_utils");
 const nerd_font_attributes = @import("nerd_font_attributes");
 const RGBA = @import("color").RGBA;
@@ -679,14 +680,20 @@ pub fn requestAttention() void {
 
 // ── Internal helpers (wio thread only) ────────────────────────────────────
 
-const CellPos = struct {
-    col: i32,
-    row: i32,
-    xoff: i32,
-    yoff: i32,
+const Pixel = struct {
+    x: i32,
+    y: i32,
 };
 
-fn pixelToCellPos(pos: wio.Position) CellPos {
+/// Build a MouseEvent.Event and forward it to the renderer
+fn sendMouse(mouse_type: MouseEvent.Type, button: MouseEvent.Button, pos: wio.Position, mods: MouseEvent.Modifiers) void {
+    const p = scaledPixel(pos);
+    const event: MouseEvent.Event = .{ mouse_type, button, .{ .x = p.x, .y = p.y }, mods };
+    tui_pid.send(.{ "RDR", event }) catch {};
+}
+
+/// The pointer position in window pixels
+fn scaledPixel(pos: wio.Position) Pixel {
     // win32 backend reports mouse coords in physical pixels
     // wayland and x11 backends report logical pixels
     const x: i32 = if (builtin.os.tag == .windows)
@@ -697,14 +704,7 @@ fn pixelToCellPos(pos: wio.Position) CellPos {
         @intCast(pos.y)
     else
         @intFromFloat(@as(f32, @floatFromInt(pos.y)) * dpi_scale);
-    const cw: i32 = wio_font_set.cell_size.x;
-    const ch: i32 = wio_font_set.cell_size.y;
-    return .{
-        .col = @divTrunc(x, cw),
-        .row = @divTrunc(y, ch),
-        .xoff = @mod(x, cw),
-        .yoff = @mod(y, ch),
-    };
+    return .{ .x = x, .y = y };
 }
 
 // Reload wio_font_set from current settings.  Called only from the render
@@ -844,16 +844,7 @@ fn wioLoop() void {
                     held_buttons.press(btn);
                     const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        const cp = pixelToCellPos(mouse_pos);
-                        tui_pid.send(.{
-                            "RDR", "B",
-                            @as(u8, 1), // press
-                            mb_id,
-                            cp.col,
-                            cp.row,
-                            cp.xoff,
-                            cp.yoff,
-                        }) catch {};
+                        sendMouse(.press, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
@@ -877,16 +868,7 @@ fn wioLoop() void {
                     held_buttons.release(btn);
                     const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        const cp = pixelToCellPos(mouse_pos);
-                        tui_pid.send(.{
-                            "RDR", "B",
-                            @as(u8, 3), // release
-                            mb_id,
-                            cp.col,
-                            cp.row,
-                            cp.xoff,
-                            cp.yoff,
-                        }) catch {};
+                        sendMouse(.release, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
@@ -907,22 +889,19 @@ fn wioLoop() void {
                 },
                 .mouse => |pos| {
                     mouse_pos = pos;
-                    const cp = pixelToCellPos(pos);
                     if (input_translate.heldMouseButtonId(held_buttons)) |mb_id| {
-                        tui_pid.send(.{ "RDR", "D", mb_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
+                        sendMouse(.drag, @enumFromInt(mb_id), pos, .{});
                     } else {
-                        tui_pid.send(.{ "RDR", "M", cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
+                        sendMouse(.motion, .none, pos, .{});
                     }
                 },
                 .scroll_vertical => |dy| {
                     const btn_id: u8 = if (dy < 0) 64 else 65; // up / down scroll
-                    const cp = pixelToCellPos(mouse_pos);
-                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
+                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, .{});
                 },
                 .scroll_horizontal => |dx| {
                     const btn_id: u8 = if (dx < 0) 66 else 67; // left / right scroll
-                    const cp = pixelToCellPos(mouse_pos);
-                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
+                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, .{});
                 },
                 .focused => {
                     _ = syncModifiers();

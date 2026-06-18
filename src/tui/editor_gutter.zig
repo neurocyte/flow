@@ -11,7 +11,7 @@ const root = @import("soft_root").root;
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
 const styles = @import("renderer").styles;
-const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -95,22 +95,21 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var y: i32 = undefined;
-    var ypx: i32 = undefined;
+    var coord: MouseEvent.Coord = undefined;
     var line_number_mode: ?LineNumberMode = null;
     var line_number_style: DigitStyle = undefined;
 
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
-        return self.primary_click(y);
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON2), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
+        return self.primary_click(self.abs_row(coord));
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.middle, tp.more }))
         return self.middle_click();
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON3), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.more }))
         return self.secondary_click();
-    if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
-        return self.primary_drag(y);
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON4), tp.more }))
+    if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
+        return self.primary_drag(self.abs_row(coord));
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_up, tp.more }))
         return self.mouse_click_button4();
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON5), tp.more }))
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_down, tp.more }))
         return self.mouse_click_button5();
     if (try m.match(.{ "line_number_mode", tp.extract(&line_number_mode) })) {
         self.line_number_mode = line_number_mode;
@@ -387,6 +386,10 @@ fn focus_editor(self: *Self) void {
         break :blk editor_widget;
     };
     _ = tui.set_focus_by_widget(editor_widget);
+}
+
+fn abs_row(self: *Self, coord: MouseEvent.Coord) i32 {
+    return coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() }).row;
 }
 
 fn primary_click(self: *Self, y_: i32) error{Exit}!bool {

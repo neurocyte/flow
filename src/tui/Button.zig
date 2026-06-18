@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 
 const Widget = @import("Widget.zig");
 const tui = @import("tui.zig");
@@ -117,54 +118,38 @@ fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            var btn: input.MouseType = 0;
-            var x: c_int = undefined;
-            var y: c_int = undefined;
-            var xoffset: c_int = undefined;
-            var yoffset: c_int = undefined;
-            if (try m.match(.{ "B", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xoffset), tp.extract(&yoffset) })) {
-                const btn_enum: input.Mouse = @enumFromInt(btn);
-                switch (btn_enum) {
-                    input.mouse.BUTTON1 => {
+            var btn: MouseEvent.Button = .none;
+            var coord: MouseEvent.Coord = undefined;
+            if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.extract(&coord), tp.any })) {
+                switch (btn) {
+                    .left => {
                         self.active = true;
-                        self.drag_anchor = self.to_rel_cursor(x, y);
-                        self.drag_anchor_offset = .{ .x = xoffset, .y = yoffset };
+                        self.drag_anchor = self.to_rel_cursor(coord);
+                        self.drag_anchor_offset = self.sub_cell_offset(coord);
                         tui.need_render(@src());
                     },
-                    input.mouse.BUTTON4, input.mouse.BUTTON5 => {
-                        self.call_click_handler(btn_enum, self.to_rel_cursor(x, y));
+                    .wheel_up, .wheel_down => {
+                        self.call_click_handler(btn, self.to_rel_cursor(coord));
                         return true;
                     },
                     else => {},
                 }
                 return true;
-            } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
+            } else if (try m.match(.{ MouseEvent.Type.release, tp.extract(&btn), tp.extract(&coord), tp.any })) {
                 self.drag_anchor = null;
                 self.drag_anchor_offset = null;
                 self.drag_pos = null;
                 self.drag_pos_offset = null;
-                self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
+                self.call_click_handler(btn, self.to_rel_cursor(coord));
                 tui.need_render(@src());
                 return true;
-            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xoffset), tp.extract(&yoffset) })) {
-                self.drag_pos = .{ .x = x, .y = y };
-                self.drag_pos_offset = .{ .x = xoffset, .y = yoffset };
+            } else if (try m.match(.{ MouseEvent.Type.drag, tp.extract(&btn), tp.extract(&coord), tp.any })) {
+                self.drag_pos = self.to_abs_cursor(coord);
+                self.drag_pos_offset = self.sub_cell_offset(coord);
                 if (self.opts.on_event) |h| {
                     self.active = false;
                     h.send(from, m) catch {};
                 }
-                return true;
-            } else if (try m.match(.{ "D", input.event.release, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
-                if (self.opts.on_event) |h| {
-                    self.active = false;
-                    h.send(from, m) catch {};
-                }
-                self.drag_anchor = null;
-                self.drag_anchor_offset = null;
-                self.drag_pos = null;
-                self.drag_pos_offset = null;
-                self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
-                tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
                 tui.rdr().request_mouse_cursor(self.opts.cursor, self.hover);
@@ -178,23 +163,33 @@ fn State(ctx_type: type) type {
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
         }
 
-        fn to_rel_cursor(self: *const Self, abs_x: c_int, abs_y: c_int) Widget.Pos {
-            const rel_y, const rel_x = self.plane.abs_yx_to_rel(abs_y, abs_x);
-            return .{ .y = @intCast(rel_y), .x = @intCast(rel_x) };
+        fn to_rel_cursor(self: *const Self, coord: MouseEvent.Coord) Widget.Pos {
+            const cell = coord.to_cell(self.plane.mouse_geometry());
+            return .{ .y = cell.row, .x = cell.col };
         }
 
-        fn call_click_handler(self: *Self, btn: input.Mouse, pos: Widget.Pos) void {
-            if (btn == input.mouse.BUTTON1) {
+        fn to_abs_cursor(self: *const Self, coord: MouseEvent.Coord) Widget.Pos {
+            const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+            return .{ .y = cell.row, .x = cell.col };
+        }
+
+        fn sub_cell_offset(self: *const Self, coord: MouseEvent.Coord) Widget.Pos {
+            const cell = coord.to_cell(self.plane.mouse_geometry());
+            return .{ .y = @intCast(cell.yoffset), .x = @intCast(cell.xoffset) };
+        }
+
+        fn call_click_handler(self: *Self, btn: MouseEvent.Button, pos: Widget.Pos) void {
+            if (btn == .left) {
                 if (!self.active) return;
                 self.active = false;
             }
             if (!self.hover) return;
             switch (btn) {
-                input.mouse.BUTTON1 => self.opts.on_click(&self.opts.ctx, self, pos),
-                input.mouse.BUTTON2 => self.opts.on_click2(&self.opts.ctx, self, pos),
-                input.mouse.BUTTON3 => self.opts.on_click3(&self.opts.ctx, self, pos),
-                input.mouse.BUTTON4 => self.opts.on_click4(&self.opts.ctx, self, pos),
-                input.mouse.BUTTON5 => self.opts.on_click5(&self.opts.ctx, self, pos),
+                .left => self.opts.on_click(&self.opts.ctx, self, pos),
+                .middle => self.opts.on_click2(&self.opts.ctx, self, pos),
+                .right => self.opts.on_click3(&self.opts.ctx, self, pos),
+                .wheel_up => self.opts.on_click4(&self.opts.ctx, self, pos),
+                .wheel_down => self.opts.on_click5(&self.opts.ctx, self, pos),
                 else => {},
             }
         }

@@ -6,6 +6,7 @@ const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const Plane = @import("renderer").Plane;
 const input = @import("input");
+const MouseEvent = @import("MouseEvent");
 
 pub fn Options(context: type) type {
     return struct {
@@ -96,16 +97,13 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            var btn: input.MouseType = 0;
-            if (try m.match(.{ "B", input.event.press, tp.more })) {
+            var btn: MouseEvent.Button = .none;
+            if (try m.match(.{ MouseEvent.Type.press, tp.more })) {
                 return true;
-            } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.more })) {
-                self.call_click_handler(@enumFromInt(btn));
+            } else if (try m.match(.{ MouseEvent.Type.release, tp.extract(&btn), tp.more })) {
+                self.call_click_handler(btn);
                 return true;
-            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.more })) {
-                return true;
-            } else if (try m.match(.{ "D", input.event.release, tp.extract(&btn), tp.more })) {
-                self.call_click_handler(@enumFromInt(btn));
+            } else if (try m.match(.{ MouseEvent.Type.drag, tp.more })) {
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
                 tui.rdr().request_mouse_cursor_default(self.hover);
@@ -114,14 +112,14 @@ pub fn State(ctx_type: type) type {
             return false;
         }
 
-        fn call_click_handler(self: *Self, btn: input.Mouse) void {
+        fn call_click_handler(self: *Self, btn: MouseEvent.Button) void {
             if (!self.hover) return;
             switch (btn) {
-                input.mouse.BUTTON1 => self.opts.on_click(self.opts.ctx, self),
-                input.mouse.BUTTON2 => self.opts.on_click2(self.opts.ctx, self),
-                input.mouse.BUTTON3 => self.opts.on_click3(self.opts.ctx, self),
-                input.mouse.BUTTON4 => self.opts.on_click4(self.opts.ctx, self),
-                input.mouse.BUTTON5 => self.opts.on_click5(self.opts.ctx, self),
+                .left => self.opts.on_click(self.opts.ctx, self),
+                .middle => self.opts.on_click2(self.opts.ctx, self),
+                .right => self.opts.on_click3(self.opts.ctx, self),
+                .wheel_up => self.opts.on_click4(self.opts.ctx, self),
+                .wheel_down => self.opts.on_click5(self.opts.ctx, self),
                 else => {},
             }
         }

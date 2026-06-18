@@ -9,6 +9,7 @@ const Buffer = @import("Buffer");
 const color = @import("color");
 const RGB = @import("color").RGB;
 const GraphemeCache = @import("GraphemeCache.zig");
+const MouseEvent = @import("MouseEvent");
 pub const Surface = @import("Surface.zig");
 
 const Plane = @This();
@@ -143,6 +144,16 @@ pub fn abs_yx_to_rel_nearest_x(self: Plane, y: i32, x: i32, xoffset: i32) struct
 pub fn abs_yx_to_rel(self: Plane, y: i32, x: i32) struct { i32, i32 } {
     const gy, const gx = self.global_yx();
     return .{ y - gy, x - gx };
+}
+
+pub fn mouse_geometry(self: Plane) MouseEvent.Geometry {
+    const ox, const oy = self.global_origin_px();
+    return .{
+        .origin_x = ox,
+        .origin_y = oy,
+        .cell_width = self.cell_x(),
+        .cell_height = self.cell_y(),
+    };
 }
 
 pub fn abs_y_to_rel(self: Plane, y: i32) i32 {
