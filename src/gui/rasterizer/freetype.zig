@@ -384,25 +384,28 @@ fn renderFromFace(
     else
         0;
 
-    var row: u32 = 0;
-    while (row < bm.rows) : (row += 1) {
-        const dst_y = off_y + @as(i32, @intCast(row));
-        if (dst_y < 0 or dst_y >= buf_h) continue;
+    const base_x: i32 = center_offset + off_x;
+    const rows_i: i32 = @intCast(bm.rows);
+    const width_i: i32 = @intCast(bm.width);
+    const row_start: i32 = @max(0, -off_y);
+    const row_end: i32 = @min(rows_i, buf_h - off_y);
+    const col_start: i32 = @max(0, -base_x);
+    const col_end: i32 = @min(width_i, buf_w - base_x);
 
-        var col: u32 = 0;
-        while (col < bm.width) : (col += 1) {
-            const dst_x = center_offset + off_x + @as(i32, @intCast(col));
-            if (dst_x < 0 or dst_x >= buf_w) continue;
-
-            const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;
-            if (dst_idx >= staging_buf.len) continue;
-
+    var row: i32 = row_start;
+    while (row < row_end) : (row += 1) {
+        const src_row: usize = @as(usize, @intCast(row)) * pitch;
+        const dst_row: usize = @intCast((off_y + row) * buf_w);
+        var col: i32 = col_start;
+        while (col < col_end) : (col += 1) {
+            const ucol: u32 = @intCast(col);
+            const dst_idx: usize = (dst_row + @as(usize, @intCast(base_x + col))) * 4;
             const px: u8 = if (is_mono) blk: {
                 // 1 bit per pixel, MSB first within each byte.
-                const byte = bm.buffer[row * pitch + (col >> 3)];
-                const bit: u3 = @intCast(7 - (col & 7));
+                const byte = bm.buffer[src_row + (ucol >> 3)];
+                const bit: u3 = @intCast(7 - (ucol & 7));
                 break :blk if ((byte >> bit) & 1 != 0) 0xFF else 0x00;
-            } else bm.buffer[row * pitch + col];
+            } else bm.buffer[src_row + ucol];
             staging_buf[dst_idx] = px;
         }
     }
@@ -502,19 +505,20 @@ fn blitColorBitmap(
     const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
     const inv_s: f32 = 1.0 / s;
 
-    var dy: i32 = 0;
-    while (dy < sh) : (dy += 1) {
-        const py = dst_y0 + dy;
-        if (py < 0 or py >= buf_h) continue;
+    const dy_start: i32 = @max(0, -dst_y0);
+    const dy_end: i32 = @min(sh, buf_h - dst_y0);
+    const dx_start: i32 = @max(0, -dst_x0);
+    const dx_end: i32 = @min(sw, buf_w - dst_x0);
+
+    var dy: i32 = dy_start;
+    while (dy < dy_end) : (dy += 1) {
+        const dst_row: usize = @intCast((dst_y0 + dy) * buf_w);
         const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
-        var dx: i32 = 0;
-        while (dx < sw) : (dx += 1) {
-            const px = dst_x0 + dx;
-            if (px < 0 or px >= buf_w) continue;
+        var dx: i32 = dx_start;
+        while (dx < dx_end) : (dx += 1) {
             const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
             const rgba = sampleBGRAtoRGBA(src, gw, gh, pitch, fsx, fsy);
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (dst_idx + 3 >= staging_buf.len) continue;
+            const dst_idx: usize = (dst_row + @as(usize, @intCast(dst_x0 + dx))) * 4;
             staging_buf[dst_idx + 0] = rgba[0];
             staging_buf[dst_idx + 1] = rgba[1];
             staging_buf[dst_idx + 2] = rgba[2];
