@@ -28,13 +28,6 @@ scrolling: bool = false,
 transparent: bool = false,
 layer: ?*const Layer = null,
 
-pub const Coord = struct {
-    col: i32 = 0,
-    row: i32 = 0,
-    xoffset: i16 = 0,
-    yoffset: i16 = 0,
-};
-
 pub const Options = struct {
     y: usize = 0,
     x: usize = 0,
@@ -131,21 +124,6 @@ pub inline fn cell_y(self: Plane) u15 {
     return @intCast(@max(1, ycell));
 }
 
-pub fn abs_yx_to_rel_nearest_x(self: Plane, y: i32, x: i32, xoffset: i32) struct { i32, i32 } {
-    if (self.window.screen.width == 0 or self.window.screen.height == 0) return self.abs_yx_to_rel(y, x);
-    const xcell = self.cell_x();
-    if (xcell == 0)
-        return self.abs_yx_to_rel(y, x);
-    if (xoffset > xcell / 2)
-        return self.abs_yx_to_rel(y, x + 1);
-    return self.abs_yx_to_rel(y, x);
-}
-
-pub fn abs_yx_to_rel(self: Plane, y: i32, x: i32) struct { i32, i32 } {
-    const gy, const gx = self.global_yx();
-    return .{ y - gy, x - gx };
-}
-
 pub fn mouse_geometry(self: Plane) MouseEvent.Geometry {
     const ox, const oy = self.global_origin_px();
     return .{
@@ -154,11 +132,6 @@ pub fn mouse_geometry(self: Plane) MouseEvent.Geometry {
         .cell_width = self.cell_x(),
         .cell_height = self.cell_y(),
     };
-}
-
-pub fn abs_y_to_rel(self: Plane, y: i32) i32 {
-    const gy, _ = self.global_yx();
-    return y - gy;
 }
 
 pub fn rel_yx_to_abs(self: Plane, y: i32, x: i32) struct { i32, i32 } {
@@ -177,30 +150,6 @@ pub fn global_origin_px(self: Plane) struct { i32, i32 } {
     return .{
         ox + @as(i32, self.window.x_off) * cw,
         oy + @as(i32, self.window.y_off) * ch,
-    };
-}
-
-pub fn to_window(self: Plane, local: Coord) struct { i32, i32 } {
-    const cw = self.cell_x();
-    const ch = self.cell_y();
-    const ox, const oy = self.global_origin_px();
-    return .{
-        ox + local.col * cw + @as(i32, local.xoffset),
-        oy + local.row * ch + @as(i32, local.yoffset),
-    };
-}
-
-pub fn from_window(self: Plane, win_x: i32, win_y: i32) Coord {
-    const cw = self.cell_x();
-    const ch = self.cell_y();
-    const ox, const oy = self.global_origin_px();
-    const dx = win_x - ox;
-    const dy = win_y - oy;
-    return .{
-        .col = @divFloor(dx, cw),
-        .row = @divFloor(dy, ch),
-        .xoffset = @intCast(@mod(dx, cw)),
-        .yoffset = @intCast(@mod(dy, ch)),
     };
 }
 
