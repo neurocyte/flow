@@ -149,36 +149,27 @@ pub fn colorRGBA(staging: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32
     }.sample);
 }
 
-fn bgraChannel(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, x: i32, y: i32, ch: usize) u8 {
-    const cx: u32 = @intCast(std.math.clamp(x, 0, gw - 1));
-    const cy: u32 = @intCast(std.math.clamp(y, 0, gh - 1));
-    return src[cy * pitch + cx * 4 + ch];
+const F4 = @Vector(4, f32);
+
+/// Bilinear-blend four pre-fetched RGBA corner taps (each a vector of 4 channel
+/// values) and pack back to 8-bit.
+fn lerp4(c00: F4, c10: F4, c01: F4, c11: F4, tx: f32, ty: f32) @Vector(4, u8) {
+    const vtx: F4 = @splat(tx);
+    const vty: F4 = @splat(ty);
+    const one: F4 = @splat(1.0);
+    const top = c00 * (one - vtx) + c10 * vtx;
+    const bot = c01 * (one - vtx) + c11 * vtx;
+    const res = top * (one - vty) + bot * vty;
+    const clamped = @min(@max(res, @as(F4, @splat(0))), @as(F4, @splat(255)));
+    return @intFromFloat(@round(clamped));
 }
 
-fn sampleBGRA(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, fx: f32, fy: f32) [4]u8 {
-    const x0: i32 = @intFromFloat(@floor(fx));
-    const y0: i32 = @intFromFloat(@floor(fy));
-    const tx: f32 = fx - @floor(fx);
-    const ty: f32 = fy - @floor(fy);
-    const src_ch = [4]usize{ 2, 1, 0, 3 };
-    var out: [4]u8 = undefined;
-    inline for (0..4) |oc| {
-        const sc = src_ch[oc];
-        const c00: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0, y0, sc));
-        const c10: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0 + 1, y0, sc));
-        const c01: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0, y0 + 1, sc));
-        const c11: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0 + 1, y0 + 1, sc));
-        const top = c00 * (1 - tx) + c10 * tx;
-        const bot = c01 * (1 - tx) + c11 * tx;
-        out[oc] = @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
-    }
-    return out;
-}
-
-fn rgbaChannel(src: []const u8, gw: i32, gh: i32, x: i32, y: i32, ch: usize) u8 {
-    const cx: i32 = std.math.clamp(x, 0, gw - 1);
-    const cy: i32 = std.math.clamp(y, 0, gh - 1);
-    return src[@intCast((cy * gw + cx) * 4 + @as(i32, @intCast(ch)))];
+fn rgbaTap(src: []const u8, gw: i32, gh: i32, x: i32, y: i32) F4 {
+    const cx: usize = @intCast(std.math.clamp(x, 0, gw - 1));
+    const cy: usize = @intCast(std.math.clamp(y, 0, gh - 1));
+    const off = (cy * @as(usize, @intCast(gw)) + cx) * 4;
+    const v: @Vector(4, u8) = src[off..][0..4].*;
+    return @floatFromInt(v);
 }
 
 fn sampleRGBA(src: []const u8, gw: i32, gh: i32, fx: f32, fy: f32) [4]u8 {
@@ -186,15 +177,39 @@ fn sampleRGBA(src: []const u8, gw: i32, gh: i32, fx: f32, fy: f32) [4]u8 {
     const y0: i32 = @intFromFloat(@floor(fy));
     const tx: f32 = fx - @floor(fx);
     const ty: f32 = fy - @floor(fy);
-    var out: [4]u8 = undefined;
-    inline for (0..4) |ch| {
-        const c00: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0, y0, ch));
-        const c10: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0 + 1, y0, ch));
-        const c01: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0, y0 + 1, ch));
-        const c11: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0 + 1, y0 + 1, ch));
-        const top = c00 * (1 - tx) + c10 * tx;
-        const bot = c01 * (1 - tx) + c11 * tx;
-        out[ch] = @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
-    }
+    const out = lerp4(
+        rgbaTap(src, gw, gh, x0, y0),
+        rgbaTap(src, gw, gh, x0 + 1, y0),
+        rgbaTap(src, gw, gh, x0, y0 + 1),
+        rgbaTap(src, gw, gh, x0 + 1, y0 + 1),
+        tx,
+        ty,
+    );
+    return out;
+}
+
+fn bgraTap(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, x: i32, y: i32) F4 {
+    const cx: u32 = @intCast(std.math.clamp(x, 0, gw - 1));
+    const cy: u32 = @intCast(std.math.clamp(y, 0, gh - 1));
+    const off = cy * pitch + cx * 4;
+    const v: @Vector(4, u8) = .{ src[off], src[off + 1], src[off + 2], src[off + 3] };
+    return @floatFromInt(v);
+}
+
+fn sampleBGRA(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, fx: f32, fy: f32) [4]u8 {
+    const x0: i32 = @intFromFloat(@floor(fx));
+    const y0: i32 = @intFromFloat(@floor(fy));
+    const tx: f32 = fx - @floor(fx);
+    const ty: f32 = fy - @floor(fy);
+    const bgra = lerp4(
+        bgraTap(src, gw, gh, pitch, x0, y0),
+        bgraTap(src, gw, gh, pitch, x0 + 1, y0),
+        bgraTap(src, gw, gh, pitch, x0, y0 + 1),
+        bgraTap(src, gw, gh, pitch, x0 + 1, y0 + 1),
+        tx,
+        ty,
+    );
+    // BGRA source order -> RGBA output order.
+    const out: @Vector(4, u8) = @shuffle(u8, bgra, undefined, @Vector(4, i32){ 2, 1, 0, 3 });
     return out;
 }
