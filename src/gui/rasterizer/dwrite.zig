@@ -124,6 +124,7 @@ cache: std.AutoHashMapUnmanaged(FaceKey, *win32.IDWriteFontFace) = .empty,
 block_and_line_symbols: SymbolRasterizer = .default,
 allow_color_glyphs: bool = true,
 fallback: ?*FallbackResolver = null,
+glyph_scratch: std.ArrayListUnmanaged(u8) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var factory: *win32.IDWriteFactory = undefined;
@@ -148,6 +149,7 @@ pub fn deinit(self: *Self) void {
     var it = self.cache.valueIterator();
     while (it.next()) |face| _ = face.*.IUnknown.Release();
     self.cache.deinit(self.allocator);
+    self.glyph_scratch.deinit(self.allocator);
     _ = self.factory.IUnknown.Release();
 }
 
@@ -502,8 +504,11 @@ fn renderFromFace(
     if (src_w <= 0 or src_h <= 0) return .{ .format = result_fmt };
 
     const buf_size: usize = @intCast(src_w * src_h * bytes_per_texel);
-    const tex = self.allocator.alloc(u8, buf_size) catch return .{ .format = result_fmt };
-    defer self.allocator.free(tex);
+    const scratch: *std.ArrayListUnmanaged(u8) = @constCast(&self.glyph_scratch);
+    scratch.clearRetainingCapacity();
+    scratch.ensureTotalCapacity(self.allocator, buf_size) catch return .{ .format = result_fmt };
+    scratch.items.len = buf_size;
+    const tex = scratch.items;
 
     if (analysis.CreateAlphaTexture(tex_type, &bounds, @ptrCast(tex.ptr), @intCast(buf_size)) < 0)
         return .{ .format = result_fmt };
@@ -563,19 +568,20 @@ fn renderFromFace(
     else
         0;
 
-    var row: i32 = 0;
-    while (row < src_h) : (row += 1) {
-        const dst_y = off_y + row;
-        if (dst_y < 0 or dst_y >= buf_h) continue;
-        var col: i32 = 0;
-        while (col < src_w) : (col += 1) {
-            const dst_x = center_offset + off_x + col;
-            if (dst_x < 0 or dst_x >= buf_w) continue;
-
-            const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;
-            if (dst_idx + 3 >= staging_buf.len) continue;
-
-            const src_idx: usize = @as(usize, @intCast(row * src_w + col)) * @as(usize, @intCast(bytes_per_texel));
+    const base_x: i32 = center_offset + off_x;
+    const bpt: usize = @intCast(bytes_per_texel);
+    const row_start: i32 = @max(0, -off_y);
+    const row_end: i32 = @min(src_h, buf_h - off_y);
+    const col_start: i32 = @max(0, -base_x);
+    const col_end: i32 = @min(src_w, buf_w - base_x);
+    var row: i32 = row_start;
+    while (row < row_end) : (row += 1) {
+        const dst_row: usize = @intCast((off_y + row) * buf_w);
+        const src_row: usize = @as(usize, @intCast(row * src_w)) * bpt;
+        var col: i32 = col_start;
+        while (col < col_end) : (col += 1) {
+            const dst_idx: usize = (dst_row + @as(usize, @intCast(base_x + col))) * 4;
+            const src_idx: usize = src_row + @as(usize, @intCast(col)) * bpt;
             if (tex_type == .ALIASED_1x1) {
                 staging_buf[dst_idx + 0] = tex[src_idx];
             } else {
@@ -808,19 +814,19 @@ fn blitColorRGBA(
     const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
     const inv_s: f32 = 1.0 / s;
 
-    var dy: i32 = 0;
-    while (dy < sh) : (dy += 1) {
-        const py = dst_y0 + dy;
-        if (py < 0 or py >= buf_h) continue;
+    const dy_start: i32 = @max(0, -dst_y0);
+    const dy_end: i32 = @min(sh, buf_h - dst_y0);
+    const dx_start: i32 = @max(0, -dst_x0);
+    const dx_end: i32 = @min(sw, buf_w - dst_x0);
+    var dy: i32 = dy_start;
+    while (dy < dy_end) : (dy += 1) {
+        const dst_row: usize = @intCast((dst_y0 + dy) * buf_w);
         const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
-        var dx: i32 = 0;
-        while (dx < sw) : (dx += 1) {
-            const px = dst_x0 + dx;
-            if (px < 0 or px >= buf_w) continue;
+        var dx: i32 = dx_start;
+        while (dx < dx_end) : (dx += 1) {
             const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
             const rgba = sampleRGBABilinear(src, gw, gh, fsx, fsy);
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (dst_idx + 3 >= staging_buf.len) continue;
+            const dst_idx: usize = (dst_row + @as(usize, @intCast(dst_x0 + dx))) * 4;
             staging_buf[dst_idx + 0] = rgba[0];
             staging_buf[dst_idx + 1] = rgba[1];
             staging_buf[dst_idx + 2] = rgba[2];
@@ -842,17 +848,19 @@ fn blitChannelsAt(
     dst_y0: i32,
 ) void {
     if (gw <= 0 or gh <= 0) return;
-    var row: i32 = 0;
-    while (row < gh) : (row += 1) {
-        const py = dst_y0 + row;
-        if (py < 0 or py >= buf_h) continue;
-        var col: i32 = 0;
-        while (col < gw) : (col += 1) {
-            const px = dst_x0 + col;
-            if (px < 0 or px >= buf_w) continue;
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (dst_idx + 3 >= staging_buf.len) continue;
-            const src_idx: usize = @as(usize, @intCast(row * gw + col)) * @as(usize, @intCast(channels));
+    const ch_n: usize = @intCast(channels);
+    const row_start: i32 = @max(0, -dst_y0);
+    const row_end: i32 = @min(gh, buf_h - dst_y0);
+    const col_start: i32 = @max(0, -dst_x0);
+    const col_end: i32 = @min(gw, buf_w - dst_x0);
+    var row: i32 = row_start;
+    while (row < row_end) : (row += 1) {
+        const dst_row: usize = @intCast((dst_y0 + row) * buf_w);
+        const src_row: usize = @as(usize, @intCast(row * gw)) * ch_n;
+        var col: i32 = col_start;
+        while (col < col_end) : (col += 1) {
+            const dst_idx: usize = (dst_row + @as(usize, @intCast(dst_x0 + col))) * 4;
+            const src_idx: usize = src_row + @as(usize, @intCast(col)) * ch_n;
             if (tex_type == .ALIASED_1x1) {
                 staging_buf[dst_idx + 0] = src[src_idx];
             } else {
