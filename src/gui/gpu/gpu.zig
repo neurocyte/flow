@@ -485,14 +485,10 @@ pub const WindowState = struct {
             @intFromEnum(face),
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
-                // Rasterize into RGBA staging buffer then upload to the atlas
+                // Rasterize into the reusable RGBA staging buffer, then upload
+                // to the atlas.
                 const staging_w: u32 = @as(u32, font.cell_size.x) * 2;
-                const staging_h: u32 = font.cell_size.y;
-                const staging_buf = global.glyph_cache_arena.allocator().alloc(
-                    u8,
-                    staging_w * staging_h * 4,
-                ) catch |e| oom(e);
-                defer global.glyph_cache_arena.allocator().free(staging_buf);
+                const staging_buf = ensureGlyphStaging(font.cell_size);
                 @memset(staging_buf, 0);
 
                 const rr = global.rasterizer.render(font, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
@@ -984,6 +980,20 @@ pub fn presentLayerToSwapchain(
 // Kept alive for the process lifetime; resized when the atlas image grows.
 var atlas_cpu: ?[]u8 = null;
 var atlas_cpu_size: XY(u16) = .{ .x = 0, .y = 0 };
+
+// Reusable RGBA staging buffer for rasterizing a single glyph.
+var glyph_staging: ?[]u8 = null;
+var glyph_staging_cell: XY(u16) = .{ .x = 0, .y = 0 };
+
+fn ensureGlyphStaging(cell_size: XY(u16)) []u8 {
+    if (glyph_staging == null or !glyph_staging_cell.eql(cell_size)) {
+        if (glyph_staging) |old| std.heap.page_allocator.free(old);
+        const bytes: usize = @as(usize, cell_size.x) * 2 * @as(usize, cell_size.y) * 4;
+        glyph_staging = std.heap.page_allocator.alloc(u8, bytes) catch |e| oom(e);
+        glyph_staging_cell = cell_size;
+    }
+    return glyph_staging.?;
+}
 
 // Blit one glyph cell into the CPU-side atlas shadow.
 fn blitAtlasCpu(
