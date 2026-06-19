@@ -58,14 +58,20 @@ fn markCursors(shader_cells: []ShaderCell, cursors: []const CursorInfo, cols: u1
 
 const log = std.log.scoped(.gpu);
 
-// Maximum glyph atlas dimension.  4096 is universally supported and gives
-// 65536+ glyph slots at typical cell sizes - far more than needed in practice.
-const max_atlas_dim: u16 = 4096;
+// Fixed atlas width.  2048 is a universally supported texture dimension.
+const atlas_width_px: u16 = 2048;
+
+// Upper bound on the atlas height.
+const atlas_max_height_px: u16 = 2048;
+
+// Grow-to-fit: the atlas image keeps the full width but starts at a few
+// cell-rows and doubles its height on demand (up to atlas_max_height_px).
+const atlas_initial_rows: u16 = 4;
 
 fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
     return .{
-        .x = @intCast(@divTrunc(max_atlas_dim, cell_size.x)),
-        .y = @intCast(@divTrunc(max_atlas_dim, cell_size.y)),
+        .x = @intCast(@divTrunc(atlas_width_px, cell_size.x)),
+        .y = @intCast(@divTrunc(atlas_max_height_px, cell_size.y)),
     };
 }
 
@@ -397,7 +403,22 @@ pub const WindowState = struct {
             .texture = .{ .image = state.glyph_image },
         });
         state.glyph_image_size = pixel_size;
+        const bytes: usize = @as(usize, pixel_size.x) * @as(usize, pixel_size.y) * 4;
+        std.log.debug("glyph atlas resized to {d}x{d} RGBA8 = {d} bytes ({d} KiB)", .{
+            pixel_size.x, pixel_size.y, bytes, bytes / 1024,
+        });
         return false;
+    }
+
+    // Grow the atlas image so it covers at least `rows_needed` cell-rows.
+    fn ensureAtlasHeight(state: *WindowState, cell_size: XY(u16), cell_count: XY(u16), rows_needed: u16) void {
+        const cur_rows: u16 = if (cell_size.y == 0) 0 else @intCast(@divTrunc(state.glyph_image_size.y, cell_size.y));
+        if (cur_rows >= rows_needed) return;
+        const want: u32 = @max(@as(u32, rows_needed), @as(u32, cur_rows) * 2);
+        const new_rows: u16 = @intCast(@min(@as(u32, cell_count.y), want));
+        state.glyph_atlas_pixel_size = .{ .x = cell_count.x * cell_size.x, .y = new_rows * cell_size.y };
+        _ = state.updateGlyphImage(state.glyph_atlas_pixel_size);
+        state.glyph_atlas_dirty = true;
     }
 
     // Ensure the cell texture is the requested size.
@@ -441,19 +462,12 @@ pub const WindowState = struct {
             const cnt = getAtlasCellCount(font.cell_size);
             state.glyph_atlas_cell_count = cnt;
             state.glyph_atlas_total = @as(u32, cnt.x) * @as(u32, cnt.y);
+            const init_rows: u16 = @min(cnt.y, atlas_initial_rows);
             state.glyph_atlas_pixel_size = .{
                 .x = cnt.x * font.cell_size.x,
-                .y = cnt.y * font.cell_size.y,
+                .y = init_rows * font.cell_size.y,
             };
-        }
-        state.glyph_cache_cell_size = font.cell_size;
 
-        const atlas_cell_count = state.glyph_atlas_cell_count;
-        const atlas_total = state.glyph_atlas_total;
-
-        const atlas_retained = state.updateGlyphImage(state.glyph_atlas_pixel_size);
-
-        if (!atlas_retained or !cache_valid) {
             if (state.glyph_index_cache) |*c| {
                 c.deinit(global.glyph_cache_arena.allocator());
                 _ = global.glyph_cache_arena.reset(.retain_capacity);
@@ -462,7 +476,13 @@ pub const WindowState = struct {
                 // resize doesn't memcpy from the now-freed memory.
                 state.cell_buf = .empty;
             }
+            _ = state.updateGlyphImage(state.glyph_atlas_pixel_size);
+            state.glyph_atlas_dirty = true;
         }
+        state.glyph_cache_cell_size = font.cell_size;
+
+        const atlas_cell_count = state.glyph_atlas_cell_count;
+        const atlas_total = state.glyph_atlas_total;
 
         const cache = blk: {
             if (state.glyph_index_cache) |*c| break :blk c;
@@ -494,9 +514,22 @@ pub const WindowState = struct {
                 const rr = global.rasterizer.render(font, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
                 cache.nodes[reserved.index].kind = @intFromEnum(rr.format);
 
+                // (rough) atlas utilization probe.
+                const used = cache.map.count();
+                if ((used & (used - 1)) == 0) {
+                    const cell_px: usize = @as(usize, font.cell_size.x) * @as(usize, font.cell_size.y);
+                    const used_kib = (@as(usize, used) * cell_px * 4) / 1024;
+                    const total_kib = (@as(usize, state.glyph_atlas_pixel_size.x) * @as(usize, state.glyph_atlas_pixel_size.y) * 4) / 1024;
+                    std.log.debug("glyph atlas used: {d} glyphs ~= {d} KiB of {d} KiB allocated", .{ used, used_kib, total_kib });
+                }
+
                 // Atlas cell position for this glyph index
                 const atlas_col: u16 = @intCast(reserved.index % atlas_cell_count.x);
                 const atlas_row: u16 = @intCast(reserved.index / atlas_cell_count.x);
+
+                // Grow the atlas height if this glyph lands beyond the rows allocated so far
+                state.ensureAtlasHeight(font.cell_size, atlas_cell_count, atlas_row + 1);
+
                 const atlas_x: u16 = atlas_col * font.cell_size.x;
                 const atlas_y: u16 = atlas_row * font.cell_size.y;
 
@@ -1010,9 +1043,14 @@ fn blitAtlasCpu(
     const total_bytes: usize = @as(usize, asz.x) * @as(usize, asz.y) * 4;
 
     if (!atlas_cpu_size.eql(asz)) {
-        if (atlas_cpu) |old| std.heap.page_allocator.free(old);
-        atlas_cpu = std.heap.page_allocator.alloc(u8, total_bytes) catch |e| oom(e);
-        @memset(atlas_cpu.?, 0);
+        const new_buf = std.heap.page_allocator.alloc(u8, total_bytes) catch |e| oom(e);
+        @memset(new_buf, 0);
+        if (atlas_cpu) |old| {
+            if (atlas_cpu_size.x == asz.x and asz.y >= atlas_cpu_size.y)
+                @memcpy(new_buf[0..old.len], old[0..old.len]);
+            std.heap.page_allocator.free(old);
+        }
+        atlas_cpu = new_buf;
         atlas_cpu_size = asz;
     }
 
