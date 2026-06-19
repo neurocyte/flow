@@ -100,13 +100,13 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var line_number_style: DigitStyle = undefined;
 
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
-        return self.primary_click(self.abs_row(coord));
+        return self.primary_click(coord);
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.middle, tp.more }))
         return self.middle_click();
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.more }))
         return self.secondary_click();
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
-        return self.primary_drag(self.abs_row(coord));
+        return self.primary_drag(coord);
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_up, tp.more }))
         return self.mouse_click_button4();
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_down, tp.more }))
@@ -388,15 +388,14 @@ fn focus_editor(self: *Self) void {
     _ = tui.set_focus_by_widget(editor_widget);
 }
 
-fn abs_row(self: *Self, coord: MouseEvent.Coord) i32 {
-    return coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() }).row;
+fn editor_row(self: *Self, coord: MouseEvent.Coord) i32 {
+    return coord.to_cell(self.plane.mouse_geometry()).row;
 }
 
-fn primary_click(self: *Self, y_: i32) error{Exit}!bool {
+fn primary_click(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
     self.focus_editor();
-    const y = self.editor.plane.abs_y_to_rel(y_);
     var line = self.view_top + 1;
-    line += @intCast(y);
+    line += @intCast(self.editor_row(coord));
     if (line > self.lines) line = self.lines;
     try command.executeName("goto_line", .fmt(.{line}));
     try command.executeName("goto_column", .fmt(.{1}));
@@ -405,10 +404,9 @@ fn primary_click(self: *Self, y_: i32) error{Exit}!bool {
     return true;
 }
 
-fn primary_drag(self: *Self, y_: i32) error{Exit}!bool {
+fn primary_drag(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
     self.focus_editor();
-    const y = self.editor.plane.abs_y_to_rel(y_);
-    try command.executeName("drag_to", command.fmt(.{ y + 1, 0 }));
+    try command.executeName("drag_to", command.fmt(.{ self.editor_row(coord) + 1, 0 }));
     return true;
 }
 
