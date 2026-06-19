@@ -67,7 +67,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const old_hover = self.hover;
 
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
-        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+        const cell = coord.to_cell(self.plane.mouse_geometry());
         self.active = true;
         self.update_max_ypx(cell.yoffset);
         self.click_at(cell.row, cell.yoffset);
@@ -76,7 +76,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.active = false;
         return true;
     } else if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
-        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+        const cell = coord.to_cell(self.plane.mouse_geometry());
         self.active = true;
         self.update_max_ypx(cell.yoffset);
         self.drag_to(cell.row, cell.yoffset);
@@ -98,10 +98,9 @@ fn y_coord_to_pos_scrn(self: *const Self, y_: i32, ypx_: i32) u32 {
     const max_ypx: f64 = @floatFromInt(self.max_ypx);
     const y: f64 = @floatFromInt(y_);
     const ypx: f64 = @floatFromInt(ypx_);
-    const plane_y: f64 = @floatFromInt(self.plane.abs_y());
 
     const ratio = max_ypx / eighths_c;
-    const pos_scrn_ = ((y - plane_y) * eighths_c) + (ypx / ratio);
+    const pos_scrn_ = (y * eighths_c) + (ypx / ratio);
     const pos_scrn: i32 = @intFromFloat(pos_scrn_);
     return @max(0, pos_scrn);
 }
