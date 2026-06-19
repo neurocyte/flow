@@ -370,6 +370,16 @@ pub fn hover(self: *const Self) bool {
     return self.vtable.hover(self.ptr);
 }
 
+pub fn is_coord_inside(self: *const Self, coord: @import("MouseEvent").Coord) bool {
+    const cell = coord.to_cell(self.plane.mouse_geometry());
+    return 0 <= cell.col and cell.col < self.plane.dim_x() and
+        0 <= cell.row and cell.row < self.plane.dim_y();
+}
+
+pub fn z_rank(self: *const Self) i32 {
+    return if (self.plane.layer) |l| @intFromEnum(l.z_index) else std.math.minInt(i32);
+}
+
 pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
     const child: type = struct { plane: Plane, layout: Layout };
     const widget = try allocator.create(child);

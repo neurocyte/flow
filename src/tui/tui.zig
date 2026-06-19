@@ -855,26 +855,23 @@ fn handle_system_clipboard(self: *Self, text: []const u8) !void {
 
 fn find_coord_widget(self: *Self, coord: MouseEvent.Coord) ?Widget {
     const Ctx = struct {
-        widget: ?Widget = null,
         coord: MouseEvent.Coord,
+        best: ?Widget = null,
+        best_rank: i32 = std.math.minInt(i32),
         fn find(ctx_: *anyopaque, w: Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            if (is_coord_in_widget(&w, ctx.coord)) {
-                ctx.widget = w;
-                return true;
+            if (!w.is_coord_inside(ctx.coord)) return false;
+            const rank = w.z_rank();
+            if (ctx.best == null or rank > ctx.best_rank) {
+                ctx.best = w;
+                ctx.best_rank = rank;
             }
-            return false;
+            return false; // never stop: visit every containing widget
         }
     };
     var ctx: Ctx = .{ .coord = coord };
     if (self.mainview_) |*mv| _ = mv.walk(&ctx, Ctx.find);
-    return ctx.widget;
-}
-
-pub fn is_coord_in_widget(w: *const Widget, coord: MouseEvent.Coord) bool {
-    const cell = coord.to_cell(w.plane.mouse_geometry());
-    return 0 <= cell.col and cell.col < w.plane.dim_x() and
-        0 <= cell.row and cell.row < w.plane.dim_y();
+    return ctx.best;
 }
 
 fn is_live_widget_ptr(self: *Self, w_: Widget) bool {
