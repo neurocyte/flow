@@ -32,6 +32,7 @@ id: Id,
 screen: vaxis.Screen,
 cache_storage: GraphemeCache.Storage = .{},
 surface: Surface = .{},
+z_index: Level = .main,
 
 pub const Options = struct {
     h: u16 = 0,
@@ -92,7 +93,7 @@ pub fn plane(self: *Layer) Plane {
         .cache = self.cache_storage.cache(),
         .name_buf = undefined,
         .name_len = name.len,
-        .parent_surface = &self.surface,
+        .layer = self,
     };
     @memcpy(result.name_buf[0..name.len], name);
     return result;

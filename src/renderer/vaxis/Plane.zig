@@ -10,6 +10,7 @@ const color = @import("color");
 const RGB = @import("color").RGB;
 const GraphemeCache = @import("GraphemeCache.zig");
 const MouseEvent = @import("MouseEvent");
+const Layer = @import("Layer.zig");
 pub const Surface = @import("Surface.zig");
 
 const Plane = @This();
@@ -26,7 +27,7 @@ style: vaxis.Cell.Style = .{},
 style_base: vaxis.Cell.Style = .{},
 scrolling: bool = false,
 transparent: bool = false,
-parent_surface: ?*const Surface = null,
+layer: ?*const Layer = null,
 
 pub const Coord = struct {
     col: i32 = 0,
@@ -64,7 +65,7 @@ pub fn init(nopts: *const Options, parent_: Plane) !Plane {
         .name_buf = undefined,
         .name_len = len,
         .scrolling = nopts.flags == .VSCROLL,
-        .parent_surface = parent_.parent_surface,
+        .layer = parent_.layer,
     };
     @memcpy(plane.name_buf[0..len], nopts.name[0..len]);
     return plane;
@@ -102,9 +103,9 @@ pub fn global_yx(self: Plane) struct { i32, i32 } {
     const ch = self.cell_y();
     var ox: i32 = 0;
     var oy: i32 = 0;
-    if (self.parent_surface) |s| {
-        ox = @divFloor(s.origin_px_x, cw);
-        oy = @divFloor(s.origin_px_y, ch);
+    if (self.layer) |l| {
+        ox = @divFloor(l.surface.origin_px_x, cw);
+        oy = @divFloor(l.surface.origin_px_y, ch);
     }
     return .{ oy + self.window.y_off, ox + self.window.x_off };
 }
@@ -171,8 +172,8 @@ pub fn global_origin_px(self: Plane) struct { i32, i32 } {
     const ch = self.cell_y();
     var ox: i32 = 0;
     var oy: i32 = 0;
-    if (self.parent_surface) |s| {
-        ox, oy = s.global_origin_px();
+    if (self.layer) |l| {
+        ox, oy = l.surface.global_origin_px();
     }
     return .{
         ox + @as(i32, self.window.x_off) * cw,

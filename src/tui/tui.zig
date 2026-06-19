@@ -883,7 +883,7 @@ fn find_coord_widget_layered(self: *Self, y: usize, x: usize) ?Widget {
         x: usize,
         fn find(ctx_: *anyopaque, w: Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            if (w.plane.parent_surface == null) return false;
+            if (w.plane.layer == null) return false;
             if (!is_abs_coord_in_widget(&w, ctx.y, ctx.x)) return false;
             const area: usize = @as(usize, w.plane.dim_y()) * @as(usize, w.plane.dim_x());
             if (ctx.best == null or area < ctx.best_area) {
@@ -2160,6 +2160,7 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .h = @intCast(box.h),
         .w = @intCast(box.w),
     }) catch @panic("OOM toplayer");
+    self.top_layer_.?.z_index = .top;
     self.top_layer_handle = self.rdr_.submit_layer(.{
         .src = self.top_layer_.?,
         .dst = self.rdr_.stdplane().window,

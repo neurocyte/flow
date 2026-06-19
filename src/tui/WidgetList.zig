@@ -254,7 +254,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
     const ch = self.plane.cell_y();
     var parent_ox: i32 = 0;
     var parent_oy: i32 = 0;
-    if (self.plane.parent_surface) |s| parent_ox, parent_oy = s.global_origin_px();
+    if (self.plane.layer) |l| parent_ox, parent_oy = l.surface.global_origin_px();
 
     const loc_b: i32 = @intCast(self.get_loc_b_const(client_box));
     const lead: i32 = @intCast(leading_cell);
@@ -466,7 +466,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
 
     self.reparent_main();
     if (use_layer) if (self.trailing_layer) |layer|
-        reparent_subtrees(self.widgets.items[main_count..], &layer.surface, &layer.screen);
+        reparent_subtrees(self.widgets.items[main_count..], layer, &layer.screen);
 
     var avail = total;
     if (use_layer) avail = if (avail > trailing_cells) avail - trailing_cells else 0;
@@ -559,19 +559,19 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     };
 }
 
-fn reparent_subtrees(items: []WidgetState, surface: ?*const Plane.Surface, screen: *renderer.vaxis.Screen) void {
+fn reparent_subtrees(items: []WidgetState, layer: ?*const Layer, screen: *renderer.vaxis.Screen) void {
     for (items) |*w| {
         w.widget.plane.window.screen = screen;
-        w.widget.plane.parent_surface = surface;
+        w.widget.plane.layer = layer;
     }
 }
 
 fn reparent_main(self: *Self) void {
     const trailing_count = self.count_trailing_statics();
     const main_end = self.widgets.items.len - trailing_count;
-    reparent_subtrees(self.widgets.items[0..main_end], self.plane.parent_surface, self.plane.window.screen);
+    reparent_subtrees(self.widgets.items[0..main_end], self.plane.layer, self.plane.window.screen);
     if (self.subcell_remainder_a() == 0)
-        reparent_subtrees(self.widgets.items[main_end..], self.plane.parent_surface, self.plane.window.screen);
+        reparent_subtrees(self.widgets.items[main_end..], self.plane.layer, self.plane.window.screen);
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {

@@ -78,6 +78,7 @@ pub fn handle_resize(self: *Self, box_in: Widget.Box) void {
     const ox, const oy = self.plane.global_origin_px();
     self.layer.surface.origin_px_x = ox;
     self.layer.surface.origin_px_y = oy;
+    self.layer.z_index = self.z_index;
 
     if (self.inner) |*w|
         w.resize(.{ .y = 0, .x = 0, .w = box.w, .h = box.h });
