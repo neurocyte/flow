@@ -256,7 +256,6 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
         .{ .static = padding },
         widget_type,
     );
-    pane.z_index = .background;
     try pane.add(try Widget.empty(self.allocator, self.views_widget.plane.*, .dynamic));
     return pane.widget();
 }
@@ -352,7 +351,6 @@ fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode
         }
     } else if (mode != .disable) {
         const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
-        panels.z_index = .statusbar;
         try self.widgets.add(panels.widget());
         try panels.add(try view.create(self.allocator, panels.plane, ctx));
         self.panels = panels;
