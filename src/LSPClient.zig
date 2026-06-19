@@ -156,6 +156,14 @@ pub fn make_URI(allocator: std.mem.Allocator, project_name: []const u8, file_pat
     defer buf.deinit();
     const writer = &buf.writer;
     try writer.writeAll("file://");
+
+    const absolute_path = if (file_path) |path|
+        if (std.fs.path.isAbsolute(path)) path else project_name
+    else
+        project_name;
+    if (builtin.os.tag == .windows and std.fs.path.isAbsolute(absolute_path))
+        try writer.writeByte('/');
+
     if (file_path) |path| {
         if (std.fs.path.isAbsolute(path)) {
             try write_URI_path(writer, path);
