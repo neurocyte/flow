@@ -7,6 +7,7 @@ const flow_sprite = @import("flow_sprite");
 const root = @import("soft_root").root;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 const glyph_constraint = @import("glyph_constraint");
+const blit = @import("blit");
 
 const Self = @This();
 
@@ -100,25 +101,6 @@ fn loadFontData(allocator: std.mem.Allocator, raw: []u8, face_index: i32) ?[]u8 
         return sub;
     }
     return raw;
-}
-
-fn blitAlphaAt(staging_buf: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32, gh: i32, dst_x0: i32, dst_y0: i32) void {
-    if (gw <= 0 or gh <= 0) return;
-    const row0: i32 = @max(0, -dst_y0);
-    const row1: i32 = @min(gh, buf_h - dst_y0);
-    const col0: i32 = @max(0, -dst_x0);
-    const col1: i32 = @min(gw, buf_w - dst_x0);
-    var row: i32 = row0;
-    while (row < row1) : (row += 1) {
-        const src_row: usize = @intCast(row * gw);
-        const dst_row: usize = @intCast((dst_y0 + row) * buf_w);
-        var col: i32 = col0;
-        while (col < col1) : (col += 1) {
-            const src_idx = src_row + @as(usize, @intCast(col));
-            const dst_idx = (dst_row + @as(usize, @intCast(dst_x0 + col))) * 4;
-            staging_buf[dst_idx] = src[src_idx];
-        }
-    }
 }
 
 const TtBackend = struct {
@@ -545,7 +527,7 @@ fn rasterizeGlyph(
 
             const dst_x0: i32 = @intFromFloat(@round(gx));
             const dst_y0: i32 = @intFromFloat(@round(@as(f64, @floatFromInt(cell_size.y)) - (cg.y + cg.height)));
-            blitAlphaAt(staging_buf, buf_w, buf_h, scratch.items, @intCast(bdims.width), @intCast(bdims.height), dst_x0, dst_y0);
+            blit.alpha8(staging_buf, buf_w, buf_h, scratch.items, @intCast(bdims.width), @intCast(bdims.height), dst_x0, dst_y0);
         }
         return .{ .format = .alpha };
     }
@@ -561,7 +543,7 @@ fn rasterizeGlyph(
     else
         0;
 
-    blitAlphaAt(
+    blit.alpha8(
         staging_buf,
         buf_w,
         buf_h,

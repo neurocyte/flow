@@ -6,6 +6,7 @@ const face_metrics = @import("face_metrics");
 const flow_sprite = @import("flow_sprite");
 const win32 = @import("win32").everything;
 const XY = @import("xy").XY;
+const blit = @import("blit");
 
 const log = std.log.scoped(.dwrite_rasterizer);
 
@@ -556,7 +557,7 @@ fn renderFromFace(
             if (a2.CreateAlphaTexture(tex_type, &b2, @ptrCast(tex2.ptr), @intCast(sz2)) < 0) break :rescale;
             const dst_x0: i32 = @intFromFloat(@round(gx));
             const dst_y0: i32 = @intFromFloat(@round(cell_h_f - (cg.y + cg.height)));
-            blitChannelsAt(staging_buf, buf_w, buf_h, tex2, w2, h2, bytes_per_texel, tex_type, dst_x0, dst_y0);
+            blit.packedTexture(staging_buf, buf_w, buf_h, tex2, w2, h2, dst_x0, dst_y0, tex_type != .ALIASED_1x1);
             return .{ .format = result_fmt };
         }
         // fall through to unconstrained blit
@@ -568,30 +569,7 @@ fn renderFromFace(
     else
         0;
 
-    const base_x: i32 = center_offset + off_x;
-    const bpt: usize = @intCast(bytes_per_texel);
-    const row_start: i32 = @max(0, -off_y);
-    const row_end: i32 = @min(src_h, buf_h - off_y);
-    const col_start: i32 = @max(0, -base_x);
-    const col_end: i32 = @min(src_w, buf_w - base_x);
-    var row: i32 = row_start;
-    while (row < row_end) : (row += 1) {
-        const dst_row: usize = @intCast((off_y + row) * buf_w);
-        const src_row: usize = @as(usize, @intCast(row * src_w)) * bpt;
-        var col: i32 = col_start;
-        while (col < col_end) : (col += 1) {
-            const dst_idx: usize = (dst_row + @as(usize, @intCast(base_x + col))) * 4;
-            const src_idx: usize = src_row + @as(usize, @intCast(col)) * bpt;
-            if (tex_type == .ALIASED_1x1) {
-                staging_buf[dst_idx + 0] = tex[src_idx];
-            } else {
-                staging_buf[dst_idx + 0] = tex[src_idx + 0];
-                staging_buf[dst_idx + 1] = tex[src_idx + 1];
-                staging_buf[dst_idx + 2] = tex[src_idx + 2];
-            }
-        }
-    }
-
+    blit.packedTexture(staging_buf, buf_w, buf_h, tex, src_w, src_h, center_offset + off_x, off_y, tex_type != .ALIASED_1x1);
     return .{ .format = result_fmt };
 }
 
@@ -763,113 +741,12 @@ fn renderColorGlyph(
     const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
     const buf_h: i32 = @intCast(cell_size.y);
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
-    blitColorRGBA(staging_buf, buf_w, buf_h, composed, native_w, native_h, target_w);
+    blit.colorRGBA(staging_buf, buf_w, buf_h, composed, native_w, native_h, target_w);
     return .{ .format = .color };
 }
 
 fn clamp255(v: f32) u8 {
     return @intFromFloat(std.math.clamp(@round(v), 0.0, 255.0));
-}
-
-fn rgbaChannel(src: []const u8, gw: i32, gh: i32, x: i32, y: i32, ch: usize) u8 {
-    const cx: i32 = std.math.clamp(x, 0, gw - 1);
-    const cy: i32 = std.math.clamp(y, 0, gh - 1);
-    return src[@intCast((cy * gw + cx) * 4 + @as(i32, @intCast(ch)))];
-}
-
-fn sampleRGBABilinear(src: []const u8, gw: i32, gh: i32, fx: f32, fy: f32) [4]u8 {
-    const x0: i32 = @intFromFloat(@floor(fx));
-    const y0: i32 = @intFromFloat(@floor(fy));
-    const tx: f32 = fx - @floor(fx);
-    const ty: f32 = fy - @floor(fy);
-    var out: [4]u8 = undefined;
-    inline for (0..4) |ch| {
-        const c00: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0, y0, ch));
-        const c10: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0 + 1, y0, ch));
-        const c01: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0, y0 + 1, ch));
-        const c11: f32 = @floatFromInt(rgbaChannel(src, gw, gh, x0 + 1, y0 + 1, ch));
-        const top = c00 * (1 - tx) + c10 * tx;
-        const bot = c01 * (1 - tx) + c11 * tx;
-        out[ch] = @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
-    }
-    return out;
-}
-
-fn blitColorRGBA(
-    staging_buf: []u8,
-    buf_w: i32,
-    buf_h: i32,
-    src: []const u8,
-    gw: i32,
-    gh: i32,
-    target_w: i32,
-) void {
-    if (gw <= 0 or gh <= 0) return;
-    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
-    const sy: f32 = @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(gh));
-    const s: f32 = @min(sx, sy);
-    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
-    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
-    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
-    const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
-    const inv_s: f32 = 1.0 / s;
-
-    const dy_start: i32 = @max(0, -dst_y0);
-    const dy_end: i32 = @min(sh, buf_h - dst_y0);
-    const dx_start: i32 = @max(0, -dst_x0);
-    const dx_end: i32 = @min(sw, buf_w - dst_x0);
-    var dy: i32 = dy_start;
-    while (dy < dy_end) : (dy += 1) {
-        const dst_row: usize = @intCast((dst_y0 + dy) * buf_w);
-        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
-        var dx: i32 = dx_start;
-        while (dx < dx_end) : (dx += 1) {
-            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
-            const rgba = sampleRGBABilinear(src, gw, gh, fsx, fsy);
-            const dst_idx: usize = (dst_row + @as(usize, @intCast(dst_x0 + dx))) * 4;
-            staging_buf[dst_idx + 0] = rgba[0];
-            staging_buf[dst_idx + 1] = rgba[1];
-            staging_buf[dst_idx + 2] = rgba[2];
-            staging_buf[dst_idx + 3] = rgba[3];
-        }
-    }
-}
-
-fn blitChannelsAt(
-    staging_buf: []u8,
-    buf_w: i32,
-    buf_h: i32,
-    src: []const u8,
-    gw: i32,
-    gh: i32,
-    channels: i32,
-    tex_type: win32.DWRITE_TEXTURE_TYPE,
-    dst_x0: i32,
-    dst_y0: i32,
-) void {
-    if (gw <= 0 or gh <= 0) return;
-    const ch_n: usize = @intCast(channels);
-    const row_start: i32 = @max(0, -dst_y0);
-    const row_end: i32 = @min(gh, buf_h - dst_y0);
-    const col_start: i32 = @max(0, -dst_x0);
-    const col_end: i32 = @min(gw, buf_w - dst_x0);
-    var row: i32 = row_start;
-    while (row < row_end) : (row += 1) {
-        const dst_row: usize = @intCast((dst_y0 + row) * buf_w);
-        const src_row: usize = @as(usize, @intCast(row * gw)) * ch_n;
-        var col: i32 = col_start;
-        while (col < col_end) : (col += 1) {
-            const dst_idx: usize = (dst_row + @as(usize, @intCast(dst_x0 + col))) * 4;
-            const src_idx: usize = src_row + @as(usize, @intCast(col)) * ch_n;
-            if (tex_type == .ALIASED_1x1) {
-                staging_buf[dst_idx + 0] = src[src_idx];
-            } else {
-                staging_buf[dst_idx + 0] = src[src_idx + 0];
-                staging_buf[dst_idx + 1] = src[src_idx + 1];
-                staging_buf[dst_idx + 2] = src[src_idx + 2];
-            }
-        }
-    }
 }
 
 const nerd_font_data = @embedFile("nerd_font");

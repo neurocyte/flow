@@ -563,6 +563,11 @@ pub fn build_exe(
                 }) catch |e| std.debug.panic("sokol-shdc createModule failed: {s}", .{@errorName(e)});
 
                 const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
+                const gui_blit_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/blit.zig"),
+                    .target = target,
+                    .optimize = .ReleaseFast,
+                });
                 const gui_glyph_constraint_mod = b.createModule(.{ .root_source_file = b.path("src/gui/glyph_constraint.zig") });
                 const gui_face_metrics_mod = b.createModule(.{ .root_source_file = b.path("src/gui/rasterizer/face_metrics.zig") });
                 const gui_cell_mod = b.createModule(.{
@@ -626,6 +631,7 @@ pub fn build_exe(
                             .{ .name = "flow_sprite", .module = flow_sprite_mod },
                             .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                             .{ .name = "face_metrics", .module = gui_face_metrics_mod },
+                            .{ .name = "blit", .module = gui_blit_mod },
                         },
                     });
                     if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
@@ -667,6 +673,7 @@ pub fn build_exe(
                             .{ .name = "gui_config", .module = gui_config_mod },
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
                             .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
+                            .{ .name = "blit", .module = gui_blit_mod },
                         },
                     });
                     if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);
@@ -687,6 +694,7 @@ pub fn build_exe(
                             .{ .name = "uucode_utils", .module = uucode_utils_mod },
                             .{ .name = "build_options", .module = gui_embed_options_mod },
                             .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
+                            .{ .name = "blit", .module = gui_blit_mod },
                         },
                     });
                     if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);

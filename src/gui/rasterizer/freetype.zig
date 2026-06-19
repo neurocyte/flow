@@ -20,6 +20,7 @@ const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 const uucode_utils = @import("uucode_utils");
 const uucode = uucode_utils.uucode;
 const glyph_constraint = @import("glyph_constraint");
+const blit = @import("blit");
 
 pub const RasterFormat = enum(u2) {
     alpha = 0,
@@ -368,7 +369,7 @@ fn renderFromFace(
     const target_w: i32 = if (split == .single) @as(i32, @intCast(cell_size.x)) else buf_w;
 
     if (bm.pixel_mode == c.FT_PIXEL_MODE_BGRA) {
-        blitColorBitmap(staging_buf, buf_w, buf_h, &bm, target_w);
+        blit.colorBGRA(staging_buf, buf_w, buf_h, bm.buffer, pitch, gw, @intCast(bm.rows), target_w);
         return .{ .format = .color };
     }
 
@@ -385,30 +386,7 @@ fn renderFromFace(
         0;
 
     const base_x: i32 = center_offset + off_x;
-    const rows_i: i32 = @intCast(bm.rows);
-    const width_i: i32 = @intCast(bm.width);
-    const row_start: i32 = @max(0, -off_y);
-    const row_end: i32 = @min(rows_i, buf_h - off_y);
-    const col_start: i32 = @max(0, -base_x);
-    const col_end: i32 = @min(width_i, buf_w - base_x);
-
-    var row: i32 = row_start;
-    while (row < row_end) : (row += 1) {
-        const src_row: usize = @as(usize, @intCast(row)) * pitch;
-        const dst_row: usize = @intCast((off_y + row) * buf_w);
-        var col: i32 = col_start;
-        while (col < col_end) : (col += 1) {
-            const ucol: u32 = @intCast(col);
-            const dst_idx: usize = (dst_row + @as(usize, @intCast(base_x + col))) * 4;
-            const px: u8 = if (is_mono) blk: {
-                // 1 bit per pixel, MSB first within each byte.
-                const byte = bm.buffer[src_row + (ucol >> 3)];
-                const bit: u3 = @intCast(7 - (ucol & 7));
-                break :blk if ((byte >> bit) & 1 != 0) 0xFF else 0x00;
-            } else bm.buffer[src_row + ucol];
-            staging_buf[dst_idx] = px;
-        }
-    }
+    blit.alphaPitched(staging_buf, buf_w, buf_h, bm.buffer, pitch, gw, @intCast(bm.rows), base_x, off_y, is_mono);
     return .{ .format = .alpha };
 }
 
@@ -454,76 +432,6 @@ fn applyConstraintOutline(
         const py: f64 = (@as(f64, @floatFromInt(p.y)) / 64.0 - rect_y) * scale_y + cg.y;
         p.x = @intFromFloat(@round(px * 64.0));
         p.y = @intFromFloat(@round(py * 64.0));
-    }
-}
-
-fn bgraChannel(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, x: i32, y: i32, ch: usize) u8 {
-    const cx: u32 = @intCast(std.math.clamp(x, 0, gw - 1));
-    const cy: u32 = @intCast(std.math.clamp(y, 0, gh - 1));
-    return src[cy * pitch + cx * 4 + ch];
-}
-
-fn sampleBGRAtoRGBA(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, fx: f32, fy: f32) [4]u8 {
-    const x0: i32 = @intFromFloat(@floor(fx));
-    const y0: i32 = @intFromFloat(@floor(fy));
-    const tx: f32 = fx - @floor(fx);
-    const ty: f32 = fy - @floor(fy);
-    const src_ch = [4]usize{ 2, 1, 0, 3 };
-    var out: [4]u8 = undefined;
-    inline for (0..4) |oc| {
-        const sc = src_ch[oc];
-        const c00: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0, y0, sc));
-        const c10: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0 + 1, y0, sc));
-        const c01: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0, y0 + 1, sc));
-        const c11: f32 = @floatFromInt(bgraChannel(src, gw, gh, pitch, x0 + 1, y0 + 1, sc));
-        const top = c00 * (1 - tx) + c10 * tx;
-        const bot = c01 * (1 - tx) + c11 * tx;
-        out[oc] = @intFromFloat(@round(std.math.clamp(top * (1 - ty) + bot * ty, 0, 255)));
-    }
-    return out;
-}
-
-fn blitColorBitmap(
-    staging_buf: []u8,
-    buf_w: i32,
-    buf_h: i32,
-    bm: *const c.FT_Bitmap,
-    target_w: i32,
-) void {
-    const gw: i32 = @intCast(bm.width);
-    const gh: i32 = @intCast(bm.rows);
-    if (gw <= 0 or gh <= 0 or bm.pitch <= 0) return;
-    const pitch: u32 = @intCast(bm.pitch);
-    const src = bm.buffer;
-
-    const sx: f32 = @as(f32, @floatFromInt(target_w)) / @as(f32, @floatFromInt(gw));
-    const sy: f32 = @as(f32, @floatFromInt(buf_h)) / @as(f32, @floatFromInt(gh));
-    const s: f32 = @min(sx, sy);
-    const sw: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gw)) * s))));
-    const sh: i32 = @max(1, @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(gh)) * s))));
-    const dst_x0: i32 = @divTrunc(target_w - sw, 2);
-    const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
-    const inv_s: f32 = 1.0 / s;
-
-    const dy_start: i32 = @max(0, -dst_y0);
-    const dy_end: i32 = @min(sh, buf_h - dst_y0);
-    const dx_start: i32 = @max(0, -dst_x0);
-    const dx_end: i32 = @min(sw, buf_w - dst_x0);
-
-    var dy: i32 = dy_start;
-    while (dy < dy_end) : (dy += 1) {
-        const dst_row: usize = @intCast((dst_y0 + dy) * buf_w);
-        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
-        var dx: i32 = dx_start;
-        while (dx < dx_end) : (dx += 1) {
-            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
-            const rgba = sampleBGRAtoRGBA(src, gw, gh, pitch, fsx, fsy);
-            const dst_idx: usize = (dst_row + @as(usize, @intCast(dst_x0 + dx))) * 4;
-            staging_buf[dst_idx + 0] = rgba[0];
-            staging_buf[dst_idx + 1] = rgba[1];
-            staging_buf[dst_idx + 2] = rgba[2];
-            staging_buf[dst_idx + 3] = rgba[3];
-        }
     }
 }
 
