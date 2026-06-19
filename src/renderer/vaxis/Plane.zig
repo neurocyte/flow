@@ -11,7 +11,6 @@ const RGB = @import("color").RGB;
 const GraphemeCache = @import("GraphemeCache.zig");
 const MouseEvent = @import("MouseEvent");
 const Layer = @import("Layer.zig");
-pub const Surface = @import("Surface.zig");
 
 const Plane = @This();
 
@@ -104,8 +103,8 @@ pub fn global_yx(self: Plane) struct { i32, i32 } {
     var ox: i32 = 0;
     var oy: i32 = 0;
     if (self.layer) |l| {
-        ox = @divFloor(l.surface.origin_px_x, cw);
-        oy = @divFloor(l.surface.origin_px_y, ch);
+        ox = @divFloor(l.origin_px_x, cw);
+        oy = @divFloor(l.origin_px_y, ch);
     }
     return .{ oy + self.window.y_off, ox + self.window.x_off };
 }
@@ -173,7 +172,7 @@ pub fn global_origin_px(self: Plane) struct { i32, i32 } {
     var ox: i32 = 0;
     var oy: i32 = 0;
     if (self.layer) |l| {
-        ox, oy = l.surface.global_origin_px();
+        ox, oy = l.global_origin_px();
     }
     return .{
         ox + @as(i32, self.window.x_off) * cw,

@@ -235,14 +235,14 @@ pub fn deinit(self: *Self) void {
 pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
     const handle: Layer.Handle = @enumFromInt(self.targets.items.len);
     if (target.parent) |p| std.debug.assert(@intFromEnum(p) < @intFromEnum(handle));
-    resolve_layer_origin(self.stdplane(), &target.src.surface, target, self.targets.items);
+    resolve_layer_origin(self.stdplane(), target.src, target, self.targets.items);
     self.targets.append(self.allocator, target) catch |e| switch (e) {
         error.OutOfMemory => @panic("OOM gui.submit_layer"),
     };
     return handle;
 }
 
-fn resolve_layer_origin(std_plane: Plane, surface: *Layer.Surface, target: Layer.Target, prior_targets: []const Layer.Target) void {
+fn resolve_layer_origin(std_plane: Plane, layer: *Layer, target: Layer.Target, prior_targets: []const Layer.Target) void {
     const cw = std_plane.cell_x();
     const ch = std_plane.cell_y();
     var dst_x: i32 = 0;
@@ -251,8 +251,8 @@ fn resolve_layer_origin(std_plane: Plane, surface: *Layer.Surface, target: Layer
         const parent_layer = prior_targets[@intFromEnum(h)].src;
         dst_x, dst_y = parent_layer.global_origin_px();
     }
-    surface.origin_px_x = dst_x + target.x * cw + @as(i32, target.xoffset);
-    surface.origin_px_y = dst_y + target.y * ch + @as(i32, target.yoffset);
+    layer.origin_px_x = dst_x + target.x * cw + @as(i32, target.xoffset);
+    layer.origin_px_y = dst_y + target.y * ch + @as(i32, target.yoffset);
 }
 
 pub fn run(self: *Self, render_pid: ?tp.pid_ref) Error!void {

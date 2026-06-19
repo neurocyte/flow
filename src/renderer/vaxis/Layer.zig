@@ -3,7 +3,6 @@ const vaxis = @import("vaxis");
 const TypedInt = @import("TypedInt");
 
 pub const Plane = @import("Plane.zig");
-pub const Surface = @import("Surface.zig");
 const GraphemeCache = @import("GraphemeCache.zig");
 
 const Layer = @This();
@@ -31,8 +30,9 @@ allocator: std.mem.Allocator,
 id: Id,
 screen: vaxis.Screen,
 cache_storage: GraphemeCache.Storage = .{},
-surface: Surface = .{},
 z_index: Level = .main,
+origin_px_x: i32 = 0,
+origin_px_y: i32 = 0,
 
 pub const Options = struct {
     h: u16 = 0,
@@ -100,7 +100,7 @@ pub fn plane(self: *Layer) Plane {
 }
 
 pub fn global_origin_px(self: *const Layer) struct { i32, i32 } {
-    return self.surface.global_origin_px();
+    return .{ self.origin_px_x, self.origin_px_y };
 }
 
 pub const Handle = TypedInt.Tagged(u32, "LHDL"); // Layer HanDL

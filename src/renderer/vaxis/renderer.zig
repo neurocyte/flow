@@ -129,14 +129,14 @@ pub fn deinit(self: *Self) void {
 pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
     const handle: Layer.Handle = @enumFromInt(self.targets.items.len);
     if (target.parent) |p| std.debug.assert(@intFromEnum(p) < @intFromEnum(handle));
-    resolve_layer_origin(self.stdplane(), &target.src.surface, target, self.targets.items);
+    resolve_layer_origin(self.stdplane(), target.src, target, self.targets.items);
     self.targets.append(self.allocator, target) catch |e| switch (e) {
         error.OutOfMemory => @panic("OOM vaxis.submit_layer"),
     };
     return handle;
 }
 
-fn resolve_layer_origin(std_plane: Plane, surface: *Layer.Surface, target: Layer.Target, prior_targets: []const Layer.Target) void {
+fn resolve_layer_origin(std_plane: Plane, layer: *Layer, target: Layer.Target, prior_targets: []const Layer.Target) void {
     const cw = std_plane.cell_x();
     const ch = std_plane.cell_y();
     var dst_x: i32 = 0;
@@ -145,8 +145,8 @@ fn resolve_layer_origin(std_plane: Plane, surface: *Layer.Surface, target: Layer
         const parent_layer = prior_targets[@intFromEnum(h)].src;
         dst_x, dst_y = parent_layer.global_origin_px();
     }
-    surface.origin_px_x = dst_x + target.x * cw + @as(i32, target.xoffset);
-    surface.origin_px_y = dst_y + target.y * ch + @as(i32, target.yoffset);
+    layer.origin_px_x = dst_x + target.x * cw + @as(i32, target.xoffset);
+    layer.origin_px_y = dst_y + target.y * ch + @as(i32, target.yoffset);
 }
 
 var in_panic: std.atomic.Value(bool) = .init(false);
@@ -331,12 +331,12 @@ fn downgrade_cursor_shape(self: *Self) void {
     }
 }
 
-fn cursor_root_pos(self: *Self, src_row: u16, src_col: u16, surface: *const Layer.Surface) ?struct { row: u16, col: u16 } {
+fn cursor_root_pos(self: *Self, src_row: u16, src_col: u16, layer: *const Layer) ?struct { row: u16, col: u16 } {
     const std_plane = self.stdplane();
     const cw = std_plane.cell_x();
     const ch = std_plane.cell_y();
-    const dst_x_cells = @divFloor(surface.origin_px_x, cw);
-    const dst_y_cells = @divFloor(surface.origin_px_y, ch);
+    const dst_x_cells = @divFloor(layer.origin_px_x, cw);
+    const dst_y_cells = @divFloor(layer.origin_px_y, ch);
     const r = dst_y_cells + @as(i32, @intCast(src_row));
     const c = dst_x_cells + @as(i32, @intCast(src_col));
     const scr = &self.vx.screen;
@@ -351,7 +351,7 @@ fn propagate_focused_cursors_to_root(self: *Self) void {
         const src = &t.src.screen;
         if (!src.cursor_vis) continue;
         if (src.cursor_shape == .unfocused) continue;
-        const pos = self.cursor_root_pos(src.cursor.row, src.cursor.col, &t.src.surface) orelse continue;
+        const pos = self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src) orelse continue;
         scr.cursor_vis = true;
         scr.cursor.row = pos.row;
         scr.cursor.col = pos.col;
@@ -364,7 +364,7 @@ fn propagate_focused_cursors_to_root(self: *Self) void {
             const grown = self.allocator.alloc(@TypeOf(scr.cursor_secondary[0]), src.cursor_secondary.len) catch continue;
             scr.cursor_secondary = grown;
             for (src.cursor_secondary, 0..) |sc, i| {
-                const spos = self.cursor_root_pos(sc.row, sc.col, &t.src.surface) orelse {
+                const spos = self.cursor_root_pos(sc.row, sc.col, t.src) orelse {
                     scr.cursor_secondary[i] = .{ .row = 0, .col = 0 };
                     continue;
                 };
@@ -372,7 +372,7 @@ fn propagate_focused_cursors_to_root(self: *Self) void {
             }
         } else {
             for (src.cursor_secondary) |sc|
-                if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
+                if (self.cursor_root_pos(sc.row, sc.col, t.src)) |spos|
                     self.paint_solid_cell(spos.row, spos.col, self.secondary_color);
         }
     }
@@ -383,10 +383,10 @@ fn paint_unfocused_cell_cursors(self: *Self) void {
         const src = &t.src.screen;
         if (!src.cursor_vis) continue;
         if (src.cursor_shape != .unfocused) continue;
-        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, &t.src.surface)) |pos|
+        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src)) |pos|
             self.paint_dim_cell(pos.row, pos.col, self.cursor_color);
         for (src.cursor_secondary) |sc|
-            if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
+            if (self.cursor_root_pos(sc.row, sc.col, t.src)) |spos|
                 self.paint_dim_cell(spos.row, spos.col, self.secondary_color);
     }
     const scr = &self.vx.screen;
@@ -405,14 +405,14 @@ fn paint_all_cell_cursors(self: *Self) void {
         const src = &t.src.screen;
         if (!src.cursor_vis) continue;
         const dim_primary = src.cursor_shape == .unfocused;
-        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, &t.src.surface)) |pos| {
+        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src)) |pos| {
             if (dim_primary)
                 self.paint_dim_cell(pos.row, pos.col, self.cursor_color)
             else
                 self.paint_solid_cell(pos.row, pos.col, self.cursor_color);
         }
         for (src.cursor_secondary) |sc|
-            if (self.cursor_root_pos(sc.row, sc.col, &t.src.surface)) |spos|
+            if (self.cursor_root_pos(sc.row, sc.col, t.src)) |spos|
                 self.paint_dim_cell(spos.row, spos.col, self.secondary_color);
     }
     self.vx.screen.cursor_vis = false;

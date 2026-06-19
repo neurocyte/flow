@@ -253,7 +253,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
     const ch = self.plane.cell_y();
     var parent_ox: i32 = 0;
     var parent_oy: i32 = 0;
-    if (self.plane.layer) |l| parent_ox, parent_oy = l.surface.global_origin_px();
+    if (self.plane.layer) |l| parent_ox, parent_oy = l.global_origin_px();
 
     const loc_b: i32 = @intCast(self.get_loc_b_const(client_box));
     const lead: i32 = @intCast(leading_cell);
