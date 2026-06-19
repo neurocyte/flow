@@ -288,7 +288,7 @@ pub fn box(self: *const Self) Box {
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
-        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+        const cell = coord.to_cell(self.plane.mouse_geometry());
         return self.bottom_bar_primary_drag(@intCast(cell.row));
     }
 }
