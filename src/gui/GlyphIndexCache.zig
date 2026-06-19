@@ -13,12 +13,13 @@ pub const Node = struct {
     kind: u2 = 0,
 };
 
-const MapKey = struct {
+const MapKey = packed struct(u32) {
     codepoint: u21,
     right_half: bool,
     wide: bool,
     emoji: bool,
     face: u2,
+    _pad: u6 = 0, // must total 32bits to hit the fast path (std.meta.hasUniqueRepresentation)
 };
 
 map: std.AutoHashMapUnmanaged(MapKey, u32) = .{},
