@@ -825,9 +825,8 @@ fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []con
     var btn: MouseEvent.Button = .none;
     if (m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false)
         if (self.drag_source == null) {
-            const cell = coord.to_cell(self.stdplane().mouse_geometry());
-            if (cell.row >= 0 and cell.col >= 0)
-                self.set_drag_source(self.find_coord_widget(@intCast(cell.row), @intCast(cell.col)), @intFromEnum(btn));
+            if (coord.x >= 0 and coord.y >= 0)
+                self.set_drag_source(self.find_coord_widget(coord), @intFromEnum(btn));
         };
     self.send_mouse_drag(coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
@@ -854,57 +853,28 @@ fn handle_system_clipboard(self: *Self, text: []const u8) !void {
     return command.executeName("paste", command.fmt(.{text}));
 }
 
-fn find_coord_widget(self: *Self, y: usize, x: usize) ?Widget {
-    if (self.find_coord_widget_layered(y, x)) |w| return w;
-
+fn find_coord_widget(self: *Self, coord: MouseEvent.Coord) ?Widget {
     const Ctx = struct {
         widget: ?Widget = null,
-        y: usize,
-        x: usize,
+        coord: MouseEvent.Coord,
         fn find(ctx_: *anyopaque, w: Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            if (is_abs_coord_in_widget(&w, ctx.y, ctx.x)) {
+            if (is_coord_in_widget(&w, ctx.coord)) {
                 ctx.widget = w;
                 return true;
             }
             return false;
         }
     };
-    var ctx: Ctx = .{ .y = y, .x = x };
+    var ctx: Ctx = .{ .coord = coord };
     if (self.mainview_) |*mv| _ = mv.walk(&ctx, Ctx.find);
     return ctx.widget;
 }
 
-fn find_coord_widget_layered(self: *Self, y: usize, x: usize) ?Widget {
-    const Ctx = struct {
-        best: ?Widget = null,
-        best_area: usize = 0,
-        y: usize,
-        x: usize,
-        fn find(ctx_: *anyopaque, w: Widget) bool {
-            const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            if (w.plane.layer == null) return false;
-            if (!is_abs_coord_in_widget(&w, ctx.y, ctx.x)) return false;
-            const area: usize = @as(usize, w.plane.dim_y()) * @as(usize, w.plane.dim_x());
-            if (ctx.best == null or area < ctx.best_area) {
-                ctx.best = w;
-                ctx.best_area = area;
-            }
-            return false;
-        }
-    };
-    var ctx: Ctx = .{ .y = y, .x = x };
-    if (self.mainview_) |*mv| _ = mv.walk(&ctx, Ctx.find);
-    return ctx.best;
-}
-
-pub fn is_abs_coord_in_widget(w: *const Widget, y: usize, x: usize) bool {
-    const gy, const gx = w.plane.global_yx();
-    const h: i32 = @intCast(w.plane.dim_y());
-    const wd: i32 = @intCast(w.plane.dim_x());
-    const iy: i32 = @intCast(y);
-    const ix: i32 = @intCast(x);
-    return iy >= gy and iy < gy + h and ix >= gx and ix < gx + wd;
+pub fn is_coord_in_widget(w: *const Widget, coord: MouseEvent.Coord) bool {
+    const cell = coord.to_cell(w.plane.mouse_geometry());
+    return 0 <= cell.col and cell.col < w.plane.dim_x() and
+        0 <= cell.row and cell.row < w.plane.dim_y();
 }
 
 fn is_live_widget_ptr(self: *Self, w_: Widget) bool {
@@ -994,8 +964,7 @@ fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp
 
 fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {
     self.last_hover = coord;
-    const cell = coord.to_cell(self.stdplane().mouse_geometry());
-    if (cell.row >= 0 and cell.col >= 0) if (self.find_coord_widget(@intCast(cell.row), @intCast(cell.col))) |w| {
+    if (coord.x >= 0 and coord.y >= 0) if (self.find_coord_widget(coord)) |w| {
         if (if (self.hover_focus) |h| h.ptr != w.ptr else true) {
             tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @as(u64, @intFromPtr(h.ptr)) else 0, @as(u64, @intFromPtr(w.ptr)) });
             if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
