@@ -477,7 +477,7 @@ pub const WindowState = struct {
                 // Rasterize into RGBA staging buffer then upload to the atlas
                 const staging_w: u32 = @as(u32, font.cell_size.x) * 2;
                 const staging_h: u32 = font.cell_size.y;
-                var staging_buf = global.glyph_cache_arena.allocator().alloc(
+                const staging_buf = global.glyph_cache_arena.allocator().alloc(
                     u8,
                     staging_w * staging_h * 4,
                 ) catch |e| oom(e);
@@ -498,24 +498,10 @@ pub const WindowState = struct {
                 const glyph_w: u16 = font.cell_size.x;
                 const glyph_h: u16 = font.cell_size.y;
 
-                // Build a sub-region buffer for sokol updateImage
-                const glyph_row_bytes: u32 = @as(u32, glyph_w) * 4;
-                const staging_row_bytes: u32 = staging_w * 4;
-                var region_buf = global.glyph_cache_arena.allocator().alloc(
-                    u8,
-                    glyph_row_bytes * @as(u32, glyph_h),
-                ) catch |e| oom(e);
-                defer global.glyph_cache_arena.allocator().free(region_buf);
-
-                for (0..glyph_h) |row_i| {
-                    const src_off = row_i * staging_row_bytes + @as(u32, src_x) * 4;
-                    const dst_off = row_i * glyph_row_bytes;
-                    @memcpy(region_buf[dst_off .. dst_off + glyph_row_bytes], staging_buf[src_off .. src_off + glyph_row_bytes]);
-                }
-
-                // Write into the CPU-side atlas shadow.  The GPU upload is
-                // deferred to paint() so it happens at most once per frame.
-                blitAtlasCpu(state, atlas_x, atlas_y, glyph_w, glyph_h, region_buf);
+                // Write into the CPU-side atlas shadow
+                const staging_row_bytes: usize = @as(usize, staging_w) * 4;
+                const src_x_off: usize = @as(usize, src_x) * 4;
+                blitAtlasCpu(state, atlas_x, atlas_y, glyph_w, glyph_h, staging_buf, staging_row_bytes, src_x_off);
                 state.glyph_atlas_dirty = true;
 
                 return reserved.index;
@@ -989,14 +975,15 @@ var atlas_cpu: ?[]u8 = null;
 var atlas_cpu_size: XY(u16) = .{ .x = 0, .y = 0 };
 
 // Blit one glyph cell into the CPU-side atlas shadow.
-// pixels is RGBA8 with stride = w * 4.
 fn blitAtlasCpu(
     state: *const WindowState,
     x: u16,
     y: u16,
     w: u16,
     h: u16,
-    pixels: []const u8,
+    src: []const u8,
+    src_row_bytes: usize,
+    src_x_off: usize,
 ) void {
     const asz = state.glyph_image_size;
     const total_bytes: usize = @as(usize, asz.x) * @as(usize, asz.y) * 4;
@@ -1012,9 +999,9 @@ fn blitAtlasCpu(
     const row_bytes: usize = @as(usize, w) * 4;
     const atlas_row_bytes: usize = @as(usize, asz.x) * 4;
     for (0..h) |row_i| {
-        const src_off = row_i * row_bytes;
+        const src_off = row_i * src_row_bytes + src_x_off;
         const dst_off = (@as(usize, y) + row_i) * atlas_row_bytes + @as(usize, x) * 4;
-        @memcpy(buf[dst_off .. dst_off + row_bytes], pixels[src_off .. src_off + row_bytes]);
+        @memcpy(buf[dst_off .. dst_off + row_bytes], src[src_off .. src_off + row_bytes]);
     }
 }
 
