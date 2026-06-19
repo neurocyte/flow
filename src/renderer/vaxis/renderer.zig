@@ -47,8 +47,8 @@ bracketed_paste_buffer: std.Io.Writer.Allocating,
 
 handler_ctx: *anyopaque,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
-dispatch_mouse: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
-dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
+dispatch_mouse: ?*const fn (ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void = null,
+dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void = null,
 dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 logger: log.Logger,
@@ -541,18 +541,19 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             const screen = self.vx.screen;
             const cell_width: u16 = if (screen.width > 0 and screen.width_pix > 0) @intCast(screen.width_pix / screen.width) else 1;
             const cell_height: u16 = if (screen.height > 0 and screen.height_pix > 0) @intCast(screen.height_pix / screen.height) else 1;
+            const coord = MouseEvent.Cell.from_vaxis(mouse).to_coord(.{ .cell_width = cell_width, .cell_height = cell_height });
             const mouse_event: MouseEvent.Event = .{
                 MouseEvent.Type.from_vaxis(mouse.type),
                 MouseEvent.Button.from_vaxis(mouse.button),
-                MouseEvent.Cell.from_vaxis(mouse).to_coord(.{ .cell_width = cell_width, .cell_height = cell_height }),
+                coord,
                 MouseEvent.Modifiers.from_vaxis(mouse.mods),
             };
             const mouse_msg = try self.fmtmsg(mouse_event);
             switch (mouse.type) {
                 .drag => if (self.dispatch_mouse_drag) |f|
-                    f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), mouse_msg),
+                    f(self.handler_ctx, coord, mouse_msg),
                 else => if (self.dispatch_mouse) |f|
-                    f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), mouse_msg),
+                    f(self.handler_ctx, coord, mouse_msg),
             }
         },
         .mouse_leave => {

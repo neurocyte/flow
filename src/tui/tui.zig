@@ -60,8 +60,7 @@ keyboard_focus_outer: ?Widget = null,
 mini_mode_: ?MiniMode = null,
 hover_focus: ?Widget = null,
 terminal_focus: bool = true,
-last_hover_x: c_int = -1,
-last_hover_y: c_int = -1,
+last_hover: ?MouseEvent.Coord = null,
 commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?Widget = null,
@@ -561,8 +560,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         self.terminal_focus = false;
         std.log.debug("focus_out", .{});
         self.clear_hover_focus(@src()) catch {};
-        self.last_hover_x = -1;
-        self.last_hover_y = -1;
+        self.last_hover = null;
         need_render(@src());
         return;
     }
@@ -804,7 +802,7 @@ fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
         ih.send(from, m) catch |e| self.logger.err("input handler", e);
 }
 
-fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
+fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     self.update_mouse_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
@@ -812,13 +810,13 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     if (!(m.match(.{ MouseEvent.Type.motion, tp.more }) catch false))
         self.unrendered_input_events_count += 1;
     const send_func = if (self.drag_source) |_| &send_mouse_drag else &send_mouse;
-    send_func(self, y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
+    send_func(self, coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
     var btn: MouseEvent.Button = .none;
     _ = m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false;
     self.maybe_reset_drag_source(@intFromEnum(btn));
 }
 
-fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
+fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     self.update_mouse_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
@@ -826,9 +824,12 @@ fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8
     self.unrendered_input_events_count += 1;
     var btn: MouseEvent.Button = .none;
     if (m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false)
-        if (self.drag_source == null and y >= 0 and x >= 0)
-            self.set_drag_source(self.find_coord_widget(@intCast(y), @intCast(x)), @intFromEnum(btn));
-    self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
+        if (self.drag_source == null) {
+            const cell = coord.to_cell(self.stdplane().mouse_geometry());
+            if (cell.row >= 0 and cell.col >= 0)
+                self.set_drag_source(self.find_coord_widget(@intCast(cell.row), @intCast(cell.col)), @intFromEnum(btn));
+        };
+    self.send_mouse_drag(coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
 
 fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
@@ -975,26 +976,26 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         false;
 }
 
-fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
+fn send_mouse(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners_.send(from, m) catch {};
-    if (try self.update_hover(y, x)) |w|
+    if (try self.update_hover(coord)) |w|
         _ = try w.send(from, m);
 }
 
-fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
+fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners_.send(from, m) catch {};
-    _ = try self.update_hover(y, x);
+    _ = try self.update_hover(coord);
     if (self.drag_source) |w| if (self.is_live_widget_ptr(w)) {
         _ = try w.send(from, m);
     };
 }
 
-fn update_hover(self: *Self, y: c_int, x: c_int) !?Widget {
-    self.last_hover_y = y;
-    self.last_hover_x = x;
-    if (y >= 0 and x >= 0) if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
+fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {
+    self.last_hover = coord;
+    const cell = coord.to_cell(self.stdplane().mouse_geometry());
+    if (cell.row >= 0 and cell.col >= 0) if (self.find_coord_widget(@intCast(cell.row), @intCast(cell.col))) |w| {
         if (if (self.hover_focus) |h| h.ptr != w.ptr else true) {
             tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @as(u64, @intFromPtr(h.ptr)) else 0, @as(u64, @intFromPtr(w.ptr)) });
             if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
@@ -1024,7 +1025,10 @@ fn send_hover_msg(widget: Widget, hover: bool) tp.result {
 pub fn refresh_hover(src: std.builtin.SourceLocation) void {
     const self = current();
     tp.trace(tp.channel.debug, .{ "tui", "refresh_hover", if (self.hover_focus) |h| @intFromPtr(h.ptr) else 0, src.fn_name, src.file, src.line });
-    _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
+    if (self.last_hover) |coord|
+        _ = self.update_hover(coord) catch {}
+    else
+        self.clear_hover_focus(src) catch {};
 }
 
 pub fn reset_hover(src: std.builtin.SourceLocation) void {

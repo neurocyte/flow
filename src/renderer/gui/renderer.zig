@@ -58,8 +58,8 @@ stdplane_id: Layer.Id,
 handler_ctx: *anyopaque,
 dispatch_initialized: *const fn (ctx: *anyopaque) void,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
-dispatch_mouse: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
-dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
+dispatch_mouse: ?*const fn (ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void = null,
+dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void = null,
 dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 thread: ?std.Thread = null,
@@ -433,15 +433,10 @@ pub fn stdplane(self: *Self) Plane {
 
 fn dispatch_mouse_event(self: *Self, event: MouseEvent.Event) Error!void {
     const mouse_type, _, const coord, _ = event;
-    const screen = self.vx.screen;
-    const cell_width: u16 = if (screen.width > 0 and screen.width_pix > 0) @intCast(screen.width_pix / screen.width) else 1;
-    const cell_height: u16 = if (screen.height > 0 and screen.height_pix > 0) @intCast(screen.height_pix / screen.height) else 1;
-    const row = @divFloor(coord.y, @as(i32, cell_height));
-    const col = @divFloor(coord.x, @as(i32, cell_width));
     const mouse_msg = try self.fmtmsg(event);
     switch (mouse_type) {
-        .drag => if (self.dispatch_mouse_drag) |f| f(self.handler_ctx, row, col, mouse_msg),
-        else => if (self.dispatch_mouse) |f| f(self.handler_ctx, row, col, mouse_msg),
+        .drag => if (self.dispatch_mouse_drag) |f| f(self.handler_ctx, coord, mouse_msg),
+        else => if (self.dispatch_mouse) |f| f(self.handler_ctx, coord, mouse_msg),
     }
 }
 
