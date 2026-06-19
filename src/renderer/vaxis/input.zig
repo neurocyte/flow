@@ -8,24 +8,6 @@ const FormatOptions = @import("std").fmt.FormatOptions;
 pub const key = vaxis.Key;
 pub const Key = u21;
 
-pub const Mouse = vaxis.Mouse.Button;
-pub const MouseType = @typeInfo(Mouse).@"enum".tag_type;
-
-pub const mouse = struct {
-    pub const MOTION: Mouse = vaxis.Mouse.Button.none;
-    pub const BUTTON1: Mouse = vaxis.Mouse.Button.left;
-    pub const BUTTON2: Mouse = vaxis.Mouse.Button.middle;
-    pub const BUTTON3: Mouse = vaxis.Mouse.Button.right;
-    pub const BUTTON4: Mouse = vaxis.Mouse.Button.wheel_up;
-    pub const BUTTON5: Mouse = vaxis.Mouse.Button.wheel_down;
-    pub const BUTTON6: Mouse = vaxis.Mouse.Button.wheel_right;
-    pub const BUTTON7: Mouse = vaxis.Mouse.Button.wheel_left;
-    pub const BUTTON8: Mouse = vaxis.Mouse.Button.button_8;
-    pub const BUTTON9: Mouse = vaxis.Mouse.Button.button_9;
-    pub const BUTTON10: Mouse = vaxis.Mouse.Button.button_10;
-    pub const BUTTON11: Mouse = vaxis.Mouse.Button.button_11;
-};
-
 /// Does this key represent input?
 pub fn is_non_input_key(w: Key) bool {
     return switch (w) {
@@ -325,23 +307,6 @@ pub const utils = struct {
             vaxis.Key.iso_level_3_shift => "iso3",
             vaxis.Key.iso_level_5_shift => "iso5",
             else => key_id_string(k),
-        };
-    }
-
-    pub fn button_id_string(m: Mouse) []const u8 {
-        return switch (m) {
-            mouse.MOTION => "motion",
-            mouse.BUTTON1 => "button1",
-            mouse.BUTTON2 => "button2",
-            mouse.BUTTON3 => "button3",
-            mouse.BUTTON4 => "button4",
-            mouse.BUTTON5 => "button5",
-            mouse.BUTTON6 => "button6",
-            mouse.BUTTON7 => "button7",
-            mouse.BUTTON8 => "button8",
-            mouse.BUTTON9 => "button9",
-            mouse.BUTTON10 => "button10",
-            mouse.BUTTON11 => "button11",
         };
     }
 };
