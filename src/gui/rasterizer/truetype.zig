@@ -104,17 +104,19 @@ fn loadFontData(allocator: std.mem.Allocator, raw: []u8, face_index: i32) ?[]u8 
 
 fn blitAlphaAt(staging_buf: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32, gh: i32, dst_x0: i32, dst_y0: i32) void {
     if (gw <= 0 or gh <= 0) return;
-    var row: i32 = 0;
-    while (row < gh) : (row += 1) {
-        const py = dst_y0 + row;
-        if (py < 0 or py >= buf_h) continue;
-        var col: i32 = 0;
-        while (col < gw) : (col += 1) {
-            const px = dst_x0 + col;
-            if (px < 0 or px >= buf_w) continue;
-            const src_idx: usize = @intCast(row * gw + col);
-            const dst_idx: usize = @as(usize, @intCast(py * buf_w + px)) * 4;
-            if (src_idx < src.len and dst_idx < staging_buf.len) staging_buf[dst_idx] = src[src_idx];
+    const row0: i32 = @max(0, -dst_y0);
+    const row1: i32 = @min(gh, buf_h - dst_y0);
+    const col0: i32 = @max(0, -dst_x0);
+    const col1: i32 = @min(gw, buf_w - dst_x0);
+    var row: i32 = row0;
+    while (row < row1) : (row += 1) {
+        const src_row: usize = @intCast(row * gw);
+        const dst_row: usize = @intCast((dst_y0 + row) * buf_w);
+        var col: i32 = col0;
+        while (col < col1) : (col += 1) {
+            const src_idx = src_row + @as(usize, @intCast(col));
+            const dst_idx = (dst_row + @as(usize, @intCast(dst_x0 + col))) * 4;
+            staging_buf[dst_idx] = src[src_idx];
         }
     }
 }
@@ -295,6 +297,7 @@ font_data: std.ArrayListUnmanaged([]u8),
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,
 fallback: ?*FallbackResolver = null,
+glyph_scratch: std.ArrayListUnmanaged(u8) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     return .{
@@ -315,6 +318,7 @@ pub fn deinit(self: *Self) void {
         self.allocator.free(data);
     }
     self.font_data.deinit(self.allocator);
+    self.glyph_scratch.deinit(self.allocator);
 }
 
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
@@ -471,18 +475,20 @@ pub fn render(
 
     const metrics = constraintMetrics(font);
 
+    const scratch: *std.ArrayListUnmanaged(u8) = @constCast(&self.glyph_scratch);
+
     if (glyph == .notdef and codepoint != 0) {
         if (self.fallbackResolver()) |fb| {
             if (fb.resolve({}, self.allocator, codepoint, font.size_px, false, font.primary_metrics)) |fb_face| {
                 const fg = fb_face.tt.codepointGlyphIndex(codepoint);
                 const fscale: f32 = @as(f32, @floatFromInt(fb_face.size_px)) /
                     @as(f32, @floatFromInt(@max(fb_face.units_per_em, 1)));
-                return rasterizeGlyph(self.allocator, &fb_face.tt, fscale, font.ascent_px, fg, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
+                return rasterizeGlyph(self.allocator, scratch, &fb_face.tt, fscale, font.ascent_px, fg, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
             }
         }
     }
 
-    return rasterizeGlyph(self.allocator, &tt, font.scale, font.ascent_px, glyph, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
+    return rasterizeGlyph(self.allocator, scratch, &tt, font.scale, font.ascent_px, glyph, split, constraint, constraint_width, metrics, font.cell_size, staging_buf);
 }
 
 fn fallbackResolver(self: *const Self) ?*FallbackResolver {
@@ -495,6 +501,7 @@ fn fallbackResolver(self: *const Self) ?*FallbackResolver {
 
 fn rasterizeGlyph(
     allocator: std.mem.Allocator,
+    scratch: *std.ArrayListUnmanaged(u8),
     tt: *const TrueType,
     scale: f32,
     ascent_px: i32,
@@ -508,10 +515,6 @@ fn rasterizeGlyph(
 ) RenderResult {
     const buf_w: i32 = @as(i32, @intCast(cell_size.x)) * 2;
     const buf_h: i32 = @intCast(cell_size.y);
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
 
     if (constraint.doesAnything()) {
         const box = tt.glyphBitmapBox(glyph, scale, scale);
@@ -536,19 +539,19 @@ fn rasterizeGlyph(
 
             const sx: f32 = scale * @as(f32, @floatCast(cg.width / rect_w));
             const sy: f32 = scale * @as(f32, @floatCast(cg.height / rect_h));
-            var big = std.ArrayList(u8).empty;
-            const bdims = tt.glyphBitmap(alloc, &big, glyph, sx, sy) catch return .{ .format = .alpha };
+            scratch.clearRetainingCapacity();
+            const bdims = tt.glyphBitmap(allocator, scratch, glyph, sx, sy) catch return .{ .format = .alpha };
             if (bdims.width == 0 or bdims.height == 0) return .{ .format = .alpha };
 
             const dst_x0: i32 = @intFromFloat(@round(gx));
             const dst_y0: i32 = @intFromFloat(@round(@as(f64, @floatFromInt(cell_size.y)) - (cg.y + cg.height)));
-            blitAlphaAt(staging_buf, buf_w, buf_h, big.items, @intCast(bdims.width), @intCast(bdims.height), dst_x0, dst_y0);
+            blitAlphaAt(staging_buf, buf_w, buf_h, scratch.items, @intCast(bdims.width), @intCast(bdims.height), dst_x0, dst_y0);
         }
         return .{ .format = .alpha };
     }
 
-    var pixels = std.ArrayList(u8).empty;
-    const dims = tt.glyphBitmap(alloc, &pixels, glyph, scale, scale) catch return .{ .format = .alpha };
+    scratch.clearRetainingCapacity();
+    const dims = tt.glyphBitmap(allocator, scratch, glyph, scale, scale) catch return .{ .format = .alpha };
 
     if (dims.width == 0 or dims.height == 0) return .{ .format = .alpha };
 
@@ -558,21 +561,15 @@ fn rasterizeGlyph(
     else
         0;
 
-    for (0..dims.height) |row| {
-        const dst_y: i32 = ascent_px + @as(i32, dims.off_y) + @as(i32, @intCast(row));
-        if (dst_y < 0 or dst_y >= buf_h) continue;
-
-        for (0..dims.width) |col| {
-            const dst_x: i32 = center_offset + @as(i32, dims.off_x) + @as(i32, @intCast(col));
-            if (dst_x < 0 or dst_x >= buf_w) continue;
-
-            const src_idx = row * dims.width + col;
-            const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;
-
-            if (src_idx < pixels.items.len and dst_idx < staging_buf.len) {
-                staging_buf[dst_idx] = pixels.items[src_idx];
-            }
-        }
-    }
+    blitAlphaAt(
+        staging_buf,
+        buf_w,
+        buf_h,
+        scratch.items,
+        @intCast(dims.width),
+        @intCast(dims.height),
+        center_offset + @as(i32, dims.off_x),
+        ascent_px + @as(i32, dims.off_y),
+    );
     return .{ .format = .alpha };
 }
