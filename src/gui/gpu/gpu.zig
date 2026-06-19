@@ -353,6 +353,12 @@ pub const WindowState = struct {
     // Glyph index cache
     glyph_cache_cell_size: ?XY(u16) = null,
     glyph_index_cache: ?GlyphIndexCache = null,
+
+    // Atlas geometry derived from the cell size
+    glyph_atlas_cell_count: XY(u16) = .{ .x = 0, .y = 0 },
+    glyph_atlas_total: u32 = 0,
+    glyph_atlas_pixel_size: XY(u16) = .{ .x = 0, .y = 0 },
+
     // Set when the CPU atlas shadow was updated; cleared after GPU upload.
     glyph_atlas_dirty: bool = false,
 
@@ -430,17 +436,22 @@ pub const WindowState = struct {
         constraint_width: u2,
         split: Rasterizer.GlyphSplit,
     ) u32 {
-        const atlas_cell_count = getAtlasCellCount(font.cell_size);
-        const atlas_total: u32 = @as(u32, atlas_cell_count.x) * @as(u32, atlas_cell_count.y);
-        const atlas_pixel_size: XY(u16) = .{
-            .x = atlas_cell_count.x * font.cell_size.x,
-            .y = atlas_cell_count.y * font.cell_size.y,
-        };
-
-        const atlas_retained = state.updateGlyphImage(atlas_pixel_size);
-
         const cache_valid = if (state.glyph_cache_cell_size) |s| s.eql(font.cell_size) else false;
+        if (!cache_valid) {
+            const cnt = getAtlasCellCount(font.cell_size);
+            state.glyph_atlas_cell_count = cnt;
+            state.glyph_atlas_total = @as(u32, cnt.x) * @as(u32, cnt.y);
+            state.glyph_atlas_pixel_size = .{
+                .x = cnt.x * font.cell_size.x,
+                .y = cnt.y * font.cell_size.y,
+            };
+        }
         state.glyph_cache_cell_size = font.cell_size;
+
+        const atlas_cell_count = state.glyph_atlas_cell_count;
+        const atlas_total = state.glyph_atlas_total;
+
+        const atlas_retained = state.updateGlyphImage(state.glyph_atlas_pixel_size);
 
         if (!atlas_retained or !cache_valid) {
             if (state.glyph_index_cache) |*c| {
