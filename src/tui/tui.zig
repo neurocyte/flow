@@ -64,7 +64,7 @@ last_hover: ?MouseEvent.Coord = null,
 commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?Widget = null,
-drag_button: input.MouseType = 0,
+drag_button: MouseEvent.Button = .none,
 dark_theme: Widget.Theme,
 light_theme: Widget.Theme,
 idle_frame_count: usize = 0,
@@ -813,7 +813,7 @@ fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8
     send_func(self, coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
     var btn: MouseEvent.Button = .none;
     _ = m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false;
-    self.maybe_reset_drag_source(@intFromEnum(btn));
+    self.maybe_reset_drag_source(btn);
 }
 
 fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void {
@@ -826,7 +826,7 @@ fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []con
     if (m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false)
         if (self.drag_source == null) {
             if (coord.x >= 0 and coord.y >= 0)
-                self.set_drag_source(self.find_coord_widget(coord), @intFromEnum(btn));
+                self.set_drag_source(self.find_coord_widget(coord), btn);
         };
     self.send_mouse_drag(coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
@@ -2055,18 +2055,18 @@ pub fn get_keybind_mode() ?Mode {
     return self.input_mode_ orelse self.delayed_init_input_mode;
 }
 
-pub fn update_drag_source(drag_source: Widget, btn: input.MouseType) void {
+pub fn update_drag_source(drag_source: Widget, btn: MouseEvent.Button) void {
     const self = current();
     self.drag_source = drag_source;
     self.drag_button = btn;
 }
 
-fn set_drag_source(self: *Self, drag_source: ?Widget, btn: input.MouseType) void {
+fn set_drag_source(self: *Self, drag_source: ?Widget, btn: MouseEvent.Button) void {
     self.drag_source = drag_source;
     self.drag_button = btn;
 }
 
-pub fn get_drag_source() struct { ?Widget, input.MouseType } {
+pub fn get_drag_source() struct { ?Widget, MouseEvent.Button } {
     const self = current();
     return .{ self.drag_source, self.drag_button };
 }
@@ -2074,13 +2074,13 @@ pub fn get_drag_source() struct { ?Widget, input.MouseType } {
 pub fn reset_drag_context() void {
     const self = current();
     self.drag_source = null;
-    self.drag_button = 0;
+    self.drag_button = .none;
 }
 
-fn maybe_reset_drag_source(self: *Self, btn: input.MouseType) void {
+fn maybe_reset_drag_source(self: *Self, btn: MouseEvent.Button) void {
     if (self.drag_button != btn) return;
     self.drag_source = null;
-    self.drag_button = 0;
+    self.drag_button = .none;
 }
 
 pub fn need_render(src: std.builtin.SourceLocation) void {
