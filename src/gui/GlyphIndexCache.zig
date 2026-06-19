@@ -96,7 +96,6 @@ pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: 
     {
         const entry = try self.map.getOrPut(allocator, .{ .codepoint = codepoint, .right_half = right_half, .wide = wide, .emoji = emoji, .face = face });
         if (entry.found_existing) {
-            self.moveToBack(entry.value_ptr.*);
             return .{ .already_reserved = entry.value_ptr.* };
         }
         entry.value_ptr.* = self.front;
@@ -221,7 +220,7 @@ test "GlyphIndexCache" {
         .already_reserved => |index| {
             try cache.testValidate(&validation_buf);
             try testing.expectEqual(0, index);
-            try testing.expectEqual(index, cache.back);
+            try testing.expectEqual(1, cache.back);
             try testing.expectEqual(2, cache.front);
             try testing.expect(!cache.isFull());
         },
