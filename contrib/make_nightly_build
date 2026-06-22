@@ -3,6 +3,7 @@ set -e
 
 for arg in "$@"; do
     case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
     --no-github) NO_GITHUB=1 ;;
     --no-codeberg) NO_CODEBERG=1 ;;
     --no-flowcontrol) NO_FLOWCONTROL=1 ;;
@@ -87,6 +88,12 @@ echo
 echo running tests...
 
 contrib/builder/build test
+
+if [ -n "$DRY_RUN" ] ; then
+    echo 'building (dry-run)...'
+    contrib/builder/build -Dall-targets --release
+    exit 0
+fi
 
 echo building...
 
