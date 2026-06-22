@@ -327,11 +327,14 @@ pub fn render(self: *Self) error{}!?i64 {
     for (layers_buf.items) |lv| {
         const s = lv.screen;
         hasher.update(&[_]u8{@intFromBool(s.cursor_vis)});
-        if (!s.cursor_vis) continue;
-        if (isBlink(s.cursor_shape)) any_blink = true;
-        hasher.update(std.mem.asBytes(&s.cursor.row));
-        hasher.update(std.mem.asBytes(&s.cursor.col));
-        hasher.update(std.mem.asBytes(&s.cursor_shape));
+        if (s.cursor_vis) {
+            hasher.update(std.mem.asBytes(&s.cursor.row));
+            hasher.update(std.mem.asBytes(&s.cursor.col));
+        }
+        if (s.cursor_vis or s.cursor_secondary.len > 0) {
+            if (isBlink(s.cursor_shape)) any_blink = true;
+            hasher.update(std.mem.asBytes(&s.cursor_shape));
+        }
         for (s.cursor_secondary) |sc| {
             hasher.update(std.mem.asBytes(&sc.row));
             hasher.update(std.mem.asBytes(&sc.col));
@@ -368,10 +371,10 @@ pub fn render(self: *Self) error{}!?i64 {
     for (layers_buf.items) |*lv| {
         const s = lv.screen;
         const sec_start = self.secondary_cursors_buf.items.len;
+        const shape = vaxisCursorShape(s.cursor_shape);
+        const blinks = isBlink(s.cursor_shape);
+        const vis = if (blinks) self.blink_on else true;
         if (s.cursor_vis) {
-            const shape = vaxisCursorShape(s.cursor_shape);
-            const blinks = isBlink(s.cursor_shape);
-            const vis = if (blinks) self.blink_on else true;
             lv.cursor = .{
                 .vis = vis,
                 .row = s.cursor.row,
@@ -379,15 +382,15 @@ pub fn render(self: *Self) error{}!?i64 {
                 .shape = shape,
                 .color = self.cursor_color,
             };
-            for (s.cursor_secondary) |sc| {
-                self.secondary_cursors_buf.append(self.allocator, .{
-                    .vis = vis,
-                    .row = sc.row,
-                    .col = sc.col,
-                    .shape = shape,
-                    .color = self.secondary_color,
-                }) catch break;
-            }
+        }
+        for (s.cursor_secondary) |sc| {
+            self.secondary_cursors_buf.append(self.allocator, .{
+                .vis = vis,
+                .row = sc.row,
+                .col = sc.col,
+                .shape = shape,
+                .color = self.secondary_color,
+            }) catch break;
         }
         sec_ranges.append(self.allocator, .{
             .start = sec_start,
