@@ -10,5 +10,7 @@ NAME="$APPNAME-builder"
 
 cd "$BASEDIR"
 
+docker pull archlinux:latest
+
 docker build -t "$IMAGE" "$BUILDER"
 docker run --rm -ti --hostname "$NAME" -u 1000:1000 -v "$BASEDIR:/src/flow" "$IMAGE" zig build "$@"
