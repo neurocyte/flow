@@ -322,6 +322,10 @@ pub fn toggle_focus(self: *Self) void {
 pub fn focus(self: *Self) void {
     if (self.focused) return;
     self.focused = true;
+    if (tui.mini_mode() != null)
+        command.executeName("exit_mini_mode", .empty()) catch {};
+    if (tui.input_mode_outer() != null)
+        command.executeName("exit_overlay_mode", .empty()) catch {};
     tui.set_keyboard_focus(Widget.to(self));
 }
 
