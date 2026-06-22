@@ -520,6 +520,8 @@ const cmds = struct {
         {
             self.closing_project = true;
             defer self.closing_project = false;
+            if (self.is_panel_view_showing(terminal_view))
+                try self.toggle_panel_view(terminal_view, .disable);
             terminal_view.shutdown(self.allocator);
             try close_splits(self, .empty_from(ctx));
             try self.close_all_editors(.empty_from(ctx));
