@@ -36,6 +36,7 @@ no_alternate: bool,
 config_enable_terminal_cursor: bool,
 cursor_color: RGB = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 secondary_color: RGB = .{ .r = 0x80, .g = 0x80, .b = 0x80 },
+terminal_primary_uses_secondary_color: bool = false,
 enable_sgr_pixel_mode_support: bool = true,
 event_buffer: std.Io.Writer.Allocating,
 input_buffer: std.Io.Writer.Allocating,
@@ -361,28 +362,66 @@ fn cursor_root_pos(self: *Self, src_row: u16, src_col: u16, layer: *const Layer)
 
 fn propagate_focused_cursors_to_root(self: *Self) void {
     const scr = &self.vx.screen;
+    var promoted_secondary: bool = false;
+
     for (self.targets.items) |*t| {
         const src = &t.src.screen;
-        if (!src.cursor_vis) continue;
         if (src.cursor_shape == .unfocused) continue;
-        const pos = self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src) orelse continue;
+
+        const primary_pos = if (src.cursor_vis)
+            self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src)
+        else
+            null;
+
+        var promote_idx: ?usize = null;
+        if (primary_pos == null and self.vx.caps.multi_cursor) {
+            for (src.cursor_secondary, 0..) |sc, i| {
+                if (self.cursor_root_pos(sc.row, sc.col, t.src) != null) {
+                    promote_idx = i;
+                    break;
+                }
+            }
+        }
+
+        if (primary_pos == null and promote_idx == null) {
+            if (!self.vx.caps.multi_cursor) {
+                for (src.cursor_secondary) |sc|
+                    if (self.cursor_root_pos(sc.row, sc.col, t.src)) |spos|
+                        self.paint_solid_cell(spos.row, spos.col, self.secondary_color);
+            }
+            continue;
+        }
+
+        const tp_pos = primary_pos orelse blk: {
+            const sc = src.cursor_secondary[promote_idx.?];
+            break :blk self.cursor_root_pos(sc.row, sc.col, t.src).?;
+        };
         scr.cursor_vis = true;
-        scr.cursor.row = pos.row;
-        scr.cursor.col = pos.col;
+        scr.cursor.row = tp_pos.row;
+        scr.cursor.col = tp_pos.col;
         scr.cursor_shape = src.cursor_shape;
+        promoted_secondary = primary_pos == null;
 
         self.allocator.free(scr.cursor_secondary);
         scr.cursor_secondary = &.{};
-        if (src.cursor_secondary.len == 0) continue;
+
         if (self.vx.caps.multi_cursor) {
-            const grown = self.allocator.alloc(@TypeOf(scr.cursor_secondary[0]), src.cursor_secondary.len) catch continue;
-            scr.cursor_secondary = grown;
+            var count: usize = 0;
             for (src.cursor_secondary, 0..) |sc, i| {
-                const spos = self.cursor_root_pos(sc.row, sc.col, t.src) orelse {
-                    scr.cursor_secondary[i] = .{ .row = 0, .col = 0 };
-                    continue;
-                };
-                scr.cursor_secondary[i] = .{ .row = spos.row, .col = spos.col };
+                if (promote_idx) |p| if (i == p) continue;
+                if (self.cursor_root_pos(sc.row, sc.col, t.src) != null) count += 1;
+            }
+            if (count > 0) {
+                const grown = self.allocator.alloc(@TypeOf(scr.cursor_secondary[0]), count) catch continue;
+                scr.cursor_secondary = grown;
+                var j: usize = 0;
+                for (src.cursor_secondary, 0..) |sc, i| {
+                    if (promote_idx) |p| if (i == p) continue;
+                    if (self.cursor_root_pos(sc.row, sc.col, t.src)) |spos| {
+                        scr.cursor_secondary[j] = .{ .row = spos.row, .col = spos.col };
+                        j += 1;
+                    }
+                }
             }
         } else {
             for (src.cursor_secondary) |sc|
@@ -390,22 +429,33 @@ fn propagate_focused_cursors_to_root(self: *Self) void {
                     self.paint_solid_cell(spos.row, spos.col, self.secondary_color);
         }
     }
+
+    self.apply_terminal_primary_color(promoted_secondary);
+}
+
+fn apply_terminal_primary_color(self: *Self, use_secondary: bool) void {
+    if (self.terminal_primary_uses_secondary_color == use_secondary) return;
+    self.terminal_primary_uses_secondary_color = use_secondary;
+    const c = if (use_secondary) self.secondary_color else self.cursor_color;
+    self.vx.setTerminalCursorColor(self.tty.writer(), .{ c.r, c.g, c.b }) catch {};
 }
 
 fn paint_unfocused_cell_cursors(self: *Self) void {
     for (self.targets.items) |*t| {
         const src = &t.src.screen;
-        if (!src.cursor_vis) continue;
         if (src.cursor_shape != .unfocused) continue;
-        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src)) |pos|
-            self.paint_dim_cell(pos.row, pos.col, self.cursor_color);
+        if (src.cursor_vis) {
+            if (self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src)) |pos|
+                self.paint_dim_cell(pos.row, pos.col, self.cursor_color);
+        }
         for (src.cursor_secondary) |sc|
             if (self.cursor_root_pos(sc.row, sc.col, t.src)) |spos|
                 self.paint_dim_cell(spos.row, spos.col, self.secondary_color);
     }
     const scr = &self.vx.screen;
-    if (scr.cursor_vis and scr.cursor_shape == .unfocused) {
-        self.paint_dim_cell(scr.cursor.row, scr.cursor.col, self.cursor_color);
+    if (scr.cursor_shape == .unfocused) {
+        if (scr.cursor_vis)
+            self.paint_dim_cell(scr.cursor.row, scr.cursor.col, self.cursor_color);
         for (scr.cursor_secondary) |sc|
             self.paint_dim_cell(sc.row, sc.col, self.secondary_color);
         scr.cursor_vis = false;
@@ -417,13 +467,14 @@ fn paint_unfocused_cell_cursors(self: *Self) void {
 fn paint_all_cell_cursors(self: *Self) void {
     for (self.targets.items) |*t| {
         const src = &t.src.screen;
-        if (!src.cursor_vis) continue;
         const dim_primary = src.cursor_shape == .unfocused;
-        if (self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src)) |pos| {
-            if (dim_primary)
-                self.paint_dim_cell(pos.row, pos.col, self.cursor_color)
-            else
-                self.paint_solid_cell(pos.row, pos.col, self.cursor_color);
+        if (src.cursor_vis) {
+            if (self.cursor_root_pos(src.cursor.row, src.cursor.col, t.src)) |pos| {
+                if (dim_primary)
+                    self.paint_dim_cell(pos.row, pos.col, self.cursor_color)
+                else
+                    self.paint_solid_cell(pos.row, pos.col, self.cursor_color);
+            }
         }
         for (src.cursor_secondary) |sc|
             if (self.cursor_root_pos(sc.row, sc.col, t.src)) |spos|
@@ -716,11 +767,14 @@ pub fn set_color_scheme(self: *Self, scheme: ColorScheme) void {
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
     self.cursor_color = RGB.from_u24(color.color);
     self.vx.setTerminalCursorColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(color.color).rgb) catch {};
+    self.terminal_primary_uses_secondary_color = false;
 }
 
 pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
     self.secondary_color = RGB.from_u24(color.color);
     self.vx.setTerminalCursorSecondaryColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(color.color).rgb) catch {};
+    if (self.terminal_primary_uses_secondary_color)
+        self.vx.setTerminalCursorColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(color.color).rgb) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
