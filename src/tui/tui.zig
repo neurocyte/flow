@@ -697,7 +697,6 @@ fn render(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
         self.rdr_.stdplane().erase();
-        self.rdr_.stdplane().reset_all_cursors(self.allocator);
         const theme_ = self.current_theme();
         const continue_mainview = if (self.mainview_) |mv| mv.render(theme_) else false;
 

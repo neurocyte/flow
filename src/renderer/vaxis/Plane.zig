@@ -190,11 +190,6 @@ pub fn clear_multi_cursors(self: *const Plane, allocator: std.mem.Allocator) voi
     self.window.screen.cursor_secondary = &.{};
 }
 
-pub fn reset_all_cursors(self: *const Plane, allocator: std.mem.Allocator) void {
-    self.cursor_disable();
-    self.clear_multi_cursors(allocator);
-}
-
 pub fn move_yx(self: *Plane, y: i32, x: i32) !void {
     self.window.y_off = @intCast(y);
     self.window.x_off = @intCast(x);

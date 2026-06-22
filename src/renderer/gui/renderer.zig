@@ -399,12 +399,26 @@ pub fn render(self: *Self) error{}!?i64 {
     }
 
     app.updateScreen(layers_buf.items, targets_buf.items);
+    self.reset_all_cursors();
     self.targets.clearRetainingCapacity();
 
     if (!any_blink) return null;
     if (now - self.blink_last_change >= self.blink_idle_us) return null;
     const elapsed = @mod(now - self.blink_epoch, self.blink_period_us * 2);
     return now + (self.blink_period_us - @mod(elapsed, self.blink_period_us));
+}
+
+fn reset_all_cursors(self: *Self) void {
+    for (self.targets.items) |*t| reset_screen_cursors(self.allocator, &t.src.screen);
+    reset_screen_cursors(self.allocator, &self.vx.screen);
+}
+
+fn reset_screen_cursors(allocator: std.mem.Allocator, screen: *vaxis.Screen) void {
+    screen.cursor_vis = false;
+    if (screen.cursor_secondary.len > 0) {
+        allocator.free(screen.cursor_secondary);
+        screen.cursor_secondary = &.{};
+    }
 }
 
 pub fn sigwinch(self: *Self) !void {

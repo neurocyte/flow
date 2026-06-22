@@ -298,10 +298,24 @@ pub fn render(self: *Self) !?i64 {
         self.paint_all_cell_cursors();
     }
 
-    self.targets.clearRetainingCapacity();
     try self.vx.render(self.tty.writer());
     try self.tty.writer().flush();
+    self.reset_all_cursors();
+    self.targets.clearRetainingCapacity();
     return null;
+}
+
+fn reset_all_cursors(self: *Self) void {
+    for (self.targets.items) |*t| reset_screen_cursors(self.allocator, &t.src.screen);
+    reset_screen_cursors(self.allocator, &self.vx.screen);
+}
+
+fn reset_screen_cursors(allocator: std.mem.Allocator, screen: *vaxis.Screen) void {
+    screen.cursor_vis = false;
+    if (screen.cursor_secondary.len > 0) {
+        allocator.free(screen.cursor_secondary);
+        screen.cursor_secondary = &.{};
+    }
 }
 
 fn build_draw_order(allocator: std.mem.Allocator, targets: []const Layer.Target) []u32 {
