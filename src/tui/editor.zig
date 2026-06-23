@@ -2116,7 +2116,7 @@ pub const Editor = struct {
     const info_box_widget_type: Widget.Type = .info_box;
     fn show_info_box(self: *Self) !*info_view {
         const layer = self.info_box_layer orelse blk: {
-            const new_layer = try tui.WidgetLayerBox.create(self.allocator, self.plane, "editor_info.layer");
+            const new_layer = try tui.WidgetLayerBox.create(self.allocator, self.plane, .{ .name = "editor_info.layer" });
             new_layer.blend = .src_over_blur;
             new_layer.alpha = tui.palette_opacity();
             errdefer new_layer.deinit(self.allocator);
@@ -7819,7 +7819,7 @@ pub const EditorWidget = struct {
     const Commands = command.Collection(Editor);
 
     fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
-        const layer = try tui.WidgetLayerBox.create(allocator, parent, "editor.layer");
+        const layer = try tui.WidgetLayerBox.create(allocator, parent, .{ .name = "editor.layer" });
         layer.z_index = .main;
         errdefer layer.deinit(allocator);
         const container = try WidgetList.createH(allocator, layer.inner_plane(), "editor.container", .dynamic);

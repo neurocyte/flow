@@ -56,7 +56,7 @@ pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), "open_recent.layer");
+    const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = "open_recent.layer" });
     menu_layer.blend = .src_over_blur;
     menu_layer.alpha = tui.palette_opacity();
     errdefer menu_layer.deinit(allocator);

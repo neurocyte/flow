@@ -12,6 +12,23 @@ const Widget = @import("Widget.zig");
 
 const Self = @This();
 
+pub const Placement = enum {
+    top_left,
+    top_center,
+    top_right,
+    center_left,
+    center,
+    center_right,
+    bottom_left,
+    bottom_center,
+    bottom_right,
+};
+
+pub const Options = struct {
+    name: [:0]const u8,
+    placement: Placement = .top_left,
+};
+
 allocator: Allocator,
 plane: Plane,
 parent: Plane,
@@ -23,18 +40,20 @@ prepare_resize: ?*const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widg
 alpha: u8 = 0xFF,
 z_index: Layer.Level = .overlay,
 blend: Layer.Target.Blend = .default,
+placement: Placement = .top_left,
 
-pub fn create(allocator: Allocator, parent: Plane, name: [:0]const u8) error{OutOfMemory}!*Self {
+pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     const layer = try Layer.init(allocator, .{ .h = 1, .w = 1 });
     errdefer layer.deinit();
-    const plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
+    const plane = try Plane.init(&(Widget.Box{}).opts(options.name), parent);
     self.* = .{
         .allocator = allocator,
         .plane = plane,
         .parent = parent,
         .layer = layer,
+        .placement = options.placement,
     };
     return self;
 }
@@ -73,15 +92,34 @@ pub fn handle_resize(self: *Self, box_in: Widget.Box) void {
     const ch = self.plane.cell_y();
     const w_cells: u16 = @intCast(box.w);
     const h_cells: u16 = @intCast(box.h);
-    self.layer.resize(w_cells, h_cells, w_cells * cw, h_cells * ch) catch return;
+    const layer_w_pix: u16 = @as(u16, w_cells) * cw + @as(u16, box.extra_x);
+    const layer_h_pix: u16 = @as(u16, h_cells) * ch + @as(u16, box.extra_y);
+    self.layer.resize(w_cells, h_cells, layer_w_pix, layer_h_pix) catch return;
 
     const ox, const oy = self.plane.global_origin_px();
-    self.layer.origin_px_x = ox;
-    self.layer.origin_px_y = oy;
+    const shift_x: i32 = switch (self.placement) {
+        .top_left, .center_left, .bottom_left => 0,
+        .top_center, .center, .bottom_center => @intCast(box.extra_x / 2),
+        .top_right, .center_right, .bottom_right => @intCast(box.extra_x),
+    };
+    const shift_y: i32 = switch (self.placement) {
+        .top_left, .top_center, .top_right => 0,
+        .center_left, .center, .center_right => @intCast(box.extra_y / 2),
+        .bottom_left, .bottom_center, .bottom_right => @intCast(box.extra_y),
+    };
+    self.layer.origin_px_x = ox + shift_x;
+    self.layer.origin_px_y = oy + shift_y;
     self.layer.z_index = self.z_index;
 
     if (self.inner) |*w|
-        w.resize(.{ .y = 0, .x = 0, .w = box.w, .h = box.h });
+        w.resize(.{
+            .y = 0,
+            .x = 0,
+            .w = box.w,
+            .h = box.h,
+            .extra_x = box.extra_x,
+            .extra_y = box.extra_y,
+        });
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

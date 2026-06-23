@@ -9,6 +9,10 @@ x: usize = 0,
 h: usize = 1,
 w: usize = 1,
 
+// extra pixels available, always less than cell size
+extra_x: u8 = 0,
+extra_y: u8 = 0,
+
 pub fn opts(self: Self, name_: [:0]const u8) Plane.Options {
     return self.opts_flags(name_, Plane.option.none);
 }

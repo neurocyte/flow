@@ -394,7 +394,7 @@ fn show_info_panel(mv: anytype, values: Values) !void {
 
 fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     const layer = self.value.info_box_layer orelse blk: {
-        const new_layer = try tui.WidgetLayerBox.create(self.allocator, tui.plane(), "completion_info.layer");
+        const new_layer = try tui.WidgetLayerBox.create(self.allocator, tui.plane(), .{ .name = "completion_info.layer" });
         new_layer.blend = .src_over_blur;
         new_layer.alpha = tui.palette_opacity();
         errdefer new_layer.deinit(self.allocator);
