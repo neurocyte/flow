@@ -94,7 +94,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     try self.commands.init(self);
     const w = Widget.to(self);
 
-    const widgets = try WidgetList.createV(allocator, self.plane, @typeName(Self), .dynamic);
+    const widgets = try WidgetList.createV(allocator, self.plane, @typeName(Self) ++ ".widgets", .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
 
@@ -106,12 +106,12 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         self.top_bar = (try widgets.addP(bar_layer.widget())).*;
     }
 
-    const views = try WidgetList.createH(allocator, widgets.plane, @typeName(Self), .dynamic);
+    const views = try WidgetList.createH(allocator, widgets.plane, @typeName(Self) ++ ".views", .dynamic);
     self.views = views;
     self.views_widget = views.widget();
     try views.add(try Widget.empty(allocator, self.views_widget.plane.*, .dynamic));
 
-    const panes = try WidgetList.createH(allocator, widgets.plane, @typeName(Self), .dynamic);
+    const panes = try WidgetList.createH(allocator, widgets.plane, @typeName(Self) ++ ".panes", .dynamic);
     self.panes = panes;
     self.panes_widget = panes.widget();
     try self.update_panes_layout();
@@ -252,7 +252,7 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
     const pane = try WidgetList.createHStyled(
         self.allocator,
         self.panes_widget.plane.*,
-        @typeName(Self),
+        @typeName(Self) ++ ".pane_padding",
         .{ .static = padding },
         widget_type,
     );
