@@ -218,6 +218,14 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     else
         null else null;
 
+    if (trailing_target) |t| {
+        const std_plane = tui.plane();
+        const cw_root: i32 = std_plane.cell_x();
+        const ch_root: i32 = std_plane.cell_y();
+        t.src.origin_px_x = t.x * cw_root + @as(i32, t.xoffset);
+        t.src.origin_px_y = t.y * ch_root + @as(i32, t.yoffset);
+    }
+
     var more = false;
     for (self.widgets.items, 0..) |*w, i| {
         if (i < main_count) {
