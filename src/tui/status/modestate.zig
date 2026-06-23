@@ -91,7 +91,9 @@ fn render_separator(self: *ButtonType, theme: *const Widget.Theme) void {
     self.plane.reverse_style();
     self.plane.set_base_style(.{ .bg = theme.editor.bg });
     if (theme.statusbar.bg) |bg| self.plane.set_style(.{ .bg = bg });
+    self.plane.style.glyph_alpha_from_bg = true;
     _ = self.plane.putstr("") catch {};
+    self.plane.style.glyph_alpha_from_bg = false;
 }
 
 const left = " ";
