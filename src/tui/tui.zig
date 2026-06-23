@@ -1616,9 +1616,13 @@ const cmds = struct {
 
     pub fn change_fontface(self: *Self, _: Ctx) Result {
         if (build_options.gui)
-            self.rdr_.get_fontfaces();
+            self.rdr_.get_fontfaces()
+        else
+            self.logger.print("change_fontface not supported in terminal rendererd builds", .{});
     }
-    pub const change_fontface_meta: Meta = .{ .description = "Change font" };
+    pub const change_fontface_meta: Meta = .{
+        .description = if (build_options.gui) "Change font" else &.{},
+    };
 
     pub fn exit_overlay_mode(self: *Self, ctx: Ctx) Result {
         if (self.input_mode_outer_ == null) return enter_mode_default(self, ctx);
