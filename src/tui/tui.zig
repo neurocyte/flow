@@ -2216,7 +2216,18 @@ pub fn egc_last(egcs: []const u8) []const u8 {
 }
 
 pub fn screen() Widget.Box {
-    return Widget.Box.from(plane());
+    const root_plane = plane();
+    var box = Widget.Box.from(root_plane);
+    const root_screen = root_plane.window.screen;
+    const cw: u32 = root_plane.cell_x();
+    const ch: u32 = root_plane.cell_y();
+    const used_w: u32 = @as(u32, root_screen.width) * cw;
+    const used_h: u32 = @as(u32, root_screen.height) * ch;
+    if (root_screen.width_pix > used_w and root_screen.width_pix - used_w < cw)
+        box.extra_x = @intCast(root_screen.width_pix - used_w);
+    if (root_screen.height_pix > used_h and root_screen.height_pix - used_h < ch)
+        box.extra_y = @intCast(root_screen.height_pix - used_h);
+    return box;
 }
 
 pub fn fontface() []const u8 {
