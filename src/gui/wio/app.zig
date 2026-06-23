@@ -1352,6 +1352,7 @@ fn sendResize(
     cell_width.* = @intCast(@divTrunc(sz.width, wio_font_set.cell_size.x));
     cell_height.* = @intCast(@divTrunc(sz.height, wio_font_set.cell_size.y));
     state.size = .{ .x = sz.width, .y = sz.height };
+    Layer.set_cell_size(wio_font_set.cell_size.x, wio_font_set.cell_size.y);
     tui_pid.send(.{
         "RDR",                        "Resize",
         cell_width.*,                 cell_height.*,

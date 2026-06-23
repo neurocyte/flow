@@ -26,6 +26,21 @@ fn root_width_method() vaxis.gwidth.Method {
     return if (root_caps) |caps| caps.widthMethod() else .wcwidth;
 }
 
+var cell_size_override_x: std.atomic.Value(u16) = .init(0);
+var cell_size_override_y: std.atomic.Value(u16) = .init(0);
+
+pub fn set_cell_size(x: u16, y: u16) void {
+    cell_size_override_x.store(x, .release);
+    cell_size_override_y.store(y, .release);
+}
+
+pub fn cell_size_override(comptime axis: enum { x, y }) u16 {
+    return switch (axis) {
+        .x => cell_size_override_x.load(.acquire),
+        .y => cell_size_override_y.load(.acquire),
+    };
+}
+
 allocator: std.mem.Allocator,
 id: Id,
 screen: vaxis.Screen,

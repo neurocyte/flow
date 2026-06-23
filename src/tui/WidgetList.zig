@@ -344,9 +344,13 @@ fn subcell_remainder_a(self: *Self) i16 {
         .horizontal => self.deco_box.x + self.deco_box.w,
     };
     if (tail_cell != cells) return 0;
-    const cell_size: u16 = pixels / cells;
-    const remainder: u16 = pixels - cell_size * cells;
-    return @intCast(remainder);
+    const cell_size: u16 = switch (self.direction) {
+        .vertical => self.plane.cell_y(),
+        .horizontal => self.plane.cell_x(),
+    };
+    const used: u32 = @as(u32, cell_size) * @as(u32, cells);
+    if (used >= pixels) return 0;
+    return @intCast(pixels - used);
 }
 
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
