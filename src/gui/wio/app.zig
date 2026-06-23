@@ -1197,7 +1197,10 @@ pub fn renderActorTick() void {
             }
 
             const constraint = selectConstraint(glyph_cp, emoji);
-            const cwidth: u2 = if (w == 0) 1 else symbolConstraintWidth(ls, ci);
+            const cwidth: u2 = if (w == 0 or constraint.max_constraint_width < 2)
+                1
+            else
+                symbolConstraintWidth(ls, ci);
 
             if (constraint.doesAnything() and cwidth == 2 and w != 0) {
                 cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, constraint, 2, .left);
