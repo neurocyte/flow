@@ -14,6 +14,10 @@ const Box = @import("Box.zig");
 
 const Self = @This();
 
+// Axis convention used throughout WidgetList:
+//  a - the *main* / *layout* axis: .horizontal -> x; .vertical -> y
+//  b - the *perpendicular* axis: .horizontal -> y; .vertical -> x
+
 pub const Direction = Widget.Direction;
 pub const Layout = Widget.Layout;
 
@@ -422,6 +426,34 @@ fn get_loc_b(self: *Self, pos: *Widget.Box) *usize {
     return switch (self.direction) {
         .vertical => &pos.x,
         .horizontal => &pos.y,
+    };
+}
+
+fn get_extra_a_const(self: *const Self, pos: *const Widget.Box) u8 {
+    return switch (self.direction) {
+        .vertical => pos.extra_y,
+        .horizontal => pos.extra_x,
+    };
+}
+
+fn get_extra_a(self: *Self, pos: *Widget.Box) *u8 {
+    return switch (self.direction) {
+        .vertical => &pos.extra_y,
+        .horizontal => &pos.extra_x,
+    };
+}
+
+fn get_extra_b_const(self: *const Self, pos: *const Widget.Box) u8 {
+    return switch (self.direction) {
+        .vertical => pos.extra_x,
+        .horizontal => pos.extra_y,
+    };
+}
+
+fn get_extra_b(self: *Self, pos: *Widget.Box) *u8 {
+    return switch (self.direction) {
+        .vertical => &pos.extra_x,
+        .horizontal => &pos.extra_y,
     };
 }
 
