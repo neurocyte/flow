@@ -530,7 +530,12 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     var cur_loc: usize = self.get_loc_a_const(&client_box);
     var first = true;
 
-    for (self.widgets.items[0..main_end_for_count]) |*w| {
+    // distribute extra pixels among children
+    const extras_a: u8 = self.get_extra_a_const(&self.deco_box);
+    const extras_b: u8 = self.get_extra_b_const(&self.deco_box);
+    const last_idx: usize = if (widget_count == 0) 0 else widget_count - 1;
+
+    for (self.widgets.items[0..main_end_for_count], 0..) |*w, idx| {
         var w_pos: Box = .{};
         const size = switch (w.layout) {
             .dynamic => if (first) val: {
@@ -544,6 +549,8 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
         cur_loc += size;
         self.get_size_b(&w_pos).* = self.get_size_b_const(&client_box);
         self.get_loc_b(&w_pos).* = self.get_loc_b_const(&client_box);
+        self.get_extra_b(&w_pos).* = extras_b;
+        if (idx == last_idx) self.get_extra_a(&w_pos).* = extras_a;
         w.widget.resize(w_pos);
     }
 
@@ -587,7 +594,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
         };
         layer.resize(layer_w, layer_h, layer_w_pix, layer_h_pix) catch return;
         var local_loc: usize = 0;
-        for (self.widgets.items[main_count..]) |*w| {
+        for (self.widgets.items[main_count..], main_count..) |*w, idx| {
             var w_pos: Box = .{};
             const size: usize = switch (w.layout) {
                 .static => |val| val,
@@ -598,6 +605,8 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             local_loc += size;
             self.get_size_b(&w_pos).* = perp;
             self.get_loc_b(&w_pos).* = 0;
+            self.get_extra_b(&w_pos).* = extras_b;
+            if (idx == last_idx) self.get_extra_a(&w_pos).* = extras_a;
             w.widget.resize(w_pos);
         }
     };
