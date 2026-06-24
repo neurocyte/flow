@@ -120,7 +120,10 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
     if (tui.config().bottom_bar.len > 0) {
         const bar_style: @import("status/bar.zig").Style = if (tui.config().show_bottom_bar_grip) .grip else .none;
-        const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, .{ .name = "bottom_bar.layer" });
+        const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, .{
+            .name = "bottom_bar.layer",
+            .placement = .bottom_left,
+        });
         bar_layer.z_index = .statusbar;
         const bar = try @import("status/bar.zig").create(allocator, bar_layer.inner_plane(), tui.config().bottom_bar, bar_style, EventHandler.bind(self, handle_bottom_bar_event));
         bar_layer.set(bar);
