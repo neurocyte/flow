@@ -123,11 +123,18 @@ pub fn handle_resize(self: *Self, box_in: Widget.Box) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    const target = self.build_target();
+    const std_plane = tui.plane();
+    const cw_root: i32 = std_plane.cell_x();
+    const ch_root: i32 = std_plane.cell_y();
+    self.layer.origin_px_x = target.x * cw_root + @as(i32, target.xoffset);
+    self.layer.origin_px_y = target.y * ch_root + @as(i32, target.yoffset);
+
     var more = false;
     if (self.inner) |*w| if (w.render(theme)) {
         more = true;
     };
-    _ = tui.submit_layer(self.build_target());
+    _ = tui.submit_layer(target);
     return more;
 }
 
