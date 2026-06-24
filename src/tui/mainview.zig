@@ -740,6 +740,17 @@ const cmds = struct {
     }
     pub const open_home_style_config_meta: Meta = .{ .description = "Edit home screen" };
 
+    pub fn dump_widget_tree(self: *Self, ctx: Ctx) Result {
+        var widget_tree: std.Io.Writer.Allocating = .init(self.allocator);
+        defer widget_tree.deinit();
+        try tui.dump_widget_tree(&widget_tree.writer);
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", command.fmt(.{ "widget tree", widget_tree.written(), "text" }));
+        tui.need_render(@src());
+        self.location_update_from_editor();
+    }
+    pub const dump_widget_tree_meta: Meta = .{ .description = "Dump widget tree info" };
+
     pub fn change_file_type(_: *Self, ctx: Ctx) Result {
         return tui.open_overlay(@import("mode/overlay/file_type_palette.zig").Variant("set_file_type", "Select file type", false).Type, ctx);
     }
