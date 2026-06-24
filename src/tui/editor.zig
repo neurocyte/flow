@@ -361,6 +361,7 @@ pub const Editor = struct {
     match_type: Match.Type = .none,
     last_find_query: ?[]const u8 = null,
     last_find_query_match_type: Match.Type = .none,
+    last_find_query_find_mode: Buffer.FindMode = .exact,
     find_history: ?std.ArrayListUnmanaged([]const u8) = null,
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
     highlight_references_state: enum { adding, done } = .done,
@@ -6349,7 +6350,7 @@ pub const Editor = struct {
     pub fn find_word_at_cursor(self: *Self, ctx: Context) Result {
         const query: []const u8 = try self.copy_word_at_cursor(self.allocator);
         defer self.allocator.free(query);
-        try self.find_in_buffer(query, .find, .exact, ctx);
+        try self.find_in_buffer(query, .find, self.last_find_query_find_mode, ctx);
     }
     pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for the word under the cursor" };
 
@@ -6380,8 +6381,9 @@ pub const Editor = struct {
         (history.addOne(self.allocator) catch return).* = new;
     }
 
-    pub fn set_last_find_query(self: *Self, query: []const u8, match_type: Match.Type) void {
+    pub fn set_last_find_query(self: *Self, query: []const u8, match_type: Match.Type, find_mode: Buffer.FindMode) void {
         self.last_find_query_match_type = match_type;
+        self.last_find_query_find_mode = find_mode;
         if (self.last_find_query) |last| {
             if (query.ptr != last.ptr) {
                 self.allocator.free(last);
@@ -6391,7 +6393,7 @@ pub const Editor = struct {
     }
 
     pub fn find_in_buffer(self: *Self, query: []const u8, match_type: Match.Type, find_mode: Buffer.FindMode, ctx: Context) !void {
-        self.set_last_find_query(query, match_type);
+        self.set_last_find_query(query, match_type, find_mode);
         self.match_type = match_type;
         return self.find_in_buffer_sync(query, find_mode, ctx);
     }
@@ -6408,11 +6410,11 @@ pub const Editor = struct {
                     return error.Stop;
             }
         };
-        const root = try self.buf_root();
+        const buf = self.buffer orelse return error.Stop;
         defer self.add_match_done(ctx);
         var find_ctx: FindCtx = .{ .self = self };
         self.init_matches_update();
-        try root.find_all_ranges(query, &find_ctx, FindCtx.cb, mode, self.allocator);
+        try buf.find_all_ranges(query, &find_ctx, FindCtx.cb, mode, self.allocator);
     }
 
     pub fn find_in_buffer_ext(self: *Self, query: []const u8) !void {
@@ -6569,7 +6571,12 @@ pub const Editor = struct {
         _ = not_a_command;
         if (self.last_find_query) |last| {
             self.find_operation = .goto_next_match;
-            try self.find_in_buffer(last, self.last_find_query_match_type, .exact, ctx);
+            try self.find_in_buffer(
+                last,
+                self.last_find_query_match_type,
+                self.last_find_query_find_mode,
+                ctx,
+            );
         }
     }
 
@@ -6605,7 +6612,12 @@ pub const Editor = struct {
         if (self.matches.items.len == 0) {
             if (self.last_find_query) |last| {
                 self.find_operation = .goto_prev_match;
-                try self.find_in_buffer(last, self.last_find_query_match_type, .exact, ctx);
+                try self.find_in_buffer(
+                    last,
+                    self.last_find_query_match_type,
+                    self.last_find_query_find_mode,
+                    ctx,
+                );
             }
         }
         try self.move_cursor_prev_match(ctx);

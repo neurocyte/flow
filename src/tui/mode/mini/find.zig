@@ -22,14 +22,15 @@ const name = "󱎸 find";
 const name_auto = name;
 const name_exact = name ++ "  ";
 const name_case_folded = name ++ "  ";
+const name_case_regex = name ++ " 󰑑 ";
 
 const Commands = command.Collection(cmds);
 
-const Mode = enum { auto, exact, case_folded };
+const Mode = enum { auto, exact, case_folded, regex };
 
 allocator: Allocator,
 input_: ArrayList(u8),
-find_mode: Mode = .auto,
+find_mode: Mode,
 last_input: ArrayList(u8),
 start_view: ed.View,
 start_cursor: ed.Cursor,
@@ -44,6 +45,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     self.* = .{
         .allocator = allocator,
         .input_ = .empty,
+        .find_mode = default_find_mode(),
         .last_input = .empty,
         .start_view = editor.view,
         .start_cursor = editor.get_primary().cursor,
@@ -71,6 +73,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .auto => name_auto,
         .exact => name_exact,
         .case_folded => name_case_folded,
+        .regex => name_case_regex,
     } } };
 }
 
@@ -79,6 +82,14 @@ pub fn deinit(self: *Self) void {
     self.input_.deinit(self.allocator);
     self.last_input.deinit(self.allocator);
     self.allocator.destroy(self);
+}
+
+fn default_find_mode() Mode {
+    const namespace = keybind.get_namespace();
+    if (eql(u8, namespace, "helix") or eql(u8, namespace, "vim")) {
+        return .regex;
+    }
+    return .auto;
 }
 
 fn set_from_current_selection(self: *Self, editor: *ed.Editor) !void {
@@ -127,6 +138,7 @@ fn flush_input(self: *Self, now: Timestamp) !void {
             .auto => self.auto_detect_mode(),
             .exact => .exact,
             .case_folded => .case_folded,
+            .regex => .regex,
         }, .empty());
     } else {
         self.reset(now);
@@ -204,7 +216,8 @@ const cmds = struct {
     pub fn toggle_find_mode(self: *Self, ctx: Ctx) Result {
         const new_find_mode: Buffer.FindMode = switch (self.find_mode) {
             .exact => .case_folded,
-            .case_folded => .exact,
+            .case_folded => .regex,
+            .regex => .exact,
             .auto => if (Buffer.unicode.is_lowercase(self.input_.items))
                 .exact
             else
