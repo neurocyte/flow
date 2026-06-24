@@ -7,6 +7,7 @@ const file_type_config = @import("file_type_config");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const cwd = std.Io.Dir.cwd;
+const Regex = @import("regex");
 
 const Self = @This();
 
@@ -20,7 +21,7 @@ pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
 
-pub const FindMode = enum { exact, case_folded };
+pub const FindMode = enum { exact, case_folded, regex };
 
 pub const Metrics = struct {
     ctx: *const anyopaque,
@@ -1042,6 +1043,7 @@ const Node = union(enum) {
                             ctx.rest = ctx.buf[0 .. ctx.rest.len + folded.len];
                             input = input[folded.len..];
                         },
+                        .regex => unreachable,
                     }
 
                     if (ctx.rest.len < ctx.pattern.len)
@@ -1089,10 +1091,12 @@ const Node = union(enum) {
             .case_folded => unicode.case_fold(allocator, pattern) catch
                 allocator.dupe(u8, pattern) catch
                 @panic("OOM find_all_ranges"),
+            .regex => unreachable,
         };
         defer switch (mode) {
             .exact => {},
             .case_folded => allocator.free(pattern_),
+            .regex => unreachable,
         };
         var ctx: Ctx = .{
             .allocator = allocator,
@@ -1921,3 +1925,67 @@ pub fn to_ref(self: *Self) Ref {
 }
 
 pub const Ref = TypedInt.Tagged(usize, "BREF");
+
+pub fn find_all_ranges(
+    self: *Self,
+    pattern: []const u8,
+    data: *anyopaque,
+    callback: *const Node.FindAllCallback,
+    mode: FindMode,
+    allocator: Allocator,
+) error{ OutOfMemory, Stop }!void {
+    switch (mode) {
+        .regex => {
+            var re = Regex.compile(allocator, pattern, .{
+                .syntax = .{
+                    .multi_line = true,
+                    .unicode = true,
+                },
+            }) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => {
+                    // TODO: do we need to do anything if the user types in malformed regex?
+                    return;
+                },
+            };
+            defer re.deinit();
+            const cached_text = self.store_to_string_cached(self.root, .lf);
+            var it = re.findAll(cached_text);
+
+            const Ctx = struct {
+                offset: usize = 0, // target from last get_pos call
+                row: usize = 1, // row count
+                row_start: usize = 0, // offset of the first byte of row
+
+                const Pos = struct { row: usize, col: usize };
+
+                fn get_pos(ctx: *@This(), text: []const u8, target: usize) Pos {
+                    std.debug.assert(target >= ctx.offset);
+                    while (std.mem.findScalarPos(u8, text, ctx.offset, '\n')) |nl| {
+                        if (nl >= target) break;
+                        ctx.row += 1;
+                        ctx.offset = nl + 1;
+                        ctx.row_start = nl + 1;
+                    }
+                    ctx.offset = target;
+                    return .{
+                        .row = ctx.row,
+                        .col = target - ctx.row_start,
+                    };
+                }
+            };
+
+            var ctx: Ctx = .{};
+
+            while (it.next()) |match| {
+                if (match.start == match.end) continue;
+
+                const begin = ctx.get_pos(cached_text, match.start);
+                const end = ctx.get_pos(cached_text, match.end);
+
+                callback(data, begin.row, begin.col, end.row, end.col) catch return error.Stop;
+            }
+        },
+        else => return self.root.find_all_ranges(pattern, data, callback, mode, allocator),
+    }
+}

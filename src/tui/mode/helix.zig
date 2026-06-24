@@ -520,7 +520,7 @@ const cmds_ = struct {
         const query = try ed.get_selection(sel, ed.allocator);
         defer ed.allocator.free(query);
         ed.match_type = .find;
-        ed.set_last_find_query(query, .find);
+        ed.set_last_find_query(query, .find, .regex);
         ed.logger.print("set find register to '{s}'", .{query});
     }
     pub const search_selection_meta: Meta = .{};

@@ -339,6 +339,12 @@ pub fn build_exe(
     });
     const zeit_mod = zeit_dep.module("zeit");
 
+    const regex_dep = b.dependency("regex", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const regex_mod = regex_dep.module("regex");
+
     const themes_dep = b.dependency("themes", .{});
 
     const syntax_dep = b.dependency("syntax", .{
@@ -485,6 +491,7 @@ pub fn build_exe(
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "VcsBlame", .module = VcsBlame_mod },
+            .{ .name = "regex", .module = regex_mod },
         },
     });
 
@@ -1098,6 +1105,7 @@ pub fn build_exe(
     exe.root_module.addImport("file_type_config", file_type_config_mod);
     exe.root_module.addImport("color", color_mod);
     exe.root_module.addImport("bin_path", bin_path_mod);
+    exe.root_module.addImport("regex", regex_mod);
     exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
 
@@ -1166,6 +1174,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("file_type_config", file_type_config_mod);
     check_exe.root_module.addImport("color", color_mod);
     check_exe.root_module.addImport("bin_path", bin_path_mod);
+    check_exe.root_module.addImport("regex", regex_mod);
     check_exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     check_exe.root_module.addImport("c", c_mod);
@@ -1193,6 +1202,7 @@ pub fn build_exe(
     tests.root_module.addImport("tui", tui_mod);
     tests.root_module.addImport("command", command_mod);
     tests.root_module.addImport("project_manager", project_manager_mod);
+    tests.root_module.addImport("regex", regex_mod);
     // b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);

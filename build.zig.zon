@@ -91,6 +91,10 @@
             .hash = "N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT",
             .lazy = true,
         },
+        .regex = .{
+            .url = "git+https://github.com/quangdn42/regex.zig#a22a2e68bcc5aa55310f12128de38e26bfa2cece",
+            .hash = "regex-0.1.0-V8KKSWICBACgjPoyQLIoPwMnQjKzCpEOjUMEzkf3ebOD",
+        },
     },
     .paths = .{
         "src",
