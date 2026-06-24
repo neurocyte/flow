@@ -1966,8 +1966,8 @@ pub fn get_active_buffer(self: *Self) ?*Buffer {
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
-    if (f(ctx, Widget.to(self), .container_begin)) return true;
-    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self), .container_end);
+    if (f(ctx, Widget.to(self), .begin)) return true;
+    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self), .end);
 }
 
 fn close_all_editors(self: *Self, ctx: command.Context) !void {

@@ -26,8 +26,8 @@ pub const WalkFn = *const fn (ctx: *anyopaque, w: Self, evt: WalkEvent) bool;
 
 pub const WalkEvent = enum {
     visit,
-    container_begin,
-    container_end,
+    begin,
+    end,
 };
 
 pub const Direction = enum { horizontal, vertical };

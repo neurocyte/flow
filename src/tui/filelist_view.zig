@@ -109,8 +109,8 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-    if (f(walk_ctx, Widget.to(self), .container_begin)) return true;
-    return self.menu.container_widget.walk(walk_ctx, f) or f(walk_ctx, Widget.to(self), .container_end);
+    if (f(walk_ctx, Widget.to(self), .begin)) return true;
+    return self.menu.container_widget.walk(walk_ctx, f) or f(walk_ctx, Widget.to(self), .end);
 }
 
 fn entry_less_than(_: void, a: Entry, b: Entry) bool {

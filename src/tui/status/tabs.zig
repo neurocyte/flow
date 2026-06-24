@@ -311,7 +311,7 @@ pub const TabBar = struct {
     }
 
     pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
-        if (f(ctx, Widget.to(self), .container_begin)) return true;
+        if (f(ctx, Widget.to(self), .begin)) return true;
         for (self.tabs) |*tab| {
             const clipped, _ = self.is_tab_clipped(tab);
             if (!clipped)
@@ -321,7 +321,7 @@ pub const TabBar = struct {
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(drop_target.ButtonType)) |_| {
                 if (widget_state.widget.walk(ctx, f)) return true;
             };
-        return f(ctx, Widget.to(self), .container_end);
+        return f(ctx, Widget.to(self), .end);
     }
 
     pub fn hover(self: *Self) bool {

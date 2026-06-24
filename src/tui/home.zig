@@ -204,8 +204,8 @@ pub fn update(self: *Self) void {
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-    if (f(walk_ctx, Widget.to(self), .container_begin)) return true;
-    return self.menu.walk(walk_ctx, f) or f(walk_ctx, Widget.to(self), .container_end);
+    if (f(walk_ctx, Widget.to(self), .begin)) return true;
+    return self.menu.walk(walk_ctx, f) or f(walk_ctx, Widget.to(self), .end);
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
