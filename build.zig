@@ -253,7 +253,7 @@ pub fn build_exe(
     test_filters: []const []const u8,
     embed_emoji: bool,
 ) void {
-    const use_llvm = if (target.result.os.tag == .linux) true else use_llvm_;
+    const use_llvm = use_llvm_ orelse if (target.result.os.tag == .linux) true else null;
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
