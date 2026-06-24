@@ -574,9 +574,10 @@ fn reparent_main(self: *Self) void {
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
+    if (f(ctx, Widget.to(self), .container_begin)) return true;
     for (self.widgets.items) |*w|
         if (w.widget.walk(ctx, f)) return true;
-    return f(ctx, Widget.to(self));
+    return f(ctx, Widget.to(self), .container_end);
 }
 
 pub fn focus(self: *Self) void {

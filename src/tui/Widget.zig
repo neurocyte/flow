@@ -22,7 +22,13 @@ vtable: *const VTable,
 
 const Self = @This();
 
-pub const WalkFn = *const fn (ctx: *anyopaque, w: Self) bool;
+pub const WalkFn = *const fn (ctx: *anyopaque, w: Self, evt: WalkEvent) bool;
+
+pub const WalkEvent = enum {
+    visit,
+    container_begin,
+    container_end,
+};
 
 pub const Direction = enum { horizontal, vertical };
 pub const Layout = union(enum) {
@@ -355,7 +361,7 @@ pub fn get(self: *const Self, name_: []const u8) ?Self {
 }
 
 pub fn walk(self: *const Self, walk_ctx: *anyopaque, f: WalkFn) bool {
-    return if (self.vtable.walk(self.ptr, walk_ctx, f)) true else f(walk_ctx, self.*);
+    return if (self.vtable.walk(self.ptr, walk_ctx, f)) true else f(walk_ctx, self.*, .visit);
 }
 
 pub fn focus(self: *const Self) void {

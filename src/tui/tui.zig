@@ -857,7 +857,8 @@ fn find_coord_widget(self: *Self, coord: MouseEvent.Coord) ?Widget {
         coord: MouseEvent.Coord,
         best: ?Widget = null,
         best_rank: i32 = std.math.minInt(i32),
-        fn find(ctx_: *anyopaque, w: Widget) bool {
+        fn find(ctx_: *anyopaque, w: Widget, evt: Widget.WalkEvent) bool {
+            if (evt != .visit) return false;
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
             if (!w.is_coord_inside(ctx.coord)) return false;
             const rank = w.z_rank();
@@ -876,7 +877,7 @@ fn find_coord_widget(self: *Self, coord: MouseEvent.Coord) ?Widget {
 fn is_live_widget_ptr(self: *Self, w_: Widget) bool {
     const Ctx = struct {
         w: Widget,
-        fn find(ctx_: *anyopaque, w: Widget) bool {
+        fn find(ctx_: *anyopaque, w: Widget, _: Widget.WalkEvent) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
             return ctx.w.ptr == w.ptr;
         }

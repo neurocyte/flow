@@ -1966,7 +1966,8 @@ pub fn get_active_buffer(self: *Self) ?*Buffer {
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
-    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self));
+    if (f(ctx, Widget.to(self), .container_begin)) return true;
+    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self), .container_end);
 }
 
 fn close_all_editors(self: *Self, ctx: command.Context) !void {
@@ -1990,7 +1991,7 @@ fn add_and_activate_view(self: *Self, widget: Widget) !void {
 pub fn find_view_for_widget(self: *Self, w_: Widget) ?usize {
     const Ctx = struct {
         w: Widget,
-        fn find(ctx_: *anyopaque, w: Widget) bool {
+        fn find(ctx_: *anyopaque, w: Widget, _: Widget.WalkEvent) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
             return ctx.w.ptr == w.ptr;
         }
