@@ -73,6 +73,7 @@ pub fn Create(options: type) type {
         const Self = @This();
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
         const widget_type: Widget.Type = if (@hasDecl(options, "widget_type")) options.widget_type else default_widget_type;
+        const async_query = @hasDecl(options, "query");
 
         pub const MenuType = Menu.Options(*Self).MenuType;
         pub const ButtonType = MenuType.ButtonType;
@@ -244,6 +245,10 @@ pub fn Create(options: type) type {
         }
 
         fn prepare_resize_at_y_x(self: *Self, screen: Widget.Box, w: usize, y: usize, x: usize) Widget.Box {
+            if (async_query) {
+                const h = @min(self.items + self.menu.header_count, screen.h -| y);
+                return .{ .y = y, .x = x, .w = w, .h = h };
+            }
             self.view_rows = get_view_rows(screen) -| y;
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
             return .{ .y = y, .x = x, .w = w, .h = h };
@@ -305,6 +310,7 @@ pub fn Create(options: type) type {
         }
 
         fn on_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
+            if (async_query) return;
             if (try m.match(.{ "scroll_to", tp.extract(&self.view_pos) })) {
                 self.start_query(0) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
@@ -317,6 +323,7 @@ pub fn Create(options: type) type {
 
         fn mouse_click_button4(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
+            if (async_query) return;
             if (self.view_pos < Menu.scroll_lines) {
                 self.view_pos = 0;
             } else {
@@ -328,6 +335,7 @@ pub fn Create(options: type) type {
 
         fn mouse_click_button5(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
+            if (async_query) return;
             if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
                 self.view_pos += Menu.scroll_lines;
             self.update_scrollbar();
@@ -348,11 +356,26 @@ pub fn Create(options: type) type {
         }
 
         fn update_count_hint(self: *Self) void {
+            if (@hasDecl(options, "update_count_hint")) return options.update_count_hint(self);
             self.inputbox.hint.clearRetainingCapacity();
             self.inputbox.hint.print(self.inputbox.allocator, "{d}/{d}", .{ self.total_items, self.entries.items.len }) catch {};
         }
 
+        pub fn refresh_layout(self: *Self) void {
+            const padding = tui.get_widget_style(widget_type).padding;
+            self.do_resize(padding);
+        }
+
+        pub fn append_async_item(self: *Self, label: []const u8, on_click: Menu.Options(*Self).ButtonClickHandler) !void {
+            try self.menu.add_item_with_handler(label, on_click);
+            self.items += 1;
+            self.total_items = self.items;
+            self.refresh_layout();
+            if (self.menu.selected == null) self.menu.select_down();
+        }
+
         pub fn start_query(self: *Self, n: usize) !void {
+            if (async_query) return options.query(self, self.inputbox.text.items);
             defer tui.reset_hover(@src());
             defer self.update_count_hint();
             self.items = 0;
@@ -517,7 +540,7 @@ pub fn Create(options: type) type {
             const Result = command.Result;
 
             pub fn palette_menu_down(self: *Self, _: Ctx) Result {
-                if (self.menu.selected) |selected| {
+                if (!async_query) if (self.menu.selected) |selected| {
                     if (selected == self.view_rows - 1 and
                         self.view_pos + self.view_rows < self.total_items)
                     {
@@ -527,14 +550,14 @@ pub fn Create(options: type) type {
                         self.selection_updated();
                         return;
                     }
-                }
+                };
                 self.menu.select_down();
                 self.selection_updated();
             }
             pub const palette_menu_down_meta: Meta = .{};
 
             pub fn palette_menu_up(self: *Self, _: Ctx) Result {
-                if (self.menu.selected) |selected| {
+                if (!async_query) if (self.menu.selected) |selected| {
                     if (selected == 0 and self.view_pos > 0) {
                         self.view_pos -= 1;
                         try self.start_query(0);
@@ -542,80 +565,66 @@ pub fn Create(options: type) type {
                         self.selection_updated();
                         return;
                     }
-                }
+                };
                 self.menu.select_up();
                 self.selection_updated();
             }
             pub const palette_menu_up_meta: Meta = .{};
 
-            pub fn palette_menu_right(self: *Self, _: Ctx) Result {
-                if (self.menu.selected) |selected| {
-                    if (selected == self.view_rows - 1 and
-                        self.view_pos + self.view_rows < self.total_items)
-                    {
-                        self.view_pos += 1;
-                        try self.start_query(0);
-                        self.menu.select_last();
-                        self.selection_updated();
-                        return;
-                    }
-                }
-                self.menu.select_down();
-                self.selection_updated();
+            pub fn palette_menu_right(self: *Self, ctx: Ctx) Result {
+                return palette_menu_down(self, ctx);
             }
             pub const palette_menu_right_meta: Meta = .{};
 
-            pub fn palette_menu_left(self: *Self, _: Ctx) Result {
-                if (self.menu.selected) |selected| {
-                    if (selected == 0 and self.view_pos > 0) {
-                        self.view_pos -= 1;
-                        try self.start_query(0);
-                        self.menu.select_first();
-                        self.selection_updated();
-                        return;
-                    }
-                }
-                self.menu.select_up();
-                self.selection_updated();
+            pub fn palette_menu_left(self: *Self, ctx: Ctx) Result {
+                return palette_menu_up(self, ctx);
             }
             pub const palette_menu_left_meta: Meta = .{};
 
             pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
-                if (self.total_items > self.view_rows) {
-                    self.view_pos += self.view_rows;
-                    if (self.view_pos > self.total_items - self.view_rows)
-                        self.view_pos = self.total_items - self.view_rows;
+                if (!async_query) {
+                    if (self.total_items > self.view_rows) {
+                        self.view_pos += self.view_rows;
+                        if (self.view_pos > self.total_items - self.view_rows)
+                            self.view_pos = self.total_items - self.view_rows;
+                    }
+                    try self.start_query(0);
                 }
-                try self.start_query(0);
                 self.menu.select_last();
                 self.selection_updated();
             }
             pub const palette_menu_pagedown_meta: Meta = .{};
 
             pub fn palette_menu_pageup(self: *Self, _: Ctx) Result {
-                if (self.view_pos > self.view_rows)
-                    self.view_pos -= self.view_rows
-                else
-                    self.view_pos = 0;
-                try self.start_query(0);
+                if (!async_query) {
+                    if (self.view_pos > self.view_rows)
+                        self.view_pos -= self.view_rows
+                    else
+                        self.view_pos = 0;
+                    try self.start_query(0);
+                }
                 self.menu.select_first();
                 self.selection_updated();
             }
             pub const palette_menu_pageup_meta: Meta = .{};
 
             pub fn palette_menu_bottom(self: *Self, _: Ctx) Result {
-                if (self.total_items > self.view_rows) {
-                    self.view_pos = self.total_items - self.view_rows;
+                if (!async_query) {
+                    if (self.total_items > self.view_rows) {
+                        self.view_pos = self.total_items - self.view_rows;
+                    }
+                    try self.start_query(0);
                 }
-                try self.start_query(0);
                 self.menu.select_last();
                 self.selection_updated();
             }
             pub const palette_menu_bottom_meta: Meta = .{};
 
             pub fn palette_menu_top(self: *Self, _: Ctx) Result {
-                self.view_pos = 0;
-                try self.start_query(0);
+                if (!async_query) {
+                    self.view_pos = 0;
+                    try self.start_query(0);
+                }
                 self.menu.select_first();
                 self.selection_updated();
             }
