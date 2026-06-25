@@ -355,13 +355,14 @@ fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode
             if (mode != .disable)
                 try panels.add(try view.create(self.allocator, panels.plane, ctx));
         }
+        tui.resize();
     } else if (mode != .disable) {
         const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
         try self.widgets.add(panels.widget());
-        try panels.add(try view.create(self.allocator, panels.plane, ctx));
         self.panels = panels;
+        tui.resize();
+        try self.panels.?.add(try view.create(self.allocator, panels.plane, ctx));
     }
-    tui.resize();
 }
 
 fn get_panel(self: *Self, name_: []const u8) ?*Widget {
