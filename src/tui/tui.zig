@@ -1520,12 +1520,12 @@ const cmds = struct {
     pub const insert_command_name_meta: Meta = .{ .description = "Show active keybindings" };
 
     pub fn find_file(self: *Self, ctx: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"), ctx);
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig").Type, ctx);
     }
     pub const find_file_meta: Meta = .{ .description = "Find file" };
 
     pub fn open_recent(self: *Self, ctx: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"), ctx);
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig").Type, ctx);
     }
     pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
@@ -1535,7 +1535,7 @@ const cmds = struct {
             return;
         };
         switch (palette.type_) {
-            .open_recent => return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent.zig"), palette.ctx),
+            .open_recent => return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent.zig").Type, palette.ctx),
         }
     }
     pub const last_palette_meta: Meta = .{ .description = "Open last used palette" };
