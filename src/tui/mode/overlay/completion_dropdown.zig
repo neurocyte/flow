@@ -398,7 +398,8 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
         new_layer.blend = .src_over_blur;
         new_layer.alpha = tui.palette_opacity();
         new_layer.radius = 8;
-        new_layer.shadow = .{};
+        new_layer.corners = .right;
+        new_layer.shadow = .{ .edges = .{ .left = false } };
         errdefer new_layer.deinit(self.allocator);
         const inner = try info_view.create_widget_type(self.allocator, new_layer.inner_plane(), info_box_widget_type);
         new_layer.set(inner);

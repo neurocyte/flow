@@ -70,7 +70,8 @@ pub fn Create(options: type) type {
             menu_layer.blend = .src_over_blur;
             menu_layer.alpha = tui.palette_opacity();
             menu_layer.radius = 8;
-            menu_layer.shadow = .{};
+            menu_layer.corners = .bottom;
+            menu_layer.shadow = .{ .edges = .{ .top = false } };
             errdefer menu_layer.deinit(allocator);
             self.* = .{
                 .allocator = allocator,
