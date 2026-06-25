@@ -114,6 +114,24 @@ pub fn plane(self: *Layer) Plane {
     return result;
 }
 
+pub inline fn cell_x(self: *const Layer) u15 {
+    const override = cell_size_override(.x);
+    if (override > 0) return @intCast(override);
+    if (self.screen.width == 0) return 1;
+    const xextra = self.screen.width_pix % self.screen.width;
+    const xcell = (self.screen.width_pix - xextra) / self.screen.width;
+    return @intCast(@max(1, xcell));
+}
+
+pub inline fn cell_y(self: *const Layer) u15 {
+    const override = Layer.cell_size_override(.y);
+    if (override > 0) return @intCast(override);
+    if (self.screen.height == 0) return 1;
+    const yextra = self.screen.height_pix % self.screen.height;
+    const ycell = (self.screen.height_pix - yextra) / self.screen.height;
+    return @intCast(@max(1, ycell));
+}
+
 pub fn global_origin_px(self: *const Layer) struct { i32, i32 } {
     return .{ self.origin_px_x, self.origin_px_y };
 }

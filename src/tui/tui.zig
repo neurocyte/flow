@@ -952,8 +952,8 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.writeAll("\nlayers (composite order, low z first):\n");
     {
         const s = self.stdplane().window.screen;
-        const cw: i32 = @intCast(s.width_pix / @max(1, s.width));
-        const ch: i32 = @intCast(s.height_pix / @max(1, s.height));
+        const cw = s.width_pix / @max(1, s.width);
+        const ch = s.height_pix / @max(1, s.height);
         try writer.writeAll("           ");
         try writer.print(
             fmt,
@@ -961,8 +961,6 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         );
     }
     for (ctx.layers.items) |l| {
-        const cw: i32 = @intCast(l.screen.width_pix / @max(1, l.screen.width));
-        const ch: i32 = @intCast(l.screen.height_pix / @max(1, l.screen.height));
         try writer.print(
             fmt,
             .{
@@ -973,8 +971,8 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
                 l.origin_px_y,
                 l.screen.width,
                 l.screen.height,
-                cw,
-                ch,
+                l.cell_x(),
+                l.cell_y(),
                 l.screen.width_pix,
                 l.screen.height_pix,
             },
