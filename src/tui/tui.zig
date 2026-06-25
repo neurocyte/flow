@@ -891,6 +891,8 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const Ctx = struct {
         writer: *std.Io.Writer,
         indent: usize = 0,
+        allocator: std.mem.Allocator,
+        layers: std.ArrayList(*const renderer.Layer) = .empty,
         fn dump(ctx_: *anyopaque, w: Widget, evt: Widget.WalkEvent) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
             switch (evt) {
@@ -913,21 +915,59 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
             }
             return false;
         }
-        fn write_indent(ctx: @This()) void {
+        fn write_indent(ctx: *@This()) void {
             for (0..ctx.indent) |_| _ = ctx.writer.write(" ") catch 0;
         }
-        fn write_widget(ctx: @This(), w: Widget) void {
+        fn write_widget(ctx: *@This(), w: Widget) void {
             var name_buf: [w.plane.name_buf.len]u8 = undefined;
             const name = w.name(&name_buf);
-            ctx.writer.print("{s}: {s}   layer:0x{X}", .{
+            ctx.writer.print("{s}: {s} on 0x{X} at {d}x{d}+{d}+{d}", .{
                 name,
                 w.vtable.type_name,
                 if (w.plane.layer) |l| @intFromPtr(l) else 0,
+                w.plane.dim_x(),
+                w.plane.dim_y(),
+                w.plane.abs_x(),
+                w.plane.abs_y(),
             }) catch {};
+            if (w.plane.layer) |l| ctx.add_layer(l);
+        }
+        fn add_layer(ctx: *@This(), l: *const renderer.Layer) void {
+            for (ctx.layers.items) |e| if (e == l) return;
+            ctx.layers.append(ctx.allocator, l) catch {};
         }
     };
-    var ctx: Ctx = .{ .writer = writer };
+    var ctx: Ctx = .{ .writer = writer, .allocator = self.allocator };
+    defer ctx.layers.deinit(self.allocator);
     if (self.mainview_) |*mv| _ = mv.walk(&ctx, Ctx.dump);
+
+    std.mem.sort(*const renderer.Layer, ctx.layers.items, {}, struct {
+        fn lt(_: void, a: *const renderer.Layer, b: *const renderer.Layer) bool {
+            return @intFromEnum(a.z_index) < @intFromEnum(b.z_index);
+        }
+    }.lt);
+
+    try writer.writeAll("\nlayers (composite order, low z first):\n");
+    for (ctx.layers.items) |l| {
+        const cw: i32 = @intCast(l.screen.width_pix / @max(1, l.screen.width));
+        const ch: i32 = @intCast(l.screen.height_pix / @max(1, l.screen.height));
+        try writer.print(
+            "  0x{X}  id:{d}  z:{d}  origin_px:{d},{d}  grid:{d}x{d}  cell:{d}x{d}  px:{d}x{d}\n",
+            .{
+                @intFromPtr(l),
+                @intFromEnum(l.id),
+                @intFromEnum(l.z_index),
+                l.origin_px_x,
+                l.origin_px_y,
+                l.screen.width,
+                l.screen.height,
+                cw,
+                ch,
+                l.screen.width_pix,
+                l.screen.height_pix,
+            },
+        );
+    }
 }
 
 pub const FocusAction = enum { same, changed, notfound };
