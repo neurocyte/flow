@@ -261,6 +261,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
         .blend = .replace,
     };
     if (self.plane.layer) |plane_layer| target.z_index = @enumFromInt(@intFromEnum(plane_layer.z_index) + 1);
+    layer.z_index = target.z_index; // keep in sync
 
     const cw = self.plane.cell_x();
     const ch = self.plane.cell_y();
