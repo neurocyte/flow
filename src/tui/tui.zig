@@ -858,7 +858,7 @@ fn find_coord_widget(self: *Self, coord: MouseEvent.Coord) ?Widget {
         best: ?Widget = null,
         best_rank: i32 = std.math.minInt(i32),
         fn find(ctx_: *anyopaque, w: Widget, evt: Widget.WalkEvent) bool {
-            if (evt != .visit) return false;
+            if (evt == .begin) return false;
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
             if (!w.is_coord_inside(ctx.coord)) return false;
             const rank = w.z_rank();

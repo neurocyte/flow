@@ -176,8 +176,9 @@ pub fn get(self: *const Self, name_: []const u8) ?Widget {
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
-    if (self.inner) |*w| return w.walk(ctx, f);
-    return false;
+    if (f(ctx, Widget.to(self), .begin)) return true;
+    if (self.inner) |*w| if (w.walk(ctx, f)) return true;
+    return f(ctx, Widget.to(self), .end);
 }
 
 pub fn focus(self: *Self) void {

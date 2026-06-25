@@ -267,7 +267,10 @@ pub fn to(pimpl: anytype) Self {
             }.get,
             .walk = struct {
                 pub fn walk(ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn) bool {
-                    return if (comptime @hasDecl(child, "walk")) child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f) else false;
+                    return if (comptime @hasDecl(child, "walk"))
+                        child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f)
+                    else
+                        f(walk_ctx, to(@as(*child, @ptrCast(@alignCast(ctx)))), .visit);
                 }
             }.walk,
             .focus = struct {
@@ -361,7 +364,7 @@ pub fn get(self: *const Self, name_: []const u8) ?Self {
 }
 
 pub fn walk(self: *const Self, walk_ctx: *anyopaque, f: WalkFn) bool {
-    return if (self.vtable.walk(self.ptr, walk_ctx, f)) true else f(walk_ctx, self.*, .visit);
+    return self.vtable.walk(self.ptr, walk_ctx, f);
 }
 
 pub fn focus(self: *const Self) void {
