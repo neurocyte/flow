@@ -893,18 +893,17 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         indent: usize = 0,
         fn dump(ctx_: *anyopaque, w: Widget, evt: Widget.WalkEvent) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            var name_buf: [w.plane.name_buf.len]u8 = undefined;
-            const name = w.name(&name_buf);
             switch (evt) {
                 .begin => {
                     ctx.write_indent();
-                    ctx.writer.print("{s}: {s}", .{ name, w.vtable.type_name }) catch {};
+                    ctx.write_widget(w);
                     ctx.writer.writeAll(" {\n") catch {};
                     ctx.indent += 2;
                 },
                 .visit => {
                     ctx.write_indent();
-                    ctx.writer.print("{s}: {s}\n", .{ name, w.vtable.type_name }) catch {};
+                    ctx.write_widget(w);
+                    ctx.writer.writeAll("\n") catch {};
                 },
                 .end => {
                     ctx.indent -|= 2;
@@ -916,6 +915,15 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         }
         fn write_indent(ctx: @This()) void {
             for (0..ctx.indent) |_| _ = ctx.writer.write(" ") catch 0;
+        }
+        fn write_widget(ctx: @This(), w: Widget) void {
+            var name_buf: [w.plane.name_buf.len]u8 = undefined;
+            const name = w.name(&name_buf);
+            ctx.writer.print("{s}: {s}   layer:0x{X}", .{
+                name,
+                w.vtable.type_name,
+                if (w.plane.layer) |l| @intFromPtr(l) else 0,
+            }) catch {};
         }
     };
     var ctx: Ctx = .{ .writer = writer };
