@@ -1541,7 +1541,7 @@ const cmds = struct {
     pub const last_palette_meta: Meta = .{ .description = "Open last used palette" };
 
     pub fn show_vcs_status(self: *Self, ctx: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig"), ctx);
+        return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig").Type, ctx);
     }
     pub const show_vcs_status_meta: Meta = .{ .description = "Show git status" };
 

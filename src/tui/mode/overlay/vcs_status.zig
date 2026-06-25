@@ -1,402 +1,113 @@
 const std = @import("std");
 const tp = @import("thespian");
-const log = @import("log");
 const cbor = @import("cbor");
-const file_type_config = @import("file_type_config");
-
-const Plane = @import("renderer").Plane;
-const input = @import("input");
-const keybind = @import("keybind");
 const project_manager = @import("project_manager");
-const command = @import("command");
-const EventHandler = @import("EventHandler");
-const BufferManager = @import("Buffer").Manager;
 
 const tui = @import("../../tui.zig");
 const MessageFilter = @import("../../MessageFilter.zig");
-const Button = @import("../../Button.zig");
-const InputBox = @import("../../InputBox.zig");
-const Menu = @import("../../Menu.zig");
+pub const Type = @import("palette.zig").Create(@This());
+const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
-const ModalBackground = @import("../../ModalBackground.zig");
 
-const Self = @This();
+pub const label = "Changed or untracked files";
+pub const name = " status";
+pub const description = "vcs status";
+pub const icon = "󰈞  ";
+pub const placement = .top_center;
+
 const max_recent_files: usize = 25;
-const widget_type: Widget.Type = .palette;
 
-allocator: std.mem.Allocator,
-f: usize = 0,
-modal: *ModalBackground.State(*Self),
-menu_layer: *tui.WidgetLayerBox,
-menu: *MenuType,
-inputbox: *InputBox.State(*Self),
-logger: log.Logger,
-query_pending: bool = false,
-need_reset: bool = false,
-need_select_first: bool = true,
-longest: usize,
-commands: Commands = undefined,
-buffer_manager: ?*BufferManager,
-
-const inputbox_label = "Changed or untracked files";
-const MenuType = Menu.Options(*Self).MenuType;
-const ButtonType = MenuType.ButtonType;
-
-pub fn create(allocator: std.mem.Allocator) !tui.Mode {
-    const mv = tui.mainview() orelse return error.NotFound;
-    const self = try allocator.create(Self);
-    errdefer allocator.destroy(self);
-    const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = "vcs_status.layer" });
-    menu_layer.blend = .src_over_blur;
-    menu_layer.alpha = tui.palette_opacity();
-    errdefer menu_layer.deinit(allocator);
-    self.* = .{
-        .allocator = allocator,
-        .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{ .ctx = self }),
-        .menu_layer = menu_layer,
-        .menu = try Menu.create(*Self, allocator, menu_layer.inner_plane(), .{
-            .ctx = self,
-            .style = widget_type,
-            .on_render = on_render_menu,
-        }),
-        .logger = log.logger(@typeName(Self)),
-        .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
-            .ctx = self,
-            .label = inputbox_label,
-            .padding = 2,
-            .icon = "󰈞  ",
-        }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
-        .buffer_manager = tui.get_buffer_manager(),
-        .longest = inputbox_label.len,
-    };
-    try self.commands.init(self);
-    try tui.message_filters().add(MessageFilter.bind(self, receive_project_manager));
-    self.menu_layer.ctx = self;
-    self.menu_layer.prepare_resize = prepare_resize_layer;
-    self.menu_layer.set(self.menu.container_widget);
-    self.query_pending = true;
-    try project_manager.request_new_or_modified_files(max_recent_files);
-    self.do_resize();
-    try mv.floating_views.add(self.modal.widget());
-    try mv.floating_views.add(self.menu_layer.widget());
-    var mode = try keybind.mode("overlay/palette", allocator, .{
-        .insert_command = "overlay_insert_bytes",
-    });
-    mode.event_handler = EventHandler.to_owned(self);
-    mode.name = " status";
-    return mode;
-}
-
-pub fn deinit(self: *Self) void {
-    self.commands.deinit();
-    tui.message_filters().remove_ptr(self);
-    if (tui.mainview()) |mv| {
-        mv.floating_views.remove(self.menu_layer.widget());
-        mv.floating_views.remove(self.modal.widget());
-    }
-    self.logger.deinit();
-    self.allocator.destroy(self);
-}
-
-inline fn menu_width(self: *Self) usize {
-    return @max(@min(self.longest + 3, max_menu_width()) + 5, inputbox_label.len + 2);
-}
-
-inline fn menu_pos_x(self: *Self) usize {
-    const screen_width = tui.screen().w;
-    const width = self.menu_width();
-    return if (screen_width <= width) 0 else (screen_width - width) / 2;
-}
-
-inline fn max_menu_width() usize {
-    const width = tui.screen().w;
-    return @max(15, width - (width / 5));
-}
-
-fn on_render_menu(_: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
-    return tui.render_file_vcs_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
-}
-
-fn prepare_resize_layer(ctx_: ?*anyopaque, _: *tui.WidgetLayerBox, _: Widget.Box) Widget.Box {
-    const self: *Self = @ptrCast(@alignCast(ctx_.?));
-    const padding = tui.get_widget_style(widget_type).padding;
-    return self.prepare_resize().from_client_box(padding);
-}
-
-fn prepare_resize(self: *Self) Widget.Box {
-    const w = self.menu_width();
-    const x = self.menu_pos_x();
-    const h = self.menu.menu.widgets.items.len;
-    return .{ .y = 0, .x = x, .w = w, .h = h };
-}
-
-fn do_resize(self: *Self) void {
-    self.menu_layer.handle_resize(self.prepare_resize());
-}
-
-fn menu_action_open_file(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {
-    var file_path: []const u8 = undefined;
-    var iter = button.opts.label;
-    if (!(cbor.matchString(&iter, &file_path) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-}
-
-fn add_item(
-    self: *Self,
-    file_name: []const u8,
+pub const Entry = struct {
+    label: []const u8,
     file_icon: []const u8,
     file_color: u24,
     vcs_status: u8,
-    indicator: []const u8,
-    matches: ?[]const u8,
-) !void {
-    var label: std.Io.Writer.Allocating = .init(self.allocator);
-    defer label.deinit();
-    const writer = &label.writer;
-    try cbor.writeValue(writer, file_name);
-    try cbor.writeValue(writer, file_icon);
-    try cbor.writeValue(writer, file_color);
-    try cbor.writeValue(writer, indicator);
-    try cbor.writeValue(writer, vcs_status);
-    if (matches) |cb| _ = try writer.write(cb) else try cbor.writeValue(writer, &[_]usize{});
-    try self.menu.add_item_with_handler(label.written(), menu_action_open_file);
+};
+
+pub fn load_entries(palette: *Type) !usize {
+    tui.message_filters().add(MessageFilter.bind(palette, receive_project_manager)) catch {};
+    try project_manager.request_new_or_modified_files(max_recent_files);
+    return 3;
 }
 
-fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    if (cbor.match(m.buf, .{ "PRJ", tp.more }) catch false) {
-        try self.process_project_manager(m);
-        return true;
+pub fn clear_entries(palette: *Type) void {
+    for (palette.entries.items) |entry| {
+        palette.allocator.free(entry.label);
+        palette.allocator.free(entry.file_icon);
     }
-    return false;
+    palette.entries.clearRetainingCapacity();
 }
 
-fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
-    defer tui.reset_hover(@src());
+pub fn deinit(palette: *Type) void {
+    tui.message_filters().remove_ptr(palette);
+    clear_entries(palette);
+}
+
+fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    if (!(cbor.match(m.buf, .{ "PRJ", tp.more }) catch false)) return false;
+
     var file_name: []const u8 = undefined;
     var file_type: []const u8 = undefined;
     var file_icon: []const u8 = undefined;
     var file_color: u24 = undefined;
     var vcs_status: u8 = undefined;
-    var matches: []const u8 = undefined;
-    var query: []const u8 = undefined;
+
     if (try cbor.match(m.buf, .{
         "PRJ",
         "new_or_modified_files",
-        tp.extract(&self.longest),
-        tp.extract(&file_name),
-        tp.extract(&file_type),
-        tp.extract(&file_icon),
-        tp.extract(&file_color),
-        tp.extract(&vcs_status),
-        tp.extract_cbor(&matches),
-    })) {
-        if (self.need_reset) self.reset_results();
-        const indicator = if (self.buffer_manager) |bm| tui.get_file_state_indicator(bm, file_name) else "";
-        try self.add_item(file_name, file_icon, file_color, vcs_status, indicator, matches);
-        self.do_resize();
-        if (self.need_select_first) {
-            self.menu.select_down();
-            self.need_select_first = false;
-        }
-        tui.need_render(@src());
-    } else if (try cbor.match(m.buf, .{
-        "PRJ",
-        "new_or_modified_files",
-        tp.extract(&self.longest),
+        tp.any,
         tp.extract(&file_name),
         tp.extract(&file_type),
         tp.extract(&file_icon),
         tp.extract(&file_color),
         tp.extract(&vcs_status),
     })) {
-        if (self.need_reset) self.reset_results();
-        const indicator = if (self.buffer_manager) |bm| tui.get_file_state_indicator(bm, file_name) else "";
-        try self.add_item(file_name, file_icon, file_color, vcs_status, indicator, null);
-        self.do_resize();
-        if (self.need_select_first) {
-            self.menu.select_down();
-            self.need_select_first = false;
-        }
+        try append_entry(palette, file_name, file_icon, file_color, vcs_status);
+    } else if (try cbor.match(m.buf, .{ "PRJ", "new_or_modified_files_done", tp.any, tp.any })) {
+        palette.start_query(0) catch {};
         tui.need_render(@src());
-    } else if (try cbor.match(m.buf, .{ "PRJ", "new_or_modified_files_done", tp.extract(&self.longest), tp.extract(&query) })) {
-        self.query_pending = false;
-        self.need_reset = true;
-        if (!std.mem.eql(u8, self.inputbox.text.items, query))
-            try self.start_query();
-    } else if (try cbor.match(m.buf, .{ "PRJ", "open_done", tp.string, tp.extract(&self.longest), tp.any })) {
-        self.query_pending = false;
-        self.need_reset = true;
-        try self.start_query();
     } else {
-        self.logger.err("receive", tp.unexpected(m));
+        palette.logger.err("receive", tp.unexpected(m));
     }
+    return true;
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var text: []const u8 = undefined;
-
-    if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
-    return false;
+fn append_entry(palette: *Type, file_name: []const u8, file_icon: []const u8, file_color: u24, vcs_status: u8) !void {
+    const path = try palette.allocator.dupe(u8, file_name);
+    errdefer palette.allocator.free(path);
+    const icon_copy = try palette.allocator.dupe(u8, file_icon);
+    errdefer palette.allocator.free(icon_copy);
+    (try palette.entries.addOne(palette.allocator)).* = .{
+        .label = path,
+        .file_icon = icon_copy,
+        .file_color = file_color,
+        .vcs_status = vcs_status,
+    };
 }
 
-fn reset_results(self: *Self) void {
-    self.need_reset = false;
-    self.menu.reset_items();
-    self.menu.selected = null;
-    self.need_select_first = true;
+pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer value.deinit();
+    const writer = &value.writer;
+    const indicator = if (tui.get_buffer_manager()) |bm| tui.get_file_state_indicator(bm, entry.label) else "";
+    try cbor.writeValue(writer, entry.label);
+    try cbor.writeValue(writer, entry.file_icon);
+    try cbor.writeValue(writer, entry.file_color);
+    try cbor.writeValue(writer, indicator);
+    try cbor.writeValue(writer, entry.vcs_status);
+    try cbor.writeValue(writer, matches orelse &[_]usize{});
+    try palette.menu.add_item_with_handler(value.written(), select);
+    palette.items += 1;
 }
 
-fn start_query(self: *Self) MessageFilter.Error!void {
-    if (self.query_pending) return;
-    self.query_pending = true;
-    try project_manager.query_new_or_modified_files(max_recent_files, self.inputbox.text.items);
+pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+    return tui.render_file_vcs_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
-fn delete_word(self: *Self) !void {
-    if (std.mem.lastIndexOfAny(u8, self.inputbox.text.items, "/\\. -_")) |pos| {
-        self.inputbox.text.shrinkRetainingCapacity(pos);
-    } else {
-        self.inputbox.text.shrinkRetainingCapacity(0);
-    }
-    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
-    return self.start_query();
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+    var file_path: []const u8 = undefined;
+    var iter = button.opts.label;
+    if (!(cbor.matchString(&iter, &file_path) catch false)) return;
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
-
-fn delete_code_point(self: *Self) !void {
-    if (self.inputbox.text.items.len > 0) {
-        self.inputbox.text.shrinkRetainingCapacity(self.inputbox.text.items.len - tui.egc_last(self.inputbox.text.items).len);
-        self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
-    }
-    return self.start_query();
-}
-
-fn insert_code_point(self: *Self, c: u32) !void {
-    var buf: [6]u8 = undefined;
-    const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
-    try self.inputbox.text.appendSlice(self.allocator, buf[0..bytes]);
-    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
-    return self.start_query();
-}
-
-fn insert_bytes(self: *Self, bytes: []const u8) !void {
-    try self.inputbox.text.appendSlice(self.allocator, bytes);
-    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
-    return self.start_query();
-}
-
-fn cmd(_: *Self, name_: []const u8, ctx: command.Context) tp.result {
-    try command.executeName(name_, ctx);
-}
-
-fn msg(_: *Self, text: []const u8) tp.result {
-    return tp.self_pid().send(.{ "log", "home", text });
-}
-
-fn cmd_async(_: *Self, name_: []const u8) tp.result {
-    return tp.self_pid().send(.{ "cmd", name_ });
-}
-
-const Commands = command.Collection(cmds);
-const cmds = struct {
-    pub const Target = Self;
-    const Ctx = command.Context;
-    const Meta = command.Metadata;
-    const Result = command.Result;
-
-    pub fn palette_menu_down(self: *Self, _: Ctx) Result {
-        self.menu.select_down();
-    }
-    pub const palette_menu_down_meta: Meta = .{};
-
-    pub fn palette_menu_up(self: *Self, _: Ctx) Result {
-        self.menu.select_up();
-    }
-    pub const palette_menu_up_meta: Meta = .{};
-
-    pub fn palette_menu_right(self: *Self, _: Ctx) Result {
-        self.menu.select_down();
-    }
-    pub const palette_menu_right_meta: Meta = .{};
-
-    pub fn palette_menu_left(self: *Self, _: Ctx) Result {
-        self.menu.select_up();
-    }
-    pub const palette_menu_left_meta: Meta = .{};
-
-    pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
-        self.menu.select_last();
-    }
-    pub const palette_menu_pagedown_meta: Meta = .{};
-
-    pub fn palette_menu_pageup(self: *Self, _: Ctx) Result {
-        self.menu.select_first();
-    }
-    pub const palette_menu_pageup_meta: Meta = .{};
-
-    pub fn palette_menu_bottom(self: *Self, _: Ctx) Result {
-        self.menu.select_last();
-    }
-    pub const palette_menu_bottom_meta: Meta = .{};
-
-    pub fn palette_menu_top(self: *Self, _: Ctx) Result {
-        self.menu.select_first();
-    }
-    pub const palette_menu_top_meta: Meta = .{};
-
-    pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
-        self.menu.activate_selected();
-    }
-    pub const palette_menu_activate_meta: Meta = .{};
-
-    pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
-        if (self.menu.selected orelse 0 > 0) self.menu.activate_selected();
-    }
-    pub const palette_menu_activate_quick_meta: Meta = .{};
-
-    pub fn palette_menu_cancel(self: *Self, ctx: Ctx) Result {
-        try self.cmd("exit_overlay_mode", ctx);
-    }
-    pub const palette_menu_cancel_meta: Meta = .{};
-
-    pub fn overlay_delete_word_left(self: *Self, _: Ctx) Result {
-        self.delete_word() catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
-    pub const overlay_delete_word_left_meta: Meta = .{ .description = "Delete word to the left" };
-
-    pub fn overlay_delete_backwards(self: *Self, _: Ctx) Result {
-        self.delete_code_point() catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
-    pub const overlay_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
-
-    pub fn overlay_insert_code_point(self: *Self, ctx: Ctx) Result {
-        var egc: u32 = 0;
-        if (!try ctx.args.match(.{tp.extract(&egc)}))
-            return error.InvalidOpenRecentInsertCodePointArgument;
-        self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
-    pub const overlay_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
-
-    pub fn overlay_insert_bytes(self: *Self, ctx: Ctx) Result {
-        var bytes: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&bytes)}))
-            return error.InvalidOpenRecentInsertBytesArgument;
-        self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
-    pub const overlay_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
-
-    pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
-        tui.set_next_style(widget_type);
-        self.do_resize();
-        tui.need_render(@src());
-        try tui.save_config();
-    }
-    pub const overlay_next_widget_style_meta: Meta = .{};
-
-    pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
-        return overlay_insert_bytes(self, ctx);
-    }
-    pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
-};
