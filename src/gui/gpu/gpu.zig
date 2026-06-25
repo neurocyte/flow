@@ -846,6 +846,7 @@ pub const ShadowOp = struct {
     alpha: f32, // peak opacity in 0..1
     edge_mask: [4]f32, // top, right, bottom, left
     corner_mask: [4]f32, // tl, tr, br, bl
+    bleed_mask: [4]f32 = .{ 0, 0, 0, 0 }, // disabled edges a band may extend across
 };
 
 /// Draw an analytic drop shadow onto `dst_layer_state`, around and under a
@@ -903,6 +904,7 @@ pub fn drawLayerShadow(dst_layer_state: *const LayerGpuState, op: ShadowOp) void
         .geom = .{ op.range, op.power, op.radius, 0 },
         .edge_mask = op.edge_mask,
         .corner_mask = op.corner_mask,
+        .bleed_mask = op.bleed_mask,
         .uv_rect = .{ uoff, voff, du, dv },
     };
     sg.applyUniforms(shader.UB_fs_shadow_params, .{

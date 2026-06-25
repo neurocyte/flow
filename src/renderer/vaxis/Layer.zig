@@ -168,6 +168,7 @@ pub const Target = struct {
         y_offset: i16 = 0,
         power: u8 = 3, // falloff curve exponent (1..4)
         edges: Edges = .all, // which edges emit a shadow band
+        bleed: Edges = .none,
 
         pub const Edges = packed struct {
             top: bool = true,

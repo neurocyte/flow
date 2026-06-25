@@ -489,6 +489,9 @@ layout(binding=6) uniform fs_shadow_params {
     vec4 geom;        // .x = range, .y = power, .z = radius, .w pad
     vec4 edge_mask;   // top, right, bottom, left (0/1)
     vec4 corner_mask; // top-left, top-right, bottom-right, bottom-left (0/1)
+    vec4 bleed_mask;  // disabled edges a perpendicular band may extend across
+                      // (top, right, bottom, left; 0/1). Otherwise the band is
+                      // clipped at the layer boundary.
     vec4 uv_rect;     // .xy = uv origin, .zw = uv extent (clamp remap)
 };
 
@@ -537,18 +540,18 @@ void main() {
     bool  done = false;
 
     // corner regions (extend inward to the arc centre so the rounded
-    // outline is captured). With both adjacent edges enabled the corner
-    // gets a radial falloff. With only one, that edge's band extends
-    // straight through the corner so a single-edge shadow reaches the full
-    // extent. With neither, no shadow.
+    // outline is captured). With both adjacent edges enabled the corner gets
+    // a radial falloff. With only one enabled, that edge's band extends
+    // through the corner only if the other (disabled) edge allows bleed —
+    // otherwise it is clipped at the layer boundary. With neither, no shadow.
     if (p.x < range + rTL && p.y < range + rTL) {
         done = true;
         bool et = edge_mask.x > 0.5, el = edge_mask.w > 0.5;
         if (et && el) {
             float d = length(p - vec2(range + rTL, range + rTL));
             a = d <= rTL ? 1.0 : shadow_falloff(d - rTL, range, power);
-        } else if (et) a = shadow_falloff(range - p.y, range, power);
-        else if (el)   a = shadow_falloff(range - p.x, range, power);
+        } else if (et) a = bleed_mask.w > 0.5 ? shadow_falloff(range - p.y, range, power) : 0.0;
+        else if (el)   a = bleed_mask.x > 0.5 ? shadow_falloff(range - p.x, range, power) : 0.0;
         else a = 0.0;
     } else if (p.x > fs.x - range - rTR && p.y < range + rTR) {
         done = true;
@@ -556,8 +559,8 @@ void main() {
         if (et && er) {
             float d = length(p - vec2(fs.x - range - rTR, range + rTR));
             a = d <= rTR ? 1.0 : shadow_falloff(d - rTR, range, power);
-        } else if (et) a = shadow_falloff(range - p.y, range, power);
-        else if (er)   a = shadow_falloff(p.x - (fs.x - range), range, power);
+        } else if (et) a = bleed_mask.y > 0.5 ? shadow_falloff(range - p.y, range, power) : 0.0;
+        else if (er)   a = bleed_mask.x > 0.5 ? shadow_falloff(p.x - (fs.x - range), range, power) : 0.0;
         else a = 0.0;
     } else if (p.x > fs.x - range - rBR && p.y > fs.y - range - rBR) {
         done = true;
@@ -565,8 +568,8 @@ void main() {
         if (eb && er) {
             float d = length(p - vec2(fs.x - range - rBR, fs.y - range - rBR));
             a = d <= rBR ? 1.0 : shadow_falloff(d - rBR, range, power);
-        } else if (eb) a = shadow_falloff(p.y - (fs.y - range), range, power);
-        else if (er)   a = shadow_falloff(p.x - (fs.x - range), range, power);
+        } else if (eb) a = bleed_mask.y > 0.5 ? shadow_falloff(p.y - (fs.y - range), range, power) : 0.0;
+        else if (er)   a = bleed_mask.z > 0.5 ? shadow_falloff(p.x - (fs.x - range), range, power) : 0.0;
         else a = 0.0;
     } else if (p.x < range + rBL && p.y > fs.y - range - rBL) {
         done = true;
@@ -574,8 +577,8 @@ void main() {
         if (eb && el) {
             float d = length(p - vec2(range + rBL, fs.y - range - rBL));
             a = d <= rBL ? 1.0 : shadow_falloff(d - rBL, range, power);
-        } else if (eb) a = shadow_falloff(p.y - (fs.y - range), range, power);
-        else if (el)   a = shadow_falloff(range - p.x, range, power);
+        } else if (eb) a = bleed_mask.w > 0.5 ? shadow_falloff(p.y - (fs.y - range), range, power) : 0.0;
+        else if (el)   a = bleed_mask.z > 0.5 ? shadow_falloff(range - p.x, range, power) : 0.0;
         else a = 0.0;
     }
 

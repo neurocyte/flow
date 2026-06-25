@@ -1335,6 +1335,12 @@ pub fn renderActorTick() void {
                         @floatFromInt(@intFromBool(sh.edges.left)),
                     },
                     .corner_mask = corners,
+                    .bleed_mask = .{
+                        @floatFromInt(@intFromBool(sh.bleed.top)),
+                        @floatFromInt(@intFromBool(sh.bleed.right)),
+                        @floatFromInt(@intFromBool(sh.bleed.bottom)),
+                        @floatFromInt(@intFromBool(sh.bleed.left)),
+                    },
                 });
             }
             gpu.compositeLayer(dst_state, src_state, .{
