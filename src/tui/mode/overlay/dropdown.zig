@@ -12,7 +12,6 @@ const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
 const Button = @import("../../Button.zig");
-const InputBox = @import("../../InputBox.zig");
 const Widget = @import("../../Widget.zig");
 const scrollbar_v = @import("../../scrollbar_v.zig");
 const ModalBackground = @import("../../ModalBackground.zig");
@@ -70,6 +69,8 @@ pub fn Create(options: type) type {
             const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = "dropdown.layer" });
             menu_layer.blend = .src_over_blur;
             menu_layer.alpha = tui.palette_opacity();
+            menu_layer.radius = 8;
+            menu_layer.shadow = .{};
             errdefer menu_layer.deinit(allocator);
             self.* = .{
                 .allocator = allocator,

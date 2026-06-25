@@ -2119,6 +2119,8 @@ pub const Editor = struct {
             const new_layer = try tui.WidgetLayerBox.create(self.allocator, self.plane, .{ .name = "editor_info.layer" });
             new_layer.blend = .src_over_blur;
             new_layer.alpha = tui.palette_opacity();
+            new_layer.radius = 8;
+            new_layer.shadow = .{};
             errdefer new_layer.deinit(self.allocator);
             const inner = try info_view.create_widget_type(self.allocator, new_layer.inner_plane(), info_box_widget_type);
             new_layer.set(inner);
