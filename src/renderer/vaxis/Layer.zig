@@ -134,12 +134,50 @@ pub const Target = struct {
     alpha: u8 = 0xFF,
     z_index: Level = .main,
 
+    radius: u16 = 0, // corner rounding radius in pixels (0 = square)
+    corners: Corners = .all, // which corners use `radius`
+    shadow: ?Shadow = null,
+
     pub const Blend = enum {
         replace, // dst = src
         src_over, // dst = src·a + dst·(1−a)
         src_over_blur, // src_over after Kawase-blurring dst under src footprint
 
         pub const default = .replace;
+    };
+
+    pub const Corners = packed struct {
+        top_left: bool = true,
+        top_right: bool = true,
+        bottom_right: bool = true,
+        bottom_left: bool = true,
+
+        pub const all: Corners = .{};
+        pub const top: Corners = .{ .top_left = true, .top_right = true, .bottom_right = false, .bottom_left = false };
+        pub const bottom: Corners = .{ .top_left = false, .top_right = false, .bottom_right = true, .bottom_left = true };
+        pub const left: Corners = .{ .top_left = true, .top_right = false, .bottom_right = false, .bottom_left = true };
+        pub const right: Corners = .{ .top_left = false, .top_right = true, .bottom_right = true, .bottom_left = false };
+        pub const none: Corners = .{ .top_left = false, .top_right = false, .bottom_right = false, .bottom_left = false };
+    };
+
+    pub const Shadow = struct {
+        color: u24 = 0x1a1a1a,
+        alpha: u8 = 0xee,
+        range: u16 = 15, // distance in pixels
+        x_offset: i16 = 0, // displacement in pixels
+        y_offset: i16 = 0,
+        power: u8 = 3, // falloff curve exponent (1..4)
+        edges: Edges = .all, // which edges emit a shadow band
+
+        pub const Edges = packed struct {
+            top: bool = true,
+            right: bool = true,
+            bottom: bool = true,
+            left: bool = true,
+
+            pub const all: Edges = .{};
+            pub const none: Edges = .{ .top = false, .right = false, .bottom = false, .left = false };
+        };
     };
 };
 

@@ -247,6 +247,24 @@ void main() {
 
 #pragma sokol @program builtin vs fs
 
+// Coverage (0..1, 1px feathered) of a rounded rectangle with per-corner
+// rounding. `p` and `size` are in top-origin layer pixels. `cmask`
+// is per-corner enable (tl, tr, br, bl).
+#pragma sokol @block corner_coverage
+float corner_coverage(vec2 p, vec2 size, float radius, vec4 cmask) {
+    if (radius <= 0.0) return 1.0;
+    float r = min(radius, min(size.x, size.y) * 0.5);
+    bool left = p.x < size.x * 0.5;
+    bool top  = p.y < size.y * 0.5;
+    float cm = left ? (top ? cmask.x : cmask.w) : (top ? cmask.y : cmask.z);
+    if (cm < 0.5) return 1.0;
+    vec2 cc = vec2(left ? r : size.x - r, top ? r : size.y - r);
+    vec2 d = max(vec2(left ? cc.x - p.x : p.x - cc.x,
+                      top  ? cc.y - p.y : p.y - cc.y), vec2(0.0));
+    return clamp(0.5 - (length(d) - r), 0.0, 1.0);
+}
+#pragma sokol @end
+
 // compositing program
 // sample a source pixel buffer into the destination attachment, with
 // global alpha. The destination region is selected by sg.applyViewport();
@@ -261,6 +279,8 @@ layout(binding=1) uniform fs_composite_params {
     vec4 sample_flip;      // .x = 1.0 to flip Y on sample (GL offscreen
                            // textures store bottom-origin); 0.0 otherwise.
                            // .yzw pad
+    vec4 round_geom;       // .xy = layer size px, .z = corner radius, .w pad
+    vec4 round_mask;       // per-corner rounding enable: tl, tr, br, bl (0/1)
 };
 
 layout(binding=2) uniform texture2D src_tex;
@@ -271,6 +291,8 @@ layout(binding=2) uniform sampler src_smp;
 
 out vec4 frag_color;
 
+#pragma sokol @include_block corner_coverage
+
 void main() {
     // Render-to-texture on GL stores the framebuffer bottom-up relative to
     // sampling. Sampling with v_uv directly would yield the source upside
@@ -278,8 +300,10 @@ void main() {
     // sg.queryFeatures().origin_top_left.
     vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, sample_flip.x));
     vec4 s = texture(sampler2D(src_tex, src_smp), uv);
+    // geometry coverage uses the un-flipped v_uv (top-origin screen space).
+    float cov = corner_coverage(v_uv * round_geom.xy, round_geom.xy, round_geom.z, round_mask);
     // Straight-alpha output.
-    frag_color = vec4(s.rgb, s.a * composite_alpha.x);
+    frag_color = vec4(s.rgb, s.a * composite_alpha.x * cov);
 }
 #pragma sokol @end
 
@@ -386,6 +410,8 @@ layout(binding=5) uniform fs_blur_compose_params {
     vec4 post0;          // .x = noise, .y = contrast, .z = brightness, .w = vibrancy
     vec4 post1;          // .x = vibrancy_darkness, .y = composite_alpha; .zw pad
     vec4 bc_sample_flip; // .x = 1.0 to flip Y on sample; .yzw pad
+    vec4 round_geom;     // .xy = layer size px, .z = corner radius, .w pad
+    vec4 round_mask;     // per-corner rounding enable: tl, tr, br, bl (0/1)
 };
 
 layout(binding=6) uniform texture2D backdrop_tex;
@@ -406,6 +432,8 @@ float hash12(vec2 p) {
     p3 += dot(p3, p3.yzx + 19.19);
     return fract((p3.x + p3.y) * p3.z);
 }
+
+#pragma sokol @include_block corner_coverage
 
 void main() {
     vec2 uv = vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, bc_sample_flip.x));
@@ -431,9 +459,144 @@ void main() {
 
     float a_src = sr.a * alpha_g;
     vec3 out_rgb = sr.rgb * a_src + c * (1.0 - a_src);
-    float out_a  = a_src + bg.a * (1.0 - a_src);
-    frag_color = vec4(out_rgb, out_a);
+    float cov = corner_coverage(v_uv * round_geom.xy, round_geom.xy, round_geom.z, round_mask);
+    frag_color = vec4(out_rgb * cov, cov);
 }
 #pragma sokol @end
 
 #pragma sokol @program blur_compose vs fs_blur_compose
+
+// shadow: an analytic drop shadow drawn onto a parent (dst) layer around and
+// under a child layer's footprint, before that child composites. The quad is
+// the child rect expanded by `range` px on every side (plus the shadow
+// offset); the fragment shader computes per-pixel alpha from the distance to
+// the rounded-rect silhouette, with a power falloff over `range`, then cuts
+// out the child footprint so the shadow only shows around it.
+//
+// `uv_rect` maps the (possibly viewport-clamped) draw area back to the full
+// intended quad: pixel = full_size * (uv_rect.xy + v_uv * uv_rect.zw).
+// Coordinates are top-origin (applyViewport is called with origin_top_left);
+// because we synthesise geometry rather than sampling a texture, no Y-flip is
+// needed.
+
+#pragma sokol @fs fs_shadow
+in vec2 v_uv;
+
+layout(binding=6) uniform fs_shadow_params {
+    vec4 color;       // straight-alpha shadow color; .a = peak opacity
+    vec4 full_size;   // .xy = full quad size px; .zw pad
+    vec4 cut;         // child footprint (cutout): .xy = top-left, .zw = bottom-right (quad px)
+    vec4 geom;        // .x = range, .y = power, .z = radius, .w pad
+    vec4 edge_mask;   // top, right, bottom, left (0/1)
+    vec4 corner_mask; // top-left, top-right, bottom-right, bottom-left (0/1)
+    vec4 uv_rect;     // .xy = uv origin, .zw = uv extent (clamp remap)
+};
+
+out vec4 frag_color;
+
+float shadow_falloff(float d, float range, float power) {
+    // d: distance outward from the silhouette outline (0 at outline).
+    return pow(clamp((range - d) / range, 0.0, 1.0), power);
+}
+
+// Inside-test for a rounded rect with per-corner rounding (radius gated by
+// `cmask`). Used to cut the child footprint out of the shadow.
+bool in_rounded_rect(vec2 p, vec2 tl, vec2 br, float radius, vec4 cmask) {
+    if (p.x < tl.x || p.x > br.x || p.y < tl.y || p.y > br.y)
+        return false;
+    if (radius <= 0.0)
+        return true;
+    radius = min(radius, min((br.x - tl.x) * 0.5, (br.y - tl.y) * 0.5));
+    vec2 itl = tl + vec2(radius, radius);
+    vec2 ibr = br - vec2(radius, radius);
+    if (p.x >= itl.x && p.x <= ibr.x) return true; // central vertical band
+    if (p.y >= itl.y && p.y <= ibr.y) return true; // central horizontal band
+    float cm;
+    vec2  cc;
+    if (p.x < itl.x && p.y < itl.y)      { cm = cmask.x; cc = itl; }                  // tl
+    else if (p.x > ibr.x && p.y < itl.y) { cm = cmask.y; cc = vec2(ibr.x, itl.y); }   // tr
+    else if (p.x > ibr.x && p.y > ibr.y) { cm = cmask.z; cc = ibr; }                  // br
+    else                                 { cm = cmask.w; cc = vec2(itl.x, ibr.y); }   // bl
+    if (cm < 0.5) return true; // square corner: the whole bbox corner is inside
+    return length(p - cc) <= radius;
+}
+
+void main() {
+    float range  = geom.x;
+    float power  = geom.y;
+    float radius = geom.z;
+    vec2  fs = full_size.xy;
+    vec2  p  = fs * (uv_rect.xy + v_uv * uv_rect.zw);
+
+    float rTL = corner_mask.x > 0.5 ? radius : 0.0;
+    float rTR = corner_mask.y > 0.5 ? radius : 0.0;
+    float rBR = corner_mask.z > 0.5 ? radius : 0.0;
+    float rBL = corner_mask.w > 0.5 ? radius : 0.0;
+
+    float a = 1.0;
+    bool  done = false;
+
+    // corner regions (extend inward to the arc centre so the rounded
+    // outline is captured). With both adjacent edges enabled the corner
+    // gets a radial falloff. With only one, that edge's band extends
+    // straight through the corner so a single-edge shadow reaches the full
+    // extent. With neither, no shadow.
+    if (p.x < range + rTL && p.y < range + rTL) {
+        done = true;
+        bool et = edge_mask.x > 0.5, el = edge_mask.w > 0.5;
+        if (et && el) {
+            float d = length(p - vec2(range + rTL, range + rTL));
+            a = d <= rTL ? 1.0 : shadow_falloff(d - rTL, range, power);
+        } else if (et) a = shadow_falloff(range - p.y, range, power);
+        else if (el)   a = shadow_falloff(range - p.x, range, power);
+        else a = 0.0;
+    } else if (p.x > fs.x - range - rTR && p.y < range + rTR) {
+        done = true;
+        bool et = edge_mask.x > 0.5, er = edge_mask.y > 0.5;
+        if (et && er) {
+            float d = length(p - vec2(fs.x - range - rTR, range + rTR));
+            a = d <= rTR ? 1.0 : shadow_falloff(d - rTR, range, power);
+        } else if (et) a = shadow_falloff(range - p.y, range, power);
+        else if (er)   a = shadow_falloff(p.x - (fs.x - range), range, power);
+        else a = 0.0;
+    } else if (p.x > fs.x - range - rBR && p.y > fs.y - range - rBR) {
+        done = true;
+        bool eb = edge_mask.z > 0.5, er = edge_mask.y > 0.5;
+        if (eb && er) {
+            float d = length(p - vec2(fs.x - range - rBR, fs.y - range - rBR));
+            a = d <= rBR ? 1.0 : shadow_falloff(d - rBR, range, power);
+        } else if (eb) a = shadow_falloff(p.y - (fs.y - range), range, power);
+        else if (er)   a = shadow_falloff(p.x - (fs.x - range), range, power);
+        else a = 0.0;
+    } else if (p.x < range + rBL && p.y > fs.y - range - rBL) {
+        done = true;
+        bool eb = edge_mask.z > 0.5, el = edge_mask.w > 0.5;
+        if (eb && el) {
+            float d = length(p - vec2(range + rBL, fs.y - range - rBL));
+            a = d <= rBL ? 1.0 : shadow_falloff(d - rBL, range, power);
+        } else if (eb) a = shadow_falloff(p.y - (fs.y - range), range, power);
+        else if (el)   a = shadow_falloff(range - p.x, range, power);
+        else a = 0.0;
+    }
+
+    if (!done) {
+        // edge bands and silhouette interior
+        if (p.x < range)               a = edge_mask.w > 0.5 ? shadow_falloff(range - p.x, range, power) : 0.0;
+        else if (p.x > fs.x - range)   a = edge_mask.y > 0.5 ? shadow_falloff(p.x - (fs.x - range), range, power) : 0.0;
+        else if (p.y < range)          a = edge_mask.x > 0.5 ? shadow_falloff(range - p.y, range, power) : 0.0;
+        else if (p.y > fs.y - range)   a = edge_mask.z > 0.5 ? shadow_falloff(p.y - (fs.y - range), range, power) : 0.0;
+        else                           a = 1.0;
+    }
+
+    // cut out the child footprint
+    if (in_rounded_rect(p, cut.xy, cut.zw, radius, corner_mask))
+        a = 0.0;
+
+    a *= color.a;
+    if (a <= 0.0)
+        discard;
+    frag_color = vec4(color.rgb, a);
+}
+#pragma sokol @end
+
+#pragma sokol @program shadow vs fs_shadow

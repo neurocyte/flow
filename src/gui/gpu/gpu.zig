@@ -125,6 +125,7 @@ const global = struct {
     var blit_uv_pip: sg.Pipeline = .{};
     var blur_pip: sg.Pipeline = .{};
     var blur_compose_pip: sg.Pipeline = .{};
+    var shadow_pip: sg.Pipeline = .{};
     var glyph_sampler: sg.Sampler = .{};
     var cell_sampler: sg.Sampler = .{};
     var src_sampler: sg.Sampler = .{};
@@ -202,7 +203,31 @@ pub fn init(allocator: std.mem.Allocator) !void {
     var blur_compose_desc: sg.PipelineDesc = .{ .shader = blur_compose_shd };
     blur_compose_desc.primitive_type = .TRIANGLE_STRIP;
     blur_compose_desc.color_count = 1;
+    blur_compose_desc.colors[0].blend = .{
+        .enabled = true,
+        .src_factor_rgb = .ONE,
+        .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
+        .op_rgb = .ADD,
+        .src_factor_alpha = .ONE,
+        .dst_factor_alpha = .ONE_MINUS_SRC_ALPHA,
+        .op_alpha = .ADD,
+    };
     global.blur_compose_pip = sg.makePipeline(blur_compose_desc);
+
+    const shadow_shd = sg.makeShader(shader.shadowShaderDesc(sg.queryBackend()));
+    var shadow_desc: sg.PipelineDesc = .{ .shader = shadow_shd };
+    shadow_desc.primitive_type = .TRIANGLE_STRIP;
+    shadow_desc.color_count = 1;
+    shadow_desc.colors[0].blend = .{
+        .enabled = true,
+        .src_factor_rgb = .SRC_ALPHA,
+        .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
+        .op_rgb = .ADD,
+        .src_factor_alpha = .ONE,
+        .dst_factor_alpha = .ONE_MINUS_SRC_ALPHA,
+        .op_alpha = .ADD,
+    };
+    global.shadow_pip = sg.makePipeline(shadow_desc);
 
     global.composite_sample_flip_y = if (sg.queryFeatures().origin_top_left) 0.0 else 1.0;
 
@@ -249,6 +274,7 @@ pub fn deinit() void {
     sg.destroyPipeline(global.blit_uv_pip);
     sg.destroyPipeline(global.blur_pip);
     sg.destroyPipeline(global.blur_compose_pip);
+    sg.destroyPipeline(global.shadow_pip);
     sg.destroySampler(global.glyph_sampler);
     sg.destroySampler(global.cell_sampler);
     sg.destroySampler(global.src_sampler);
@@ -739,6 +765,10 @@ pub const CompositeOp = struct {
     blend: BlendMode,
     /// global alpha multiplier
     alpha: u8,
+    /// corner rounding radius in px (0 = square)
+    radius: f32 = 0,
+    //// per-corner rounding enable mask (tl, tr, br, bl)
+    corners: [4]f32 = .{ 1, 1, 1, 1 },
 
     pub const BlendMode = enum { replace, src_over, src_over_blur };
 };
@@ -784,10 +814,100 @@ pub fn compositeLayer(
     const fs_params = shader.FsCompositeParams{
         .composite_alpha = .{ @as(f32, @floatFromInt(op.alpha)) / 255.0, 0, 0, 0 },
         .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+        .round_geom = .{ @floatFromInt(op.dst_w), @floatFromInt(op.dst_h), op.radius, 0 },
+        .round_mask = op.corners,
     };
     sg.applyUniforms(shader.UB_fs_composite_params, .{
         .ptr = &fs_params,
         .size = @sizeOf(shader.FsCompositeParams),
+    });
+
+    sg.draw(0, 4, 1);
+    sg.endPass();
+}
+
+pub const ShadowOp = struct {
+    /// Intended shadow quad in dst-attachment pixels (top-origin). This is the
+    /// child footprint expanded by `range` on every side, plus the offset; it
+    /// may extend outside the attachment and is clamped here.
+    quad_x: i32,
+    quad_y: i32,
+    quad_w: u16,
+    quad_h: u16,
+    /// Child footprint (cutout) in quad-local pixels.
+    cut_x: f32,
+    cut_y: f32,
+    cut_w: f32,
+    cut_h: f32,
+    range: f32,
+    power: f32,
+    radius: f32,
+    color: [3]f32, // straight rgb in 0..1
+    alpha: f32, // peak opacity in 0..1
+    edge_mask: [4]f32, // top, right, bottom, left
+    corner_mask: [4]f32, // tl, tr, br, bl
+};
+
+/// Draw an analytic drop shadow onto `dst_layer_state`, around and under a
+/// child layer's footprint. Uses `shadow_pip`; the quad is clamped to the
+/// attachment and the clamp is folded into `uv_rect` so the shader still
+/// reasons in full-quad coordinates.
+pub fn drawLayerShadow(dst_layer_state: *const LayerGpuState, op: ShadowOp) void {
+    if (dst_layer_state.pixel_image.id == 0) return;
+    if (op.quad_w == 0 or op.quad_h == 0 or op.alpha <= 0.0) return;
+
+    const att_w: i32 = dst_layer_state.pixel_size.x;
+    const att_h: i32 = dst_layer_state.pixel_size.y;
+    const quad_w: f32 = @floatFromInt(op.quad_w);
+    const quad_h: f32 = @floatFromInt(op.quad_h);
+
+    // clamp viewport to the attachment, tracking the visible sub-rect in
+    // full-quad uv space.
+    var vx = op.quad_x;
+    var vy = op.quad_y;
+    var vw: i32 = op.quad_w;
+    var vh: i32 = op.quad_h;
+    if (vx < 0) {
+        vw += vx;
+        vx = 0;
+    }
+    if (vy < 0) {
+        vh += vy;
+        vy = 0;
+    }
+    if (vx + vw > att_w) vw = att_w - vx;
+    if (vy + vh > att_h) vh = att_h - vy;
+    if (vw <= 0 or vh <= 0) return;
+
+    const uoff: f32 = @as(f32, @floatFromInt(vx - op.quad_x)) / quad_w;
+    const voff: f32 = @as(f32, @floatFromInt(vy - op.quad_y)) / quad_h;
+    const du: f32 = @as(f32, @floatFromInt(vw)) / quad_w;
+    const dv: f32 = @as(f32, @floatFromInt(vh)) / quad_h;
+
+    var pass_action: sg.PassAction = .{};
+    pass_action.colors[0] = .{ .load_action = .LOAD };
+
+    sg.beginPass(.{
+        .attachments = dst_layer_state.attachments(),
+        .action = pass_action,
+    });
+
+    sg.applyViewport(vx, vy, vw, vh, true);
+    sg.applyPipeline(global.shadow_pip);
+    sg.applyBindings(.{});
+
+    const fs_params = shader.FsShadowParams{
+        .color = .{ op.color[0], op.color[1], op.color[2], op.alpha },
+        .full_size = .{ quad_w, quad_h, 0, 0 },
+        .cut = .{ op.cut_x, op.cut_y, op.cut_x + op.cut_w, op.cut_y + op.cut_h },
+        .geom = .{ op.range, op.power, op.radius, 0 },
+        .edge_mask = op.edge_mask,
+        .corner_mask = op.corner_mask,
+        .uv_rect = .{ uoff, voff, du, dv },
+    };
+    sg.applyUniforms(shader.UB_fs_shadow_params, .{
+        .ptr = &fs_params,
+        .size = @sizeOf(shader.FsShadowParams),
     });
 
     sg.draw(0, 4, 1);
@@ -921,6 +1041,8 @@ fn compositeLayerBlur(
             .post0 = .{ params.noise, params.contrast, params.brightness, params.vibrancy },
             .post1 = .{ params.vibrancy_darkness, @as(f32, @floatFromInt(op.alpha)) / 255.0, 0, 0 },
             .bc_sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+            .round_geom = .{ @floatFromInt(op.dst_w), @floatFromInt(op.dst_h), op.radius, 0 },
+            .round_mask = op.corners,
         };
         sg.applyUniforms(shader.UB_fs_blur_compose_params, .{
             .ptr = &compose_params,
@@ -998,6 +1120,8 @@ pub fn presentLayerToSwapchain(
         const fs_params = shader.FsCompositeParams{
             .composite_alpha = .{ 1.0, 0, 0, 0 },
             .sample_flip = .{ global.composite_sample_flip_y, 0, 0, 0 },
+            .round_geom = .{ 0, 0, 0, 0 }, // no rounding for the final present
+            .round_mask = .{ 1, 1, 1, 1 },
         };
         sg.applyUniforms(shader.UB_fs_composite_params, .{
             .ptr = &fs_params,

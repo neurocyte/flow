@@ -125,6 +125,9 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
             .placement = .bottom_left,
         });
         bar_layer.z_index = .statusbar;
+        bar_layer.shadow = .{
+            .edges = .{ .top = true, .right = false, .bottom = false, .left = false },
+        };
         const bar = try @import("status/bar.zig").create(allocator, bar_layer.inner_plane(), tui.config().bottom_bar, bar_style, EventHandler.bind(self, handle_bottom_bar_event));
         bar_layer.set(bar);
         self.bottom_bar = (try widgets.addP(bar_layer.widget())).*;

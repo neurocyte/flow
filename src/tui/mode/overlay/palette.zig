@@ -89,6 +89,9 @@ pub fn Create(options: type) type {
             const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = "palette.layer" });
             menu_layer.blend = .src_over_blur;
             menu_layer.alpha = tui.palette_opacity();
+            menu_layer.radius = 8;
+            menu_layer.corners = .bottom;
+            menu_layer.shadow = .{};
             errdefer menu_layer.deinit(allocator);
             self.* = .{
                 .allocator = allocator,

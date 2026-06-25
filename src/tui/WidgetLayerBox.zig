@@ -40,6 +40,9 @@ prepare_resize: ?*const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widg
 alpha: u8 = 0xFF,
 z_index: Layer.Level = .overlay,
 blend: Layer.Target.Blend = .default,
+radius: u16 = 0,
+corners: Layer.Target.Corners = .all,
+shadow: ?Layer.Target.Shadow = null,
 placement: Placement = .top_left,
 
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
@@ -152,6 +155,9 @@ fn build_target(self: *Self) Layer.Target {
         .alpha = self.alpha,
         .z_index = self.z_index,
         .blend = self.blend,
+        .radius = self.radius,
+        .corners = self.corners,
+        .shadow = self.shadow,
     };
 }
 

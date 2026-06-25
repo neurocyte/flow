@@ -77,6 +77,9 @@ pub const TargetView = struct {
     dst_width: u16 = 0,
     dst_height: u16 = 0,
     z_index: i32 = 0,
+    radius: u16 = 0,
+    corners: Layer.Target.Corners = .all,
+    shadow: ?Layer.Target.Shadow = null,
 };
 
 const LayerSnapshot = struct {
@@ -1295,6 +1298,45 @@ pub fn renderActorTick() void {
             const dst_state = ctx.layers.getPtr(dst_id) orelse continue;
             const dst_x: i32 = (t.dst_x_off + t.x) * cell_w + @as(i32, t.xoffset);
             const dst_y: i32 = (t.dst_y_off + t.y) * cell_h + @as(i32, t.yoffset);
+            // layer shape (shared by the drop shadow and the composite clip)
+            const corners: [4]f32 = .{
+                @floatFromInt(@intFromBool(t.corners.top_left)),
+                @floatFromInt(@intFromBool(t.corners.top_right)),
+                @floatFromInt(@intFromBool(t.corners.bottom_right)),
+                @floatFromInt(@intFromBool(t.corners.bottom_left)),
+            };
+            const radius: f32 = @floatFromInt(t.radius);
+            if (t.shadow) |sh| {
+                const range: i32 = sh.range;
+                const ox: i32 = sh.x_offset;
+                const oy: i32 = sh.y_offset;
+                gpu.drawLayerShadow(dst_state, .{
+                    .quad_x = dst_x + ox - range,
+                    .quad_y = dst_y + oy - range,
+                    .quad_w = @intCast(@as(i32, src_state.pixel_size.x) + 2 * range),
+                    .quad_h = @intCast(@as(i32, src_state.pixel_size.y) + 2 * range),
+                    .cut_x = @floatFromInt(range - ox),
+                    .cut_y = @floatFromInt(range - oy),
+                    .cut_w = @floatFromInt(src_state.pixel_size.x),
+                    .cut_h = @floatFromInt(src_state.pixel_size.y),
+                    .range = @floatFromInt(sh.range),
+                    .power = @floatFromInt(sh.power),
+                    .radius = radius,
+                    .color = .{
+                        @as(f32, @floatFromInt((sh.color >> 16) & 0xFF)) / 255.0,
+                        @as(f32, @floatFromInt((sh.color >> 8) & 0xFF)) / 255.0,
+                        @as(f32, @floatFromInt(sh.color & 0xFF)) / 255.0,
+                    },
+                    .alpha = @as(f32, @floatFromInt(sh.alpha)) / 255.0,
+                    .edge_mask = .{
+                        @floatFromInt(@intFromBool(sh.edges.top)),
+                        @floatFromInt(@intFromBool(sh.edges.right)),
+                        @floatFromInt(@intFromBool(sh.edges.bottom)),
+                        @floatFromInt(@intFromBool(sh.edges.left)),
+                    },
+                    .corner_mask = corners,
+                });
+            }
             gpu.compositeLayer(dst_state, src_state, .{
                 .dst_x = dst_x,
                 .dst_y = dst_y,
@@ -1306,6 +1348,8 @@ pub fn renderActorTick() void {
                     .src_over_blur => .src_over_blur,
                 },
                 .alpha = t.alpha,
+                .radius = radius,
+                .corners = corners,
             });
         }
     }
