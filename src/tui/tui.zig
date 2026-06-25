@@ -947,12 +947,24 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         }
     }.lt);
 
+    const fmt = "  0x{X}\tid:{d}\tz:{d}\torigin_px:{d},{d}\tgrid:{d}x{d}\tcell:{d}x{d}\tpx:{d}x{d}\n";
+
     try writer.writeAll("\nlayers (composite order, low z first):\n");
+    {
+        const s = self.stdplane().window.screen;
+        const cw: i32 = @intCast(s.width_pix / @max(1, s.width));
+        const ch: i32 = @intCast(s.height_pix / @max(1, s.height));
+        try writer.writeAll("           ");
+        try writer.print(
+            fmt,
+            .{ @as(usize, 0), 0, 0, 0, 0, s.width, s.height, cw, ch, s.width_pix, s.height_pix },
+        );
+    }
     for (ctx.layers.items) |l| {
         const cw: i32 = @intCast(l.screen.width_pix / @max(1, l.screen.width));
         const ch: i32 = @intCast(l.screen.height_pix / @max(1, l.screen.height));
         try writer.print(
-            "  0x{X}  id:{d}  z:{d}  origin_px:{d},{d}  grid:{d}x{d}  cell:{d}x{d}  px:{d}x{d}\n",
+            fmt,
             .{
                 @intFromPtr(l),
                 @intFromEnum(l.id),
