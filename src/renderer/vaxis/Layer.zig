@@ -147,9 +147,9 @@ pub const Level = enum(i32) {
     background = -1,
     root = 0,
     main = 1,
-    statusbar = 2,
-    modal = 3,
-    overlay = 4,
+    statusbar = 20,
+    modal = 30,
+    overlay = 40,
     top = 99,
     _,
 
