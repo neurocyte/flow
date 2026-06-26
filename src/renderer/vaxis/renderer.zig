@@ -262,8 +262,6 @@ fn draw_target(target: *const Layer.Target) void {
     if (target.x >= target.dst.width) return;
     if (target.y >= target.dst.height) return;
 
-    const src_y = 0;
-    const src_x = 0;
     const src_h: usize = target.src.screen.height;
     const src_w = target.src.screen.width;
 
@@ -272,17 +270,50 @@ fn draw_target(target: *const Layer.Target) void {
     const dst_y = target.y;
     const dst_x = target.x;
     const dst_w = @min(src_w, dst_dim_x - dst_x);
+    if (dst_w <= 0) return;
 
-    for (src_y..src_h) |src_row_| {
+    for (0..src_h) |src_row_| {
         const src_row: i32 = @intCast(src_row_);
+        if (dst_y + src_row >= dst_dim_y) return;
         const src_row_offset = src_row * src_w;
         const dst_row_offset = (dst_y + src_row) * target.dst.screen.width;
-        if (dst_y + src_row >= dst_dim_y) return;
-        @memcpy(
-            target.dst.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)],
-            target.src.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
-        );
+        const dst_slice = target.dst.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)];
+        const src_slice = target.src.screen.buf[@intCast(src_row_offset)..@intCast(src_row_offset + dst_w)];
+        switch (target.blend) {
+            .src_over => for (dst_slice, src_slice) |*dst_cell, src_cell|
+                blend_cell_src_over(dst_cell, src_cell, target.alpha),
+            else => @memcpy(dst_slice, src_slice),
+        }
     }
+}
+
+fn blend_cell_src_over(dst: *vaxis.Cell, src: vaxis.Cell, alpha: u8) void {
+    if (alpha == 0) return;
+    if (cell_is_blank(src)) {
+        dst.style.fg = blend_color(dst.style.fg, src.style.bg, alpha);
+        dst.style.bg = blend_color(dst.style.bg, src.style.bg, alpha);
+        dst.style.ul = blend_color(dst.style.ul, src.style.bg, alpha);
+    } else {
+        dst.* = src;
+        dst.style.bg = blend_color(dst.style.bg, src.style.bg, alpha);
+    }
+}
+
+fn cell_is_blank(cell: vaxis.Cell) bool {
+    const g = cell.char.grapheme;
+    return g.len == 0 or (g.len == 1 and g[0] == ' ');
+}
+
+fn blend_color(base: vaxis.Cell.Color, over: vaxis.Cell.Color, alpha: u8) vaxis.Cell.Color {
+    const b = if (base == .rgb) base.rgb else return base;
+    const o = if (over == .rgb) over.rgb else return base;
+    const inv: u32 = 255 - @as(u32, alpha);
+    const a: u32 = alpha;
+    return .{ .rgb = .{
+        @intCast((@as(u32, b[0]) * inv + @as(u32, o[0]) * a) / 255),
+        @intCast((@as(u32, b[1]) * inv + @as(u32, o[1]) * a) / 255),
+        @intCast((@as(u32, b[2]) * inv + @as(u32, o[2]) * a) / 255),
+    } };
 }
 
 pub fn render(self: *Self) !?i64 {
