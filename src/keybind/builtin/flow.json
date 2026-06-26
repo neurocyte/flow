@@ -2,6 +2,7 @@
     "project": {
         "press": [
             ["f1", "open_help"],
+            ["alt+f8", "dump_widget_tree"],
             ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
             ["shift+f1", "scroll_keybind_hints"],
