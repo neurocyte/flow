@@ -82,6 +82,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.drag_to(cell.row, cell.yoffset);
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
+        tui.rdr().request_mouse_cursor(.default, self.hover);
         if (old_hover != self.hover)
             tui.need_render(@src());
         return true;
