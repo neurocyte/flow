@@ -1,18 +1,19 @@
 const std = @import("std");
 const tp = @import("thespian");
-const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const Plane = @import("renderer").Plane;
-const input = @import("input");
+const renderer = @import("renderer");
+const Plane = renderer.Plane;
+const Layer = renderer.Layer;
 const MouseEvent = @import("MouseEvent");
+
+const dim_color: u24 = 0x000000;
 
 pub fn Options(context: type) type {
     return struct {
         ctx: Context,
 
-        dim: u8 = 255,
         dim_target: u8 = 192,
 
         on_click: *const fn (ctx: context, self: *State(Context)) void = on_click_exit_overlay_mode,
@@ -21,8 +22,6 @@ pub fn Options(context: type) type {
         on_click4: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
         on_click5: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
         on_render: *const fn (ctx: context, self: *State(Context), theme: *const Widget.Theme) bool = on_render_dim,
-        on_layout: *const fn (ctx: context) Widget.Layout = on_layout_default,
-        on_resize: *const fn (ctx: context, state: *State(Context), box: Widget.Box) void = on_resize_default,
 
         pub const Context = context;
         pub fn do_nothing(_: context, _: *State(Context)) void {}
@@ -35,39 +34,28 @@ pub fn Options(context: type) type {
             return false;
         }
 
-        pub fn on_render_dim(_: context, self: *State(Context), _: *const Widget.Theme) bool {
-            const frame_time_ms = @divTrunc(1000, self.frame_rate);
-            const fade_steps = @max(self.fade_time_ms / frame_time_ms, 1);
-            const step_size: u8 = @intCast((255 - self.opts.dim_target) / fade_steps);
-            const height = self.plane.dim_y();
-            const width = self.plane.dim_x();
-            for (0..height) |y| for (0..width) |x|
-                dim_cell(&self.plane, y, x, self.opts.dim) catch {};
-            if (self.opts.dim > self.opts.dim_target) {
-                self.opts.dim -= step_size;
-                return true;
-            }
-            return false;
+        pub fn on_render_dim(_: context, _: *State(Context), _: *const Widget.Theme) bool {
+            return true;
         }
-
-        pub fn on_layout_default(_: context) Widget.Layout {
-            return .dynamic;
-        }
-
-        pub fn on_resize_default(_: context, _: *State(Context), _: Widget.Box) void {}
     };
 }
 
 pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Widget, opts: Options(ctx_type)) !*State(ctx_type) {
     const self = try allocator.create(State(ctx_type));
     errdefer allocator.destroy(self);
+    const layer = try Layer.init(allocator, .{ .h = 1, .w = 1 });
+    errdefer layer.deinit();
     self.* = .{
         .allocator = allocator,
         .plane = parent.plane.*,
+        .layer = layer,
         .opts = opts,
+        .target_alpha = 255 -| opts.dim_target,
         .fade_time_ms = tui.config().animation_max_lag,
         .frame_rate = @intCast(tp.env.get().num("frame-rate")),
     };
+    layer.z_index = .modal;
+    self.plane.layer = layer;
     return self;
 }
 
@@ -75,7 +63,10 @@ pub fn State(ctx_type: type) type {
     return struct {
         allocator: std.mem.Allocator,
         plane: Plane,
+        layer: *Layer,
         opts: options_type,
+        target_alpha: u8,
+        alpha: u8 = 0,
         fade_time_ms: usize,
         frame_rate: usize,
         hover: bool = false,
@@ -84,16 +75,55 @@ pub fn State(ctx_type: type) type {
         const options_type = Options(ctx_type);
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.plane.deinit();
+            self.layer.deinit();
             allocator.destroy(self);
-        }
-
-        pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-            if (!tui.config().enable_modal_dim) return false;
-            return self.opts.on_render(self.opts.ctx, self, theme);
         }
 
         pub fn widget(self: *Self) Widget {
             return Widget.to(self);
+        }
+
+        fn fill_dim(self: *Self) void {
+            var plane = self.layer.plane();
+            plane.set_base_style(.{ .bg = .{ .color = dim_color } });
+            plane.erase();
+        }
+
+        pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+            if (!tui.config().enable_modal_dim) return false;
+            if (!self.opts.on_render(self.opts.ctx, self, theme)) return false;
+
+            const root = tui.plane();
+            const screen = root.window.screen;
+            self.layer.resize(screen.width, screen.height, screen.width_pix, screen.height_pix) catch return false;
+            self.layer.z_index = .modal;
+            self.layer.origin_px_x = 0;
+            self.layer.origin_px_y = 0;
+
+            self.fill_dim();
+
+            _ = tui.submit_layer(.{
+                .src = self.layer,
+                .dst = root.window,
+                .x = 0,
+                .y = 0,
+                .alpha = self.alpha,
+                .z_index = .modal,
+                .blend = .src_over,
+            });
+
+            if (self.alpha < self.target_alpha) {
+                self.alpha = @min(self.target_alpha, self.alpha +| self.fade_step());
+                return true;
+            }
+            return false;
+        }
+
+        fn fade_step(self: *Self) u8 {
+            const frame_time_ms = @max(@divTrunc(@as(i64, 1000), @as(i64, @intCast(self.frame_rate))), 1);
+            const fade_steps = @max(self.fade_time_ms / @as(usize, @intCast(frame_time_ms)), 1);
+            return @intCast(@max(self.target_alpha / fade_steps, 1));
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -124,12 +154,4 @@ pub fn State(ctx_type: type) type {
             }
         }
     };
-}
-
-fn dim_cell(plane: *Plane, y: usize, x: usize, dim_target: u8) !void {
-    plane.cursor_move_yx(@intCast(y), @intCast(x));
-    var cell = plane.cell_init();
-    _ = plane.at_cursor_cell(&cell) catch return;
-    cell.dim(dim_target);
-    _ = plane.putc(&cell) catch {};
 }
