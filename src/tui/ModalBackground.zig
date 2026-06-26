@@ -10,10 +10,13 @@ const MouseEvent = @import("MouseEvent");
 
 const dim_color: u24 = 0x000000;
 
+pub const Effect = enum { none, dim };
+
 pub fn Options(context: type) type {
     return struct {
         ctx: Context,
 
+        effect: Effect = .dim,
         dim_target: u8 = 192,
 
         on_click: *const fn (ctx: context, self: *State(Context)) void = on_click_exit_overlay_mode,
@@ -21,21 +24,12 @@ pub fn Options(context: type) type {
         on_click3: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
         on_click4: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
         on_click5: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
-        on_render: *const fn (ctx: context, self: *State(Context), theme: *const Widget.Theme) bool = on_render_dim,
 
         pub const Context = context;
         pub fn do_nothing(_: context, _: *State(Context)) void {}
 
         fn on_click_exit_overlay_mode(_: context, _: *State(Context)) void {
             tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch {};
-        }
-
-        pub fn on_render_default(_: context, _: *State(Context), _: *const Widget.Theme) bool {
-            return false;
-        }
-
-        pub fn on_render_dim(_: context, _: *State(Context), _: *const Widget.Theme) bool {
-            return true;
         }
     };
 }
@@ -90,9 +84,9 @@ pub fn State(ctx_type: type) type {
             plane.erase();
         }
 
-        pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+        pub fn render(self: *Self, _: *const Widget.Theme) bool {
             if (!tui.config().enable_modal_dim) return false;
-            if (!self.opts.on_render(self.opts.ctx, self, theme)) return false;
+            if (self.opts.effect == .none) return false;
 
             const root = tui.plane();
             const screen = root.window.screen;
