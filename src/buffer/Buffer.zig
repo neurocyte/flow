@@ -21,7 +21,38 @@ pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
 
-pub const FindMode = enum { exact, case_folded, regex };
+pub const FindMode = enum {
+    auto,
+    exact,
+    case_folded,
+    regex_auto,
+    regex,
+    regex_case_folded,
+
+    fn is_case_folded_query(allocator: Allocator, query: []const u8) bool {
+        const folded_query = unicode.case_fold(allocator, query) catch return true;
+        defer allocator.free(folded_query);
+        return std.mem.eql(u8, query, folded_query);
+    }
+
+    pub fn toggleCase(self: @This()) @This() {
+        return switch (self) {
+            .auto => .exact,
+            .exact => .case_folded,
+            .case_folded => .auto,
+            .regex_auto => .regex,
+            .regex => .regex_case_folded,
+            .regex_case_folded => .regex_auto,
+        };
+    }
+
+    pub fn toggleRegex(self: @This()) @This() {
+        return switch (self) {
+            .auto, .exact, .case_folded => .regex_auto,
+            .regex_auto, .regex, .regex_case_folded => .auto,
+        };
+    }
+};
 
 pub const Metrics = struct {
     ctx: *const anyopaque,
@@ -1043,7 +1074,7 @@ const Node = union(enum) {
                             ctx.rest = ctx.buf[0 .. ctx.rest.len + folded.len];
                             input = input[folded.len..];
                         },
-                        .regex => unreachable,
+                        .auto, .regex_auto, .regex, .regex_case_folded => unreachable,
                     }
 
                     if (ctx.rest.len < ctx.pattern.len)
@@ -1091,12 +1122,12 @@ const Node = union(enum) {
             .case_folded => unicode.case_fold(allocator, pattern) catch
                 allocator.dupe(u8, pattern) catch
                 @panic("OOM find_all_ranges"),
-            .regex => unreachable,
+            .auto, .regex_auto, .regex, .regex_case_folded => unreachable,
         };
         defer switch (mode) {
             .exact => {},
             .case_folded => allocator.free(pattern_),
-            .regex => unreachable,
+            .auto, .regex_auto, .regex, .regex_case_folded => unreachable,
         };
         var ctx: Ctx = .{
             .allocator = allocator,
@@ -1934,19 +1965,17 @@ pub fn find_all_ranges(
     mode: FindMode,
     allocator: Allocator,
 ) error{ OutOfMemory, Stop }!void {
-    switch (mode) {
-        .regex => {
+    mode: switch (mode) {
+        .regex, .regex_case_folded => |m| {
             var re = Regex.compile(allocator, pattern, .{
                 .syntax = .{
                     .multi_line = true,
                     .unicode = true,
+                    .case_insensitive = m == .regex_case_folded,
                 },
             }) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                else => {
-                    // TODO: do we need to do anything if the user types in malformed regex?
-                    return;
-                },
+                else => return, // ignore malformed regex
             };
             defer re.deinit();
             const cached_text = self.store_to_string_cached(self.root, .lf);
@@ -1986,6 +2015,14 @@ pub fn find_all_ranges(
                 callback(data, begin.row, begin.col, end.row, end.col) catch return error.Stop;
             }
         },
-        else => return self.root.find_all_ranges(pattern, data, callback, mode, allocator),
+        .exact, .case_folded => |m| return self.root.find_all_ranges(pattern, data, callback, m, allocator),
+        .auto => {
+            const is_case_folded = FindMode.is_case_folded_query(allocator, pattern);
+            if (is_case_folded) continue :mode .case_folded else continue :mode .exact;
+        },
+        .regex_auto => {
+            const is_case_folded = FindMode.is_case_folded_query(allocator, pattern);
+            if (is_case_folded) continue :mode .regex_case_folded else continue :mode .regex;
+        },
     }
 }
