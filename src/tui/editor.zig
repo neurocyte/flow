@@ -362,6 +362,7 @@ pub const Editor = struct {
     last_find_query: ?[]const u8 = null,
     last_find_query_match_type: Match.Type = .none,
     last_find_query_find_mode: Buffer.FindMode = .exact,
+    find_mode: ?Buffer.FindMode = null,
     find_history: ?std.ArrayListUnmanaged([]const u8) = null,
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
     highlight_references_state: enum { adding, done } = .done,
@@ -539,7 +540,7 @@ pub const Editor = struct {
     }
 
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 13);
+        try cbor.writeArrayHeader(writer, 15);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
@@ -563,6 +564,8 @@ pub const Editor = struct {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             try cursel.write(writer);
         };
+        try cbor.writeValue(writer, self.last_find_query_find_mode);
+        try cbor.writeValue(writer, self.find_mode);
     }
 
     pub fn extract_state(self: *Self, iter: *[]const u8, comptime op: Buffer.ExtractStateOperation, now: std.Io.Timestamp) !void {
@@ -588,6 +591,8 @@ pub const Editor = struct {
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
+            tp.extract(&self.last_find_query_find_mode),
+            tp.extract(&self.find_mode),
         }))
             return error.RestoreStateMatch;
         self.clear_event_triggers();
@@ -6334,8 +6339,7 @@ pub const Editor = struct {
         var match_type: Match.Type = undefined;
         var find_mode: Buffer.FindMode = .exact;
         if (ctx.args.match(.{tp.extract(&query)}) catch false) {
-            self.match_type = .find;
-            try self.find_in_buffer(query, .none, find_mode, ctx);
+            try self.find_in_buffer(query, .find, find_mode, ctx);
             self.clamp(ctx.now);
         } else if (ctx.args.match(.{ tp.extract(&query), tp.extract(&match_type) }) catch false) {
             try self.find_in_buffer(query, match_type, find_mode, ctx);
@@ -6350,7 +6354,7 @@ pub const Editor = struct {
     pub fn find_word_at_cursor(self: *Self, ctx: Context) Result {
         const query: []const u8 = try self.copy_word_at_cursor(self.allocator);
         defer self.allocator.free(query);
-        try self.find_in_buffer(query, .find, self.last_find_query_find_mode, ctx);
+        try self.find_in_buffer(query, .find, self.find_mode orelse .auto, ctx);
     }
     pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for the word under the cursor" };
 
@@ -6385,7 +6389,7 @@ pub const Editor = struct {
         self.last_find_query_match_type = match_type;
         self.last_find_query_find_mode = find_mode;
         if (self.last_find_query) |last| {
-            if (query.ptr != last.ptr) {
+            if (!std.mem.eql(u8, query, last)) {
                 self.allocator.free(last);
                 self.last_find_query = self.allocator.dupe(u8, query) catch return;
             }

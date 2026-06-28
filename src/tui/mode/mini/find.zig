@@ -6,27 +6,21 @@ const keybind = @import("keybind");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const Buffer = @import("Buffer");
+const Mode = Buffer.FindMode;
 
 const tui = @import("../../tui.zig");
 const ed = @import("../../editor.zig");
 
-const Allocator = @import("std").mem.Allocator;
-const eql = @import("std").mem.eql;
-const lastIndexOfAny = @import("std").mem.lastIndexOfAny;
-const ArrayList = @import("std").ArrayList;
-const Writer = @import("std").Io.Writer;
-const Timestamp = @import("std").Io.Timestamp;
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const eql = std.mem.eql;
+const findLastAny = std.mem.findLastAny;
+const ArrayList = std.ArrayList;
+const Timestamp = std.Io.Timestamp;
 
 const Self = @This();
-const name = "󱎸 find";
-const name_auto = name;
-const name_exact = name ++ "  ";
-const name_case_folded = name ++ "  ";
-const name_case_regex = name ++ " 󰑑 ";
 
 const Commands = command.Collection(cmds);
-
-const Mode = enum { auto, exact, case_folded, regex };
 
 allocator: Allocator,
 input_: ArrayList(u8),
@@ -45,36 +39,36 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     self.* = .{
         .allocator = allocator,
         .input_ = .empty,
-        .find_mode = default_find_mode(),
+        .find_mode = editor.find_mode orelse default_find_mode(),
         .last_input = .empty,
         .start_view = editor.view,
         .start_cursor = editor.get_primary().cursor,
         .editor = editor,
     };
     try self.commands.init(self);
-    _ = ctx.args.match(.{cbor.extract(&self.find_mode)}) catch {};
     var query: []const u8 = undefined;
     if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&query) }) catch false) {
+        editor.find_mode = self.find_mode;
         try self.input_.appendSlice(self.allocator, query);
-    } else switch (tui.config().initial_find_query) {
-        .empty => {},
-        .selection => try self.set_from_current_selection(editor),
-        .last_query => self.find_history_prev(),
-        .selection_or_last_query => {
-            try self.set_from_current_selection(editor);
-            if (self.input_.items.len == 0) self.find_history_prev();
-        },
+    } else {
+        if (ctx.args.match(.{cbor.extract(&self.find_mode)}) catch false) {
+            editor.find_mode = self.find_mode;
+        }
+        switch (tui.config().initial_find_query) {
+            .empty => {},
+            .selection => try self.set_from_current_selection(editor),
+            .last_query => self.find_history_prev(),
+            .selection_or_last_query => {
+                try self.set_from_current_selection(editor);
+                if (self.input_.items.len == 0) self.find_history_prev();
+            },
+        }
     }
     var mode = try keybind.mode("mini/find", allocator, .{
         .insert_command = "mini_mode_insert_bytes",
     });
     mode.event_handler = EventHandler.to_owned(self);
-    return .{ mode, .{ .name = switch (self.find_mode) {
-        .auto => name_auto,
-        .exact => name_exact,
-        .case_folded => name_case_folded,
-        .regex => name_case_regex,
-    } } };
+    return .{ mode, .{ .name = find_mode_name(self.find_mode) } };
 }
 
 pub fn deinit(self: *Self) void {
@@ -90,6 +84,18 @@ fn default_find_mode() Mode {
         return .regex;
     }
     return .auto;
+}
+
+fn find_mode_name(find_mode: Mode) []const u8 {
+    const base = "󱎸 find";
+    return switch (find_mode) {
+        .auto => base,
+        .exact => base ++ "  ",
+        .case_folded => base ++ "  ",
+        .regex_auto => base ++ " 󰑑 ",
+        .regex => base ++ " 󰑑   ",
+        .regex_case_folded => base ++ " 󰑑  ",
+    };
 }
 
 fn set_from_current_selection(self: *Self, editor: *ed.Editor) !void {
@@ -125,31 +131,21 @@ fn insert_bytes(self: *Self, bytes: []const u8) !void {
 }
 
 fn flush_input(self: *Self, now: Timestamp) !void {
-    if (self.input_.items.len > 0) {
-        if (eql(u8, self.input_.items, self.last_input.items))
+    self.editor.find_mode = self.find_mode;
+    const pattern = self.input_.items;
+    if (pattern.len > 0) {
+        if (eql(u8, pattern, self.last_input.items))
             return;
         self.last_input.clearRetainingCapacity();
-        try self.last_input.appendSlice(self.allocator, self.input_.items);
+        try self.last_input.appendSlice(self.allocator, pattern);
         self.editor.find_operation = .goto_next_match;
         const primary = self.editor.get_primary();
         primary.selection = null;
         primary.cursor = self.start_cursor;
-        try self.editor.find_in_buffer(self.input_.items, .find, switch (self.find_mode) {
-            .auto => self.auto_detect_mode(),
-            .exact => .exact,
-            .case_folded => .case_folded,
-            .regex => .regex,
-        }, .empty());
+        try self.editor.find_in_buffer(pattern, .find, self.find_mode, .empty());
     } else {
         self.reset(now);
     }
-}
-
-fn auto_detect_mode(self: *Self) Buffer.FindMode {
-    const pattern = self.input_.items;
-    const folded = Buffer.unicode.case_fold(self.allocator, pattern) catch return .case_folded;
-    defer self.allocator.free(folded);
-    return if (eql(u8, pattern, folded)) .case_folded else .exact;
 }
 
 fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
@@ -213,23 +209,27 @@ const cmds = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
-    pub fn toggle_find_mode(self: *Self, ctx: Ctx) Result {
-        const new_find_mode: Buffer.FindMode = switch (self.find_mode) {
-            .exact => .case_folded,
-            .case_folded => .regex,
-            .regex => .exact,
-            .auto => if (Buffer.unicode.is_lowercase(self.input_.items))
-                .exact
-            else
-                .case_folded,
-        };
-        const allocator = self.allocator;
-        const query = try allocator.dupe(u8, self.input_.items);
-        defer allocator.free(query);
+    fn toggle_find_mode(self: *Self, ctx: Ctx, new_find_mode: Mode) Result {
+        const a = self.allocator;
+        const query = try a.dupe(u8, self.input_.items);
+        defer a.free(query);
+        self.find_mode = new_find_mode;
+        self.editor.find_mode = new_find_mode;
         self.cancel(ctx);
         command.executeName("find", command.fmt(.{ new_find_mode, query })) catch {};
     }
-    pub const toggle_find_mode_meta: Meta = .{ .description = "Toggle find mode" };
+
+    pub fn toggle_find_mode_case_folded(self: *Self, ctx: Ctx) Result {
+        const new_find_mode = self.find_mode.toggleCase();
+        return toggle_find_mode(self, ctx, new_find_mode);
+    }
+    pub const toggle_find_mode_case_folded_meta: Meta = .{ .description = "Toggle case folded find mode" };
+
+    pub fn toggle_find_mode_regex(self: *Self, ctx: Ctx) Result {
+        const new_find_mode = self.find_mode.toggleRegex();
+        return toggle_find_mode(self, ctx, new_find_mode);
+    }
+    pub const toggle_find_mode_regex_meta: Meta = .{ .description = "Toggle regex find mode" };
 
     pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
         self.input_.clearRetainingCapacity();
@@ -273,7 +273,7 @@ const cmds = struct {
     pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
 
     pub fn mini_mode_delete_word_left(self: *Self, _: Ctx) Result {
-        if (lastIndexOfAny(u8, self.input_.items, "/\\. -_")) |pos| {
+        if (findLastAny(u8, self.input_.items, "/\\. -_")) |pos| {
             self.input_.shrinkRetainingCapacity(pos);
         } else {
             self.input_.shrinkRetainingCapacity(0);
