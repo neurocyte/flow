@@ -8,13 +8,13 @@ used anywhere else.
 
 For Kitty rebinding `kitty_mod` by adding this line to your kitty.conf is
 usually enough:
+
 ```
 kitty_mod ctrl+alt
 ```
 
 For other terminals you will probably have to disable or rebind them each
 individually.
-
 
 ## Searching
 
@@ -23,6 +23,18 @@ ctrl+n/ctrl+p or f3/shift+f3 to jump through the matches. Press Enter to
 exit find mode at the current match or Escape to return to your starting
 point.
 
+Normal text search and regular expression search are supported. While the
+find prompt is open:
+
+- alt+c => Cycle case mode: auto, exact, case-folded
+- alt+r => Toggle between normal search and regular expression search
+
+The auto case mode is smart-case: a query with no uppercase letters searches
+case-folded, while a query containing uppercase letters searches exactly.
+Regex search has the same case modes: regex auto, regex exact and regex
+case-folded.
+
+The selected find mode is persisted between sessions.
 
 ## Messages and logs
 
@@ -31,7 +43,6 @@ to close flow with unsaved files, as well as other information are shown
 briefly in the bottom status bar; most recent messages can be seen in the
 log view too, to open it, use ctrl+shift+p > `View log`; it's possible to
 make it taller dragging the toolbar with the mouse up or downwards.
-
 
 ## Input Modes
 
@@ -109,7 +120,6 @@ editing.
 See the `ctrl+f2` palette when flow mode is selected to see the full list
 of keybindings for this mode.
 
-
 ### Vim mode
 
 The vim modes, shown as NORMAL, INSERT or VISUAL in the status bar, follow
@@ -117,7 +127,6 @@ the basic modal editing style of vim. The basics follow vim closely, but
 more advanced vim functions (e.g. macros and registers) are not supported
 (yet). Keybindings from flow mode that do not conflict with vim keybindings
 also work in vim mode.
-
 
 ### Helix mode
 
@@ -137,41 +146,41 @@ Mouse commands are NOT rebindable and are not listed in the command
 palette.
 
 - Left Click =>
-        Clear all cursors and selections and the place cursor at the mouse
-        pointer
+  Clear all cursors and selections and the place cursor at the mouse
+  pointer
 
 - Double Left Click =>
-        Select word at mouse pointer
+  Select word at mouse pointer
 
 - Triple Left Click =>
-        Select line at mouse pointer
+  Select line at mouse pointer
 
 - Drag Left Click =>
-        Extend selection to mouse pointer
+  Extend selection to mouse pointer
 
 - Alt + Left Click =>
-        Add cursor at mouse click
+  Add cursor at mouse click
 
 - Ctrl + Left Click =>
-        Goto definition of symbol at click
+  Goto definition of symbol at click
 
 - hold Alt =>
-        Enable jump/hover mouse mode
+  Enable jump/hover mouse mode
 
 - Right Click =>
-        Extend selection to mouse pointer
+  Extend selection to mouse pointer
 
 - Middle Click =>
-        Close tab
+  Close tab
 
 - Back Button, Forward Button =>
-        Jump to previous/next location in the location history
+  Jump to previous/next location in the location history
 
 - Scroll Wheel =>
-        Scroll
+  Scroll
 
 - Alt + Scroll Wheel =>
-        Fast scroll
+  Fast scroll
 
 ## Configuration
 
@@ -180,6 +189,7 @@ Configuration is stored in the standard location
 
 The default configuration will be written the first time Flow Control is
 started and looks similar to this:
+
 ```
 frame_rate 60
 theme "default"
