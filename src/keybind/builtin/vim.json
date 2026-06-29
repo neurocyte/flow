@@ -7,11 +7,28 @@
         "syntax": "vim",
         "on_match_failure": "ignore",
         "press": [
-            ["<Space><Space>", "find_file"],
-            ["<Space>b", "switch_buffers"],
             ["<Space>/", "find_in_files"],
+            ["<Space>'", "last_palette"],
 
-            ["<Space>gs", "show_vcs_status"]
+            ["<Space>f", "find_file"],
+            ["<Space>b", "switch_buffers"],
+            ["<Space>e", "open_file_tree"],
+
+            ["<Space>cd", "show_diagnostics"],
+            ["<Space>cf", "format"],
+            ["<Space>cr", "rename_symbol"],
+            ["<Space>cs", "show_symbols"],
+
+            ["<Space>gs", "show_vcs_status"],
+
+            ["<Space>sd", "show_diagnostics"],
+            ["<Space>ss", "show_symbols"],
+
+            ["<Space>wd", "close_split"],
+            ["<Space>wm", "toggle_centered_view"],
+            ["<Space>wo", "close_splits"],
+            ["<Space>wq", "close_split"],
+            ["<Space>wv", "add_split"]
         ]
     },
     "normal": {
@@ -23,28 +40,61 @@
         "cursor": "block",
         "selection": "normal",
         "press": [
-            ["<C-w>", "close_file"],
+            ["<Esc>", "cancel"],
+            ["<C-[>", "cancel"],
             ["<C-s>", "save_file"],
-            ["b", "move_word_left_vim"],
-            ["w", "move_word_right_vim"],
-            ["W", "move_word_right"],
-            ["B", "move_word_left"],
-            ["e", "move_word_right_end_vim"],
-            ["x", "cut_forward_internal"],
-            ["s", ["enter_mode", "insert"], ["cut_forward_internal"]],
-            ["u", "undo"],
 
+            ["h", "move_left_vim"],
             ["j", "move_down_vim"],
             ["k", "move_up_vim"],
             ["l", "move_right_vim"],
-            ["h", "move_left_vim"],
-
+            ["<Left>", "move_left_vim"],
             ["<Down>", "move_down_vim"],
             ["<Up>", "move_up_vim"],
             ["<Right>", "move_right_vim"],
-            ["<Left>", "move_left_vim"],
 
-            ["J", "join_next_line"],
+            ["w", "move_word_right_vim"],
+            ["e", "move_word_right_end_vim"],
+            ["b", "move_word_left_vim"],
+            ["W", "move_word_right"],
+            ["B", "move_word_left"],
+
+            ["^", "smart_move_begin"],
+            ["$", "move_end"],
+            ["<Home>", "move_begin"],
+            ["<End>", "move_end"],
+            ["<CR>", ["move_down"], ["move_begin"]],
+            ["<C-CR>", ["move_down"], ["move_begin"]],
+            ["+", ["move_down"], ["move_begin"]],
+            ["-", ["move_up"], ["move_begin"]],
+            ["gg", "goto_line_vim"],
+            ["G", "move_buffer_end"],
+            ["{", "move_par_begin"],
+            ["}", "move_par_end"],
+            ["%", "goto_bracket"],
+
+            ["<A-o>", "expand_selection"],
+            ["<A-i>", "shrink_selection"],
+
+            ["/", "find"],
+            ["*", "find_word_at_cursor"],
+            ["n", "goto_next_match"],
+            ["N", "goto_prev_match"],
+            ["F", "move_to_char", "move_to_char_left"],
+            ["T", "move_to_char", "move_till_char_left"],
+            ["f", "move_to_char", "move_to_char_right"],
+            ["t", "move_to_char", "move_till_char_right"],
+
+            ["<C-b>", "move_scroll_page_up"],
+            ["<C-f>", "move_scroll_page_down"],
+            ["<C-u>", "move_scroll_half_page_up_vim"],
+            ["<C-d>", "move_scroll_half_page_down_vim"],
+            ["<C-y>", "scroll_up"],
+            ["<C-e>", "scroll_down"],
+            ["zt", "scroll_view_top"],
+            ["zc", "scroll_view_center"],
+            ["zz", "scroll_view_center"],
+            ["zb", "scroll_view_bottom"],
 
             ["i", "enter_mode", "insert"],
             ["a", ["enter_mode", "insert"], ["move_right"]],
@@ -53,30 +103,14 @@
             ["o", ["enter_mode", "insert"], ["smart_insert_line_after"]],
             ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
+            ["x", "cut_forward_internal"],
+            ["X", "cut_forward_internal"],
+            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]],
+            ["~", "switch_case"],
+            ["J", "join_next_line"],
             ["<GT><GT>", "indent"],
             ["<LT><LT>", "unindent"],
-
-            ["v", "enter_mode", "visual"],
-            ["V", ["enter_mode", "visual line"], ["select_line_vim"]],
-            ["<C-v>", "enter_mode", "visual block"],
-
-            ["n", "goto_next_match"],
-            ["N", "goto_prev_match"],
-            ["^", "smart_move_begin"],
-            ["$", "move_end"],
-            ["%", "goto_bracket"],
-            [":", "open_command_palette"],
-
-            ["p", "paste_internal_vim"],
-            ["P", "paste_internal_vim"],
-
-            ["gd", "goto_definition"],
-            ["gi", "goto_implementation"],
-            ["gy", "goto_type_definition"],
-            ["gg", "goto_line_vim"],
-            ["gr", "references"],
-            ["gD", "goto_declaration"],
-            ["G", "move_buffer_end"],
+            ["gcc", "toggle_comment"],
 
             ["d$", "cut_to_end_vim"],
             ["dw", "cut_word_right_vim"],
@@ -112,9 +146,8 @@
             ["da\"", "cut_around_double_quotes"],
             ["da`", "cut_around_backticks"],
 
-            ["cc", ["enter_mode", "insert"], ["cut_internal_vim"]],
             ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
-            ["D", "cut_to_end_vim"],
+            ["cc", ["enter_mode", "insert"], ["cut_internal_vim"]],
             ["cw", ["enter_mode", "insert"], ["cut_word_right_vim"]],
             ["cb", ["enter_mode", "insert"], ["cut_word_left_vim"]],
 
@@ -144,7 +177,11 @@
             ["ca\"", ["enter_mode", "insert"], ["cut_around_double_quotes"]],
             ["ca`", ["enter_mode", "insert"], ["cut_around_backticks"]],
 
+            ["D", "cut_to_end_vim"],
+            ["Y", ["copy_line_internal_vim"], ["cancel"]],
             ["yy", ["copy_line_internal_vim"], ["cancel"]],
+            ["p", "paste_internal_vim"],
+            ["P", "paste_internal_vim"],
 
             ["yiw", ["copy_inside_word"], ["cancel"]],
             ["yi(", ["copy_inside_parentheses"], ["cancel"]],
@@ -172,32 +209,42 @@
             ["ya\"", ["copy_around_double_quotes"], ["cancel"]],
             ["ya`", ["copy_around_backticks"], ["cancel"]],
 
-            ["<C-u>", "move_scroll_half_page_up_vim"],
-            ["<C-d>", "move_scroll_half_page_down_vim"],
+            ["v", "enter_mode", "visual"],
+            ["V", ["enter_mode", "visual line"], ["select_line_vim"]],
+            ["<C-v>", "enter_mode", "visual block"],
 
-            ["zz", "scroll_view_center"],
-
+            [":", "open_command_palette"],
             ["u", "undo"],
             ["<C-r>", "redo"],
             ["<C-o>", "jump_back"],
             ["<C-i>", "jump_forward"],
-            ["<C-y>", "redo"],
 
-            ["/", "find"],
-            ["*", "find_word_at_cursor"],
-
-            ["<C-k>", "TODO"],
-
-            ["F", "move_to_char", "move_to_char_left"],
-            ["f", "move_to_char", "move_to_char_right"],
-            ["T", "move_to_char", "move_till_char_left"],
-            ["t", "move_to_char", "move_till_char_right"],
-
-            ["<C-CR>", ["move_down"], ["move_begin"]],
-            ["<CR>", ["move_down"], ["move_begin"]],
-
+            ["K", "hover"],
+            ["<C-]>", "goto_definition"],
+            ["<C-t>", "jump_back"],
+            ["<C-6>", "open_previous_file"],
+            ["gd", "goto_definition"],
+            ["gD", "goto_declaration"],
+            ["gf", "open_file"],
+            ["gx", "open_file"],
+            ["gi", "goto_implementation"],
+            ["gr", "references"],
             ["gt", "next_tab"],
             ["gT", "previous_tab"],
+            ["gy", "goto_type_definition"],
+
+            ["[b", "previous_tab"],
+            ["]b", "next_tab"],
+            ["[c", "goto_prev_change"],
+            ["]c", "goto_next_change"],
+            ["[d", "goto_prev_diagnostic"],
+            ["]d", "goto_next_diagnostic"],
+
+            ["<C-w>v", "add_split"],
+            ["<C-w>s", "add_split"],
+            ["<C-w>q", "close_split"],
+            ["<C-w>o", "close_splits"],
+            ["<C-w>m", "toggle_centered_view"],
 
             ["0", "move_begin_or_add_integer_argument_zero"],
             ["1", "add_integer_argument_digit", 1],
@@ -209,12 +256,6 @@
             ["7", "add_integer_argument_digit", 7],
             ["8", "add_integer_argument_digit", 8],
             ["9", "add_integer_argument_digit", 9],
-
-            ["<Space>lf", "format"],
-            ["<Space>lr", "rename_symbol"],
-
-            ["<Space>sd", "show_diagnostics"],
-            ["<Space>ss", "show_symbols"]
         ]
     },
     "visual": {
@@ -228,24 +269,35 @@
         "init_command": ["enable_selection"],
         "press": [
             ["<Esc>", ["cancel"], ["enter_mode", "normal"]],
-            ["k", "select_up"],
-            ["j", "select_down"],
-            ["h", "select_left"],
-            ["l", "select_right"],
+            ["<C-[>", ["cancel"], ["enter_mode", "normal"]],
+            ["<C-c>", ["cancel"], ["enter_mode", "normal"]],
 
-            ["<Up>", "select_up"],
-            ["<Down>", "select_down"],
+            ["h", "select_left"],
+            ["j", "select_down"],
+            ["k", "select_up"],
+            ["l", "select_right"],
             ["<Left>", "select_left"],
+            ["<Down>", "select_down"],
+            ["<Up>", "select_up"],
             ["<Right>", "select_right"],
 
-            ["gg", "select_buffer_begin"],
-            ["G", "select_buffer_end"],
-
-            ["b", "select_word_left_vim"],
             ["w", "select_word_right_vim"],
+            ["e", "select_word_right_end_vim"],
+            ["b", "select_word_left_vim"],
             ["W", "select_word_right"],
             ["B", "select_word_left"],
-            ["e", "select_word_right_end_vim"],
+
+            ["^", "select_begin"],
+            ["$", "select_end"],
+            ["gg", "select_buffer_begin"],
+            ["G", "select_buffer_end"],
+            ["{", "select_par_begin"],
+            ["}", "select_par_end"],
+
+            ["F", "move_to_char", "select_to_char_left_vim"],
+            ["T", "move_to_char", "select_till_char_left_vim"],
+            ["f", "move_to_char", "select_to_char_right"],
+            ["t", "move_to_char", "select_till_char_right"],
 
             ["iw", "select_inside_word"],
             ["i(", "select_inside_parentheses"],
@@ -273,31 +325,28 @@
             ["a\"", "select_around_double_quotes"],
             ["a`", "select_around_backticks"],
 
-            ["^", "smart_move_begin"],
-            ["$", "select_end"],
-            [":", "open_command_palette"],
+            ["<C-b>", "move_scroll_page_up"],
+            ["<C-f>", "move_scroll_page_down"],
+            ["<C-u>", "move_scroll_half_page_up_vim"],
+            ["<C-d>", "move_scroll_half_page_down_vim"],
+            ["zt", "scroll_view_top"],
+            ["zc", "scroll_view_center"],
+            ["zz", "scroll_view_center"],
+            ["zb", "scroll_view_bottom"],
 
-            ["f", "move_to_char", "select_to_char_right"],
-            ["F", "move_to_char", "select_to_char_left_vim"],
-            ["t", "move_to_char", "select_till_char_right"],
-            ["T", "move_to_char", "select_till_char_left_vim"],
+            ["<GT>", "indent"],
+            ["<LT>", "unindent"],
+            ["gc", "toggle_comment"],
+            ["~", "switch_case"],
+            ["J", "join_next_line"],
 
             ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
-
-            ["<C-u>", "move_scroll_half_page_up_vim"],
-            ["<C-d>", "move_scroll_half_page_down_vim"],
-
-            ["zz", "scroll_view_center"],
-            ["<S-.>", "indent"],
-            ["<S-,>", "unindent"],
-
             ["y", ["copy_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
-
+            ["Y", ["copy_line_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
             ["x", ["cut_forward_internal"], ["enter_mode", "normal"]],
             ["d", ["cut_forward_internal"], ["enter_mode", "normal"]],
             ["s", ["enter_mode", "insert"], ["cut_forward_internal"]],
-
             ["c", ["enter_mode", "insert"], ["cut_forward_internal"]],
             ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
             ["D", "cut_to_end_vim"],
@@ -324,28 +373,36 @@
         "selection": "normal",
         "press": [
             ["<Esc>", ["cancel"], ["enter_mode", "normal"]],
-            ["k", "select_up"],
+            ["<C-[>", ["cancel"], ["enter_mode", "normal"]],
+            ["<C-c>", ["cancel"], ["enter_mode", "normal"]],
+
             ["j", "select_down"],
+            ["k", "select_up"],
+            ["<Down>", "select_down"],
+            ["<Up>", "select_up"],
 
-            ["^", "smart_move_begin"],
-            ["$", "move_end"],
-            [":", "open_command_palette"],
+            ["^", "select_begin"],
+            ["$", "select_end"],
+            ["gg", "select_buffer_begin"],
+            ["G", "select_buffer_end"],
 
-            ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
-            ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
-
+            ["<C-b>", "move_scroll_page_up"],
+            ["<C-f>", "move_scroll_page_down"],
             ["<C-u>", "move_scroll_half_page_up_vim"],
             ["<C-d>", "move_scroll_half_page_down_vim"],
 
-            ["<S-.>", "indent"],
-            ["<S-,>", "unindent"],
+            ["<GT>", "indent"],
+            ["<LT>", "unindent"],
+            ["gc", "toggle_comment"],
+            ["J", "join_next_line"],
 
+            ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
+            ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["y", ["copy_line_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
-
+            ["Y", ["copy_line_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
             ["x", ["cut_internal_vim"], ["enter_mode", "normal"]],
             ["d", ["cut_internal_vim"], ["enter_mode", "normal"]],
             ["s", ["enter_mode", "insert"], ["cut_internal_vim"]],
-
             ["c", ["enter_mode", "insert"], ["cut_internal_vim"]],
             ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
             ["D", "cut_to_end_vim"],
@@ -372,8 +429,10 @@
         "selection": "normal",
         "init_command": ["enable_selection"],
         "press": [
+            ["j", "add_cursor_down"],
             ["k", "add_cursor_up"],
-            ["j", "add_cursor_down"]
+            ["<Down>", "add_cursor_down"],
+            ["<Up>", "add_cursor_up"]
         ]
     },
     "insert": {
@@ -385,14 +444,41 @@
         "deinit_command": ["resume_undo_history"],
         "press": [
             ["<Esc>", ["move_left_vim"], ["enter_mode", "normal"]],
+            ["<C-[>", ["move_left_vim"], ["enter_mode", "normal"]],
             ["<C-c>", ["move_left_vim"], ["enter_mode", "normal"]],
+            ["<C-s>", "save_file"],
+
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"],
             ["<CR>", "smart_insert_line"],
             ["<Tab>", "indent_at"],
 
+            ["<C-w>", "delete_word_left"],
+            ["<C-u>", "delete_to_begin"],
+            ["<C-t>", "indent"],
+            ["<C-d>", "unindent"],
             ["<C-BS>", "delete_word_left"],
-            ["<C-Del", "delete_word_right"]
+            ["<C-Del>", "delete_word_right"]
+        ]
+    },
+    "overlay/palette": {
+        "press": [
+            ["<C-w>", "overlay_delete_word_left"]
+        ]
+    },
+    "mini/file_browser": {
+        "press": [
+            ["<C-w>", "mini_mode_delete_to_previous_path_segment"]
+        ]
+    },
+    "mini/find": {
+        "press": [
+            ["<C-w>", "mini_mode_delete_word_left"]
+        ]
+    },
+    "mini/find_in_files": {
+        "press": [
+            ["<C-w>", "mini_mode_delete_word_left"]
         ]
     },
     "home": {
@@ -401,7 +487,7 @@
         "inherit": "project",
         "press": [
             ["f", "find_file"],
-            ["g", "find_in_files"],
+            ["/", "find_in_files"],
             [":", "open_command_palette"],
             ["b", "open_keybind_config"],
             ["j", "home_menu_down"],
@@ -409,7 +495,8 @@
             ["F", "change_fontface"],
             ["h", "open_help"],
             ["v", "open_version_info"],
-            ["q", "quit"]
+            ["q", "quit"],
+            ["<CR>", "home_menu_activate"]
         ]
     }
 }
