@@ -84,6 +84,12 @@
         .flow_sprite = .{
             .url = "git+https://github.com/neurocyte/flow-sprite?ref=master#39f14507763a8951b11dd5913a39fb758b096537",
             .hash = "flow_sprite-1.3.2-dev-71wnMmuZBQBmLwiee1Ya5U-LetIl9086v-dR9obRMNmF",
+            .lazy = true,
+        },
+        .freetype = .{
+            .url = "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.gz",
+            .hash = "N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT",
+            .lazy = true,
         },
     },
     .paths = .{

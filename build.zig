@@ -724,7 +724,8 @@ pub fn build_exe(
                     } else {
                         freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
                     }
-                    freetype_rasterizer_mod.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
+                    const freetype_dep = b.lazyDependency("freetype", .{}) orelse break :blk tui_renderer_mod;
+                    freetype_rasterizer_mod.addIncludePath(freetype_dep.path("include"));
                     freetype_rasterizer_mod.link_libc = true;
 
                     combined_rasterizer_mod.addImport("tt_rasterizer", truetype_rasterizer_mod);
