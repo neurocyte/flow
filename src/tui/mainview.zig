@@ -363,6 +363,7 @@ fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode
         self.panels = panels;
         tui.resize();
         try self.panels.?.add(try view.create(self.allocator, panels.plane, ctx));
+        tui.resize();
     }
 }
 
