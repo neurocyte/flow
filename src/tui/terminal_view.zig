@@ -668,6 +668,15 @@ fn process_event(self: *Self, event: Terminal.Event) MessageFilter.Error!void {
     }
 }
 
+fn scroll_command_to_top(self: *Self, target_row: usize) void {
+    const screen = &self.vt.vt.back_screen_pri;
+    const desired: i64 = @as(i64, @intCast(screen.visible_top)) - @as(i64, @intCast(target_row));
+    const current: i64 = @intCast(self.vt.vt.scroll_offset);
+    const delta: i64 = desired - current;
+    if (self.vt.vt.scroll(@intCast(std.math.clamp(delta, std.math.minInt(i32), std.math.maxInt(i32)))))
+        tui.need_render(@src());
+}
+
 const Commands = command.Collection(cmds);
 
 const cmds = struct {
@@ -689,6 +698,32 @@ const cmds = struct {
             tui.need_render(@src());
     }
     pub const terminal_scroll_down_meta: Meta = .{ .description = "Terminal: Scroll down" };
+
+    pub fn terminal_scroll_previous_command(self: *Self, _: Ctx) Result {
+        const screen = &self.vt.vt.back_screen_pri;
+        const cur_top = screen.visible_top -| self.vt.vt.scroll_offset;
+        const target = screen.prevCommandRow(cur_top) orelse return;
+        self.scroll_command_to_top(target);
+    }
+    pub const terminal_scroll_previous_command_meta: Meta = .{ .description = "Terminal: Scroll to previous command" };
+
+    pub fn terminal_scroll_next_command(self: *Self, _: Ctx) Result {
+        const screen = &self.vt.vt.back_screen_pri;
+        const cur_top = screen.visible_top -| self.vt.vt.scroll_offset;
+        if (screen.nextCommandRow(cur_top)) |target| {
+            self.scroll_command_to_top(target);
+        } else if (screen.historySize() < screen.height) {
+            // Less than a screenful of scrollback: keep the last command
+            // pinned at the top rather than jumping past it.
+            if (screen.lastCommandRow()) |target|
+                self.scroll_command_to_top(target);
+        } else if (self.vt.vt.scroll_offset != 0) {
+            // Past the last command: return to the active terminal position.
+            self.vt.vt.scrollToBottom();
+            tui.need_render(@src());
+        }
+    }
+    pub const terminal_scroll_next_command_meta: Meta = .{ .description = "Terminal: Scroll to next command" };
 
     pub fn terminal_open_scrollback_buffer(self: *Self, _: Ctx) Result {
         // Use the active back screen so an alt-screen app (vim/htop/...)

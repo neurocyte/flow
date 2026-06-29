@@ -445,6 +445,53 @@ fn lastExitCode(self: *const Screen) ?i32 {
     return null;
 }
 
+fn commandTopRow(self: *const Screen, mark_row: u32) u32 {
+    return if (self.rowIsBlank(mark_row)) mark_row + 1 else mark_row;
+}
+
+pub fn prevCommandRow(self: *const Screen, row: usize) ?u32 {
+    var best: ?u32 = null;
+    for (self.prompt_marks.items) |mark| {
+        if (mark.kind != .prompt_start) continue;
+        const top = self.commandTopRow(mark.row);
+        if (top >= row) continue;
+        if (best == null or top > best.?) best = top;
+    }
+    return best;
+}
+
+pub fn nextCommandRow(self: *const Screen, row: usize) ?u32 {
+    var best: ?u32 = null;
+    for (self.prompt_marks.items) |mark| {
+        if (mark.kind != .prompt_start) continue;
+        const top = self.commandTopRow(mark.row);
+        if (top <= row) continue;
+        if (best == null or top < best.?) best = top;
+    }
+    return best;
+}
+
+pub fn lastCommandRow(self: *const Screen) ?u32 {
+    var best: ?u32 = null;
+    for (self.prompt_marks.items) |mark| {
+        if (mark.kind != .prompt_start) continue;
+        const top = self.commandTopRow(mark.row);
+        if (best == null or top > best.?) best = top;
+    }
+    return best;
+}
+
+pub fn rowIsBlank(self: *const Screen, row: usize) bool {
+    if (self.width == 0) return true;
+    const total_rows = self.buf.len / self.width;
+    if (row >= total_rows) return true;
+    const row_base = row * self.width;
+    for (self.buf[row_base .. row_base + self.width]) |*cell| {
+        for (cell.char.items) |b| if (b != ' ') return false;
+    }
+    return true;
+}
+
 fn shiftMarksUp(self: *Screen, top: u32, bottom: u32, n: u32) void {
     if (n == 0 or top > bottom) return;
     var i: usize = 0;
