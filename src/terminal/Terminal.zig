@@ -63,6 +63,8 @@ pub const Mode = struct {
     mouse: MouseMode = .none,
     /// SGR extended mouse coordinates (mode 1006); always enabled alongside any mouse mode
     mouse_sgr: bool = false,
+    /// DECSET 2004: wrap pasted text in ESC[200~ / ESC[201~ markers
+    bracketed_paste: bool = false,
 };
 
 pub const MouseMode = enum {
@@ -1125,9 +1127,18 @@ pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
                 self.back_screen.buf[i].dirty = true;
             }
         },
+        2004 => self.mode.bracketed_paste = val,
         2026 => self.mode.sync = val,
         else => return,
     }
+}
+
+pub fn paste(self: *Terminal, text: []const u8) void {
+    const pty_writer = self.get_pty_writer();
+    defer pty_writer.flush() catch {};
+    if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[200~") catch {};
+    pty_writer.writeAll(text) catch {};
+    if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[201~") catch {};
 }
 
 pub fn carriageReturn(self: *Terminal) void {
