@@ -100,6 +100,7 @@ pub fn load_entries(self: *Type) !usize {
 }
 
 pub fn deinit(self: *Type) void {
+    self.value.editor.cursor_focus_override = false;
     self.allocator.free(self.value.data);
     if (self.value.last_query) |p| self.allocator.free(p);
     if (self.value.info_box_layer) |layer| layer.deinit(self.allocator);
