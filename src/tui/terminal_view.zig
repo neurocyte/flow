@@ -610,7 +610,19 @@ fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error
         try self.process_event(event);
         return true;
     }
+    // consume paste when focused
+    var text: []const u8 = undefined;
+    if (self.focused and m.match(.{ "system_clipboard", tp.extract(&text) }) catch false) {
+        self.paste(text);
+        return true;
+    }
     return false;
+}
+
+fn paste(self: *Self, text: []const u8) void {
+    self.vt.vt.scrollToBottom();
+    self.vt.vt.paste(text);
+    tui.need_render(@src());
 }
 
 fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
