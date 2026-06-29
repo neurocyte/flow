@@ -576,6 +576,8 @@
             ["ctrl+shift+page_up", "terminal_scroll_up"],
             ["ctrl+alt+page_down", "terminal_scroll_down"],
             ["ctrl+alt+page_up", "terminal_scroll_up"],
+            ["ctrl+alt+z", "terminal_scroll_previous_command"],
+            ["ctrl+alt+x", "terminal_scroll_next_command"],
             ["ctrl+alt+g", "terminal_open_last_command_output"],
             ["ctrl+alt+shift+g", "terminal_open_last_command_output"],
             ["ctrl+alt+h", "terminal_open_scrollback_buffer"],
