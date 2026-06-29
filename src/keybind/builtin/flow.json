@@ -110,6 +110,7 @@
             ["alt+C", "copy_file_name"],
             ["ctrl+k alt+c", "copy_file_name", "file_name_only"],
             ["ctrl+v", "system_paste"],
+            ["ctrl+shift+v", "system_paste"],
             ["ctrl+u", "pop_cursor"],
             ["ctrl+k m", "change_file_type"],
             ["ctrl+k ctrl+u", "delete_to_begin"],
