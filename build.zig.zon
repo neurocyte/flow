@@ -47,6 +47,11 @@
             .hash = "wio-0.0.0-8xHrr8KpBwBCzhwIvXKB3RfZCfobfodDiNa3qWexpL1p",
             .lazy = true,
         },
+        .wio_unix_headers = .{
+            .url = "https://github.com/ypsvlq/wio-unix-headers/archive/d805a5e4cd255c4fed0c78ab84ae2d2a6c421b54.tar.gz",
+            .hash = "wio_unix_headers-0.0.0-seffXHufPgBv1UhlS_Rgps0xFv26W152HZQw7-niIn9s",
+            .lazy = true,
+        },
         .sokol = .{
             .url = "git+https://github.com/floooh/sokol-zig?ref=master#6ca71321c91e842fb32a8140802a546e50d8a086",
             .hash = "sokol-0.1.0-pb1HK9lgNwAAB5SLJlpJQ09PZ2CVydxkNs0KaptLaTUD",
@@ -67,6 +72,11 @@
             .hash = "flow_fonts-0.7.2-Y4vXsIw9TACH8Y6u-DVhJT0zCBr1cymjwammtqPTJ05D",
             .lazy = true,
         },
+        .flow_gui_headers = .{
+            .url = "git+http://github.com/neurocyte/flow-gui-headers?ref=master#30a35be51223bed36a25b82795e788f02724240f",
+            .hash = "flow_gui_headers-0.8.0-dev-SSnatXyWAADDwfnFuLz4Q9O2Aq5bo0mi_JS1BT8ihWLS",
+            .lazy = true,
+        },
         .diffz = .{
             .url = "git+https://github.com/ziglibs/diffz.git?ref=main#b39fe07e7fdbcf56e43ba2890b9f484f16969f90",
             .hash = "diffz-0.0.1-G2tlISzNAQCldmOcINavGmF1zdt20NFPXeM8d07jp_68",
@@ -77,7 +87,6 @@
         },
     },
     .paths = .{
-        "include",
         "src",
         "test",
         "build.zig",

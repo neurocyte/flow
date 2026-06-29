@@ -255,6 +255,7 @@ pub fn build_exe(
 ) void {
     const use_llvm = use_llvm_ orelse if (target.result.os.tag == .linux) true else null;
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
+    const is_native = target.query.isNative();
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
@@ -550,6 +551,18 @@ pub fn build_exe(
                 const wio_mod = wio_dep.module("wio");
                 const sokol_mod = sokol_dep.module("sokol");
 
+                const cross_linux = target.result.os.tag == .linux and !is_native;
+                const flow_gui_headers_dep = if (cross_linux)
+                    b.lazyDependency("flow_gui_headers", .{}) orelse break :blk tui_renderer_mod
+                else
+                    null;
+                if (cross_linux) {
+                    const sokol_clib = sokol_dep.artifact("sokol_clib");
+                    if (b.lazyDependency("wio_unix_headers", .{})) |unix_headers|
+                        sokol_clib.root_module.addSystemIncludePath(unix_headers.path("."));
+                    sokol_clib.root_module.addSystemIncludePath(flow_gui_headers_dep.?.path("include"));
+                }
+
                 const shdc = if (b.lazyImport(@This(), "sokol")) |sokol| sokol.shdc else break :blk tui_renderer_mod;
                 const shader_mod = shdc.createModule(b, "shader", sokol_mod, .{
                     .shdc_dep = sokol_dep.builder.dependency("shdc", .{}),
@@ -647,7 +660,13 @@ pub fn build_exe(
                         .target = target,
                     });
                     if (target.result.os.tag == .linux) {
-                        font_finder_mod.linkSystemLibrary("fontconfig", .{});
+                        if (is_native) {
+                            font_finder_mod.linkSystemLibrary("fontconfig", .{});
+                        } else {
+                            const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
+                            font_finder_mod.linkLibrary(fv.stubSharedLib(b, target, optimize, "fontconfig", 1, &fv.fontconfig_stub_symbols));
+                            font_finder_mod.addIncludePath(flow_gui_headers_dep.?.path("include"));
+                        }
                         font_finder_mod.link_libc = true;
                     }
 
@@ -699,7 +718,12 @@ pub fn build_exe(
                     });
                     if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
                     if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
-                    freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
+                    if (cross_linux) {
+                        const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
+                        freetype_rasterizer_mod.linkLibrary(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols));
+                    } else {
+                        freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
+                    }
                     freetype_rasterizer_mod.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
                     freetype_rasterizer_mod.link_libc = true;
 
@@ -1057,7 +1081,10 @@ pub fn build_exe(
     }
 
     if (renderer == .gui) switch (target.result.os.tag) {
-        .linux => exe.root_module.linkSystemLibrary("GL", .{}),
+        .linux => if (is_native)
+            exe.root_module.linkSystemLibrary("GL", .{})
+        else if (b.lazyImport(@This(), "flow_gui_headers")) |fv|
+            exe.root_module.linkLibrary(fv.stubSharedLib(b, target, optimize, "GL", 1, &fv.gl_stub_symbols)),
         .windows => {
             exe.root_module.linkSystemLibrary("d3d11", .{});
             exe.root_module.linkSystemLibrary("dxgi", .{});
