@@ -250,8 +250,10 @@ pub const TabBar = struct {
             self.place_next = .atend;
         } else if (try m.match(.{ "E", "open", tp.more })) {
             self.refresh_active_buffer();
+            self.resize_if_visibility_changed();
         } else if (try m.match(.{ "E", "close" })) {
             self.refresh_active_buffer();
+            self.resize_if_visibility_changed();
         } else if (try m.match(.{"splits_updated"})) {
             self.refresh_active_buffer();
             const drag_source, _ = tui.get_drag_source();
@@ -264,6 +266,14 @@ pub const TabBar = struct {
         const mv = tui.mainview() orelse @panic("tabs no main view");
         const buffer = mv.get_active_buffer();
         self.active_focused_buffer_ref = if (buffer) |buf| buf.to_ref() else null;
+    }
+
+    fn resize_if_visibility_changed(self: *Self) void {
+        const was_shown = self.tabs.len >= self.minimum_tabs_shown;
+        const drag_source, _ = tui.get_drag_source();
+        _ = self.update_tabs(drag_source) catch return;
+        const now_shown = self.tabs.len >= self.minimum_tabs_shown;
+        if (was_shown != now_shown) tui.resize();
     }
 
     fn handle_event(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
