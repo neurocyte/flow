@@ -73,7 +73,7 @@
             .lazy = true,
         },
         .flow_gui_headers = .{
-            .url = "git+http://github.com/neurocyte/flow-gui-headers?ref=master#30a35be51223bed36a25b82795e788f02724240f",
+            .url = "git+https://github.com/neurocyte/flow-gui-headers?ref=master#30a35be51223bed36a25b82795e788f02724240f",
             .hash = "flow_gui_headers-0.8.0-dev-SSnatXyWAADDwfnFuLz4Q9O2Aq5bo0mi_JS1BT8ihWLS",
             .lazy = true,
         },
