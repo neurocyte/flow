@@ -121,10 +121,10 @@ fn build_release(
 ) void {
     const targets: []const struct { std.Target.Query, Renderer } = if (all_targets) &.{
         .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .terminal },
-        // .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = null }, .gui },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = null }, .gui },
         .{ .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl }, .terminal },
-        // .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = null }, .gui },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = null }, .gui },
         .{ .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .musleabihf }, .terminal },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .macos }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .macos }, .terminal },
@@ -145,7 +145,7 @@ fn build_release(
             break :blk switch (native_target.os.tag) {
                 .linux => &.{
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = .musl }, .terminal },
-                    // .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = null }, .gui },
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = null }, .gui },
                 },
                 .windows => &.{
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
@@ -164,7 +164,7 @@ fn build_release(
         break :blk switch (selected_target.os_tag.?) {
             .linux => &.{
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .musl }, .terminal },
-                // .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .gnu }, .gui },
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .gnu }, .gui },
             },
             .windows => &.{
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
