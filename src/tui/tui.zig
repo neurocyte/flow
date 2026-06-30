@@ -608,6 +608,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "DIFF", tp.more })) // drop late diff responses
         return;
 
+    if (builtin.mode == .Debug)
+        if (try m.match(.{ "VT", tp.more })) // drop late vt messages
+            return;
+
     if (try m.match(.{"INPUT_IDLE"})) {
         if (self.input_idle_timer) |*t| t.deinit();
         self.input_idle_timer = null;
