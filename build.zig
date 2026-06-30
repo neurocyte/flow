@@ -121,10 +121,10 @@ fn build_release(
 ) void {
     const targets: []const struct { std.Target.Query, Renderer } = if (all_targets) &.{
         .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .terminal },
-        .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = null }, .gui },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu }, .gui },
         .{ .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl }, .terminal },
-        .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = null }, .gui },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu }, .gui },
         .{ .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .musleabihf }, .terminal },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .macos }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .macos }, .terminal },
@@ -664,7 +664,7 @@ pub fn build_exe(
                             font_finder_mod.linkSystemLibrary("fontconfig", .{});
                         } else {
                             const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
-                            font_finder_mod.linkLibrary(fv.stubSharedLib(b, target, optimize, "fontconfig", 1, &fv.fontconfig_stub_symbols));
+                            font_finder_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "fontconfig", 1, &fv.fontconfig_stub_symbols).getEmittedBin());
                             font_finder_mod.addIncludePath(flow_gui_headers_dep.?.path("include"));
                         }
                         font_finder_mod.link_libc = true;
@@ -720,7 +720,7 @@ pub fn build_exe(
                     if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
                     if (cross_linux) {
                         const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
-                        freetype_rasterizer_mod.linkLibrary(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols));
+                        freetype_rasterizer_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols).getEmittedBin());
                     } else {
                         freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
                     }
@@ -1085,7 +1085,7 @@ pub fn build_exe(
         .linux => if (is_native)
             exe.root_module.linkSystemLibrary("GL", .{})
         else if (b.lazyImport(@This(), "flow_gui_headers")) |fv|
-            exe.root_module.linkLibrary(fv.stubSharedLib(b, target, optimize, "GL", 1, &fv.gl_stub_symbols)),
+            exe.root_module.addObjectFile(fv.stubSharedLib(b, target, optimize, "GL", 1, &fv.gl_stub_symbols).getEmittedBin()),
         .windows => {
             exe.root_module.linkSystemLibrary("d3d11", .{});
             exe.root_module.linkSystemLibrary("dxgi", .{});
