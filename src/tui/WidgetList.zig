@@ -263,8 +263,8 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
     if (self.plane.layer) |plane_layer| target.z_index = @enumFromInt(@intFromEnum(plane_layer.z_index) + 1);
     layer.z_index = target.z_index; // keep in sync
 
-    const cw = self.plane.cell_x();
-    const ch = self.plane.cell_y();
+    const cw = tui.plane().cell_x();
+    const ch = tui.plane().cell_y();
     var parent_ox: i32 = 0;
     var parent_oy: i32 = 0;
     if (self.plane.layer) |l| parent_ox, parent_oy = l.global_origin_px();
