@@ -737,6 +737,56 @@ const cmds = struct {
     }
     pub const terminal_scroll_next_command_meta: Meta = .{ .description = "Terminal: Scroll to next command" };
 
+    pub fn terminal_open_file_links(self: *Self, _: Ctx) Result {
+        const screen = &self.vt.vt.back_screen_pri;
+        const range = screen.lastCommandOutputRange() orelse {
+            std.log.info("terminal: no command output available", .{});
+            return;
+        };
+
+        // dedupe to avoid multiple entries for the same file position
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        defer {
+            var it = seen.keyIterator();
+            while (it.next()) |k| self.allocator.free(k.*);
+            seen.deinit(self.allocator);
+        }
+
+        var sent: usize = 0;
+        tp.self_pid().send(.{ "TFL", "begin" }) catch {};
+        var row: usize = range.start;
+        while (row < range.end) : (row += 1) {
+            var line: std.ArrayList(u8) = .empty;
+            defer line.deinit(self.allocator);
+            screen.extractRowText(self.allocator, row, &line, null) catch continue;
+            var pos: usize = 0;
+            while (file_link.find_in_line(line.items[pos..])) |r| {
+                const slice = line.items[pos + r.start .. pos + r.end];
+                pos += r.end;
+                const link = file_link.parse(slice) catch continue;
+                const f = switch (link) {
+                    .file => |f| f,
+                    .dir => continue,
+                };
+                if (!f.exists) continue;
+                const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ f.path, f.line orelse 0 }) catch continue;
+                const gop = seen.getOrPut(self.allocator, key) catch {
+                    self.allocator.free(key);
+                    continue;
+                };
+                if (gop.found_existing) {
+                    self.allocator.free(key);
+                    continue;
+                }
+                tp.self_pid().send(.{ "TFL", f.path, f.line orelse 0, f.column orelse 0, line.items }) catch {};
+                sent += 1;
+            }
+        }
+        tp.self_pid().send(.{ "TFL", "done" }) catch {};
+        std.log.info("terminal: {d} file link{s} found", .{ sent, if (sent != 1) "s" else "" });
+    }
+    pub const terminal_open_file_links_meta: Meta = .{ .description = "Terminal: Open file links" };
+
     pub fn terminal_open_scrollback_buffer(self: *Self, _: Ctx) Result {
         // Use the active back screen so an alt-screen app (vim/htop/...)
         // gets a screenshot of just the visible viewport, while the
