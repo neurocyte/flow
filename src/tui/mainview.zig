@@ -70,6 +70,7 @@ const FileListType = enum {
     diagnostics,
     references,
     find_in_files,
+    terminal_links,
 };
 
 pub const CreateError = error{ OutOfMemory, ThespianSpawnFailed };
@@ -184,6 +185,15 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
             .init => self.clear_find_in_files_results(self.file_list_type),
             else => {},
         }
+        self.find_in_files_state = .done;
+        return true;
+    } else if (try m.match(.{ "TFL", "begin" })) {
+        self.find_in_files_state = .init;
+        return true;
+    } else if (try m.match(.{ "TFL", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&lines) })) {
+        try self.add_find_in_files_result(.terminal_links, path, begin_line, begin_pos, begin_line, begin_pos, lines, .Information);
+        return true;
+    } else if (try m.match(.{ "TFL", "done" })) {
         self.find_in_files_state = .done;
         return true;
     } else if (try m.match(.{ "HREF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
