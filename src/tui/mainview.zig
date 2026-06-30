@@ -195,6 +195,9 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     } else if (try m.match(.{ "TFL", "done" })) {
         self.find_in_files_state = .done;
+        // hide the terminal after showing the file list
+        if (self.is_panel_view_showing(filelist_view) and self.is_panel_view_showing(terminal_view))
+            self.toggle_panel_view(terminal_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{ "HREF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         if (self.get_editor_for_file(path)) |editor| editor.add_highlight_reference(.{
