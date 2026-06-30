@@ -2370,6 +2370,7 @@ fn add_find_in_files_result(
     if (self.file_list_type != file_list_type) {
         self.clear_find_in_files_results(self.file_list_type);
         self.file_list_type = file_list_type;
+        self.find_in_files_state = .adding;
     } else switch (self.find_in_files_state) {
         .init, .done => {
             self.clear_find_in_files_results(self.file_list_type);
