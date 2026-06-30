@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const tp = @import("thespian");
 const root = @import("soft_root").root;
 
@@ -25,6 +26,19 @@ pub const FileSrc = struct {
     line: usize,
     column: usize,
 };
+
+/// sniff the first 1k of `path` for a NUL
+fn is_binary_file(path: []const u8) bool {
+    // Stubbed out in test builds: no real io is available there.
+    if (builtin.is_test) return false;
+    const io = root.get_io();
+    var file = std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only }) catch return false;
+    defer file.close(io);
+    var buf: [1024]u8 = undefined;
+    var bufs: [1][]u8 = .{&buf};
+    const n = file.readPositional(io, &bufs, 0) catch return false;
+    return std.mem.indexOfScalar(u8, buf[0..n], 0) != null;
+}
 
 pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
     if (link.len == 0) return error.InvalidFileLink;
@@ -66,7 +80,7 @@ pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
             if (file.column) |_| if (it.next()) |col_| {
                 file.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
             };
-            file.exists = root.is_file(file.path);
+            file.exists = root.is_file(file.path) and !is_binary_file(file.path);
         },
         .dir => {},
     }
@@ -96,7 +110,7 @@ pub fn parse_bracket_link(link: []const u8) error{InvalidFileLink}!Dest {
             if (file.column) |_| if (it.next()) |col_| {
                 file.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
             };
-            file.exists = root.is_file(file.path);
+            file.exists = root.is_file(file.path) and !is_binary_file(file.path);
         },
         .dir => {},
     }
