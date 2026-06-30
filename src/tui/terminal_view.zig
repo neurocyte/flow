@@ -739,7 +739,11 @@ const cmds = struct {
 
     pub fn terminal_open_file_links(self: *Self, _: Ctx) Result {
         const screen = &self.vt.vt.back_screen_pri;
-        const range = screen.lastCommandOutputRange() orelse {
+        // When scrolled up, grab the command whose output is currently shown
+        const range = (if (self.vt.vt.scroll_offset == 0)
+            screen.lastCommandOutputRange()
+        else
+            screen.commandOutputRangeAt(screen.visible_top -| self.vt.vt.scroll_offset)) orelse {
             std.log.info("terminal: no command output available", .{});
             return;
         };
