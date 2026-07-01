@@ -466,7 +466,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.update_file_link_highlight();
     self.render_file_link_highlight(theme);
 
-    return false;
+    return self.vt.vt.dirty;
 }
 
 fn resolve_color(c: *vaxis.Cell.Color, palette: [16][3]u8) void {
