@@ -334,6 +334,8 @@ fn set_panel_height_abs(self: *Self, y: usize) tp.result {
         self.panel_maximized = true;
         panels.layout_ = .{ .static = max_h };
         self.panel_height = null;
+    } else {
+        self.save_panel_height_ratio(panel_height);
     }
 }
 
@@ -345,8 +347,28 @@ fn set_panel_height_rel(self: *Self, y: isize) tp.result {
     return self.set_panel_height_abs(h);
 }
 
+const panel_height_ratio_max: f32 = 0.75;
+const panel_height_min_rows: usize = 3;
+
+fn panel_rows_for_ratio(total: usize, ratio: f32) usize {
+    const h: usize = @intFromFloat(@as(f32, @floatFromInt(total)) * @min(panel_height_ratio_max, ratio));
+    const max_h = total -| 1;
+    return std.math.clamp(h, @min(panel_height_min_rows, max_h), max_h);
+}
+
 pub fn get_panel_height(self: *Self) usize {
-    return self.panel_height orelse self.box().h / 5;
+    if (self.panel_height) |h| return h;
+    return panel_rows_for_ratio(self.box().h, tui.config().panel_height_ratio);
+}
+
+fn save_panel_height_ratio(self: *Self, panel_height: usize) void {
+    const total = self.box().h;
+    if (total == 0) return;
+    if (panel_rows_for_ratio(total, tui.config().panel_height_ratio) == panel_height) return;
+    const total_f: f32 = @floatFromInt(total);
+    const floor = @as(f32, @floatFromInt(panel_height_min_rows)) / total_f;
+    tui.config_mut().panel_height_ratio = std.math.clamp(@as(f32, @floatFromInt(panel_height)) / total_f, floor, panel_height_ratio_max);
+    tui.save_config() catch {};
 }
 
 pub const PanelToggleMode = enum { toggle, enable, disable };
