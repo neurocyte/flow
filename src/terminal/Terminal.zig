@@ -931,7 +931,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     continue;
                 };
                 switch (ps) {
-                    0 => {
+                    // OSC 0 - set icon name and window title
+                    // OSC 2 - set window title
+                    // We have no separate icon name, so both just set the title.
+                    0, 2 => {
                         self.title.clearRetainingCapacity();
                         try self.title.appendSlice(self.allocator, osc[semicolon + 1 ..]);
                         try handle_event(context, .{ .title_change = self.title.items });
