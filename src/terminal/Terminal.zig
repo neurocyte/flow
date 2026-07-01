@@ -1132,7 +1132,11 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                         .shell_state_change = self.back_screen_pri.shellState(),
                                     });
                                 } else |e| log.warn("addPromptMark failed: {s}", .{@errorName(e)});
-                            } else log.debug("unhandled osc: {s}", .{osc});
+                            } else switch (after_semi[0]) {
+                                // OSC 133 ; k ; ... - kitty shell-integration prompt-kind markers
+                                'k' => {},
+                                else => log.debug("unhandled osc: {s}", .{osc}),
+                            }
                         }
                     },
                     else => log.debug("unhandled osc: {s}", .{osc}),
