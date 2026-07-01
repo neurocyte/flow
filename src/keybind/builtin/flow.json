@@ -367,6 +367,7 @@
     "overlay/palette": {
         "inherit": "project",
         "press": [
+            ["alt+!", "add_task"],
             ["alt+f9", "overlay_next_widget_style"],
             ["ctrl+w", "close_file"],
             ["ctrl+p", "palette_menu_up"],
