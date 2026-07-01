@@ -138,15 +138,18 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     } else {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
         project_manager.add_task(entry.label) catch {};
-        const runner = get_runner(activate);
-        (switch (runner) {
-            .buffer => tp.self_pid().send(.{ "cmd", "run_task", .{entry.label} }),
-            .terminal => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ entry.label, tui.config().task_terminal_on_exit } }),
-        }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        run_task(activate, entry.label) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
 }
 
-fn get_runner(activate: @import("palette.zig").ActivateMode) @import("config").TaskRunner {
+pub fn run_task(activate: @import("palette.zig").ActivateMode, task: []const u8) !void {
+    return switch (get_runner(activate)) {
+        .buffer => tp.self_pid().send(.{ "cmd", "run_task", .{task} }),
+        .terminal => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ task, tui.config().task_terminal_on_exit } }),
+    };
+}
+
+pub fn get_runner(activate: @import("palette.zig").ActivateMode) @import("config").TaskRunner {
     const runner = tui.config().task_runner;
     return switch (activate) {
         .normal => runner,

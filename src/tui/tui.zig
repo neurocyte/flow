@@ -1629,7 +1629,7 @@ const cmds = struct {
                 return @import("mode/overlay/task_palette.zig").name;
             }
             pub fn select(self_: *Type) void {
-                tp.self_pid().send(.{ "cmd", "run_task", .{self_.input.items} }) catch {};
+                @import("mode/overlay/task_palette.zig").run_task(.normal, self_.input.items) catch {};
                 command.executeName("exit_mini_mode", .empty()) catch {};
             }
         }, ctx);
