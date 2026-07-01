@@ -1838,6 +1838,8 @@ const cmds = struct {
 
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         const ctx_: command.Context = .empty_from(ctx);
+        self.keyboard_focus_outer = self.keyboard_focus;
+        clear_keyboard_focus();
         command.executeName("disable_fast_scroll", ctx_) catch {};
         command.executeName("disable_alt_scroll", ctx_) catch {};
         command.executeName("disable_jump_mode", ctx_) catch {};
@@ -1857,6 +1859,8 @@ const cmds = struct {
         self.input_mode_ = self.input_mode_outer_;
         self.input_mode_outer_ = null;
         self.mini_mode_ = null;
+        if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
+            widget.focus();
     }
     pub const exit_mini_mode_meta: Meta = .{};
 
