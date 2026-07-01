@@ -866,6 +866,19 @@ pub fn build_exe(
         .filters = test_filters,
     }));
 
+    const terminal_screen_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/terminal/Screen.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("vaxis", vaxis_mod);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const mouse_event_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .root_module = b.createModule(.{
@@ -1170,6 +1183,7 @@ pub fn build_exe(
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
+    test_step.dependOn(&terminal_screen_test_run_cmd.step);
     test_step.dependOn(&mouse_event_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
 

@@ -944,3 +944,18 @@ pub fn scrollDown(self: *Screen, n: usize) !void {
     self.cursor.row = self.scrolling_region.top;
     try self.insertLine(n);
 }
+
+test "print: a wrap on the bottom row scrolls instead of overwriting it" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 5, 2, 10);
+    defer screen.deinit(alloc);
+
+    screen.cursor.row = 1;
+    screen.cursor.col = 0;
+    for ("ABCDEF") |ch| try screen.print(&.{ch}, 1, true);
+
+    try testing.expectEqualStrings("A", screen.buf[screen.rowIndex(0, 0)].char.items);
+    try testing.expectEqualStrings("E", screen.buf[screen.rowIndex(0, 4)].char.items);
+    try testing.expectEqualStrings("F", screen.buf[screen.rowIndex(1, 0)].char.items);
+}
