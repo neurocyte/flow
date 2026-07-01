@@ -605,6 +605,7 @@
             ["alt+f9", "panel_next_widget_style"],
             ["ctrl+shift+q", "quit_without_saving"],
             ["ctrl+alt+shift+r", "restart"],
+            ["ctrl+f2", "insert_command_name"],
 
             ["left_control", "enable_jump_mode"],
             ["right_control", "enable_jump_mode"],
