@@ -193,6 +193,17 @@ fn re_run_cmd(self: *Self) !void {
         tp.exit("no command to re-run");
 }
 
+fn restart_shell(self: *Self) !void {
+    const default_shell = if (builtin.os.tag == .windows)
+        self.vt.env.get("COMSPEC") orelse "cmd.exe"
+    else
+        self.vt.env.get("SHELL") orelse "/bin/sh";
+    try self.vt.respawn(&.{default_shell});
+    self.vt.synthesize_marks = false;
+    self.vt.on_exit = tui.config().terminal_on_exit;
+    try self.vt.start_reader(self.allocator);
+}
+
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         tui.rdr().request_mouse_cursor_default(self.hover);
@@ -330,6 +341,12 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         .text = if (text.len > 0) text else null,
     };
     if (self.vt.process_exited) {
+        if (keypress == input.key.enter and key.mods.shift) {
+            self.restart_shell() catch |e|
+                std.log.err("terminal_view: shell restart failed: {}", .{e});
+            tui.need_render(@src());
+            return true;
+        }
         if (keypress == input.key.enter) {
             self.re_run_cmd() catch |e|
                 std.log.err("terminal_view: restart failed: {}", .{e});
@@ -612,9 +629,9 @@ fn show_exit_message(self: *Self, code: u8) void {
     if (cmd_argv.len > 0) {
         w.writeAll(" Press enter to re-run '") catch {};
         _ = argv.write(w, cmd_argv) catch {};
-        w.writeAll("' or escape/ctrl+d to close") catch {};
+        w.writeAll("', shift+enter for a shell, or escape/ctrl+d to close") catch {};
     } else {
-        w.writeAll(" Press escape/ctrl+d to close") catch {};
+        w.writeAll(" Press shift+enter for a shell, or escape/ctrl+d to close") catch {};
     }
     w.writeAll("\x1b[0m\r\n") catch {};
     var parser: pty.Parser = .{ .buf = .init(self.allocator) };
