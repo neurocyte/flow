@@ -689,14 +689,16 @@ pub fn print(
     const i = self.rowIndex(row, col);
     assert(i < self.buf.len);
     self.buf[i].char.set(self.allocator, grapheme);
-    self.buf[i].uri.clearRetainingCapacity();
-    self.buf[i].uri.appendSlice(self.allocator, self.cursor.uri.items) catch {
-        log.warn("couldn't write uri", .{});
-    };
-    self.buf[i].uri_id.clearRetainingCapacity();
-    self.buf[i].uri_id.appendSlice(self.allocator, self.cursor.uri_id.items) catch {
-        log.warn("couldn't write uri_id", .{});
-    };
+    if (self.cursor.uri.items.len > 0 or self.buf[i].uri.items.len > 0) {
+        self.buf[i].uri.clearRetainingCapacity();
+        self.buf[i].uri.appendSlice(self.allocator, self.cursor.uri.items) catch {
+            log.warn("couldn't write uri", .{});
+        };
+        self.buf[i].uri_id.clearRetainingCapacity();
+        self.buf[i].uri_id.appendSlice(self.allocator, self.cursor.uri_id.items) catch {
+            log.warn("couldn't write uri_id", .{});
+        };
+    }
     self.buf[i].style = self.cursor.style;
     self.buf[i].width = width;
     self.buf[i].dirty = true;

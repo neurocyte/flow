@@ -483,9 +483,18 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
         switch (event) {
             .print => |str| {
                 const active_charset: Charset = if (self.charset_shifted) self.charset_g1 else self.charset_g0;
-                var iter = vaxis.unicode.graphemeIterator(str);
-                while (iter.next()) |grapheme| {
-                    const gr = grapheme.bytes(str);
+                var rest = str;
+                while (rest.len > 0) {
+                    if (active_charset == .ascii and rest[0] >= 0x20 and rest[0] < 0x7f) {
+                        var n: usize = 1;
+                        while (n < rest.len and rest[n] >= 0x20 and rest[n] < 0x7f) : (n += 1) {}
+                        for (rest[0..n]) |*b| try self.back_screen.print(b[0..1], 1, self.mode.autowrap);
+                        rest = rest[n..];
+                        continue;
+                    }
+                    var iter = vaxis.unicode.graphemeIterator(rest);
+                    const grapheme = iter.next() orelse break;
+                    const gr = grapheme.bytes(rest);
                     // TODO: use actual instead of .unicode
                     const w = vaxis.gwidth.gwidth(gr, .unicode);
                     if (active_charset == .dec_special and gr.len == 1) {
@@ -494,6 +503,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     } else {
                         try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
                     }
+                    rest = rest[gr.len..];
                 }
             },
             .c0 => |b| try self.handleC0(b, context, handle_event),
