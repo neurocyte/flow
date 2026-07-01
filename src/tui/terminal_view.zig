@@ -86,7 +86,8 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
 pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     const init = root.get_init();
     var env = try init.environ_map.clone(self.allocator);
-    errdefer env.deinit();
+    var env_consumed = false;
+    errdefer if (!env_consumed) env.deinit();
     if (env.get("TERM") == null)
         try env.put("TERM", "xterm-256color");
     try env.put("COLORTERM", "truecolor");
@@ -147,15 +148,32 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     const rows: u16 = @intCast(@max(24, self.plane.dim_y()));
 
     if (global_vt) |*vt| {
-        if (!vt.process_exited and have_cmd) {
-            var msg: std.Io.Writer.Allocating = .init(self.allocator);
-            defer msg.deinit();
-            try msg.writer.writeAll("terminal is already running '");
-            try get_running_cmd(&msg.writer);
-            try msg.writer.writeAll("'");
-            return tp.exit(msg.written());
+        if (!vt.process_exited) {
+            if (have_cmd) {
+                // still running
+                var msg: std.Io.Writer.Allocating = .init(self.allocator);
+                defer msg.deinit();
+                try msg.writer.writeAll("terminal is already running '");
+                try get_running_cmd(&msg.writer);
+                try msg.writer.writeAll("'");
+                return tp.exit(msg.written());
+            }
+            // re-attaching to running
+            env.deinit();
+            env_consumed = true;
+        } else if (have_cmd) {
+            // re-cycle exited
+            vt.deinit(self.allocator);
+            global_vt = null;
+            env_consumed = true;
+            try Vt.init(init.io, self.allocator, argv_list.items, env, rows, cols, on_exit);
+        } else {
+            // re-attach exited
+            env.deinit();
+            env_consumed = true;
         }
     } else {
+        env_consumed = true;
         try Vt.init(init.io, self.allocator, argv_list.items, env, rows, cols, on_exit);
     }
     self.vt = &global_vt.?;
