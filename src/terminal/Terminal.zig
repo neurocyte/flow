@@ -407,7 +407,7 @@ pub fn scrollToBottom(self: *Terminal) void {
 
 pub fn shellState(self: *Terminal) Screen.ShellState {
     if (self.back_screen != &self.back_screen_pri)
-        return .{ .running = .{} };
+        return .running;
     return self.back_screen_pri.shellState();
 }
 

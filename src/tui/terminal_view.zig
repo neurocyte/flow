@@ -150,31 +150,26 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
 
     if (global_vt) |*vt| {
         self.vt = vt;
-        if (!vt.process_exited) {
-            if (have_cmd) {
-                // still running
-                var msg: std.Io.Writer.Allocating = .init(self.allocator);
-                defer msg.deinit();
-                try msg.writer.writeAll("terminal is already running '");
-                try get_running_cmd(&msg.writer);
-                try msg.writer.writeAll("'");
-                return tp.exit(msg.written());
-            }
-            // re-attaching to running
-            env.deinit();
-            env_consumed = true;
-        } else if (have_cmd) {
-            // re-cycle exited, bracketed by synthetic prompt marks.
-            env.deinit();
-            env_consumed = true;
+        const can_take_over = vt.process_exited or switch (self.vt.vt.shellState()) {
+            .at_prompt, .at_prompt_with_input => true,
+            .running => false,
+        };
+        if (have_cmd and !can_take_over) {
+            var msg: std.Io.Writer.Allocating = .init(self.allocator);
+            defer msg.deinit();
+            try msg.writer.writeAll("terminal is already running '");
+            try get_running_cmd(&msg.writer);
+            try msg.writer.writeAll("'");
+            return tp.exit(msg.written());
+        }
+        env.deinit();
+        env_consumed = true;
+        if (have_cmd) {
             try vt.respawn(argv_list.items);
+            vt.on_exit = on_exit;
             vt.synthesize_marks = true;
             self.inject_prompt(display_cmd);
             try vt.start_reader(self.allocator);
-        } else {
-            // re-attach exited
-            env.deinit();
-            env_consumed = true;
         }
     } else {
         env_consumed = true;
@@ -670,9 +665,13 @@ fn navigate_to_file_link(dest: *const file_link.FileDest) void {
     };
 }
 
-fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+fn receive_filter(self: *Self, from: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     var event: Terminal.Event = undefined;
     if (m.match(.{ "VT", tp.extract(&event) }) catch false) {
+        // drop events from an old pty
+        if (self.vt.pty_pid) |pid| if (from.instance_id() != pid.instance_id())
+            return true;
+
         try self.process_event(event);
         return true;
     }
