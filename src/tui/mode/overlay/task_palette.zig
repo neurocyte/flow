@@ -141,7 +141,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         const runner = get_runner(activate);
         (switch (runner) {
             .buffer => tp.self_pid().send(.{ "cmd", "run_task", .{entry.label} }),
-            .terminal => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ entry.label, "hold" } }),
+            .terminal => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ entry.label, tui.config().task_terminal_on_exit } }),
         }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
 }
