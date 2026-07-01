@@ -1113,6 +1113,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             if (kind) |k| {
                                 var exit_code: ?i32 = null;
                                 var click_events: bool = false;
+                                var secondary: bool = false;
                                 if (after_semi.len > 1 and after_semi[1] == ';') {
                                     var it = std.mem.tokenizeScalar(u8, after_semi[2..], ';');
                                     while (it.next()) |tok| {
@@ -1122,11 +1123,15 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                                 continue;
                                             } else |_| {}
                                         }
+                                        // k=s marks a secondary (PS2 continuation) prompt
+                                        if (std.mem.eql(u8, tok, "k=s"))
+                                            secondary = true;
                                         if (std.mem.startsWith(u8, tok, "click_events=") and
                                             std.mem.eql(u8, tok["click_events=".len..], "1"))
                                             click_events = true;
                                     }
                                 }
+                                if (k == .prompt_start and secondary) continue;
                                 if (self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click_events)) {
                                     try handle_event(context, .{
                                         .shell_state_change = self.back_screen_pri.shellState(),
