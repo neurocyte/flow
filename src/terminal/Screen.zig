@@ -583,8 +583,8 @@ pub fn print(
     wrap: bool,
 ) !void {
     if (self.cursor.pending_wrap) {
-        try self.index();
         self.cursor.col = self.scrolling_region.left;
+        try self.index();
     }
     if (self.cursor.col >= self.width) return;
     if (self.cursor.row >= self.height) return;
