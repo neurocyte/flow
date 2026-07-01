@@ -338,7 +338,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             tui.need_render(@src());
             return true;
         }
-        if (keypress == input.key.escape) {
+        if (keypress == input.key.escape or (keypress == 'd' and key.mods.ctrl)) {
             tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {};
             return true;
         }
@@ -614,9 +614,9 @@ fn show_exit_message(self: *Self, code: u8) void {
     if (cmd_argv.len > 0) {
         w.writeAll(" Press enter to re-run '") catch {};
         _ = argv.write(w, cmd_argv) catch {};
-        w.writeAll("' or escape to close") catch {};
+        w.writeAll("' or escape/ctrl+d to close") catch {};
     } else {
-        w.writeAll(" Press esc to close") catch {};
+        w.writeAll(" Press escape/ctrl+d to close") catch {};
     }
     w.writeAll("\x1b[0m\r\n") catch {};
     var parser: pty.Parser = .{ .buf = .init(self.allocator) };
