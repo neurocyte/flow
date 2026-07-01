@@ -8,8 +8,62 @@ const log = std.log.scoped(.vaxis_terminal);
 
 const Screen = @This();
 
+/// SSO grapheme storage
+pub const Grapheme = union(enum) {
+    const inline_capacity = 22;
+
+    inline_buf: Inline,
+    heap: []u8,
+
+    const Inline = struct {
+        len: u8,
+        buf: [inline_capacity]u8,
+    };
+
+    pub const empty: Grapheme = .{ .inline_buf = .{ .len = 0, .buf = undefined } };
+
+    pub fn bytes(self: *const Grapheme) []const u8 {
+        return switch (self.*) {
+            .inline_buf => |*inl| inl.buf[0..inl.len],
+            .heap => |h| h,
+        };
+    }
+
+    pub fn set(self: *Grapheme, allocator: std.mem.Allocator, data: []const u8) void {
+        if (data.len <= inline_capacity) {
+            self.deinit(allocator);
+            self.* = .{ .inline_buf = .{ .len = @intCast(data.len), .buf = undefined } };
+            @memcpy(self.inline_buf.buf[0..data.len], data);
+            return;
+        }
+        const new_buf: ?[]u8 = switch (self.*) {
+            .heap => |h| allocator.realloc(h, data.len) catch null,
+            .inline_buf => allocator.dupe(u8, data) catch null,
+        };
+        if (new_buf) |buf| {
+            @memcpy(buf, data);
+            self.* = .{ .heap = buf };
+            return;
+        }
+        // On OOM keep as much as fits inline, but only whole codepoints
+        self.deinit(allocator);
+        var n: usize = inline_capacity;
+        while (n > 0 and (data[n] & 0xC0) == 0x80) : (n -= 1) {}
+        self.* = .{ .inline_buf = .{ .len = @intCast(n), .buf = undefined } };
+        @memcpy(self.inline_buf.buf[0..n], data[0..n]);
+    }
+
+    pub fn deinit(self: *Grapheme, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .heap => |h| allocator.free(h),
+            .inline_buf => {},
+        }
+        self.* = empty;
+    }
+};
+
 pub const Cell = struct {
-    char: std.ArrayList(u8) = .empty,
+    char: Grapheme = .empty,
     style: vaxis.Style = .{},
     uri: std.ArrayList(u8) = .empty,
     uri_id: std.ArrayList(u8) = .empty,
@@ -19,8 +73,7 @@ pub const Cell = struct {
     dirty: bool = true,
 
     pub fn erase(self: *Cell, allocator: std.mem.Allocator, bg: vaxis.Color) void {
-        self.char.clearRetainingCapacity();
-        self.char.append(allocator, ' ') catch unreachable; // we never completely free this list
+        self.char.set(allocator, " ");
         self.style = .{};
         self.style.bg = bg;
         self.uri.clearRetainingCapacity();
@@ -31,8 +84,7 @@ pub const Cell = struct {
     }
 
     pub fn copyFrom(self: *Cell, allocator: std.mem.Allocator, src: Cell) !void {
-        self.char.clearRetainingCapacity();
-        try self.char.appendSlice(allocator, src.char.items);
+        self.char.set(allocator, src.char.bytes());
         self.style = src.style;
         self.uri.clearRetainingCapacity();
         try self.uri.appendSlice(allocator, src.uri.items);
@@ -143,10 +195,8 @@ pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollba
         .visible_top = 0,
     };
     for (screen.buf, 0..) |_, i| {
-        screen.buf[i] = .{
-            .char = try .initCapacity(alloc, 1),
-        };
-        try screen.buf[i].char.append(alloc, ' ');
+        screen.buf[i] = .{};
+        screen.buf[i].char.set(alloc, " ");
     }
     return screen;
 }
@@ -178,8 +228,7 @@ pub fn copyTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen, scroll_
             const cell = &self.buf[src_i];
             if (!cell.dirty) continue;
             self.buf[src_i].dirty = false;
-            dst.buf[dst_i].char.clearRetainingCapacity();
-            try dst.buf[dst_i].char.appendSlice(allocator, cell.char.items);
+            dst.buf[dst_i].char.set(allocator, cell.char.bytes());
             dst.buf[dst_i].width = cell.width;
             dst.buf[dst_i].style = cell.style;
         }
@@ -330,9 +379,9 @@ pub fn readCell(self: *Screen, col: usize, row: usize) ?vaxis.Cell {
     }
     const i = self.rowIndex(row, col);
     assert(i < self.buf.len);
-    const cell = self.buf[i];
+    const cell = &self.buf[i];
     return .{
-        .char = .{ .grapheme = cell.char.items, .width = cell.width },
+        .char = .{ .grapheme = cell.char.bytes(), .width = cell.width },
         .style = cell.style,
     };
 }
@@ -514,7 +563,7 @@ pub fn rowIsBlank(self: *const Screen, row: usize) bool {
     if (row >= total_rows) return true;
     const row_base = row * self.width;
     for (self.buf[row_base .. row_base + self.width]) |*cell| {
-        for (cell.char.items) |b| if (b != ' ') return false;
+        for (cell.char.bytes()) |b| if (b != ' ') return false;
     }
     return true;
 }
@@ -557,11 +606,12 @@ pub fn extractRowText(
     var col: u16 = 0;
     while (col < self.width) : (col += 1) {
         const cell = &self.buf[row_base + col];
-        if (cell.char.items.len == 0) {
+        const cell_bytes = cell.char.bytes();
+        if (cell_bytes.len == 0) {
             try out.append(allocator, ' ');
             if (col_at_byte) |m| try m.append(allocator, col);
         } else {
-            for (cell.char.items) |b| {
+            for (cell_bytes) |b| {
                 try out.append(allocator, b);
                 if (col_at_byte) |m| try m.append(allocator, col);
             }
@@ -593,10 +643,7 @@ pub fn print(
 
     const i = self.rowIndex(row, col);
     assert(i < self.buf.len);
-    self.buf[i].char.clearRetainingCapacity();
-    self.buf[i].char.appendSlice(self.allocator, grapheme) catch {
-        log.warn("couldn't write grapheme", .{});
-    };
+    self.buf[i].char.set(self.allocator, grapheme);
     self.buf[i].uri.clearRetainingCapacity();
     self.buf[i].uri.appendSlice(self.allocator, self.cursor.uri.items) catch {
         log.warn("couldn't write uri", .{});
@@ -955,7 +1002,7 @@ test "print: a wrap on the bottom row scrolls instead of overwriting it" {
     screen.cursor.col = 0;
     for ("ABCDEF") |ch| try screen.print(&.{ch}, 1, true);
 
-    try testing.expectEqualStrings("A", screen.buf[screen.rowIndex(0, 0)].char.items);
-    try testing.expectEqualStrings("E", screen.buf[screen.rowIndex(0, 4)].char.items);
-    try testing.expectEqualStrings("F", screen.buf[screen.rowIndex(1, 0)].char.items);
+    try testing.expectEqualStrings("A", screen.buf[screen.rowIndex(0, 0)].char.bytes());
+    try testing.expectEqualStrings("E", screen.buf[screen.rowIndex(0, 4)].char.bytes());
+    try testing.expectEqualStrings("F", screen.buf[screen.rowIndex(1, 0)].char.bytes());
 }
