@@ -623,6 +623,14 @@ fn show_exit_message(self: *Self, code: u8) void {
     w.writeAll("[process exited") catch {};
     if (code != 0)
         w.print(" with code {d}", .{code}) catch {};
+    const runtime_ms = std.Io.Clock.now(.awake, root.get_io()).toMilliseconds() - self.vt.started_at;
+    if (runtime_ms >= 2 * std.time.ms_per_s) {
+        const secs = @divFloor(runtime_ms, std.time.ms_per_s);
+        if (secs >= std.time.s_per_min)
+            w.print(" in {d}m{d}s", .{ @divFloor(secs, std.time.s_per_min), @mod(secs, std.time.s_per_min) }) catch {}
+        else
+            w.print(" in {d}s", .{secs}) catch {};
+    }
     w.writeAll("]") catch {};
     // Re-run prompt
     const cmd_argv = self.vt.vt.cmd.argv;
@@ -962,6 +970,7 @@ const Vt = struct {
     process_exited: bool = false,
     on_exit: TerminalOnExit,
     synthesize_marks: bool = false,
+    started_at: i64 = 0,
 
     fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !void {
         const home = env.get("HOME") orelse "/tmp";
@@ -999,6 +1008,7 @@ const Vt = struct {
 
     /// Start the pty read actor.
     fn start_reader(self: *@This(), allocator: std.mem.Allocator) !void {
+        self.started_at = std.Io.Clock.now(.awake, root.get_io()).toMilliseconds();
         self.pty_pid = try pty.spawn(allocator, &self.vt);
     }
 
