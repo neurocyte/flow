@@ -253,6 +253,57 @@ pub fn spawn(self: *Terminal) !void {
     }
 }
 
+/// Replace the running command with a new one, keeping the existing screens.
+pub fn respawn(
+    self: *Terminal,
+    argv: []const []const u8,
+    env: *const std.process.Environ.Map,
+    working_directory: ?[]const u8,
+    write_buf: []u8,
+) !void {
+    // tear down the old command and pty, leaving the screens untouched
+    self.cmd.kill();
+    for (self.cmd.argv) |a| self.allocator.free(a);
+    self.allocator.free(self.cmd.argv);
+    self.pty.deinit(self.io);
+
+    const argv_owned = try self.allocator.alloc([]const u8, argv.len);
+    errdefer {
+        for (argv_owned) |a| self.allocator.free(a);
+        self.allocator.free(argv_owned);
+    }
+    for (argv, argv_owned) |src_arg, *dst| dst.* = try self.allocator.dupe(u8, src_arg);
+
+    const ws: Winsize = .{ .rows = self.front_screen.height, .cols = self.front_screen.width, .x_pixel = 0, .y_pixel = 0 };
+    var new_pty = if (is_windows)
+        try Pty.init(self.allocator, ws)
+    else blk: {
+        const p = try Pty.init();
+        try p.setSize(ws);
+        break :blk p;
+    };
+    errdefer new_pty.deinit(self.io);
+
+    self.pty = new_pty;
+    self.pty_writer = if (is_windows)
+        new_pty.inputFile().writerStreaming(self.io, write_buf)
+    else
+        new_pty.pty.writerStreaming(self.io, write_buf);
+    self.cmd = if (is_windows) .{
+        .argv = argv_owned,
+        .env_map = env,
+        .working_directory = working_directory,
+    } else .{
+        .argv = argv_owned,
+        .env_map = env,
+        .pty = new_pty,
+        .working_directory = working_directory,
+    };
+    // A new command starts with default terminal modes, like a fresh shell.
+    self.mode = .{};
+    try self.spawn();
+}
+
 /// resize the screen. Locks access to the back screen. Should only be called from the main thread.
 /// This is safe to call every render cycle: there is a guard to only perform a resize if the size
 /// of the window has changed.

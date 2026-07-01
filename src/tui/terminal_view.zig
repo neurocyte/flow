@@ -99,9 +99,10 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
 
     var cmd_arg: []const u8 = "";
     var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
-    const argv_msg: ?tp.message = if (ctx.args.match(.{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0)
-        try shell.parse_arg0_to_argv(self.allocator, &cmd_arg)
-    else if (ctx.args.match(.{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0)
+    const have_arg = (ctx.args.match(.{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0) or
+        (ctx.args.match(.{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0);
+    const display_cmd = cmd_arg;
+    const argv_msg: ?tp.message = if (have_arg)
         try shell.parse_arg0_to_argv(self.allocator, &cmd_arg)
     else
         null;
@@ -148,6 +149,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     const rows: u16 = @intCast(@max(24, self.plane.dim_y()));
 
     if (global_vt) |*vt| {
+        self.vt = vt;
         if (!vt.process_exited) {
             if (have_cmd) {
                 // still running
@@ -162,11 +164,13 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
             env.deinit();
             env_consumed = true;
         } else if (have_cmd) {
-            // re-cycle exited
-            vt.deinit(self.allocator);
-            global_vt = null;
+            // re-cycle exited, bracketed by synthetic prompt marks.
+            env.deinit();
             env_consumed = true;
-            try Vt.init(init.io, self.allocator, argv_list.items, env, rows, cols, on_exit);
+            try vt.respawn(argv_list.items);
+            vt.synthesize_marks = true;
+            self.inject_prompt(display_cmd);
+            try vt.start_reader(self.allocator);
         } else {
             // re-attach exited
             env.deinit();
@@ -175,8 +179,12 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     } else {
         env_consumed = true;
         try Vt.init(init.io, self.allocator, argv_list.items, env, rows, cols, on_exit);
+        const vt = &global_vt.?;
+        self.vt = vt;
+        vt.synthesize_marks = have_cmd;
+        if (have_cmd) self.inject_prompt(display_cmd);
+        try vt.start_reader(self.allocator);
     }
-    self.vt = &global_vt.?;
 
     if (self.last_cmd) |cmd| {
         self.allocator.free(cmd);
@@ -621,6 +629,31 @@ fn show_exit_message(self: *Self, code: u8) void {
     _ = self.vt.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
 }
 
+// Feed bytes into the screen (not the pty)
+fn inject(self: *Self, bytes: []const u8) void {
+    var parser: pty.Parser = .{ .buf = .init(self.allocator) };
+    defer parser.buf.deinit();
+    _ = self.vt.vt.processOutput(&parser, bytes, self, process_terminal_event) catch {};
+}
+
+// Write a shell-style prompt with OSC 133 marks
+fn inject_prompt(self: *Self, display: []const u8) void {
+    var msg: std.Io.Writer.Allocating = .init(self.allocator);
+    defer msg.deinit();
+    const w = &msg.writer;
+    w.writeAll("\x1b[0m\x1b]133;A\x1b\\") catch {}; // reset SGR, prompt_start
+    w.print("\x1b[1;34m$\x1b[0m {s}\r\n", .{display}) catch {}; // visible command line
+    w.writeAll("\x1b]133;C\x1b\\") catch {}; // output_start
+    self.inject(msg.written());
+}
+
+// Close command output range
+fn inject_output_end(self: *Self, code: u8) void {
+    var buf: [64]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, "\x1b]133;D;{d}\x1b\\", .{code}) catch return;
+    self.inject(s);
+}
+
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
@@ -667,6 +700,7 @@ fn process_event(self: *Self, event: Terminal.Event) MessageFilter.Error!void {
     switch (event) {
         .exited => |code| {
             self.vt.process_exited = true;
+            if (self.vt.synthesize_marks) self.inject_output_end(code);
             self.handle_child_exit(code);
             tui.need_render(@src());
         },
@@ -913,6 +947,7 @@ const Vt = struct {
     app_cursor: ?[3]u8 = null,
     process_exited: bool = false,
     on_exit: TerminalOnExit,
+    synthesize_marks: bool = false,
 
     fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !void {
         const home = env.get("HOME") orelse "/tmp";
@@ -946,7 +981,25 @@ const Vt = struct {
         if (theme.editor.bg) |bg| self.vt.bg_color = color.u24_to_u8s(bg.color);
 
         try self.vt.spawn();
+    }
+
+    /// Start the pty read actor.
+    fn start_reader(self: *@This(), allocator: std.mem.Allocator) !void {
         self.pty_pid = try pty.spawn(allocator, &self.vt);
+    }
+
+    /// Replace the exited command with a new one.
+    fn respawn(self: *@This(), cmd_argv: []const []const u8) !void {
+        if (self.pty_pid) |pid| {
+            pid.send(.{"quit"}) catch {};
+            pid.deinit();
+            self.pty_pid = null;
+        }
+        const home = self.env.get("HOME") orelse "/tmp";
+        const project = tp.env.get().str("project");
+        const wd = if (project.len > 0) project else home;
+        try self.vt.respawn(cmd_argv, &self.env, wd, &self.write_buf);
+        self.process_exited = false;
     }
 
     fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
