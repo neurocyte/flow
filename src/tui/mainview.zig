@@ -1095,7 +1095,7 @@ const cmds = struct {
     pub fn open_terminal(self: *Self, ctx: Ctx) Result {
         const have_args = ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more });
 
-        if (!have_args and terminal_view.is_vt_running()) if (self.get_panel_view(terminal_view)) |vt| {
+        if (!have_args) if (self.get_panel_view(terminal_view)) |vt| {
             std.log.debug("open_terminal: toggle_focus", .{});
             vt.toggle_focus();
             return;
