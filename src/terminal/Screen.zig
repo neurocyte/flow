@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const vaxis = @import("vaxis");
 
 const ansi = @import("ansi.zig");
+const DoubleMappedRingBuffer = @import("DoubleMappedRingBuffer");
 
 const log = std.log.scoped(.vaxis_terminal);
 
@@ -97,6 +98,47 @@ pub const Cell = struct {
     }
 };
 
+pub const CellRing = struct {
+    drb: DoubleMappedRingBuffer,
+    width: usize,
+    rows: usize, // logical height
+    cap_rows: usize, // physical capacity: cap_rows*row_bytes is page-sized
+    head: usize,
+
+    fn init(width: usize, rows: usize) !CellRing {
+        assert(width >= 1 and rows >= 1);
+        const row_bytes = width * @sizeOf(Cell);
+        const page = std.heap.pageSize();
+        const step = page / std.math.gcd(row_bytes, page);
+        const cap_rows = ((rows + step - 1) / step) * step;
+        return .{
+            .drb = try DoubleMappedRingBuffer.init(cap_rows * row_bytes),
+            .width = width,
+            .rows = rows,
+            .cap_rows = cap_rows,
+            .head = 0,
+        };
+    }
+
+    fn deinit(self: *CellRing) void {
+        self.drb.deinit();
+    }
+
+    fn window(self: *const CellRing) []Cell {
+        const row_bytes = self.width * @sizeOf(Cell);
+        const bytes = self.drb.slice(self.head * row_bytes, self.rows * row_bytes);
+        return @alignCast(std.mem.bytesAsSlice(Cell, bytes));
+    }
+
+    fn physical(self: *const CellRing) []Cell {
+        return @alignCast(std.mem.bytesAsSlice(Cell, self.drb.data()));
+    }
+
+    fn advance(self: *CellRing) void {
+        self.head = (self.head + 1) % self.cap_rows;
+    }
+};
+
 pub const Cursor = struct {
     style: vaxis.Style = .{},
     uri: std.ArrayList(u8) = .empty,
@@ -165,6 +207,7 @@ visible_top: usize = 0,
 
 scrolling_region: ScrollingRegion,
 
+ring: CellRing = undefined,
 buf: []Cell = undefined,
 
 cursor: Cursor = .{},
@@ -183,7 +226,8 @@ pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollba
     const total_h: usize = @as(usize, visible_h) + scrollback;
     var screen = Screen{
         .allocator = alloc,
-        .buf = try alloc.alloc(Cell, @as(usize, @intCast(w)) * total_h),
+        .ring = try CellRing.init(w, total_h),
+        .buf = undefined,
         .scrolling_region = .{
             .top = 0,
             .bottom = visible_h - 1,
@@ -194,24 +238,25 @@ pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollba
         .height = visible_h,
         .visible_top = 0,
     };
-    for (screen.buf, 0..) |_, i| {
-        screen.buf[i] = .{};
-        screen.buf[i].char.set(alloc, " ");
+    screen.buf = screen.ring.window();
+    for (screen.ring.physical()) |*cell| {
+        cell.* = .{};
+        cell.char.set(alloc, " ");
     }
     return screen;
 }
 
 pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
-    for (self.buf, 0..) |_, i| {
-        self.buf[i].char.deinit(alloc);
-        self.buf[i].uri.deinit(alloc);
-        self.buf[i].uri_id.deinit(alloc);
+    for (self.ring.physical()) |*cell| {
+        cell.char.deinit(alloc);
+        cell.uri.deinit(alloc);
+        cell.uri_id.deinit(alloc);
     }
     self.cursor.uri.deinit(alloc);
     self.cursor.uri_id.deinit(alloc);
     self.prompt_marks.deinit(alloc);
 
-    alloc.free(self.buf);
+    self.ring.deinit();
 }
 
 /// Copy the visible area (or a scrolled-back view) to the destination screen
@@ -676,8 +721,17 @@ pub fn index(self: *Screen) !void {
             self.scrolling_region.left == 0 and
             self.scrolling_region.right == self.width - 1;
         const total_rows = self.buf.len / self.width;
-        if (full_screen and self.visible_top + self.height < total_rows) {
-            self.visible_top += 1;
+        if (full_screen) {
+            if (self.visible_top + self.height < total_rows) {
+                // history is growing
+                self.visible_top += 1;
+            } else {
+                // scrollback is full
+                self.ring.advance();
+                self.buf = self.ring.window();
+                self.shiftMarksUp(0, @intCast(total_rows - 1), 1);
+            }
+            // recycled bottom row is stale
             const new_bottom = self.rowIndex(self.height - 1, 0);
             for (self.buf[new_bottom .. new_bottom + self.width]) |*cell| {
                 cell.erase(self.allocator, self.cursor.style.bg);
@@ -990,6 +1044,26 @@ pub fn scrollDown(self: *Screen, n: usize) !void {
     self.cursor.col = self.scrolling_region.left;
     self.cursor.row = self.scrolling_region.top;
     try self.insertLine(n);
+}
+
+test "scrollback ring drops the oldest line once full and keeps recent history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 2, 2);
+    defer screen.deinit(alloc);
+
+    var i: u8 = 0;
+    while (i < 8) : (i += 1) {
+        screen.cursor.col = 0;
+        try screen.print(&.{'0' + i}, 1, false);
+        try screen.index();
+    }
+
+    try testing.expectEqualStrings("5", screen.buf[0].char.bytes());
+    try testing.expectEqualStrings("6", screen.buf[4].char.bytes());
+    try testing.expectEqualStrings("7", screen.buf[8].char.bytes());
+    try testing.expectEqualStrings(" ", screen.buf[12].char.bytes());
+    try testing.expectEqual(@as(usize, 2), screen.historySize());
 }
 
 test "print: a wrap on the bottom row scrolls instead of overwriting it" {
