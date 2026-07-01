@@ -488,10 +488,15 @@ pub fn build_exe(
         },
     });
 
+    const double_mapped_ring_buffer_mod = b.createModule(.{
+        .root_source_file = b.path("src/DoubleMappedRingBuffer.zig"),
+    });
+
     const Terminal_mod = b.createModule(.{
         .root_source_file = b.path("src/terminal/Terminal.zig"),
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
+            .{ .name = "DoubleMappedRingBuffer", .module = double_mapped_ring_buffer_mod },
         },
     });
 
@@ -876,6 +881,19 @@ pub fn build_exe(
             .filters = test_filters,
         });
         tests.root_module.addImport("vaxis", vaxis_mod);
+        tests.root_module.addImport("DoubleMappedRingBuffer", double_mapped_ring_buffer_mod);
+        break :blk b.addRunArtifact(tests);
+    };
+
+    const double_mapped_ring_buffer_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/DoubleMappedRingBuffer.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
         break :blk b.addRunArtifact(tests);
     };
 
@@ -1184,6 +1202,7 @@ pub fn build_exe(
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&terminal_screen_test_run_cmd.step);
+    test_step.dependOn(&double_mapped_ring_buffer_test_run_cmd.step);
     test_step.dependOn(&mouse_event_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
 
