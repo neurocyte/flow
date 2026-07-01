@@ -181,11 +181,9 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
         try vt.start_reader(self.allocator);
     }
 
-    if (self.last_cmd) |cmd| {
-        self.allocator.free(cmd);
-        self.last_cmd = null;
-    }
-    self.last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
+    const new_last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
+    if (self.last_cmd) |cmd| self.allocator.free(cmd);
+    self.last_cmd = new_last_cmd;
 }
 
 fn re_run_cmd(self: *Self) !void {
