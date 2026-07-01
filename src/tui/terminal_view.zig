@@ -23,6 +23,7 @@ pub const Mode = keybind.Mode;
 const color = @import("color");
 const RGB = color.RGB;
 const file_link = @import("file_link");
+const bin_path = @import("bin_path");
 
 pub const name = @typeName(Self);
 
@@ -123,6 +124,20 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
         else
             env.get("SHELL") orelse "/bin/sh";
         try argv_list.append(self.allocator, default_shell);
+    }
+
+    // Resolve command with no path
+    var resolved_arg0: ?[:0]const u8 = null;
+    defer if (resolved_arg0) |r| self.allocator.free(r);
+    if (argv_list.items.len > 0) {
+        const arg0 = argv_list.items[0];
+        const is_path = for (arg0) |c| {
+            if (std.fs.path.isSep(c)) break true;
+        } else false;
+        if (!is_path) if (bin_path.find_binary_in_path(self.allocator, arg0) catch null) |found| {
+            resolved_arg0 = found;
+            argv_list.items[0] = found;
+        };
     }
 
     // Use the current plane dimensions for the initial pty size. The plane
