@@ -15,6 +15,7 @@ enable_terminal_cursor: bool = true,
 enable_terminal_color_scheme: bool = false,
 terminal_scrollback_size: u16 = 500,
 terminal_on_exit: TerminalOnExit = .hold_on_error,
+task_runner: TaskRunner = .default,
 enable_sgr_pixel_mode_support: bool = true,
 enable_modal_dim: bool = true,
 highlight_current_line: bool = true,
@@ -270,4 +271,11 @@ pub const PalettePlacement = enum {
     top_left,
     top_right,
     center,
+};
+
+pub const TaskRunner = enum {
+    buffer,
+    terminal,
+
+    pub const default = .terminal;
 };

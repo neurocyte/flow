@@ -138,11 +138,23 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     } else {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
         project_manager.add_task(entry.label) catch {};
-        (switch (activate) {
-            .normal => tp.self_pid().send(.{ "cmd", "run_task", .{entry.label} }),
-            .alternate => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ entry.label, "hold" } }),
+        const runner = get_runner(activate);
+        (switch (runner) {
+            .buffer => tp.self_pid().send(.{ "cmd", "run_task", .{entry.label} }),
+            .terminal => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ entry.label, "hold" } }),
         }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
+}
+
+fn get_runner(activate: @import("palette.zig").ActivateMode) @import("config").TaskRunner {
+    const runner = tui.config().task_runner;
+    return switch (activate) {
+        .normal => runner,
+        .alternate => switch (runner) {
+            .buffer => .terminal,
+            .terminal => .buffer,
+        },
+    };
 }
 
 pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
