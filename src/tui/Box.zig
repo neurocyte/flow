@@ -13,6 +13,23 @@ w: usize = 1,
 extra_x: u8 = 0,
 extra_y: u8 = 0,
 
+// Pixel render extent. When unset, it is derived from cell grid plus
+// extra_x/extra_y
+frame: Frame = .{},
+
+pub const Frame = Layer.Frame;
+
+/// Pixel render extent of this box
+pub fn resolve_frame(self: Self, cw: i32, ch: i32) Frame {
+    if (self.frame.is_set()) return self.frame;
+    return .{
+        .x = @as(i32, @intCast(self.x)) * cw,
+        .y = @as(i32, @intCast(self.y)) * ch,
+        .w = @as(i32, @intCast(self.w)) * cw + self.extra_x,
+        .h = @as(i32, @intCast(self.h)) * ch + self.extra_y,
+    };
+}
+
 pub fn opts(self: Self, name_: [:0]const u8) Plane.Options {
     return self.opts_flags(name_, Plane.option.none);
 }

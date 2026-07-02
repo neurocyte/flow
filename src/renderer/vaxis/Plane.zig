@@ -157,6 +157,17 @@ pub fn global_origin_px(self: Plane) struct { i32, i32 } {
     };
 }
 
+/// Absolute render extent
+pub fn frame(self: Plane) Layer.Frame {
+    const ox, const oy = self.global_origin_px();
+    return .{
+        .x = ox,
+        .y = oy,
+        .w = @as(i32, self.dim_x()) * self.cell_x(),
+        .h = @as(i32, self.dim_y()) * self.cell_y(),
+    };
+}
+
 pub fn hide(_: Plane) void {}
 
 pub fn cursor_enable(self: *const Plane, y: i32, x: i32, shape: vaxis.Cell.CursorShape) void {

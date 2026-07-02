@@ -138,6 +138,46 @@ pub fn global_origin_px(self: *const Layer) struct { i32, i32 } {
 
 pub const Handle = TypedInt.Tagged(u32, "LHDL"); // Layer HanDL
 
+/// Pixel rectangle
+pub const Frame = struct {
+    x: i32 = 0,
+    y: i32 = 0,
+    w: i32 = 0,
+    h: i32 = 0,
+
+    pub fn is_set(self: Frame) bool {
+        return self.w != 0 and self.h != 0;
+    }
+
+    pub fn right(self: Frame) i32 {
+        return self.x + self.w;
+    }
+
+    pub fn bottom(self: Frame) i32 {
+        return self.y + self.h;
+    }
+
+    /// Shrink by pixel amount (negative values grow)
+    pub fn inset(self: Frame, left: i32, top: i32, right_px: i32, bottom_px: i32) Frame {
+        return .{
+            .x = self.x + left,
+            .y = self.y + top,
+            .w = self.w - left - right_px,
+            .h = self.h - top - bottom_px,
+        };
+    }
+
+    /// Align bottom edge with `other`
+    pub fn align_bottom(self: Frame, other: Frame) Frame {
+        return .{ .x = self.x, .y = other.bottom() - self.h, .w = self.w, .h = self.h };
+    }
+
+    /// Alight right edge with `other`
+    pub fn align_right(self: Frame, other: Frame) Frame {
+        return .{ .x = other.right() - self.w, .y = self.y, .w = self.w, .h = self.h };
+    }
+};
+
 pub const Target = struct {
     src: *Layer,
     dst: vaxis.Window,
