@@ -155,6 +155,7 @@ pub const Target = struct {
     radius: u16 = 0, // corner rounding radius in pixels (0 = square)
     corners: Corners = .all, // which corners use `radius`
     shadow: ?Shadow = null,
+    fill: bool = false, // stretch to cover the whole destination (GUI only)
 
     pub const Blend = enum {
         replace, // dst = src

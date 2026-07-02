@@ -316,6 +316,7 @@ pub fn render(self: *Self) error{}!?i64 {
             .radius = t.radius,
             .corners = t.corners,
             .shadow = t.shadow,
+            .fill = t.fill,
             .dst_x_off = t.dst.x_off,
             .dst_y_off = t.dst.y_off,
             .dst_width = t.dst.width,
