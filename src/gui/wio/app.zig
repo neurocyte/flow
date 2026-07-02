@@ -851,6 +851,14 @@ fn wioLoop() void {
                         sendMouse(.press, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
+                            // Character keys are handled by .char unless modifiers are held.
+                            if (std.math.cast(u8, base_cp)) |ascii| {
+                                if (std.ascii.isPrint(ascii)) {
+                                    if (!mods.alt and !mods.ctrl) {
+                                        continue;
+                                    }
+                                }
+                            }
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
                             sendKey(press, base_cp, shifted_cp orelse base_cp, mods);
                         } else {
@@ -883,13 +891,8 @@ fn wioLoop() void {
                     }
                 },
                 .char => |cp| {
-                    // Only handle non-ASCII IME-composed codepoints here.
-                    // ASCII keys are fully handled by .button_press with correct
-                    // base/shifted codepoints, avoiding double-firing on X11.
-                    if (cp > 0x7f) {
-                        const mods = syncModifiers();
-                        sendKey(press, cp, cp, mods);
-                    }
+                    const mods = syncModifiers();
+                    sendKey(press, cp, cp, mods);
                 },
                 .mouse => |pos| {
                     mouse_pos = pos;
