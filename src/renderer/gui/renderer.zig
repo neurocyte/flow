@@ -275,7 +275,11 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
 }
 
 pub fn render(self: *Self) error{}!?i64 {
-    if (!self.window_ready) return null;
+    if (!self.window_ready) {
+        self.reset_all_cursors();
+        self.targets.clearRetainingCapacity();
+        return null;
+    }
 
     var layers_buf: std.ArrayList(app.LayerView) = .empty;
     defer layers_buf.deinit(self.allocator);
