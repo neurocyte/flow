@@ -262,23 +262,44 @@ fn draw_target(target: *const Layer.Target) void {
     if (target.x >= target.dst.width) return;
     if (target.y >= target.dst.height) return;
 
-    const src_h: usize = target.src.screen.height;
-    const src_w = target.src.screen.width;
+    const src_h: i32 = @intCast(target.src.screen.height);
+    const src_w: i32 = @intCast(target.src.screen.width);
 
     const dst_dim_y: i32 = @intCast(target.dst.height);
     const dst_dim_x: i32 = @intCast(target.dst.width);
     const dst_y = target.y;
     const dst_x = target.x;
-    const dst_w = @min(src_w, dst_dim_x - dst_x);
-    if (dst_w <= 0) return;
 
-    for (0..src_h) |src_row_| {
-        const src_row: i32 = @intCast(src_row_);
-        if (dst_y + src_row >= dst_dim_y) return;
+    var cx0: i32 = 0;
+    var cy0: i32 = 0;
+    var cx1: i32 = dst_dim_x;
+    var cy1: i32 = dst_dim_y;
+    if (target.clip) |c| {
+        const scr = target.dst.screen;
+        const cw: i32 = if (scr.width > 0 and scr.width_pix > scr.width) @intCast(scr.width_pix / scr.width) else 1;
+        const ch: i32 = if (scr.height > 0 and scr.height_pix > scr.height) @intCast(scr.height_pix / scr.height) else 1;
+        cx0 = @max(cx0, @divFloor(c.x, cw));
+        cy0 = @max(cy0, @divFloor(c.y, ch));
+        cx1 = @min(cx1, @divFloor(c.x + c.w, cw));
+        cy1 = @min(cy1, @divFloor(c.y + c.h, ch));
+    }
+
+    var src_row: i32 = 0;
+    while (src_row < src_h) : (src_row += 1) {
+        const row = dst_y + src_row;
+        if (row >= dst_dim_y) break;
+        if (row < cy0 or row >= cy1) continue;
+
+        const col_start = @max(dst_x, cx0);
+        const col_end = @min(@min(dst_x + src_w, dst_dim_x), cx1);
+        if (col_end <= col_start) continue;
+        const w: usize = @intCast(col_end - col_start);
+
         const src_row_offset = src_row * src_w;
-        const dst_row_offset = (dst_y + src_row) * target.dst.screen.width;
-        const dst_slice = target.dst.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)];
-        const src_slice = target.src.screen.buf[@intCast(src_row_offset)..@intCast(src_row_offset + dst_w)];
+        const dst_row_offset = row * @as(i32, @intCast(target.dst.screen.width));
+        const src_col = col_start - dst_x; // column offset into the source row
+        const dst_slice = target.dst.screen.buf[@intCast(dst_row_offset + col_start)..][0..w];
+        const src_slice = target.src.screen.buf[@intCast(src_row_offset + src_col)..][0..w];
         switch (target.blend) {
             .src_over => for (dst_slice, src_slice) |*dst_cell, src_cell|
                 blend_cell_src_over(dst_cell, src_cell, target.alpha),

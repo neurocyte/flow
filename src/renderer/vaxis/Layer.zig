@@ -197,6 +197,13 @@ pub const Target = struct {
     shadow: ?Shadow = null,
     fill: bool = false, // stretch to cover the whole destination (GUI only)
 
+    // explicit destination pixel size (GUI only) 0 = use source
+    dst_w: u16 = 0,
+    dst_h: u16 = 0,
+
+    // scissor rectangle in absolute destination-attachment pixels (GUI) / clamped to cells (terminal)
+    clip: ?Frame = null,
+
     pub const Blend = enum {
         replace, // dst = src
         src_over, // dst = src·a + dst·(1−a)

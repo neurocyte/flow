@@ -769,8 +769,11 @@ pub const CompositeOp = struct {
     radius: f32 = 0,
     //// per-corner rounding enable mask (tl, tr, br, bl)
     corners: [4]f32 = .{ 1, 1, 1, 1 },
+    /// scissor rect in dst-attachment pixels
+    clip: ?Rect = null,
 
     pub const BlendMode = enum { replace, src_over, src_over_blur };
+    pub const Rect = struct { x: i32, y: i32, w: i32, h: i32 };
 };
 
 /// Composite one layer's offscreen pixel buffer into another's, using the
@@ -798,6 +801,7 @@ pub fn compositeLayer(
     });
 
     sg.applyViewport(op.dst_x, op.dst_y, op.dst_w, op.dst_h, true);
+    if (op.clip) |c| sg.applyScissorRect(c.x, c.y, c.w, c.h, true);
 
     const pipeline = switch (op.blend) {
         .replace => global.composite_replace_pip,

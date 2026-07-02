@@ -81,6 +81,9 @@ pub const TargetView = struct {
     corners: Layer.Target.Corners = .all,
     shadow: ?Layer.Target.Shadow = null,
     fill: bool = false,
+    dst_w: u16 = 0,
+    dst_h: u16 = 0,
+    clip: ?Layer.Frame = null,
 };
 
 const LayerSnapshot = struct {
@@ -1347,8 +1350,8 @@ pub fn renderActorTick() void {
             gpu.compositeLayer(dst_state, src_state, .{
                 .dst_x = if (t.fill) 0 else dst_x,
                 .dst_y = if (t.fill) 0 else dst_y,
-                .dst_w = if (t.fill) dst_state.pixel_size.x else src_state.pixel_size.x,
-                .dst_h = if (t.fill) dst_state.pixel_size.y else src_state.pixel_size.y,
+                .dst_w = if (t.fill) dst_state.pixel_size.x else if (t.dst_w != 0) t.dst_w else src_state.pixel_size.x,
+                .dst_h = if (t.fill) dst_state.pixel_size.y else if (t.dst_h != 0) t.dst_h else src_state.pixel_size.y,
                 .blend = switch (t.blend) {
                     .replace => .replace,
                     .src_over => .src_over,
@@ -1357,6 +1360,7 @@ pub fn renderActorTick() void {
                 .alpha = t.alpha,
                 .radius = radius,
                 .corners = corners,
+                .clip = if (t.clip) |c| .{ .x = c.x, .y = c.y, .w = c.w, .h = c.h } else null,
             });
         }
     }
