@@ -79,11 +79,7 @@ pub fn deinit(self: *Self) void {
 }
 
 fn default_find_mode() Mode {
-    const namespace = keybind.get_namespace();
-    if (eql(u8, namespace, "helix") or eql(u8, namespace, "vim")) {
-        return .regex;
-    }
-    return .auto;
+    return tui.config().find_mode;
 }
 
 fn find_mode_name(find_mode: Mode) []const u8 {
@@ -203,30 +199,32 @@ fn update_mini_mode_text(self: *Self) void {
     }
 }
 
+fn toggle_find_mode(self: *Self, ctx: cmds.Ctx, new_find_mode: Mode) cmds.Result {
+    const a = self.allocator;
+    const query = try a.dupe(u8, self.input_.items);
+    defer a.free(query);
+    self.find_mode = new_find_mode;
+    self.editor.find_mode = new_find_mode;
+    self.cancel(ctx);
+    tui.config_mut().find_mode = new_find_mode;
+    try tui.save_config();
+    command.executeName("find", command.fmt(.{ new_find_mode, query })) catch {};
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
     const Meta = command.Metadata;
     const Result = command.Result;
 
-    fn toggle_find_mode(self: *Self, ctx: Ctx, new_find_mode: Mode) Result {
-        const a = self.allocator;
-        const query = try a.dupe(u8, self.input_.items);
-        defer a.free(query);
-        self.find_mode = new_find_mode;
-        self.editor.find_mode = new_find_mode;
-        self.cancel(ctx);
-        command.executeName("find", command.fmt(.{ new_find_mode, query })) catch {};
-    }
-
     pub fn toggle_find_mode_case_folded(self: *Self, ctx: Ctx) Result {
-        const new_find_mode = self.find_mode.toggleCase();
+        const new_find_mode = Buffer.find_mode.toggleCase(self.find_mode);
         return toggle_find_mode(self, ctx, new_find_mode);
     }
     pub const toggle_find_mode_case_folded_meta: Meta = .{ .description = "Toggle case folded find mode" };
 
     pub fn toggle_find_mode_regex(self: *Self, ctx: Ctx) Result {
-        const new_find_mode = self.find_mode.toggleRegex();
+        const new_find_mode = Buffer.find_mode.toggleRegex(self.find_mode);
         return toggle_find_mode(self, ctx, new_find_mode);
     }
     pub const toggle_find_mode_regex_meta: Meta = .{ .description = "Toggle regex find mode" };

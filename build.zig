@@ -492,6 +492,7 @@ pub fn build_exe(
             .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "VcsBlame", .module = VcsBlame_mod },
             .{ .name = "regex", .module = regex_mod },
+            .{ .name = "config", .module = config_mod },
         },
     });
 

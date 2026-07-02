@@ -21,21 +21,15 @@ pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
 
-pub const FindMode = enum {
-    auto,
-    exact,
-    case_folded,
-    regex_auto,
-    regex,
-    regex_case_folded,
-
+pub const FindMode = @import("config").FindMode;
+pub const find_mode = struct {
     fn is_case_folded_query(allocator: Allocator, query: []const u8) bool {
         const folded_query = unicode.case_fold(allocator, query) catch return true;
         defer allocator.free(folded_query);
         return std.mem.eql(u8, query, folded_query);
     }
 
-    pub fn toggleCase(self: @This()) @This() {
+    pub fn toggleCase(self: FindMode) FindMode {
         return switch (self) {
             .auto => .exact,
             .exact => .case_folded,
@@ -46,7 +40,7 @@ pub const FindMode = enum {
         };
     }
 
-    pub fn toggleRegex(self: @This()) @This() {
+    pub fn toggleRegex(self: FindMode) FindMode {
         return switch (self) {
             .auto, .exact, .case_folded => .regex_auto,
             .regex_auto, .regex, .regex_case_folded => .auto,
@@ -2017,11 +2011,11 @@ pub fn find_all_ranges(
         },
         .exact, .case_folded => |m| return self.root.find_all_ranges(pattern, data, callback, m, allocator),
         .auto => {
-            const is_case_folded = FindMode.is_case_folded_query(allocator, pattern);
+            const is_case_folded = find_mode.is_case_folded_query(allocator, pattern);
             if (is_case_folded) continue :mode .case_folded else continue :mode .exact;
         },
         .regex_auto => {
-            const is_case_folded = FindMode.is_case_folded_query(allocator, pattern);
+            const is_case_folded = find_mode.is_case_folded_query(allocator, pattern);
             if (is_case_folded) continue :mode .regex_case_folded else continue :mode .regex;
         },
     }
