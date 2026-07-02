@@ -11,6 +11,7 @@ const Plane = @import("renderer").Plane;
 const root = @import("soft_root").root;
 
 const Widget = @import("Widget.zig");
+const WidgetLayerBox = @import("WidgetLayerBox.zig");
 const Button = @import("Button.zig");
 const Menu = @import("Menu.zig");
 const tui = @import("tui.zig");
@@ -73,6 +74,7 @@ pub const Style = style;
 allocator: std.mem.Allocator,
 plane: Plane,
 parent: Plane,
+info: *WidgetLayerBox,
 fire: ?Fire = null,
 commands: Commands = undefined,
 focused: bool = false,
@@ -90,6 +92,15 @@ home_style_bufs: [][]const u8,
 
 const Self = @This();
 
+const info_debug_text = "debug build";
+const info_margin_cols: u16 = 2; // gap from the right edge
+const info_margin_rows: u16 = 1; // gap above the status bar
+const info_bottom_bar_rows: u16 = 1; // status bar height the info sits above
+
+fn info_version() []const u8 {
+    return if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
+}
+
 const widget_type: Widget.Type = .home;
 const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
@@ -101,6 +112,24 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
     errdefer n.deinit();
 
+    const info = try WidgetLayerBox.create(allocator, n, .{
+        .name = "home.info",
+        .placement = .bottom_right,
+        .offset_x = info_margin_cols,
+        .offset_y = info_margin_rows + info_bottom_bar_rows,
+    });
+    errdefer info.deinit(allocator);
+    info.z_index = .main;
+    info.blend = .src_over;
+    info.alpha = 0x80;
+    {
+        const debug = builtin.mode == .Debug;
+        const version = info_version();
+        info.content_w = @intCast(if (debug) @max(version.len, info_debug_text.len) else version.len);
+        info.content_h = if (debug) 2 else 1;
+    }
+    info.handle_resize(.{ .frame = tui.window_frame() });
+
     command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
     const keybind_mode = tui.get_keybind_mode() orelse @panic("no active keybind mode");
     const home_style, const home_style_bufs = root.read_config(style, allocator);
@@ -110,6 +139,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .allocator = allocator,
         .parent = parent.plane.*,
         .plane = n,
+        .info = info,
         .menu = try Menu.create(*Self, allocator, w.plane.*, .{
             .ctx = self,
             .style = widget_type,
@@ -149,6 +179,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     root.free_config(self.allocator, self.home_style_bufs);
     self.menu.deinit(allocator);
     if (self.focused) self.commands.deinit();
+    self.info.deinit(allocator);
     self.plane.deinit();
     if (self.fire) |*fire| fire.deinit();
     allocator.destroy(self);
@@ -365,29 +396,33 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
     }
 
-    const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
-
-    if (self.plane.dim_y() < 3 or self.plane.dim_x() < version.len + 4) return false;
-
-    self.plane.cursor_move_yx(
-        @intCast(self.plane.dim_y() - 2),
-        @intCast(@max(self.plane.dim_x(), version.len + 3) - version.len - 3),
-    );
-    self.plane.set_style_bg_transparent(style_subtext);
-    _ = self.plane.print("{s}", .{version}) catch return false;
-    if (builtin.mode == .Debug) {
-        const debug_warning_text = "debug build";
-        if (self.plane.dim_y() < 4 or self.plane.dim_x() < debug_warning_text.len + 4) return false;
-        self.plane.cursor_move_yx(
-            @intCast(self.plane.dim_y() - 3),
-            @intCast(@max(self.plane.dim_x(), debug_warning_text.len + 3) - debug_warning_text.len - 3),
-        );
-        self.plane.set_style_bg_transparent(theme.editor_error);
-        _ = self.plane.print("{s}", .{debug_warning_text}) catch return false;
-    }
+    self.render_info(theme, style_subtext);
 
     const more = self.menu.container.render(theme);
     return more or self.fire != null;
+}
+
+fn render_info(self: *Self, theme: *const Widget.Theme, style_subtext: Widget.Theme.Style) void {
+    const cols: i32 = self.info.content_w;
+    if (cols == 0) return;
+
+    var p = self.info.inner_plane();
+    p.set_base_style(theme.editor);
+    p.erase();
+
+    var row: c_int = 0;
+    if (builtin.mode == .Debug) {
+        p.cursor_move_yx(row, @intCast(cols - @as(i32, @intCast(info_debug_text.len))));
+        p.set_style(theme.editor_error);
+        _ = p.print("{s}", .{info_debug_text}) catch {};
+        row += 1;
+    }
+    const version = info_version();
+    p.cursor_move_yx(row, @intCast(cols - @as(i32, @intCast(version.len))));
+    p.set_style(style_subtext);
+    _ = p.print("{s}", .{version}) catch {};
+
+    _ = self.info.render(theme);
 }
 
 fn position_menu(self: *Self, y: usize, x: usize) void {
@@ -418,6 +453,13 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     if (self.fire) |*fire| {
         fire.deinit();
         self.fire = Fire.init(self.allocator, self.plane) catch return;
+    }
+    if (pos.frame.is_set()) {
+        self.info.offset_y = info_margin_rows;
+        self.info.handle_resize(.{ .frame = pos.frame });
+    } else {
+        self.info.offset_y = info_margin_rows + info_bottom_bar_rows;
+        self.info.handle_resize(.{ .frame = tui.window_frame() });
     }
 }
 
