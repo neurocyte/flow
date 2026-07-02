@@ -49,6 +49,7 @@ auto_save_mode: AutoSaveMode = .on_focus_change,
 limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 enable_prefix_keyhints: bool = true,
 enable_auto_find: bool = true,
+find_mode: FindMode = .auto,
 initial_find_query: InitialFindQuery = .selection,
 ignore_filter_stderr: bool = false,
 
@@ -280,4 +281,13 @@ pub const TaskRunner = enum {
     terminal,
 
     pub const default = .terminal;
+};
+
+pub const FindMode = enum {
+    auto,
+    exact,
+    case_folded,
+    regex_auto,
+    regex,
+    regex_case_folded,
 };
