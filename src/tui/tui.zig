@@ -2296,15 +2296,12 @@ pub fn screen() Widget.Box {
     return box;
 }
 
-/// Window pixel frame
 pub fn window_frame() renderer.Layer.Frame {
-    const root_screen = plane().window.screen;
-    return .{
-        .x = 0,
-        .y = 0,
-        .w = @intCast(root_screen.width_pix),
-        .h = @intCast(root_screen.height_pix),
-    };
+    const root_plane = plane();
+    const root_screen = root_plane.window.screen;
+    const w: i32 = if (root_screen.width_pix > 0) root_screen.width_pix else @as(i32, root_screen.width) * root_plane.cell_x();
+    const h: i32 = if (root_screen.height_pix > 0) root_screen.height_pix else @as(i32, root_screen.height) * root_plane.cell_y();
+    return .{ .x = 0, .y = 0, .w = w, .h = h };
 }
 
 pub fn fontface() []const u8 {

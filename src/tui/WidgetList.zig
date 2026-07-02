@@ -215,7 +215,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const widget_count = self.widgets.items.len;
     const trailing_count = self.count_trailing_statics();
     const main_count = widget_count - trailing_count;
-    const use_layer = trailing_count > 0 and self.subcell_remainder_a() > 0;
+    const use_layer = trailing_count > 0 and self.remainder_a() > 0;
 
     const trailing_target = if (trailing_count > 0 and use_layer) if (self.trailing_layer) |layer|
         self.build_trailing_target(layer, &client_box, trailing_count)
@@ -251,10 +251,6 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.Box, trailing_count: usize) Layer.Target {
-    const trailing_cells = self.sum_trailing_cells(trailing_count);
-    const remainder = self.subcell_remainder_a();
-    const leading_cell = self.get_loc_a_const(client_box) + self.get_size_a_const(client_box) -| trailing_cells;
-
     var target: Layer.Target = .{
         .src = layer,
         .dst = tui.plane().window,
@@ -265,62 +261,36 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
 
     const cw = self.plane.cell_x();
     const ch = self.plane.cell_y();
-    var parent_ox: i32 = 0;
-    var parent_oy: i32 = 0;
-    if (self.plane.layer) |l| parent_ox, parent_oy = l.global_origin_px();
 
+    var base_x: i32 = 0;
+    var base_y: i32 = 0;
+    if (self.plane.layer) |l| base_x, base_y = l.global_origin_px();
+    const loc_a: i32 = @intCast(self.get_loc_a_const(client_box));
+    const size_a: i32 = @intCast(self.get_size_a_const(client_box));
     const loc_b: i32 = @intCast(self.get_loc_b_const(client_box));
-    const lead: i32 = @intCast(leading_cell);
+    const size_b: i32 = @intCast(self.get_size_b_const(client_box));
+    const rem: i32 = self.remainder_a();
+    const trailing_cells: i32 = @intCast(self.sum_trailing_cells(trailing_count));
 
-    const local_pix_a: i32 = lead * (switch (self.direction) {
-        .vertical => ch,
-        .horizontal => cw,
-    }) + @as(i32, remainder);
-    const local_pix_b: i32 = loc_b * (switch (self.direction) {
-        .vertical => cw,
-        .horizontal => ch,
-    });
-
-    const global_pix_a: i32 = (switch (self.direction) {
-        .vertical => parent_oy,
-        .horizontal => parent_ox,
-    }) + local_pix_a;
-    const global_pix_b: i32 = (switch (self.direction) {
-        .vertical => parent_ox,
-        .horizontal => parent_oy,
-    }) + local_pix_b;
-
-    const a_cell: i32 = @divFloor(global_pix_a, switch (self.direction) {
-        .vertical => ch,
-        .horizontal => cw,
-    });
-    const a_offset: i16 = @intCast(@mod(global_pix_a, switch (self.direction) {
-        .vertical => ch,
-        .horizontal => cw,
-    }));
-    const b_cell: i32 = @divFloor(global_pix_b, switch (self.direction) {
-        .vertical => cw,
-        .horizontal => ch,
-    });
-    const b_offset: i16 = @intCast(@mod(global_pix_b, switch (self.direction) {
-        .vertical => cw,
-        .horizontal => ch,
-    }));
-
-    switch (self.direction) {
-        .vertical => {
-            target.y = a_cell;
-            target.yoffset = a_offset;
-            target.x = b_cell;
-            target.xoffset = b_offset;
+    const list_frame: Layer.Frame, const content: Layer.Frame = switch (self.direction) {
+        .vertical => .{
+            .{ .x = base_x + loc_b * cw, .y = base_y + loc_a * ch, .w = size_b * cw, .h = size_a * ch + rem },
+            .{ .x = base_x + loc_b * cw, .y = base_y + loc_a * ch, .w = size_b * cw, .h = trailing_cells * ch },
         },
-        .horizontal => {
-            target.x = a_cell;
-            target.xoffset = a_offset;
-            target.y = b_cell;
-            target.yoffset = b_offset;
+        .horizontal => .{
+            .{ .x = base_x + loc_a * cw, .y = base_y + loc_b * ch, .w = size_a * cw + rem, .h = size_b * ch },
+            .{ .x = base_x + loc_a * cw, .y = base_y + loc_b * ch, .w = trailing_cells * cw, .h = size_b * ch },
         },
-    }
+    };
+    const frame = switch (self.direction) {
+        .vertical => content.align_bottom(list_frame),
+        .horizontal => content.align_right(list_frame),
+    };
+
+    target.x = @divFloor(frame.x, cw);
+    target.xoffset = @intCast(@mod(frame.x, cw));
+    target.y = @divFloor(frame.y, ch);
+    target.yoffset = @intCast(@mod(frame.y, ch));
     return target;
 }
 
@@ -334,29 +304,31 @@ fn sum_trailing_cells(self: *const Self, trailing_count: usize) usize {
     return sum;
 }
 
-fn subcell_remainder_a(self: *Self) i16 {
+fn remainder_a(self: *const Self) i32 {
     const screen = self.plane.window.screen;
-    const cells: u16 = switch (self.direction) {
-        .vertical => screen.height,
-        .horizontal => screen.width,
-    };
-    const pixels: u16 = switch (self.direction) {
-        .vertical => screen.height_pix,
-        .horizontal => screen.width_pix,
-    };
-    if (cells == 0 or pixels == 0) return 0;
-    const tail_cell: usize = switch (self.direction) {
-        .vertical => self.deco_box.y + self.deco_box.h,
-        .horizontal => self.deco_box.x + self.deco_box.w,
-    };
-    if (tail_cell != cells) return 0;
-    const cell_size: u16 = switch (self.direction) {
-        .vertical => self.plane.cell_y(),
-        .horizontal => self.plane.cell_x(),
-    };
-    const used: u32 = @as(u32, cell_size) * @as(u32, cells);
-    if (used >= pixels) return 0;
-    return @intCast(pixels - used);
+    if (screen.width == 0 or screen.height == 0) return 0;
+    return self.get_extra_a_const(&self.deco_box);
+}
+
+fn client_frame(self: *Self, client_box: *const Widget.Box, padding: Widget.Style.Margin) Layer.Frame {
+    const cw: i32 = self.plane.cell_x();
+    const ch: i32 = self.plane.cell_y();
+    if (self.deco_box.frame.is_set()) {
+        const f = self.deco_box.frame;
+        return f.inset(
+            @as(i32, padding.left) * cw,
+            @as(i32, padding.top) * ch,
+            @as(i32, padding.right) * cw,
+            @as(i32, padding.bottom) * ch,
+        );
+    }
+    var base_x: i32 = 0;
+    var base_y: i32 = 0;
+    if (self.plane.layer) |l| base_x, base_y = l.global_origin_px();
+    var f = client_box.resolve_frame(cw, ch);
+    f.x += base_x;
+    f.y += base_y;
+    return f;
 }
 
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
@@ -497,7 +469,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     const trailing_count = self.count_trailing_statics();
     const main_count = widget_count - trailing_count;
 
-    const remainder = self.subcell_remainder_a();
+    const remainder: i32 = self.remainder_a();
     const use_layer = trailing_count > 0 and remainder > 0;
 
     var trailing_cells: usize = 0;
@@ -514,15 +486,22 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
         reparent_subtrees(self.widgets.items[main_count..], layer, &layer.screen);
 
     var avail = total;
-    if (use_layer) avail = if (avail > trailing_cells) avail - trailing_cells else 0;
+    if (use_layer) {
+        const cell_a: usize = @intCast(switch (self.direction) {
+            .vertical => self.plane.cell_y(),
+            .horizontal => self.plane.cell_x(),
+        });
+        const main_px: usize = total * cell_a + @as(usize, @intCast(remainder));
+        const trailing_px: usize = trailing_cells * cell_a;
+        const avail_px: usize = main_px -| trailing_px;
+        avail = (avail_px + cell_a - 1) / cell_a; // ceil
+    }
     var dynamics: usize = 0;
     const main_end_for_count = if (use_layer) main_count else widget_count;
     for (self.widgets.items[0..main_end_for_count]) |*w| switch (w.layout) {
         .dynamic => dynamics += 1,
         .static => |val| avail = if (avail > val) avail - val else 0,
     };
-
-    if (use_layer and dynamics > 0 and avail + 1 <= total) avail += 1;
 
     self.layout_empty = avail == total and dynamics == 0 and trailing_count == 0;
 
@@ -536,6 +515,23 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     const extras_b: u8 = self.get_extra_b_const(&self.deco_box);
     const last_idx: usize = if (widget_count == 0) 0 else widget_count - 1;
 
+    const self_frame = self.client_frame(&client_box, padding);
+    const cell_a: i32 = switch (self.direction) {
+        .vertical => self.plane.cell_y(),
+        .horizontal => self.plane.cell_x(),
+    };
+    const loc_a0: i32 = @intCast(self.get_loc_a_const(&client_box));
+    const trailing_px: i32 = if (use_layer) @as(i32, @intCast(trailing_cells)) * cell_a else 0;
+    const main_start: i32 = switch (self.direction) {
+        .vertical => self_frame.y,
+        .horizontal => self_frame.x,
+    };
+    const main_end: i32 = (switch (self.direction) {
+        .vertical => self_frame.bottom(),
+        .horizontal => self_frame.right(),
+    }) - trailing_px;
+    const main_last_idx: usize = if (main_end_for_count == 0) 0 else main_end_for_count - 1;
+
     for (self.widgets.items[0..main_end_for_count], 0..) |*w, idx| {
         var w_pos: Box = .{};
         const size = switch (w.layout) {
@@ -547,11 +543,17 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
         };
         self.get_size_a(&w_pos).* = size;
         self.get_loc_a(&w_pos).* = cur_loc;
+        const child_main0: i32 = main_start + (@as(i32, @intCast(cur_loc)) - loc_a0) * cell_a;
         cur_loc += size;
         self.get_size_b(&w_pos).* = self.get_size_b_const(&client_box);
         self.get_loc_b(&w_pos).* = self.get_loc_b_const(&client_box);
         self.get_extra_b(&w_pos).* = extras_b;
         if (idx == last_idx) self.get_extra_a(&w_pos).* = extras_a;
+        const child_main_end: i32 = if (idx == main_last_idx) main_end else child_main0 + @as(i32, @intCast(size)) * cell_a;
+        w_pos.frame = switch (self.direction) {
+            .vertical => .{ .x = self_frame.x, .y = child_main0, .w = self_frame.w, .h = child_main_end - child_main0 },
+            .horizontal => .{ .x = child_main0, .y = self_frame.y, .w = child_main_end - child_main0, .h = self_frame.h },
+        };
         w.widget.resize(w_pos);
     }
 
@@ -624,7 +626,7 @@ fn reparent_main(self: *Self) void {
     const trailing_count = self.count_trailing_statics();
     const main_end = self.widgets.items.len - trailing_count;
     reparent_subtrees(self.widgets.items[0..main_end], self.plane.layer, self.plane.window.screen);
-    if (self.subcell_remainder_a() == 0)
+    if (self.remainder_a() == 0)
         reparent_subtrees(self.widgets.items[main_end..], self.plane.layer, self.plane.window.screen);
 }
 
