@@ -885,15 +885,20 @@ const win32 = struct {
     pub extern "kernel32" fn GlobalFree(hMem: windows.HANDLE) windows.BOOL;
     pub extern "kernel32" fn GlobalLock(hMem: windows.HANDLE) ?windows.LPVOID;
     pub extern "kernel32" fn GlobalUnlock(hMem: windows.HANDLE) windows.BOOL;
-    const CF_TEXT = @as(c_int, 1);
+    const CF_UNICODETEXT = @as(c_int, 13);
     const GMEM_MOVEABLE = @as(c_int, 2);
 };
 
 pub fn copy_to_windows_clipboard(text: []const u8) !void {
-    const mem = win32.GlobalAlloc(win32.GMEM_MOVEABLE, text.len + 1) orelse return error.GlobalAllocFalied;
-    const data: [*c]u8 = @ptrCast(win32.GlobalLock(mem) orelse return error.ClipboardDataLockFailed);
-    @memcpy(data[0..text.len], text);
-    data[text.len] = 0;
+    const a = root.get_init().gpa;
+    const utf16 = try std.unicode.utf8ToUtf16LeAllocZ(a, text);
+    defer a.free(utf16[0 .. utf16.len + 1]);
+
+    const bytes = (utf16.len + 1) * @sizeOf(u16);
+    const mem = win32.GlobalAlloc(win32.GMEM_MOVEABLE, bytes) orelse return error.GlobalAllocFalied;
+    const data: [*c]u16 = @ptrCast(@alignCast(win32.GlobalLock(mem) orelse return error.ClipboardDataLockFailed));
+    @memcpy(data[0..utf16.len], utf16[0..utf16.len]);
+    data[utf16.len] = 0;
     _ = win32.GlobalUnlock(mem);
 
     if (win32.OpenClipboard(null) == .FALSE) {
@@ -903,7 +908,7 @@ pub fn copy_to_windows_clipboard(text: []const u8) !void {
     defer _ = win32.CloseClipboard();
 
     _ = win32.EmptyClipboard();
-    if (win32.SetClipboardData(win32.CF_TEXT, mem) == null) {
+    if (win32.SetClipboardData(win32.CF_UNICODETEXT, mem) == null) {
         _ = win32.GlobalFree(mem);
     }
 }
@@ -913,12 +918,12 @@ pub fn request_windows_clipboard(allocator: std.mem.Allocator) ![]u8 {
         return error.OpenClipBoardFailed;
     defer _ = win32.CloseClipboard();
 
-    const mem = win32.GetClipboardData(win32.CF_TEXT) orelse return error.ClipboardDataRetrievalFailed;
-    const data: [*c]u8 = @ptrCast(win32.GlobalLock(mem) orelse return error.ClipboardDataLockFailed);
-    const text = std.mem.span(data);
+    const mem = win32.GetClipboardData(win32.CF_UNICODETEXT) orelse return error.ClipboardDataRetrievalFailed;
+    const data: [*:0]const u16 = @ptrCast(@alignCast(win32.GlobalLock(mem) orelse return error.ClipboardDataLockFailed));
     defer _ = win32.GlobalUnlock(mem);
+    const utf16 = std.mem.span(data);
 
-    return allocator.dupe(u8, text);
+    return std.unicode.utf16LeToUtf8Alloc(allocator, utf16);
 }
 
 pub fn request_mouse_cursor(self: *Self, shape: MouseCursorShape, push_or_pop: bool) void {
