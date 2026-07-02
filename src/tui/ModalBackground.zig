@@ -105,6 +105,7 @@ pub fn State(ctx_type: type) type {
                 .alpha = self.alpha,
                 .z_index = .modal,
                 .blend = .src_over,
+                .fill = true,
             });
 
             if (self.alpha < self.target_alpha) {
