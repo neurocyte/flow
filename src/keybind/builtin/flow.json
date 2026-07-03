@@ -187,6 +187,7 @@
             ["alt+shift+f10", "gutter_style_next"],
             ["alt+f12", "goto_declaration"],
             ["alt+shift+d", "dupe_up"],
+            ["alt+shift+e", "send_selection_to_terminal"],
             ["alt+shift+f", "format"],
             ["alt+shift+s", "filter", "sort", "-u"],
             ["alt+shift+i", "add_cursors_to_line_ends"],
