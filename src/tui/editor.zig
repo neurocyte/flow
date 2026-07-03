@@ -5874,6 +5874,11 @@ pub const Editor = struct {
     pub const insert_line_before_meta: Meta = .{ .description = "Insert line before" };
 
     pub fn smart_insert_line_before(self: *Self, ctx: Context) Result {
+        if (tui.config().terminal_send_on_smart_insert_line_before and
+            self.cursor_count() == 1 and
+            self.get_primary().selection != null)
+            return self.send_selection_to_terminal(.empty_from(ctx));
+
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
