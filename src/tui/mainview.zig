@@ -1135,6 +1135,21 @@ const cmds = struct {
     }
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
 
+    pub fn send_to_terminal(self: *Self, ctx: Ctx) Result {
+        var text: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&text)}))
+            return;
+
+        const vt = self.get_panel_view(terminal_view) orelse blk: {
+            try self.toggle_panel_view(terminal_view, .enable);
+            break :blk self.get_panel_view(terminal_view) orelse return;
+        };
+        vt.focus();
+        vt.send_text(text);
+        tui.need_render(@src());
+    }
+    pub const send_to_terminal_meta: Meta = .{ .description = "Send text to terminal", .arguments = &.{.string} };
+
     pub fn unfocus_terminal(self: *Self, _: Ctx) Result {
         if (self.get_panel_view(terminal_view)) |vt|
             vt.toggle_focus();

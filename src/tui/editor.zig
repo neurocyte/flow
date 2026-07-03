@@ -3364,6 +3364,19 @@ pub const Editor = struct {
     }
     pub const copy_meta: Meta = .{ .description = "Copy selection to clipboard" };
 
+    pub fn send_selection_to_terminal(self: *Self, _: Context) Result {
+        const root = self.buf_root() catch return;
+        const cursel = self.get_primary();
+        const sel = if (cursel.selection) |sel| sel else blk: {
+            try self.select_line_at_cursor(root, cursel, .include_eol);
+            break :blk cursel.selection orelse return;
+        };
+        const text = try copy_selection(root, sel, self.allocator, self.metrics);
+        defer self.allocator.free(text);
+        try command.executeName("send_to_terminal", command.fmt(.{text}));
+    }
+    pub const send_selection_to_terminal_meta: Meta = .{ .description = "Send selection to terminal" };
+
     fn copy_cursel_file_name(self: *const Self) error{OutOfMemory}!void {
         tui.clipboard_add_chunk(try tui.clipboard_allocator().dupe(u8, self.file_path orelse "*"));
     }

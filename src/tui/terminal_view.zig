@@ -713,6 +713,10 @@ fn paste(self: *Self, text: []const u8) void {
     tui.need_render(@src());
 }
 
+pub fn send_text(self: *Self, text: []const u8) void {
+    self.paste(text);
+}
+
 fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     return self.process_event(event) catch error.TerminalHandlerFailed;
