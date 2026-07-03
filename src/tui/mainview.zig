@@ -1144,7 +1144,8 @@ const cmds = struct {
             try self.toggle_panel_view(terminal_view, .enable);
             break :blk self.get_panel_view(terminal_view) orelse return;
         };
-        vt.focus();
+        if (tui.config().terminal_focus_after_send)
+            vt.focus();
         vt.send_text(text);
         tui.need_render(@src());
     }
