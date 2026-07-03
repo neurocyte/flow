@@ -715,6 +715,13 @@ fn paste(self: *Self, text: []const u8) void {
 
 pub fn send_text(self: *Self, text: []const u8) void {
     self.paste(text);
+    if (tui.config().terminal_newline_after_send) {
+        // non-bracketed newline to trigger repl execute
+        const pty_writer = self.vt.vt.get_pty_writer();
+        pty_writer.writeAll("\n") catch {};
+        pty_writer.flush() catch {};
+    }
+    tui.need_render(@src());
 }
 
 fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
