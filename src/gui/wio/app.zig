@@ -107,7 +107,7 @@ var screen_pending: std.atomic.Value(bool) = .init(false);
 var screen_snap: ?ScreenSnapshot = null;
 var tui_pid: thespian.pid = undefined;
 var render_pid: ?thespian.pid = null;
-var last_mods: input_translate.Mods = .{};
+var current_mods: input_translate.Mods = .{};
 var font_size_pt: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
@@ -772,20 +772,25 @@ fn wioLoop() void {
         _ = win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
-    wio.init(allocator, io, .{}) catch |e| {
+    wio.init(.{ .allocator = allocator, .io = io, .eventFn = onWioEventSync }) catch |e| {
         log.err("wio.init failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
         return;
     };
     defer wio.deinit();
 
-    var window = wio.createWindow(.{
+    var events: wio.EventQueue = .empty;
+    defer events.deinit();
+
+    var window = wio.Window.create(.{
+        .event_fn_data = &events,
         .title = "flow",
         .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow-control",
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
         .gl_options = if (builtin.os.tag == .windows) null else gl_options(),
-        .transparent = window_transparency,
+        // TODO(yppy): unimplemented in mainline wio
+        // .transparent = window_transparency,
     }) catch |e| {
         log.err("wio.createWindow failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
@@ -806,11 +811,12 @@ fn wioLoop() void {
     // it has the correct initial state. The render actor will handle font
     // load + GPU init in its window_ready handler.
     var initial_size: wio.Size = .{ .width = 1280, .height = 720 };
-    while (window.getEvent()) |event| {
+    while (events.pop()) |event| {
         switch (event) {
             .scale => |s| dpi_scale = s,
             .size_physical => |sz| initial_size = sz,
-            .refresh_rate => |r| if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {},
+            // TODO(yppy): unimplemented in mainline wio
+            // .refresh_rate => |r| if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {},
             else => {},
         }
     }
@@ -821,8 +827,6 @@ fn wioLoop() void {
         @as(u32, @intCast(initial_size.height)),
     }) catch {};
 
-    window.setEventCallback(onWioEventSync, null);
-
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
     var running = true;
@@ -831,7 +835,7 @@ fn wioLoop() void {
         wio.wait(.{});
         if (stop_requested.load(.acquire)) break;
 
-        while (window.getEvent()) |event| {
+        while (events.pop()) |event| {
             switch (event) {
                 .close => {
                     running = false;
@@ -840,59 +844,62 @@ fn wioLoop() void {
                     dpi_scale = s;
                     font_dirty.store(true, .release);
                 },
-                .refresh_rate => |r| {
-                    if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
-                },
+                // TODO(yppy): unimplemented in mainline wio
+                // .refresh_rate => |r| {
+                //     if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
+                // },
                 .size_physical => {
                     // Handled by onWioEventSync - runs inline from the
                     // wndproc so it works during Win32 modal pumps too.
                 },
+                .modifiers => |modifiers| {
+                    syncModifiers(input_translate.fromWioModifiers(modifiers));
+                },
                 .button_press => |btn| {
                     held_buttons.press(btn);
-                    const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.press, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
-                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(press, base_cp, shifted_cp orelse base_cp, mods);
+                            // Character keys are handled by .char unless modifiers are held.
+                            if (std.math.cast(u8, base_cp)) |ascii| {
+                                if (std.ascii.isPrint(ascii)) {
+                                    if (!current_mods.alt and !current_mods.ctrl) {
+                                        continue;
+                                    }
+                                }
+                            }
+                            const shifted_cp = if (current_mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
+                            sendKey(press, base_cp, shifted_cp orelse base_cp);
                         } else {
                             if (input_translate.modifierCodepoint(btn)) |mod_cp|
-                                sendKey(press, mod_cp, mod_cp, mods);
+                                sendKey(press, mod_cp, mod_cp);
                         }
                     }
                 },
                 .button_repeat => |btn| {
-                    const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn) == null) {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
-                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(2, base_cp, shifted_cp orelse base_cp, mods);
+                            const shifted_cp = if (current_mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
+                            sendKey(2, base_cp, shifted_cp orelse base_cp);
                         }
                     }
                 },
                 .button_release => |btn| {
                     held_buttons.release(btn);
-                    const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.release, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
-                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(3, base_cp, shifted_cp orelse base_cp, mods);
+                            const shifted_cp = if (current_mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
+                            sendKey(3, base_cp, shifted_cp orelse base_cp);
                         } else if (input_translate.modifierCodepoint(btn)) |mod_cp| {
-                            sendKey(3, mod_cp, mod_cp, mods);
+                            sendKey(3, mod_cp, mod_cp);
                         }
                     }
                 },
                 .char => |cp| {
-                    // Only handle non-ASCII IME-composed codepoints here.
-                    // ASCII keys are fully handled by .button_press with correct
-                    // base/shifted codepoints, avoiding double-firing on X11.
-                    if (cp > 0x7f) {
-                        const mods = syncModifiers();
-                        sendKey(press, cp, cp, mods);
-                    }
+                    sendKey(press, cp, cp);
                 },
                 .mouse => |pos| {
                     mouse_pos = pos;
@@ -911,7 +918,6 @@ fn wioLoop() void {
                     sendMouse(.press, @enumFromInt(btn_id), mouse_pos, .{});
                 },
                 .focused => {
-                    _ = syncModifiers();
                     window.enableTextInput(.{});
                     tui_pid.send(.{"focus_in"}) catch {};
                 },
@@ -975,7 +981,7 @@ fn gl_options() wio.GlOptions {
 }
 
 // Synchronous wio event hook
-fn onWioEventSync(_: ?*anyopaque, event: wio.Event) void {
+fn onWioEventSync(data: ?*anyopaque, event: wio.Event) void {
     switch (event) {
         .size_physical => |sz| {
             if (render_pid) |*rp| rp.send(.{
@@ -984,7 +990,7 @@ fn onWioEventSync(_: ?*anyopaque, event: wio.Event) void {
                 @as(u32, @intCast(sz.height)),
             }) catch {};
         },
-        else => {},
+        else => wio.EventQueue.eventFn(data, event),
     }
 }
 
@@ -1415,45 +1421,43 @@ fn sendResize(
     }) catch {};
 }
 
-fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, mods: input_translate.Mods) void {
+fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21) void {
     var text_buf: [4]u8 = undefined;
     // Text is the character that would be typed: empty when ctrl/alt active,
     // shifted_codepoint when shift is held, otherwise codepoint.
-    const text_cp: u21 = if (mods.shift) shifted_codepoint else codepoint;
-    const text_len: usize = if (!mods.ctrl and !mods.alt and text_cp >= 0x20 and text_cp != 0x7f and text_cp < 0xE000)
+    const text_cp: u21 = if (current_mods.shift) shifted_codepoint else codepoint;
+    const text_len: usize = if (!current_mods.ctrl and !current_mods.alt and text_cp >= 0x20 and text_cp != 0x7f and text_cp < 0xE000)
         std.unicode.utf8Encode(text_cp, &text_buf) catch 0
     else
         0;
     tui_pid.send(.{
-        "RDR",                       "I",
-        kind,                        @as(u21, codepoint),
-        @as(u21, shifted_codepoint), text_buf[0..text_len],
-        @as(u8, @bitCast(mods)),
+        "RDR",                           "I",
+        kind,                            @as(u21, codepoint),
+        @as(u21, shifted_codepoint),     text_buf[0..text_len],
+        @as(u8, @bitCast(current_mods)),
     }) catch {};
 }
 
-fn syncModifiers() input_translate.Mods {
-    const mods = input_translate.fromWioModifiers(wio.getModifiers());
+fn syncModifiers(new_mods: input_translate.Mods) void {
     // Synthesize release events for any modifier keys no
     // longer held so they don't appear stuck.
-    if (mods.shift != last_mods.shift) {
-        last_mods.shift = mods.shift;
-        sendKey(if (last_mods.shift) press else release, vaxis.Key.left_shift, vaxis.Key.left_shift, last_mods);
+    if (new_mods.shift != current_mods.shift) {
+        current_mods.shift = new_mods.shift;
+        sendKey(if (current_mods.shift) press else release, vaxis.Key.left_shift, vaxis.Key.left_shift);
     }
-    if (mods.alt != last_mods.alt) {
-        last_mods.alt = mods.alt;
-        sendKey(if (last_mods.alt) press else release, vaxis.Key.left_alt, vaxis.Key.left_alt, last_mods);
+    if (new_mods.alt != current_mods.alt) {
+        current_mods.alt = new_mods.alt;
+        sendKey(if (current_mods.alt) press else release, vaxis.Key.left_alt, vaxis.Key.left_alt);
     }
-    if (mods.ctrl != last_mods.ctrl) {
-        last_mods.ctrl = mods.ctrl;
-        sendKey(if (last_mods.ctrl) press else release, vaxis.Key.left_control, vaxis.Key.left_control, last_mods);
+    if (new_mods.ctrl != current_mods.ctrl) {
+        current_mods.ctrl = new_mods.ctrl;
+        sendKey(if (current_mods.ctrl) press else release, vaxis.Key.left_control, vaxis.Key.left_control);
     }
-    if (mods.super != last_mods.super) {
-        last_mods.super = mods.super;
-        sendKey(if (last_mods.super) press else release, vaxis.Key.left_super, vaxis.Key.left_super, last_mods);
+    if (new_mods.super != current_mods.super) {
+        current_mods.super = new_mods.super;
+        sendKey(if (current_mods.super) press else release, vaxis.Key.left_super, vaxis.Key.left_super);
     }
-    last_mods = mods;
-    return mods;
+    current_mods = new_mods;
 }
 
 const ID_ICON_FLOW = 1; // must match src/win32/flow.rc
