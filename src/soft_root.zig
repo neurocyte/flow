@@ -157,8 +157,15 @@ const dummy = struct {
     const StatKind = enum { file, dir };
 
     fn dummy_stat_check(path: []const u8, kind: StatKind) bool {
-        if (comptime @import("builtin").os.tag != .linux) return false;
         if (path.len > std.fs.max_path_bytes) return false;
+        if (comptime @import("builtin").os.tag != .linux) {
+            if (comptime !@import("builtin").is_test) return false;
+            const stat = std.Io.Dir.cwd().statFile(std.testing.io, path, .{}) catch return false;
+            return switch (kind) {
+                .file => stat.kind == .file,
+                .dir => stat.kind == .directory,
+            };
+        }
         var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         @memcpy(buf[0..path.len], path);
         buf[path.len] = 0;
