@@ -586,19 +586,22 @@ const Node = union(enum) {
             col: usize,
             at: ?[]const u8 = null,
             wcwidth: usize = 0,
+            found: bool = false,
             fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Metrics) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 ctx.at = egc;
                 ctx.wcwidth = wcwidth;
-                if (wcwidth > 0 and (ctx.col == 0 or egc[0] == '\n' or ctx.col < wcwidth))
+                if (wcwidth > 0 and (ctx.col == 0 or egc[0] == '\n' or ctx.col < wcwidth)) {
+                    ctx.found = true;
                     return Walker.stop;
+                }
                 ctx.col -= wcwidth;
                 return Walker.keep_walking;
             }
         };
         var ctx: ctx_ = .{ .col = col };
         self.walk_egc_forward(line, ctx_.walker, &ctx, metrics) catch return .{ "?", 1, 0 };
-        return if (ctx.at) |at| .{ at, ctx.wcwidth, ctx.col } else error.NotFound;
+        return if (ctx.found) .{ ctx.at.?, ctx.wcwidth, ctx.col } else error.NotFound;
     }
 
     pub fn test_at(self: *const Node, pred: *const fn (c: []const u8) bool, line: usize, col: usize, metrics: Metrics) bool {
