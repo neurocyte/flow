@@ -59,35 +59,38 @@ pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: st
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
     const writer = &result.writer;
-    var pos: usize = 0;
     var prefix_pos: usize = std.math.maxInt(usize);
     var have_prefix = true;
-    while (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
-        if (find_prefix(prefix, text[pos..next])) |_| {} else {
-            if (find_first_non_ws(text[pos..next])) |_| {
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line| {
+        if (find_prefix(prefix, line)) |_| {} else {
+            if (find_first_non_ws(line)) |_| {
                 have_prefix = false;
                 break;
             }
         }
-        pos = next + 1;
     }
-    pos = 0;
+
+    it = std.mem.splitScalar(u8, text, '\n');
     if (!have_prefix)
-        while (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
-            if (find_first_non_ws(text[pos..next])) |prefix_pos_|
+        while (it.next()) |line| {
+            if (find_first_non_ws(line)) |prefix_pos_|
                 prefix_pos = @min(prefix_pos, prefix_pos_);
-            pos = next + 1;
         };
-    pos = 0;
-    while (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
+
+    it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line| {
         if (have_prefix) {
-            try remove_prefix_in_line(prefix, text[pos..next], writer);
+            try remove_prefix_in_line(prefix, line, writer);
         } else {
-            try add_prefix_in_line(prefix, text[pos..next], writer, prefix_pos);
+            try add_prefix_in_line(prefix, line, writer, prefix_pos);
         }
-        try writer.writeAll("\n");
-        pos = next + 1;
     }
+
+    if (text.len > 0 and text[text.len - 1] == '\n') {
+        try writer.writeAll("\n");
+    }
+
     return result.toOwnedSlice();
 }
 
