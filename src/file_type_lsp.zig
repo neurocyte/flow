@@ -105,7 +105,10 @@ pub const superhtml = .{
 
 pub const hurl = .{};
 
-pub const java = .{};
+pub const java = .{
+    .language_server = .{"jdtls"},
+    .formatter = .{ "google-java-format", "-" },
+};
 
 pub const javascript = .{
     .language_server = .{ "typescript-language-server", "--stdio" },
