@@ -78,6 +78,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             .log_stdout = "Log to stdout",
             .language = "Force the language of the file to be opened",
             .list_languages = "Show available languages",
+            .gui = "Open a GUI window",
             .no_syntax = "Disable syntax highlighting",
             .syntax_report_timing = "Report syntax highlighting time",
             .exec = "Execute a command on startup",
@@ -120,6 +121,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         log_stdout: bool,
         language: ?[]const u8,
         list_languages: bool,
+        gui: bool,
         no_syntax: bool,
         syntax_report_timing: bool,
         exec: ?[]const u8,
@@ -160,6 +162,9 @@ pub fn main(init: std.process.Init) anyerror!void {
         };
         return list_languages.list(a, tty);
     }
+
+    if (!build_options.gui and args.gui)
+        launch_gui();
 
     if (init.environ_map.get("JITDEBUG")) |_| crash.set_jit_debugger(true);
     crash.set_gui_crash_dialog(build_options.gui and !console_attached);
@@ -1160,6 +1165,67 @@ pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
 
 fn resolve_executable(executable: [:0]const u8) [:0]const u8 {
     return bin_path.resolve_executable(get_init().gpa, executable);
+}
+
+fn current_argv0() [:0]const u8 {
+    if (builtin.os.tag == .windows) {
+        var iter = std.process.Args.Iterator.initAllocator(get_init().minimal.args, std.heap.c_allocator) catch return "flow";
+        return iter.next() orelse "flow";
+    }
+    return std.mem.span(get_init().minimal.args.vector[0]);
+}
+
+fn flow_gui_executable(gpa: std.mem.Allocator) [:0]const u8 {
+    const name = if (builtin.os.tag == .windows) "flow-gui.exe" else "flow-gui";
+    // prefer flow-gui in the same path as flow
+    const self = resolve_executable(current_argv0());
+    if (std.fs.path.dirname(self)) |dir| {
+        const candidate = std.fs.path.joinZ(gpa, &.{ dir, name }) catch @panic("OOM");
+        if (bin_path.can_execute(gpa, candidate)) return candidate;
+        gpa.free(candidate);
+    }
+    return resolve_executable("flow-gui");
+}
+
+fn launch_gui() noreturn {
+    const gpa = get_init().gpa;
+    const flow_gui = flow_gui_executable(gpa);
+    if (builtin.os.tag == .windows) return launch_gui_win32(flow_gui, gpa);
+
+    const vector = get_init().minimal.args.vector;
+    const argv = gpa.allocSentinel(?[*:0]const u8, vector.len, null) catch @panic("OOM");
+    argv[0] = flow_gui.ptr;
+    for (1..vector.len) |i| argv[i] = vector[i];
+    const ret = std.c.execve(flow_gui, @ptrCast(argv.ptr), @ptrCast(get_init().minimal.environ.block.slice.ptr));
+    launch_gui_failed(flow_gui, ret);
+}
+
+fn launch_gui_win32(flow_gui: [:0]const u8, gpa: std.mem.Allocator) noreturn {
+    var argv: std.ArrayList([]const u8) = .empty;
+    argv.append(gpa, flow_gui) catch @panic("OOM");
+    var iter = std.process.Args.Iterator.initAllocator(get_init().minimal.args, gpa) catch launch_gui_failed(flow_gui, -1);
+    _ = iter.next(); // skip argv0
+    while (iter.next()) |arg| argv.append(gpa, arg) catch @panic("OOM");
+
+    var child = std.process.spawn(get_io(), .{
+        .argv = argv.items,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch launch_gui_failed(flow_gui, -1);
+    const term = child.wait(get_io()) catch launch_gui_failed(flow_gui, -1);
+    switch (term) {
+        .exited => |code| exit(code),
+        else => exit(1),
+    }
+}
+
+fn launch_gui_failed(flow_gui: [:0]const u8, ret: isize) noreturn {
+    var buf: [1024]u8 = undefined;
+    var w = std.Io.File.stderr().writer(get_init().io, &buf);
+    w.interface.print("failed to launch {s} ({d})\n", .{ flow_gui, ret }) catch {};
+    w.flush() catch {};
+    exit(1);
 }
 
 fn restart() noreturn {
