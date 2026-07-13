@@ -46,6 +46,8 @@ pub fn main(init: std.process.Init) anyerror!void {
     const io = init.io;
     const a = init.gpa;
 
+    attach_parent_console();
+
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
         _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
@@ -1209,6 +1211,59 @@ fn restart_win32() noreturn {
     };
     std.os.windows.ntdll.RtlExitUserProcess(0);
 }
+
+fn attach_parent_console() void {
+    if (builtin.os.tag == .windows) return attach_parent_console_win32();
+}
+
+fn attach_parent_console_win32() void {
+    const w = std.os.windows;
+    const ATTACH_PARENT_PROCESS: w.DWORD = 0xFFFFFFFF;
+    const CP_UTF8: w.DWORD = 65001;
+    if (!win32.AttachConsole(ATTACH_PARENT_PROCESS).toBool()) return; // no parent console
+
+    // Point any std stream that isn't already redirected at the console.
+    const STD_INPUT_HANDLE: w.DWORD = 0xFFFFFFF6; // -10
+    const STD_OUTPUT_HANDLE: w.DWORD = 0xFFFFFFF5; // -11
+    const STD_ERROR_HANDLE: w.DWORD = 0xFFFFFFF4; // -12
+    reopen_std_handle_win32(STD_OUTPUT_HANDLE, std.unicode.utf8ToUtf16LeStringLiteral("CONOUT$"));
+    reopen_std_handle_win32(STD_ERROR_HANDLE, std.unicode.utf8ToUtf16LeStringLiteral("CONOUT$"));
+    reopen_std_handle_win32(STD_INPUT_HANDLE, std.unicode.utf8ToUtf16LeStringLiteral("CONIN$"));
+    _ = win32.SetConsoleOutputCP(CP_UTF8);
+}
+
+fn reopen_std_handle_win32(which: std.os.windows.DWORD, name: [*:0]const u16) void {
+    const w = std.os.windows;
+    const FILE_TYPE_DISK: w.DWORD = 0x0001;
+    const FILE_TYPE_CHAR: w.DWORD = 0x0002;
+    const FILE_TYPE_PIPE: w.DWORD = 0x0003;
+    const GENERIC_READ: w.DWORD = 0x80000000;
+    const GENERIC_WRITE: w.DWORD = 0x40000000;
+    const FILE_SHARE_READ: w.DWORD = 0x0001;
+    const FILE_SHARE_WRITE: w.DWORD = 0x0002;
+    const OPEN_EXISTING: w.DWORD = 3;
+
+    // Leave a stream that is already connected to something alone.
+    if (win32.GetStdHandle(which)) |cur| {
+        if (cur != w.INVALID_HANDLE_VALUE) switch (win32.GetFileType(cur)) {
+            FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_CHAR => return,
+            else => {},
+        };
+    }
+    const h = win32.CreateFileW(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, null, OPEN_EXISTING, 0, null);
+    if (h == w.INVALID_HANDLE_VALUE) return;
+    _ = win32.SetStdHandle(which, h);
+}
+
+const win32 = struct {
+    const w = std.os.windows;
+    extern "kernel32" fn AttachConsole(dwProcessId: w.DWORD) callconv(.winapi) w.BOOL;
+    extern "kernel32" fn GetStdHandle(nStdHandle: w.DWORD) callconv(.winapi) ?w.HANDLE;
+    extern "kernel32" fn SetStdHandle(nStdHandle: w.DWORD, hHandle: w.HANDLE) callconv(.winapi) w.BOOL;
+    extern "kernel32" fn GetFileType(hFile: w.HANDLE) callconv(.winapi) w.DWORD;
+    extern "kernel32" fn CreateFileW(lpFileName: w.LPCWSTR, dwDesiredAccess: w.DWORD, dwShareMode: w.DWORD, lpSecurityAttributes: ?*anyopaque, dwCreationDisposition: w.DWORD, dwFlagsAndAttributes: w.DWORD, hTemplateFile: ?w.HANDLE) callconv(.winapi) w.HANDLE;
+    extern "kernel32" fn SetConsoleOutputCP(wCodePageID: w.DWORD) callconv(.winapi) w.BOOL;
+};
 
 fn restart_manual() noreturn {
     const argv0 =
