@@ -369,6 +369,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "build_options", .module = options_mod },
         },
     });
 

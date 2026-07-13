@@ -4,6 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const root = @import("soft_root").root;
 const thespian = @import("thespian");
+const build_options = @import("build_options");
 
 const Sink = enum { tty, file };
 
@@ -21,6 +22,7 @@ pub fn set_cleanup(c: ?Cleanup) void {
 var sink: Sink = .tty;
 var cleanup: ?Cleanup = null;
 var jit_debugger: bool = false;
+var gui_crash_dialog: bool = false;
 var in_progress: std.atomic.Value(bool) = .init(false);
 
 pub fn crash_in_progress() bool {
@@ -29,6 +31,11 @@ pub fn crash_in_progress() bool {
 
 pub fn set_jit_debugger(enabled: bool) void {
     jit_debugger = enabled;
+}
+
+/// Show error dialog on crash (win32 GUI only)
+pub fn set_gui_crash_dialog(enabled: bool) void {
+    gui_crash_dialog = enabled;
 }
 
 /// Install crash handler
@@ -149,17 +156,37 @@ fn write_crash_log_file(kind: []const u8, msg: []const u8, unwind: std.debug.Sta
         })) |z| OutputDebugStringA(z.ptr) else |_| {}
     }
 
-    const io = root.get_io();
     const dir = root.get_state_dir() catch return;
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = std.fmt.bufPrint(&path_buf, "{s}{c}crash.log", .{ dir, std.fs.path.sep }) catch return;
+    write_crash_log_to_path(path, kind, msg, unwind);
+    show_crash_dialog(kind, msg, path);
+}
+
+fn write_crash_log_to_path(path: []const u8, kind: []const u8, msg: []const u8, unwind: std.debug.StackUnwindOptions) void {
+    const io = root.get_io();
     const file = std.Io.Dir.createFileAbsolute(io, path, .{}) catch return;
     defer file.close(io);
-
     var buf: [4096]u8 = undefined;
     var fw = file.writer(io, &buf);
     defer fw.interface.flush() catch {};
     write_report(.{ .writer = &fw.interface, .mode = .no_color }, kind, msg, unwind);
+}
+
+fn show_crash_dialog(kind: []const u8, msg: []const u8, path: []const u8) void {
+    if (build_options.gui and builtin.os.tag == .windows) show_crash_dialog_win32(kind, msg, path);
+}
+
+fn show_crash_dialog_win32(kind: []const u8, msg: []const u8, path: []const u8) void {
+    if (!gui_crash_dialog) return;
+    var buf: [std.fs.max_path_bytes + 256]u8 = undefined;
+    const text = std.fmt.bufPrintZ(
+        &buf,
+        "flow crashed: {s}{s}{s}\n\nA crash report was written to:\n{s}",
+        .{ kind, if (msg.len > 0) ": " else "", msg, path },
+    ) catch return;
+    const MB_OK_ICONERROR: u32 = 0x00000010; // MB_OK | MB_ICONERROR
+    _ = MessageBoxA(null, text.ptr, "Flow Control", MB_OK_ICONERROR);
 }
 
 fn write_report(term: std.Io.Terminal, kind: []const u8, msg: []const u8, unwind: std.debug.StackUnwindOptions) void {
@@ -171,3 +198,4 @@ fn write_report(term: std.Io.Terminal, kind: []const u8, msg: []const u8, unwind
 }
 
 extern "kernel32" fn OutputDebugStringA(lpOutputString: [*:0]const u8) callconv(.winapi) void;
+extern "user32" fn MessageBoxA(hWnd: ?*anyopaque, lpText: [*:0]const u8, lpCaption: [*:0]const u8, uType: u32) callconv(.winapi) i32;

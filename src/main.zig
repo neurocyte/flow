@@ -46,7 +46,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     const io = init.io;
     const a = init.gpa;
 
-    attach_parent_console();
+    const console_attached = attach_parent_console();
 
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
@@ -162,6 +162,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     }
 
     if (init.environ_map.get("JITDEBUG")) |_| crash.set_jit_debugger(true);
+    crash.set_gui_crash_dialog(build_options.gui and !console_attached);
     crash.install();
 
     if (args.debug_wait) {
@@ -1212,15 +1213,17 @@ fn restart_win32() noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(0);
 }
 
-fn attach_parent_console() void {
+/// Returns true if a parent console was adopted
+fn attach_parent_console() bool {
     if (builtin.os.tag == .windows) return attach_parent_console_win32();
+    return false;
 }
 
-fn attach_parent_console_win32() void {
+fn attach_parent_console_win32() bool {
     const w = std.os.windows;
     const ATTACH_PARENT_PROCESS: w.DWORD = 0xFFFFFFFF;
     const CP_UTF8: w.DWORD = 65001;
-    if (!win32.AttachConsole(ATTACH_PARENT_PROCESS).toBool()) return; // no parent console
+    if (!win32.AttachConsole(ATTACH_PARENT_PROCESS).toBool()) return false; // no parent console
 
     // Point any std stream that isn't already redirected at the console.
     const STD_INPUT_HANDLE: w.DWORD = 0xFFFFFFF6; // -10
@@ -1230,6 +1233,7 @@ fn attach_parent_console_win32() void {
     reopen_std_handle_win32(STD_ERROR_HANDLE, std.unicode.utf8ToUtf16LeStringLiteral("CONOUT$"));
     reopen_std_handle_win32(STD_INPUT_HANDLE, std.unicode.utf8ToUtf16LeStringLiteral("CONIN$"));
     _ = win32.SetConsoleOutputCP(CP_UTF8);
+    return true;
 }
 
 fn reopen_std_handle_win32(which: std.os.windows.DWORD, name: [*:0]const u16) void {
