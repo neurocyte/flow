@@ -1269,6 +1269,13 @@ const cmds = struct {
     }
     pub const force_terminate_meta: Meta = .{ .description = "Force quit without saving" };
 
+    pub fn force_crash_dump(_: *Self, _: Ctx) Result {
+        @panic("user forced crash dump");
+    }
+    pub const force_crash_dump_meta: Meta = .{
+        .description = if (builtin.mode == .Debug) "Force a crash dump" else &.{},
+    };
+
     pub fn set_tab_width(self: *Self, ctx: Ctx) Result {
         var tab_width: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&tab_width)}))
