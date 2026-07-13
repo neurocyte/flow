@@ -185,8 +185,10 @@ fn show_crash_dialog_win32(kind: []const u8, msg: []const u8, path: []const u8) 
         "flow crashed: {s}{s}{s}\n\nA crash report was written to:\n{s}",
         .{ kind, if (msg.len > 0) ": " else "", msg, path },
     ) catch return;
-    const MB_OK_ICONERROR: u32 = 0x00000010; // MB_OK | MB_ICONERROR
-    _ = MessageBoxA(null, text.ptr, "Flow Control", MB_OK_ICONERROR);
+    const MB_ICONERROR: u32 = 0x00000010;
+    const MB_SETFOREGROUND: u32 = 0x00010000;
+    const MB_TOPMOST: u32 = 0x00040000;
+    _ = MessageBoxA(null, text.ptr, "Flow Control", MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST);
 }
 
 fn write_report(term: std.Io.Terminal, kind: []const u8, msg: []const u8, unwind: std.debug.StackUnwindOptions) void {
