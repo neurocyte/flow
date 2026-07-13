@@ -1175,21 +1175,23 @@ fn current_argv0() [:0]const u8 {
     return std.mem.span(get_init().minimal.args.vector[0]);
 }
 
-fn flow_gui_executable(gpa: std.mem.Allocator) [:0]const u8 {
+fn flow_gui_executable(gpa: std.mem.Allocator) ?[:0]const u8 {
     const name = if (builtin.os.tag == .windows) "flow-gui.exe" else "flow-gui";
-    // prefer flow-gui in the same path as flow
+    // prefer flow-gui in the same path as flow, fall back to PATH
     const self = resolve_executable(current_argv0());
     if (std.fs.path.dirname(self)) |dir| {
         const candidate = std.fs.path.joinZ(gpa, &.{ dir, name }) catch @panic("OOM");
         if (bin_path.can_execute(gpa, candidate)) return candidate;
         gpa.free(candidate);
     }
-    return resolve_executable("flow-gui");
+    if (bin_path.can_execute(gpa, "flow-gui")) return resolve_executable("flow-gui");
+    return null;
 }
 
 fn launch_gui() noreturn {
     const gpa = get_init().gpa;
-    const flow_gui = flow_gui_executable(gpa);
+    const flow_gui = flow_gui_executable(gpa) orelse
+        fatal("flow-gui not found. Is the GUI build installed and in your PATH?", .{});
     if (builtin.os.tag == .windows) return launch_gui_win32(flow_gui, gpa);
 
     const vector = get_init().minimal.args.vector;
@@ -1197,13 +1199,14 @@ fn launch_gui() noreturn {
     argv[0] = flow_gui.ptr;
     for (1..vector.len) |i| argv[i] = vector[i];
     const ret = std.c.execve(flow_gui, @ptrCast(argv.ptr), @ptrCast(get_init().minimal.environ.block.slice.ptr));
-    launch_gui_failed(flow_gui, ret);
+    fatal("failed to execute {s}: E{t}", .{ flow_gui, std.posix.errno(ret) });
 }
 
 fn launch_gui_win32(flow_gui: [:0]const u8, gpa: std.mem.Allocator) noreturn {
     var argv: std.ArrayList([]const u8) = .empty;
     argv.append(gpa, flow_gui) catch @panic("OOM");
-    var iter = std.process.Args.Iterator.initAllocator(get_init().minimal.args, gpa) catch launch_gui_failed(flow_gui, -1);
+    var iter = std.process.Args.Iterator.initAllocator(get_init().minimal.args, gpa) catch |e|
+        fatal("failed to read arguments: {s}", .{@errorName(e)});
     _ = iter.next(); // skip argv0
     while (iter.next()) |arg| argv.append(gpa, arg) catch @panic("OOM");
 
@@ -1212,18 +1215,18 @@ fn launch_gui_win32(flow_gui: [:0]const u8, gpa: std.mem.Allocator) noreturn {
         .stdin = .inherit,
         .stdout = .inherit,
         .stderr = .inherit,
-    }) catch launch_gui_failed(flow_gui, -1);
-    const term = child.wait(get_io()) catch launch_gui_failed(flow_gui, -1);
+    }) catch |e| fatal("failed to launch {s}: {s}", .{ flow_gui, @errorName(e) });
+    const term = child.wait(get_io()) catch |e| fatal("failed to wait for {s}: {s}", .{ flow_gui, @errorName(e) });
     switch (term) {
         .exited => |code| exit(code),
         else => exit(1),
     }
 }
 
-fn launch_gui_failed(flow_gui: [:0]const u8, ret: isize) noreturn {
+fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
     var buf: [1024]u8 = undefined;
     var w = std.Io.File.stderr().writer(get_init().io, &buf);
-    w.interface.print("failed to launch {s} ({d})\n", .{ flow_gui, ret }) catch {};
+    w.interface.print(fmt ++ "\n", args) catch {};
     w.flush() catch {};
     exit(1);
 }
