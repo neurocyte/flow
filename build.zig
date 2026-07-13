@@ -364,6 +364,14 @@ pub fn build_exe(
         .imports = &.{},
     });
 
+    const crash_mod = b.createModule(.{
+        .root_source_file = b.path("src/crash.zig"),
+        .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
     const time_fmt_mod = b.createModule(.{
         .root_source_file = b.path("src/time_fmt.zig"),
     });
@@ -536,6 +544,7 @@ pub fn build_exe(
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "color", .module = color_mod },
             .{ .name = "TypedInt", .module = TypedInt_mod },
+            .{ .name = "crash", .module = crash_mod },
         },
     });
 
@@ -1015,6 +1024,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/tui/tui.zig"),
         .imports = &.{
             .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "crash", .module = crash_mod },
             .{ .name = "file_link", .module = file_link_mod },
             .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "input", .module = input_mod },
@@ -1089,6 +1099,7 @@ pub fn build_exe(
     if (pie) |value| exe.pie = value;
     exe.root_module.addImport("build_options", options_mod);
     exe.root_module.addImport("soft_root", soft_root_mod);
+    exe.root_module.addImport("crash", crash_mod);
     exe.root_module.addImport("file_link", file_link_mod);
     exe.root_module.addImport("flags", flags_dep.module("flags"));
     exe.root_module.addImport("cbor", cbor_mod);
@@ -1159,6 +1170,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("build_options", options_mod);
     check_exe.root_module.addImport("file_link", file_link_mod);
     check_exe.root_module.addImport("soft_root", soft_root_mod);
+    check_exe.root_module.addImport("crash", crash_mod);
     check_exe.root_module.addImport("flags", flags_dep.module("flags"));
     check_exe.root_module.addImport("cbor", cbor_mod);
     check_exe.root_module.addImport("config", config_mod);

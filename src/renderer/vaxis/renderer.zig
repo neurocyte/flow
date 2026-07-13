@@ -10,6 +10,7 @@ const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const builtin = @import("builtin");
 const RGB = @import("color").RGB;
+const crash = @import("crash");
 
 pub const Plane = @import("Plane.zig");
 pub const Layer = @import("Layer.zig");
@@ -116,7 +117,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
 
 pub fn deinit(self: *Self) void {
     self.allocator.destroy(self.cache_storage);
-    panic_cleanup = null;
+    crash.set_cleanup(null);
     self.loop.stop();
     self.vx.deinit(self.allocator, self.tty.writer());
     self.tty.deinit();
@@ -150,88 +151,10 @@ fn resolve_layer_origin(std_plane: Plane, layer: *Layer, target: Layer.Target, p
     layer.origin_px_y = dst_y + target.y * ch + @as(i32, target.yoffset);
 }
 
-var in_panic: std.atomic.Value(bool) = .init(false);
-var panic_cleanup: ?struct {
-    allocator: std.mem.Allocator,
-    tty: *vaxis.Tty,
-    vx: *vaxis.Vaxis,
-} = null;
-
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    _ = error_return_trace;
-    in_panic.store(true, .release);
-    const cleanup = panic_cleanup;
-    panic_cleanup = null;
-    if (cleanup) |self| {
-        self.vx.deinit(self.allocator, self.tty.writer());
-        self.tty.deinit();
-    }
-    return std.debug.defaultPanic(msg, ret_addr orelse @returnAddress());
-}
-
-pub fn panic_in_progress() bool {
-    return in_panic.load(.acquire);
-}
-
-pub fn install_crash_handler() void {
-    if (!std.debug.have_segfault_handling_support) {
-        @compileError("segfault handler not supported for this target");
-    }
-    const act = std.posix.Sigaction{
-        .handler = .{ .sigaction = handle_crash },
-        .mask = std.posix.sigemptyset(),
-        .flags = (std.posix.SA.SIGINFO | std.posix.SA.RESTART),
-    };
-
-    std.posix.sigaction(std.posix.SIG.BUS, &act, null);
-    std.posix.sigaction(std.posix.SIG.SEGV, &act, null);
-    std.posix.sigaction(std.posix.SIG.ABRT, &act, null);
-    std.posix.sigaction(std.posix.SIG.FPE, &act, null);
-    std.posix.sigaction(std.posix.SIG.ILL, &act, null);
-}
-
-pub var jit_debugger_enabled: bool = false;
-
-fn handle_crash(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
-    const debug = @import("std/debug.zig");
-    debug.lockStdErr();
-
-    if (panic_in_progress())
-        std.c.abort();
-
-    in_panic.store(true, .release);
-    const cleanup = panic_cleanup;
-    panic_cleanup = null;
-
-    if (cleanup) |self| {
-        self.vx.deinit(self.allocator, self.tty.writer());
-        self.tty.deinit();
-    }
-    if (builtin.os.tag == .linux and jit_debugger_enabled) {
-        var buf: [4096]u8 = undefined;
-        var stderr = std.Io.File.stderr().writer(std.Options.debug_io, &buf);
-        defer stderr.flush() catch {};
-        handleSegfaultPosixNoAbort(&stderr.interface, sig, info, ctx_ptr);
-        @import("thespian").sighdl_debugger(@as(c_int, @intCast(@intFromEnum(sig))), @ptrCast(@constCast(info)), ctx_ptr);
-        std.c.abort();
-    } else {
-        debug.handleSegfaultPosix(sig, info, ctx_ptr);
-    }
-}
-
-fn handleSegfaultPosixNoAbort(stderr: *std.Io.Writer, sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
-    const debug = @import("std/debug.zig");
-    debug.resetSegfaultHandler();
-    const addr = switch (builtin.os.tag) {
-        .linux => @intFromPtr(info.fields.sigfault.addr),
-        .freebsd, .macos => @intFromPtr(info.addr),
-        .netbsd => @intFromPtr(info.info.reason.fault.addr),
-        .openbsd => @intFromPtr(info.data.fault.addr),
-        .illumos => @intFromPtr(info.reason.fault.addr),
-        else => unreachable,
-    };
-    const code = if (builtin.os.tag == .netbsd) info.info.code else info.code;
-    debug.dumpSegfaultInfoPosix(stderr, sig, code, addr, ctx_ptr);
+fn restore_terminal_on_crash(ctx: *anyopaque) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    self.vx.deinit(self.allocator, self.tty.writer());
+    self.tty.deinit();
 }
 
 pub fn run(self: *Self, render_pid: ?@import("thespian").pid_ref) Error!void {
@@ -241,7 +164,7 @@ pub fn run(self: *Self, render_pid: ?@import("thespian").pid_ref) Error!void {
 
     Layer.set_root_caps(&self.vx.caps);
 
-    panic_cleanup = .{ .allocator = self.allocator, .tty = &self.tty, .vx = &self.vx };
+    crash.set_cleanup(.{ .ctx = self, .func = restore_terminal_on_crash });
     if (!self.no_alternate) self.vx.enterAltScreen(self.tty.writer()) catch return error.TtyWriteError;
     if (builtin.os.tag == .windows) {
         try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
@@ -338,7 +261,7 @@ fn blend_color(base: vaxis.Cell.Color, over: vaxis.Cell.Color, alpha: u8) vaxis.
 }
 
 pub fn render(self: *Self) !?i64 {
-    if (in_panic.load(.acquire)) return null;
+    if (crash.crash_in_progress()) return null;
     const order = build_draw_order(self.allocator, self.targets.items);
     defer self.allocator.free(order);
     for (order) |idx| draw_target(&self.targets.items[idx]);

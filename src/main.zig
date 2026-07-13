@@ -32,13 +32,13 @@ pub const std_options: std.Options = .{
     .logFn = log.std_log_function,
 };
 
-const renderer = @import("renderer");
+const crash = @import("crash");
 
-pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else default_panic;
+pub const panic = crash.panic;
 
-fn default_panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    return std.debug.defaultPanic(msg, ret_addr);
-}
+pub const debug = struct {
+    pub const handleSegfault = crash.handle_segfault;
+};
 
 pub fn main(init: std.process.Init) anyerror!void {
     global_init = init;
@@ -159,10 +159,8 @@ pub fn main(init: std.process.Init) anyerror!void {
         return list_languages.list(a, tty);
     }
 
-    if (builtin.os.tag != .windows and @hasDecl(renderer, "install_crash_handler")) {
-        if (init.environ_map.get("JITDEBUG")) |_| renderer.jit_debugger_enabled = true;
-        renderer.install_crash_handler();
-    }
+    if (init.environ_map.get("JITDEBUG")) |_| crash.set_jit_debugger(true);
+    crash.install();
 
     if (args.debug_wait) {
         std.debug.print("press return to start", .{});

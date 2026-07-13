@@ -162,8 +162,7 @@ fn init(allocator: Allocator) InitError!*Self {
 
     Buffer.retain_symlinks = conf.retain_symlinks;
 
-    if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
-        renderer.jit_debugger_enabled = true;
+    if (conf.start_debugger_on_crash) @import("crash").set_jit_debugger(true);
 
     const dark_theme = Widget.get_theme_by_name(allocator, conf.theme) orelse Widget.get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
     conf.theme = dark_theme.name;
