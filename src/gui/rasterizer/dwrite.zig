@@ -790,18 +790,15 @@ const FallbackResolver = struct {
     }
 
     fn loadEmbeddedFont(self: *FallbackResolver, factory: *win32.IDWriteFactory) void {
-        const data = nerd_font_data;
-
-        var loader = EmbeddedFontFileLoader.init(data);
-        if (factory.RegisterFontFileLoader(@ptrCast(&loader)) < 0) return;
-        defer _ = factory.UnregisterFontFileLoader(@ptrCast(&loader));
+        const reg = factory.RegisterFontFileLoader(@ptrCast(&embedded_loader_instance));
+        if (reg < 0 and @as(u32, @bitCast(reg)) != DWRITE_E_ALREADYREGISTERED) return;
 
         var font_file: *win32.IDWriteFontFile = undefined;
         const key: u32 = 0;
         if (factory.CreateCustomFontFileReference(
             @ptrCast(&key),
             @sizeOf(u32),
-            @ptrCast(&loader),
+            @ptrCast(&embedded_loader_instance),
             &font_file,
         ) < 0) return;
         defer _ = font_file.IUnknown.Release();
@@ -953,6 +950,7 @@ const FallbackResolver = struct {
                 } else @intCast(adj);
 
                 const idx: u8 = @intCast(self.faces.items.len);
+                _ = ef.IUnknown.AddRef(); // faces takes its own owning reference
                 self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent, .size_px = adj }) catch {};
                 self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
                 return &self.faces.items[idx];
@@ -1044,6 +1042,9 @@ const EmbeddedFontFileStream = extern struct {
 };
 
 var embedded_stream_instance: EmbeddedFontFileStream = .{ .vtable = &EmbeddedFontFileStream.stream_vtable };
+var embedded_loader_instance: EmbeddedFontFileLoader = EmbeddedFontFileLoader.init(nerd_font_data);
+
+const DWRITE_E_ALREADYREGISTERED: u32 = 0x8898000C;
 
 /// Minimal IDWriteTextAnalysisSource implementation for MapCharacters.
 /// Lives on the stack so no COM ref counting needed.
