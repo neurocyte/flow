@@ -112,20 +112,20 @@ pub inline fn dim_x(self: Plane) u15 {
 
 pub inline fn cell_x(self: Plane) u15 {
     const override = Layer.cell_size_override(.x);
-    if (override > 0) return @intCast(override);
+    if (override > 0) return std.math.lossyCast(u15, override);
     if (self.window.screen.width == 0) return 1;
     const xextra = self.window.screen.width_pix % self.window.screen.width;
     const xcell = (self.window.screen.width_pix - xextra) / self.window.screen.width;
-    return @intCast(@max(1, xcell));
+    return std.math.lossyCast(u15, @max(1, xcell));
 }
 
 pub inline fn cell_y(self: Plane) u15 {
     const override = Layer.cell_size_override(.y);
-    if (override > 0) return @intCast(override);
+    if (override > 0) return std.math.lossyCast(u15, override);
     if (self.window.screen.height == 0) return 1;
     const yextra = self.window.screen.height_pix % self.window.screen.height;
     const ycell = (self.window.screen.height_pix - yextra) / self.window.screen.height;
-    return @intCast(@max(1, ycell));
+    return std.math.lossyCast(u15, @max(1, ycell));
 }
 
 pub fn mouse_geometry(self: Plane) MouseEvent.Geometry {
