@@ -195,8 +195,10 @@ fn fill_frame(self: *Self, box: Widget.Box) void {
     const x_cell: i32 = @divFloor(frame.x, cw);
     const y_cell: i32 = @divFloor(frame.y, ch);
     self.plane.move_yx(y_cell, x_cell) catch return;
+    const w_pix: u16 = @intCast(std.math.clamp(frame.w, 0, std.math.maxInt(u16)));
+    const h_pix: u16 = @intCast(std.math.clamp(frame.h, 0, std.math.maxInt(u16)));
     self.plane.resize_simple(@intCast(box.h), @intCast(box.w)) catch return;
-    self.layer.resize(@intCast(box.w), @intCast(box.h), @intCast(frame.w), @intCast(frame.h)) catch return;
+    self.layer.resize(@intCast(box.w), @intCast(box.h), w_pix, h_pix) catch return;
 
     self.shift_x = frame.x - x_cell * cw;
     self.shift_y = frame.y - y_cell * ch;
