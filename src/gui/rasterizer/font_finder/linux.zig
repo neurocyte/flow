@@ -12,6 +12,9 @@ pub fn list(allocator: std.mem.Allocator) ![][]u8 {
     const pat = fc.FcPatternCreate() orelse return error.OutOfMemory;
     defer fc.FcPatternDestroy(pat);
     _ = fc.FcPatternAddInteger(pat, fc.FC_SPACING, fc.FC_MONO);
+    // Only list scalable text faces.
+    _ = fc.FcPatternAddBool(pat, fc.FC_OUTLINE, fc.FcTrue);
+    _ = fc.FcPatternAddBool(pat, fc.FC_COLOR, fc.FcFalse);
 
     const os = fc.FcObjectSetCreate() orelse return error.OutOfMemory;
     defer fc.FcObjectSetDestroy(os);

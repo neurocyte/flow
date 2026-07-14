@@ -125,7 +125,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
         return error.FaceLoadFailed;
     errdefer _ = c.FT_Done_Face(face);
 
-    if (c.FT_Set_Pixel_Sizes(face, 0, size_px) != 0)
+    if (!setFacePixelSize(face, size_px))
         return error.SetSizeFailed;
 
     const sm = face.*.size.*.metrics;
