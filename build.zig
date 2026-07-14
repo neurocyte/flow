@@ -612,7 +612,12 @@ pub fn build_exe(
                         .{ .name = "color", .module = color_mod },
                     },
                 });
-                const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
+                const gui_glyph_atlas_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/GlyphAtlas.zig"),
+                    .imports = &.{
+                        .{ .name = "xy", .module = gui_xy_mod },
+                    },
+                });
                 const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
 
                 const flow_sprite_dep = b.lazyDependency("flow_sprite", .{
@@ -763,7 +768,7 @@ pub fn build_exe(
                         .{ .name = "rasterizer", .module = combined_rasterizer_mod },
                         .{ .name = "xy", .module = gui_xy_mod },
                         .{ .name = "cell", .module = gui_cell_mod },
-                        .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
+                        .{ .name = "GlyphAtlas", .module = gui_glyph_atlas_mod },
                         .{ .name = "shader", .module = shader_mod },
                     },
                 });
@@ -888,6 +893,21 @@ pub fn build_exe(
         }),
         .filters = test_filters,
     }));
+
+    const glyph_atlas_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gui/GlyphAtlas.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("xy", b.createModule(.{
+            .root_source_file = b.path("src/gui/xy.zig"),
+        }));
+        break :blk b.addRunArtifact(tests);
+    };
 
     const terminal_screen_test_run_cmd = blk: {
         const tests = b.addTest(.{
@@ -1225,6 +1245,7 @@ pub fn build_exe(
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
+    test_step.dependOn(&glyph_atlas_test_run_cmd.step);
     test_step.dependOn(&terminal_screen_test_run_cmd.step);
     test_step.dependOn(&double_mapped_ring_buffer_test_run_cmd.step);
     test_step.dependOn(&mouse_event_test_run_cmd.step);

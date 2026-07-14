@@ -7,7 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sg = @import("sokol").gfx;
 const Rasterizer = @import("rasterizer");
-const GlyphIndexCache = @import("GlyphIndexCache");
+const GlyphAtlas = @import("GlyphAtlas");
 const XY = @import("xy").XY;
 const shader = @import("shader");
 
@@ -59,20 +59,38 @@ fn markCursors(shader_cells: []ShaderCell, cursors: []const CursorInfo, cols: u1
 
 const log = std.log.scoped(.gpu);
 
-// Fixed atlas width.  2048 is a universally supported texture dimension.
-const atlas_width_px: u16 = 2048;
+// ── Glyph atlas GPU backend ──────────────────────────────────────────────────
 
-// Upper bound on the atlas height.
-const atlas_max_height_px: u16 = 2048;
+var atlas_backend_ctx: u8 = 0; // unused; the callbacks are stateless
 
-// Grow-to-fit: the atlas image keeps the full width but starts at a few
-// cell-rows and doubles its height on demand (up to atlas_max_height_px).
-const atlas_initial_rows: u16 = 4;
+fn atlasCreatePage(_: *anyopaque, size: XY(u16)) GlyphAtlas.PageHandle {
+    const image = sg.makeImage(.{
+        .width = size.x,
+        .height = size.y,
+        .pixel_format = .RGBA8,
+        .usage = .{ .dynamic_update = true },
+    });
+    const view = sg.makeView(.{ .texture = .{ .image = image } });
+    return .{ .image = image.id, .view = view.id };
+}
 
-fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
+fn atlasDestroyPage(_: *anyopaque, h: GlyphAtlas.PageHandle) void {
+    if (h.view != 0) sg.destroyView(.{ .id = h.view });
+    if (h.image != 0) sg.destroyImage(.{ .id = h.image });
+}
+
+fn atlasUploadPage(_: *anyopaque, h: GlyphAtlas.PageHandle, data: []const u8) void {
+    var img_data: sg.ImageData = .{};
+    img_data.mip_levels[0] = .{ .ptr = data.ptr, .size = data.len };
+    sg.updateImage(.{ .id = h.image }, img_data);
+}
+
+fn atlasBackend() GlyphAtlas.Backend {
     return .{
-        .x = @intCast(@divTrunc(atlas_width_px, cell_size.x)),
-        .y = @intCast(@divTrunc(atlas_max_height_px, cell_size.y)),
+        .ctx = &atlas_backend_ctx,
+        .createFn = atlasCreatePage,
+        .destroyFn = atlasDestroyPage,
+        .uploadFn = atlasUploadPage,
     };
 }
 
@@ -131,7 +149,6 @@ const global = struct {
     var cell_sampler: sg.Sampler = .{};
     var src_sampler: sg.Sampler = .{};
     var blur_sampler: sg.Sampler = .{};
-    var glyph_cache_arena: std.heap.ArenaAllocator = undefined;
     var background: RGBA = .init(0, 255, 255, 255); // default is warning yellow
     var composite_sample_flip_y: f32 = 0.0;
     var transparent: bool = false;
@@ -149,7 +166,6 @@ pub fn init(allocator: std.mem.Allocator) !void {
     global.init_called = true;
 
     global.rasterizer = try Rasterizer.init(allocator);
-    global.glyph_cache_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 
     // Build shader + pipelines
     const builtin_shd = sg.makeShader(shader.builtinShaderDesc(sg.queryBackend()));
@@ -281,7 +297,6 @@ pub fn deinit() void {
     sg.destroySampler(global.src_sampler);
     sg.destroySampler(global.blur_sampler);
     freeBlurTextures();
-    global.glyph_cache_arena.deinit();
     global.rasterizer.deinit();
 }
 
@@ -347,7 +362,7 @@ pub fn glyphAdvance(font: Font, codepoint: u21) ?u16 {
 }
 
 pub fn invalidateGlyphCache(state: *WindowState) void {
-    state.glyph_cache_cell_size = null;
+    state.atlas.reset(state.allocator);
 }
 
 pub fn setBackground(color: RGBA) void {
@@ -356,6 +371,16 @@ pub fn setBackground(color: RGBA) void {
 
 pub fn getBackground() RGBA {
     return global.background;
+}
+
+var atlas_page_byte_target: usize = GlyphAtlas.default_page_byte_target;
+
+pub fn setGlyphAtlasPageBytes(bytes: usize) void {
+    atlas_page_byte_target = if (bytes == 0) GlyphAtlas.default_page_byte_target else bytes;
+}
+
+pub fn getGlyphAtlasPageBytes() usize {
+    return atlas_page_byte_target;
 }
 
 pub fn setTransparent(on: bool) void {
@@ -372,108 +397,34 @@ pub const WindowState = struct {
     // GL window size in pixels
     size: XY(u32) = .{ .x = 0, .y = 0 },
 
-    // Glyph atlas (R8 2D texture + view)
-    glyph_image: sg.Image = .{},
-    glyph_view: sg.View = .{},
-    glyph_image_size: XY(u16) = .{ .x = 0, .y = 0 },
+    // Allocator backing the glyph atlas (page shadows, index map).
+    allocator: std.mem.Allocator,
 
-    // Cell grid (RGBA8 2D texture, 4 texels per cell), updated each frame
-    cell_image: sg.Image = .{},
-    cell_view: sg.View = .{},
-    cell_image_size: XY(u16) = .{ .x = 0, .y = 0 },
-    cell_buf: std.ArrayList(ShaderCell) = .empty,
+    // Multi-page glyph atlas (append & freeze). Shared across all layers.
+    atlas: GlyphAtlas,
 
-    // Glyph index cache
-    glyph_cache_cell_size: ?XY(u16) = null,
-    glyph_index_cache: ?GlyphIndexCache = null,
-
-    // Atlas geometry derived from the cell size
-    glyph_atlas_cell_count: XY(u16) = .{ .x = 0, .y = 0 },
-    glyph_atlas_total: u32 = 0,
-    glyph_atlas_pixel_size: XY(u16) = .{ .x = 0, .y = 0 },
-
-    // Set when the CPU atlas shadow was updated; cleared after GPU upload.
-    glyph_atlas_dirty: bool = false,
-
-    pub fn init() WindowState {
+    pub fn init(allocator: std.mem.Allocator) WindowState {
         std.debug.assert(global.init_called);
-        return .{};
+        return .{
+            .allocator = allocator,
+            .atlas = GlyphAtlas.init(atlasBackend(), atlas_page_byte_target),
+        };
     }
 
     pub fn deinit(state: *WindowState) void {
-        if (state.glyph_view.id != 0) sg.destroyView(state.glyph_view);
-        if (state.glyph_image.id != 0) sg.destroyImage(state.glyph_image);
-        if (state.cell_view.id != 0) sg.destroyView(state.cell_view);
-        if (state.cell_image.id != 0) sg.destroyImage(state.cell_image);
-        state.cell_buf.deinit(global.glyph_cache_arena.allocator());
-        if (state.glyph_index_cache) |*c| {
-            c.deinit(global.glyph_cache_arena.allocator());
-        }
+        state.atlas.deinit(state.allocator);
         state.* = undefined;
     }
 
-    // Ensure the glyph atlas image is (at least) the requested pixel size.
-    // Returns true if the image was retained, false if (re)created.
-    fn updateGlyphImage(state: *WindowState, pixel_size: XY(u16)) bool {
-        if (state.glyph_image_size.eql(pixel_size)) return true;
-
-        if (state.glyph_view.id != 0) sg.destroyView(state.glyph_view);
-        if (state.glyph_image.id != 0) sg.destroyImage(state.glyph_image);
-
-        state.glyph_image = sg.makeImage(.{
-            .width = pixel_size.x,
-            .height = pixel_size.y,
-            .pixel_format = .RGBA8,
-            .usage = .{ .dynamic_update = true },
-        });
-        state.glyph_view = sg.makeView(.{
-            .texture = .{ .image = state.glyph_image },
-        });
-        state.glyph_image_size = pixel_size;
-        const bytes: usize = @as(usize, pixel_size.x) * @as(usize, pixel_size.y) * 4;
-        std.log.debug("glyph atlas resized to {d}x{d} RGBA8 = {d} bytes ({d} KiB)", .{
-            pixel_size.x, pixel_size.y, bytes, bytes / 1024,
-        });
-        return false;
+    /// Upload every dirty atlas page. Must be called outside a render pass.
+    pub fn flushDirty(state: *WindowState) void {
+        state.atlas.flushDirty();
     }
 
-    // Grow the atlas image so it covers at least `rows_needed` cell-rows.
-    fn ensureAtlasHeight(state: *WindowState, cell_size: XY(u16), cell_count: XY(u16), rows_needed: u16) void {
-        const cur_rows: u16 = if (cell_size.y == 0) 0 else @intCast(@divTrunc(state.glyph_image_size.y, cell_size.y));
-        if (cur_rows >= rows_needed) return;
-        const want: u32 = @max(@as(u32, rows_needed), @as(u32, cur_rows) * 2);
-        const new_rows: u16 = @intCast(@min(@as(u32, cell_count.y), want));
-        state.glyph_atlas_pixel_size = .{ .x = cell_count.x * cell_size.x, .y = new_rows * cell_size.y };
-        _ = state.updateGlyphImage(state.glyph_atlas_pixel_size);
-        state.glyph_atlas_dirty = true;
-    }
-
-    // Ensure the cell texture is the requested size.
-    fn updateCellImage(state: *WindowState, allocator: std.mem.Allocator, cols: u16, rows: u16) void {
-        const needed: u32 = @as(u32, cols) * @as(u32, rows);
-        const sz: XY(u16) = .{ .x = cols, .y = rows };
-
-        if (!state.cell_image_size.eql(sz)) {
-            if (state.cell_view.id != 0) sg.destroyView(state.cell_view);
-            if (state.cell_image.id != 0) sg.destroyImage(state.cell_image);
-
-            state.cell_image = sg.makeImage(.{
-                .width = cols * 5,
-                .height = rows,
-                .pixel_format = .RGBA8,
-                .usage = .{ .dynamic_update = true },
-            });
-            state.cell_view = sg.makeView(.{
-                .texture = .{ .image = state.cell_image },
-            });
-            state.cell_image_size = sz;
-        }
-
-        if (state.cell_buf.items.len < needed) {
-            state.cell_buf.resize(allocator, needed) catch |e| oom(e);
-        }
-    }
-
+    /// Rasterize (on first sight) and register a glyph, returning its packed
+    /// handle (page id << 22 | slot). Thin wrapper over the atlas: reserve,
+    /// then on a miss rasterize into the shared staging buffer and blit into
+    /// the page's CPU shadow.
     pub fn generateGlyph(
         state: *WindowState,
         font: Font,
@@ -484,97 +435,44 @@ pub const WindowState = struct {
         constraint_width: u2,
         split: Rasterizer.GlyphSplit,
     ) u32 {
-        const cache_valid = if (state.glyph_cache_cell_size) |s| s.eql(font.cell_size) else false;
-        if (!cache_valid) {
-            const cnt = getAtlasCellCount(font.cell_size);
-            state.glyph_atlas_cell_count = cnt;
-            state.glyph_atlas_total = @as(u32, cnt.x) * @as(u32, cnt.y);
-            const init_rows: u16 = @min(cnt.y, atlas_initial_rows);
-            state.glyph_atlas_pixel_size = .{
-                .x = cnt.x * font.cell_size.x,
-                .y = init_rows * font.cell_size.y,
-            };
+        state.atlas.setCellSize(state.allocator, font.cell_size);
 
-            if (state.glyph_index_cache) |*c| {
-                c.deinit(global.glyph_cache_arena.allocator());
-                _ = global.glyph_cache_arena.reset(.retain_capacity);
-                state.glyph_index_cache = null;
-                // cell_buf was allocated from the arena; clear it so the next
-                // resize doesn't memcpy from the now-freed memory.
-                state.cell_buf = .empty;
-            }
-            _ = state.updateGlyphImage(state.glyph_atlas_pixel_size);
-            state.glyph_atlas_dirty = true;
-        }
-        state.glyph_cache_cell_size = font.cell_size;
-
-        const atlas_cell_count = state.glyph_atlas_cell_count;
-        const atlas_total = state.glyph_atlas_total;
-
-        const cache = blk: {
-            if (state.glyph_index_cache) |*c| break :blk c;
-            state.glyph_index_cache = GlyphIndexCache.init(
-                global.glyph_cache_arena.allocator(),
-                atlas_total,
-            ) catch |e| oom(e);
-            break :blk &(state.glyph_index_cache.?);
+        const key: GlyphAtlas.MapKey = .{
+            .codepoint = codepoint,
+            .right_half = split == .right,
+            .wide = split != .single,
+            .emoji = emoji_presentation,
+            .face = @intFromEnum(face),
         };
+        const r = state.atlas.reserve(state.allocator, key) catch |e| switch (e) {
+            error.OutOfMemory => oom(error.OutOfMemory),
+            error.TooManyGlyphPages => @panic("glyph atlas exhausted page id space"),
+        };
+        if (!r.newly) return r.glyph;
 
-        const right_half: bool = split == .right;
-        const wide: bool = split != .single;
+        // First sight: rasterize into the reusable staging buffer and blit the
+        // requested half into the page shadow.
+        const staging_w: u32 = @as(u32, font.cell_size.x) * 2;
+        const staging_buf = ensureGlyphStaging(font.cell_size);
+        @memset(staging_buf, 0);
 
-        switch (cache.reserve(
-            global.glyph_cache_arena.allocator(),
-            codepoint,
-            right_half,
-            wide,
-            emoji_presentation,
-            @intFromEnum(face),
-        ) catch |e| oom(e)) {
-            .newly_reserved => |reserved| {
-                // Rasterize into the reusable RGBA staging buffer, then upload
-                // to the atlas.
-                const staging_w: u32 = @as(u32, font.cell_size.x) * 2;
-                const staging_buf = ensureGlyphStaging(font.cell_size);
-                @memset(staging_buf, 0);
+        const rr = global.rasterizer.render(font, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
+        state.atlas.setKind(r.glyph, @intCast(@intFromEnum(rr.format)));
 
-                const rr = global.rasterizer.render(font, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-                cache.nodes[reserved.index].kind = @intFromEnum(rr.format);
+        const origin = state.atlas.slotOrigin(r.glyph);
+        const page_cpu = state.atlas.pageCpu(GlyphAtlas.glyphPage(r.glyph)).?;
+        const src_x: u16 = if (split == .right) font.cell_size.x else 0;
+        blitPageCpu(
+            page_cpu,
+            state.atlas.page_pixel_size,
+            origin,
+            font.cell_size,
+            @as(usize, src_x) * 4,
+            @as(usize, staging_w) * 4,
+            staging_buf,
+        );
 
-                // (rough) atlas utilization probe.
-                const used = cache.map.count();
-                if ((used & (used - 1)) == 0) {
-                    const cell_px: usize = @as(usize, font.cell_size.x) * @as(usize, font.cell_size.y);
-                    const used_kib = (@as(usize, used) * cell_px * 4) / 1024;
-                    const total_kib = (@as(usize, state.glyph_atlas_pixel_size.x) * @as(usize, state.glyph_atlas_pixel_size.y) * 4) / 1024;
-                    std.log.debug("glyph atlas used: {d} glyphs ~= {d} KiB of {d} KiB allocated", .{ used, used_kib, total_kib });
-                }
-
-                // Atlas cell position for this glyph index
-                const atlas_col: u16 = @intCast(reserved.index % atlas_cell_count.x);
-                const atlas_row: u16 = @intCast(reserved.index / atlas_cell_count.x);
-
-                // Grow the atlas height if this glyph lands beyond the rows allocated so far
-                state.ensureAtlasHeight(font.cell_size, atlas_cell_count, atlas_row + 1);
-
-                const atlas_x: u16 = atlas_col * font.cell_size.x;
-                const atlas_y: u16 = atlas_row * font.cell_size.y;
-
-                // Source region in the staging buffer
-                const src_x: u16 = if (right_half) font.cell_size.x else 0;
-                const glyph_w: u16 = font.cell_size.x;
-                const glyph_h: u16 = font.cell_size.y;
-
-                // Write into the CPU-side atlas shadow
-                const staging_row_bytes: usize = @as(usize, staging_w) * 4;
-                const src_x_off: usize = @as(usize, src_x) * 4;
-                blitAtlasCpu(state, atlas_x, atlas_y, glyph_w, glyph_h, staging_buf, staging_row_bytes, src_x_off);
-                state.glyph_atlas_dirty = true;
-
-                return reserved.index;
-            },
-            .already_reserved => |index| return index,
-        }
+        return r.glyph;
     }
 };
 
@@ -683,13 +581,14 @@ pub fn paintLayerOffscreen(
 
     const total: u32 = @as(u32, cols) * @as(u32, rows);
     const shader_cells = layer_state.cell_buf.items[0..total];
-    const cache_nodes: ?[]GlyphIndexCache.Node = if (window_state.glyph_index_cache) |*c| c.nodes else null;
+
+    // Distinct atlas pages referenced by this layer's cells; one paint pass is
+    // issued per referenced page (page ids are < GlyphAtlas.max_pages).
+    var referenced = std.StaticBitSet(GlyphAtlas.max_pages).initEmpty();
 
     for (cells[0..total], shader_cells) |src, *dst| {
-        const kind: u2 = if (cache_nodes) |nodes|
-            (if (src.glyph_index < nodes.len) nodes[src.glyph_index].kind else 0)
-        else
-            0;
+        const kind = window_state.atlas.kindOf(src.glyph_index);
+        referenced.set(GlyphAtlas.glyphPage(src.glyph_index));
         dst.* = .{
             .glyph_index = src.glyph_index,
             .bg = src.background.to_u32(),
@@ -700,59 +599,75 @@ pub fn paintLayerOffscreen(
 
     markCursors(shader_cells, cursors, cols, rows, focused);
 
-    if (window_state.glyph_atlas_dirty) flushGlyphAtlas(window_state);
+    // Dirty atlas pages are uploaded once per frame by the caller (before any
+    // layer is painted), so all pages this layer references are already live.
 
     var cell_data: sg.ImageData = .{};
     const cell_bytes = std.mem.sliceAsBytes(shader_cells);
     cell_data.mip_levels[0] = .{ .ptr = cell_bytes.ptr, .size = cell_bytes.len };
     sg.updateImage(layer_state.cell_image, cell_data);
 
-    var pass_action: sg.PassAction = .{};
-    pass_action.colors[0] = .{
-        .load_action = .CLEAR,
-        .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+    const bg_vec = blk: {
+        var v = global.background.to_vec4();
+        v[3] = @as(f32, @floatFromInt(bg_alpha)) / 255.0;
+        break :blk v;
     };
 
-    sg.beginPass(.{
-        .attachments = layer_state.attachments(),
-        .action = pass_action,
-    });
-    sg.applyPipeline(global.pip);
+    // One pass per referenced page. Each in-grid cell belongs to exactly one
+    // page and is rendered in that page's pass (the shader discards cells whose
+    // page != the bound page_id); the first pass clears, the rest load. Since
+    // `global.pip` writes with REPLACE and cells partition across passes, the
+    // composite is correct and subpixel AA (bg+glyph in one pass) is preserved.
+    var first = true;
+    var it = referenced.iterator(.{});
+    while (it.next()) |page_id| {
+        const handle = window_state.atlas.pageHandle(@intCast(page_id)) orelse continue;
 
-    var bindings: sg.Bindings = .{};
-    bindings.views[0] = window_state.glyph_view;
-    bindings.views[1] = layer_state.cell_view;
-    bindings.samplers[0] = global.glyph_sampler;
-    bindings.samplers[1] = global.cell_sampler;
-    sg.applyBindings(bindings);
+        var pass_action: sg.PassAction = .{};
+        pass_action.colors[0] = .{
+            .load_action = if (first) .CLEAR else .LOAD,
+            .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        };
+        sg.beginPass(.{
+            .attachments = layer_state.attachments(),
+            .action = pass_action,
+        });
+        sg.applyPipeline(global.pip);
 
-    const fs_params = shader.FsParams{
-        .cell_size = .{
-            font_set.cell_size.x,
-            font_set.cell_size.y,
-            cols,
-            rows,
-        },
-        .viewport = .{ pixel_h, pixel_w, 0, 0 },
-        .underline_info = .{
-            font_set.underline_position,
-            font_set.underline_thickness,
-            0,
-            0,
-        },
-        .bg_color = blk: {
-            var v = global.background.to_vec4();
-            v[3] = @as(f32, @floatFromInt(bg_alpha)) / 255.0;
-            break :blk v;
-        },
-    };
-    sg.applyUniforms(shader.UB_fs_params, .{
-        .ptr = &fs_params,
-        .size = @sizeOf(shader.FsParams),
-    });
+        var bindings: sg.Bindings = .{};
+        bindings.views[0] = .{ .id = handle.view };
+        bindings.views[1] = layer_state.cell_view;
+        bindings.samplers[0] = global.glyph_sampler;
+        bindings.samplers[1] = global.cell_sampler;
+        sg.applyBindings(bindings);
 
-    sg.draw(0, 4, 1);
-    sg.endPass();
+        const fs_params = shader.FsParams{
+            .cell_size = .{ font_set.cell_size.x, font_set.cell_size.y, cols, rows },
+            .viewport = .{ pixel_h, pixel_w, @intCast(page_id), 0 },
+            .underline_info = .{ font_set.underline_position, font_set.underline_thickness, 0, 0 },
+            .bg_color = bg_vec,
+        };
+        sg.applyUniforms(shader.UB_fs_params, .{
+            .ptr = &fs_params,
+            .size = @sizeOf(shader.FsParams),
+        });
+
+        sg.draw(0, 4, 1);
+        sg.endPass();
+        first = false;
+    }
+
+    // Degenerate: no glyph pages referenced (e.g. atlas empty). Still clear the
+    // target so it doesn't retain stale content.
+    if (first) {
+        var pass_action: sg.PassAction = .{};
+        pass_action.colors[0] = .{
+            .load_action = .CLEAR,
+            .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        };
+        sg.beginPass(.{ .attachments = layer_state.attachments(), .action = pass_action });
+        sg.endPass();
+    }
 }
 
 pub const CompositeOp = struct {
@@ -1141,11 +1056,6 @@ pub fn presentLayerToSwapchain(
     sg.endPass();
 }
 
-// CPU-side shadow copy of the glyph atlas (RGBA8, row-major).
-// Kept alive for the process lifetime; resized when the atlas image grows.
-var atlas_cpu: ?[]u8 = null;
-var atlas_cpu_size: XY(u16) = .{ .x = 0, .y = 0 };
-
 // Reusable RGBA staging buffer for rasterizing a single glyph.
 var glyph_staging: ?[]u8 = null;
 var glyph_staging_cell: XY(u16) = .{ .x = 0, .y = 0 };
@@ -1160,185 +1070,25 @@ fn ensureGlyphStaging(cell_size: XY(u16)) []u8 {
     return glyph_staging.?;
 }
 
-// Blit one glyph cell into the CPU-side atlas shadow.
-fn blitAtlasCpu(
-    state: *const WindowState,
-    x: u16,
-    y: u16,
-    w: u16,
-    h: u16,
-    src: []const u8,
+// Blit one rasterized glyph cell into a page's CPU shadow at `origin`. `src`
+// is the 2-cell-wide staging buffer; `src_x_off_bytes` selects the left/right
+// half for wide-glyph splits.
+fn blitPageCpu(
+    page_cpu: []u8,
+    page_size: XY(u16),
+    origin: XY(u16),
+    cell_size: XY(u16),
+    src_x_off_bytes: usize,
     src_row_bytes: usize,
-    src_x_off: usize,
+    src: []const u8,
 ) void {
-    const asz = state.glyph_image_size;
-    const total_bytes: usize = @as(usize, asz.x) * @as(usize, asz.y) * 4;
-
-    if (!atlas_cpu_size.eql(asz)) {
-        const new_buf = std.heap.page_allocator.alloc(u8, total_bytes) catch |e| oom(e);
-        @memset(new_buf, 0);
-        if (atlas_cpu) |old| {
-            if (atlas_cpu_size.x == asz.x and asz.y >= atlas_cpu_size.y)
-                @memcpy(new_buf[0..old.len], old[0..old.len]);
-            std.heap.page_allocator.free(old);
-        }
-        atlas_cpu = new_buf;
-        atlas_cpu_size = asz;
+    const row_bytes: usize = @as(usize, cell_size.x) * 4;
+    const page_row_bytes: usize = @as(usize, page_size.x) * 4;
+    for (0..cell_size.y) |row_i| {
+        const src_off = row_i * src_row_bytes + src_x_off_bytes;
+        const dst_off = (@as(usize, origin.y) + row_i) * page_row_bytes + @as(usize, origin.x) * 4;
+        @memcpy(page_cpu[dst_off .. dst_off + row_bytes], src[src_off .. src_off + row_bytes]);
     }
-
-    const buf = atlas_cpu.?;
-    const row_bytes: usize = @as(usize, w) * 4;
-    const atlas_row_bytes: usize = @as(usize, asz.x) * 4;
-    for (0..h) |row_i| {
-        const src_off = row_i * src_row_bytes + src_x_off;
-        const dst_off = (@as(usize, y) + row_i) * atlas_row_bytes + @as(usize, x) * 4;
-        @memcpy(buf[dst_off .. dst_off + row_bytes], src[src_off .. src_off + row_bytes]);
-    }
-}
-
-// Upload the CPU shadow to the GPU.  Called once per frame if dirty.
-// Must be called outside a sokol render pass.
-fn flushGlyphAtlas(state: *WindowState) void {
-    const asz = state.glyph_image_size;
-    const total_bytes: usize = @as(usize, asz.x) * @as(usize, asz.y) * 4;
-    const buf = atlas_cpu orelse return;
-
-    var img_data: sg.ImageData = .{};
-    img_data.mip_levels[0] = .{ .ptr = buf.ptr, .size = total_bytes };
-    sg.updateImage(state.glyph_image, img_data);
-    state.glyph_atlas_dirty = false;
-}
-
-pub fn paint(
-    state: *WindowState,
-    client_size: XY(u32),
-    font_set: FontSet,
-    row_count: u16,
-    col_count: u16,
-    top: u16,
-    cells: []const Cell,
-    cursors: []const CursorInfo,
-    swapchain_render_view: ?*const anyopaque, // windows only
-) void {
-    const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font_set.cell_size.x));
-    const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font_set.cell_size.y));
-
-    const copy_col_count: u16 = @min(col_count, shader_col_count);
-    const blank_glyph_index = state.generateGlyph(font_set.faces[@intFromEnum(Face.regular)], .regular, ' ', false, .none, 1, .single);
-
-    const alloc = global.glyph_cache_arena.allocator();
-    state.updateCellImage(alloc, shader_col_count, shader_row_count);
-
-    const shader_cells = state.cell_buf.items[0 .. @as(u32, shader_col_count) * @as(u32, shader_row_count)];
-
-    // cache holds the per-glyph format
-    const cache_nodes: ?[]GlyphIndexCache.Node = if (state.glyph_index_cache) |*c| c.nodes else null;
-
-    for (0..shader_row_count) |row_i| {
-        const src_row = blk: {
-            const r = top + @as(u16, @intCast(row_i));
-            break :blk if (r < row_count) r else 0;
-        };
-        const src_row_offset = @as(usize, src_row) * col_count;
-        const dst_row_offset = @as(usize, row_i) * shader_col_count;
-        const copy_len = if (row_i < row_count) copy_col_count else 0;
-
-        for (0..copy_len) |ci| {
-            const src = cells[src_row_offset + ci];
-            const kind: u2 = if (cache_nodes) |nodes|
-                (if (src.glyph_index < nodes.len) nodes[src.glyph_index].kind else 0)
-            else
-                0;
-            shader_cells[dst_row_offset + ci] = .{
-                .glyph_index = src.glyph_index,
-                .bg = src.background.to_u32(),
-                .fg = src.foreground.to_u32(),
-                .deco = packDeco(src, kind),
-            };
-        }
-        for (copy_len..shader_col_count) |ci| {
-            shader_cells[dst_row_offset + ci] = .{
-                .glyph_index = blank_glyph_index,
-                .bg = global.background.to_u32(),
-                .fg = global.background.to_u32(),
-            };
-        }
-    }
-
-    markCursors(shader_cells, cursors, shader_col_count, shader_row_count);
-
-    // Upload glyph atlas to GPU if any new glyphs were rasterized this frame.
-    if (state.glyph_atlas_dirty) flushGlyphAtlas(state);
-
-    // Upload cell texture
-    var cell_data: sg.ImageData = .{};
-    const cell_bytes = std.mem.sliceAsBytes(shader_cells);
-    cell_data.mip_levels[0] = .{ .ptr = cell_bytes.ptr, .size = cell_bytes.len };
-    sg.updateImage(state.cell_image, cell_data);
-
-    // Render pass
-    var pass_action: sg.PassAction = .{};
-    pass_action.colors[0] = .{
-        .load_action = .CLEAR,
-        .clear_value = .{
-            .r = @as(f32, @floatFromInt(global.background.r)) / 255.0,
-            .g = @as(f32, @floatFromInt(global.background.g)) / 255.0,
-            .b = @as(f32, @floatFromInt(global.background.b)) / 255.0,
-            .a = if (global.transparent) 0.0 else 1.0,
-        },
-    };
-
-    sg.beginPass(.{
-        .swapchain = if (builtin.os.tag == .windows) .{
-            .width = @intCast(client_size.x),
-            .height = @intCast(client_size.y),
-            .sample_count = 1,
-            .color_format = .RGBA8,
-            .depth_format = .NONE,
-            .d3d11 = .{ .render_view = swapchain_render_view },
-        } else .{
-            .width = @intCast(client_size.x),
-            .height = @intCast(client_size.y),
-            .sample_count = 1,
-            .color_format = .RGBA8,
-            .depth_format = .NONE,
-            .gl = .{ .framebuffer = 0 },
-        },
-        .action = pass_action,
-    });
-    sg.applyPipeline(global.pip);
-
-    var bindings: sg.Bindings = .{};
-    bindings.views[0] = state.glyph_view;
-    bindings.views[1] = state.cell_view;
-    bindings.samplers[0] = global.glyph_sampler;
-    bindings.samplers[1] = global.cell_sampler;
-    sg.applyBindings(bindings);
-
-    const fs_params = shader.FsParams{
-        .cell_size = .{
-            font_set.cell_size.x,
-            font_set.cell_size.y,
-            shader_col_count,
-            shader_row_count,
-        },
-        .viewport = .{ @intCast(client_size.y), @intCast(client_size.x), 0, 0 },
-        .underline_info = .{
-            font_set.underline_position,
-            font_set.underline_thickness,
-            0,
-            0,
-        },
-        .bg_color = global.background.to_vec4(),
-    };
-    sg.applyUniforms(shader.UB_fs_params, .{
-        .ptr = &fs_params,
-        .size = @sizeOf(shader.FsParams),
-    });
-
-    sg.draw(0, 4, 1);
-    sg.endPass();
-    // Note: caller (app.zig) calls sg.commit() and window.swapBuffers()
 }
 
 fn oom(e: error{OutOfMemory}) noreturn {

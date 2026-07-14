@@ -13,6 +13,9 @@ lineheight: u8 = 100,
 block_and_line_symbols: SymbolRasterizer = .default,
 allow_color_glyphs: bool = true,
 
+gui_glyph_atlas_budget_mb: u16 = 96,
+gui_glyph_atlas_page_mb: u16 = 4,
+
 initial_window_x: u16 = 1087,
 initial_window_y: u16 = 1014,
 

@@ -118,6 +118,10 @@ var font_hinting: gpu.Hinting = .normal;
 var block_and_line_symbols: gpu.SymbolRasterizer = .default;
 var allow_color_glyphs: bool = true;
 var font_line_height: u8 = 100;
+
+// Resident glyph-atlas budget in bytes; pages are evicted (coldest first) to
+// stay under it. `0` disables eviction.
+var glyph_atlas_budget_bytes: usize = 96 << 20; // 96 MiB
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
 
@@ -645,6 +649,8 @@ pub fn loadConfig() void {
     window_transparency = conf.gui_window_transparency;
     background_opacity.store(@bitCast(std.math.clamp(conf.gui_background_opacity, 0.0, 1.0)), .release);
     ignore_theme_alpha.store(conf.gui_ignore_theme_alpha, .release);
+    glyph_atlas_budget_bytes = @as(usize, conf.gui_glyph_atlas_budget_mb) << 20;
+    gpu.setGlyphAtlasPageBytes(@as(usize, conf.gui_glyph_atlas_page_mb) << 20);
     const name = conf.fontface;
     const copy_len = @min(name.len, font_name_buf.len);
     @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
@@ -664,6 +670,8 @@ fn saveConfig() void {
     conf.gui_window_transparency = window_transparency;
     conf.gui_background_opacity = @bitCast(background_opacity.load(.acquire));
     conf.gui_ignore_theme_alpha = ignore_theme_alpha.load(.acquire);
+    conf.gui_glyph_atlas_budget_mb = @intCast(glyph_atlas_budget_bytes >> 20);
+    conf.gui_glyph_atlas_page_mb = @intCast(gpu.getGlyphAtlasPageBytes() >> 20);
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
@@ -1068,7 +1076,7 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32, focused: bool) voi
 
     const initial_size: wio.Size = .{ .width = @intCast(initial_w), .height = @intCast(initial_h) };
     render_ctx = .{
-        .state = gpu.WindowState.init(),
+        .state = gpu.WindowState.init(allocator),
         .swapchain = swapchain,
         .hwnd = hwnd,
         .win_size = initial_size,
@@ -1165,15 +1173,26 @@ pub fn renderActorTick(focused: bool) void {
     }
 
     ctx.frame_counter += 1;
+    ctx.state.atlas.current_frame = ctx.frame_counter;
 
-    // rasterise every layer into its own offscreen pixel buffer
+    // generate glyphs for every layer, retaining each layer's prepared
+    // cell buffer for the paint phase. Generation and paint are split so all new
+    // glyphs land in the atlas before any page is uploaded.
+    const prepared = allocator.alloc([]gpu.Cell, snap.layers.len) catch return;
+    var filled: usize = 0;
+    defer {
+        for (prepared[0..filled]) |lc| allocator.free(lc);
+        allocator.free(prepared);
+    }
+
     for (snap.layers, 0..) |*ls, idx| {
         const gop = ctx.layers.getOrPut(allocator, ls.id) catch return;
         if (!gop.found_existing) gop.value_ptr.* = .{};
         gop.value_ptr.last_seen_frame = ctx.frame_counter;
 
         const layer_cells = allocator.alloc(gpu.Cell, ls.cells.len) catch return;
-        defer allocator.free(layer_cells);
+        prepared[idx] = layer_cells;
+        filled = idx + 1;
         @memcpy(layer_cells, ls.cells);
 
         var layer_prev_cp: u21 = ' ';
@@ -1233,9 +1252,19 @@ pub fn renderActorTick(focused: bool) void {
                 layer_prev_emoji = emoji;
             }
         }
+    }
 
-        // layers[0] size the full window
-        const pixel_size: @TypeOf(gop.value_ptr.pixel_size) = if (idx == 0) .{
+    // upload every dirty atlas page, once.
+    ctx.state.flushDirty();
+
+    // paint each layer into its offscreen pixel buffer. Re-look up the
+    // LayerGpuState by id here. getOrPut calls may have resized the map,
+    // so pointers taken there are not held across iterations.
+    for (snap.layers, 0..) |*ls, idx| {
+        const layer_state = ctx.layers.getPtr(ls.id) orelse continue;
+
+        // layers[0] sizes the full window
+        const pixel_size: @TypeOf(layer_state.pixel_size) = if (idx == 0) .{
             .x = @intCast(ctx.win_size.width),
             .y = @intCast(ctx.win_size.height),
         } else .{
@@ -1252,10 +1281,10 @@ pub fn renderActorTick(focused: bool) void {
 
         gpu.paintLayerOffscreen(
             &ctx.state,
-            gop.value_ptr,
+            layer_state,
             allocator,
             font_set,
-            layer_cells,
+            prepared[idx],
             ls.width,
             ls.height,
             pixel_size,
@@ -1264,6 +1293,9 @@ pub fn renderActorTick(focused: bool) void {
             focused,
         );
     }
+
+    // reclaim atlas pages not referenced this frame if over budget.
+    ctx.state.atlas.gc(allocator, glyph_atlas_budget_bytes);
 
     // GC layer state not seen for layer_gc_grace_frames
     {

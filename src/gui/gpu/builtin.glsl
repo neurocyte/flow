@@ -54,10 +54,11 @@ void main() {
     int row_count = cell_size.w;
     int viewport_height = viewport.x;
     int viewport_width = viewport.y;
+    int page_id = viewport.z; // atlas page bound for this pass
     int underline_position = underline_info.x;
     int underline_thickness = underline_info.y;
 
-    // v_uv: (0,0) top-left, (1,1) bottom-right — portable across GL/D3D.
+    // v_uv: (0,0) top-left, (1,1) bottom-right - portable across GL/D3D.
     int px = int(v_uv.x * float(viewport_width));
     int py = int(v_uv.y * float(viewport_height));
     int col = px / cell_size_x;
@@ -99,12 +100,19 @@ void main() {
     int cell_px_x = px % cell_size_x;
     int cell_px_y = py % cell_size_y;
 
-    // Glyph atlas lookup
+    // glyph_index packs page id (high 10 bits) and slot (low 22). Each paint
+    // pass binds a single page and renders only the cells that belong to it;
+    // cells on other pages are drawn by their own pass. Discarding leaves this
+    // cell's pixels for the pass that owns its page.
+    int page = int(gi_u >> 22u);
+    int slot = int(gi_u & 0x3FFFFFu);
+    if (page != page_id) { discard; }
+
+    // Glyph atlas lookup (into the bound page)
     ivec2 atlas_size = textureSize(sampler2D(glyph_tex, glyph_smp), 0);
     int cells_per_row = atlas_size.x / cell_size_x;
-    int gi = int(gi_u);
-    int gc = gi % cells_per_row;
-    int gr = gi / cells_per_row;
+    int gc = slot % cells_per_row;
+    int gr = slot / cells_per_row;
     ivec2 atlas_coord = ivec2(gc * cell_size_x + cell_px_x,
                               gr * cell_size_y + cell_px_y);
     vec4 glyph_sample = texelFetch(sampler2D(glyph_tex, glyph_smp), atlas_coord, 0);
@@ -542,7 +550,7 @@ void main() {
     // corner regions (extend inward to the arc centre so the rounded
     // outline is captured). With both adjacent edges enabled the corner gets
     // a radial falloff. With only one enabled, that edge's band extends
-    // through the corner only if the other (disabled) edge allows bleed —
+    // through the corner only if the other (disabled) edge allows bleed -
     // otherwise it is clipped at the layer boundary. With neither, no shadow.
     if (p.x < range + rTL && p.y < range + rTL) {
         done = true;
