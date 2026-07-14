@@ -769,6 +769,7 @@ const FallbackResolver = struct {
     system_collection: ?*win32.IDWriteFontCollection = null,
     embedded_face: ?*win32.IDWriteFontFace = null,
     embedded_ascent: i32 = 0,
+    embedded_index: ?u8 = null,
     current_size_px: u16 = 0,
 
     fn initResolver(factory: *win32.IDWriteFactory) FallbackResolver {
@@ -838,6 +839,7 @@ const FallbackResolver = struct {
             for (self.faces.items) |f| _ = f.face.IUnknown.Release();
             self.faces.clearRetainingCapacity();
             self.cache.clearRetainingCapacity();
+            self.embedded_index = null;
         }
         self.current_size_px = size_px;
 
@@ -939,6 +941,15 @@ const FallbackResolver = struct {
             var gi: [2]u16 = .{ 0, 0 };
             const cps = [_]u32{@intCast(codepoint)};
             if (ef.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) >= 0 and gi[0] != 0) {
+                if (self.embedded_index) |idx| {
+                    self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
+                    return &self.faces.items[idx];
+                }
+                if (self.faces.items.len >= 255) {
+                    self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+                    return null;
+                }
+
                 const scale = face_metrics.faceScaleFactor(primary, dwriteFaceMetrics(ef, size_px));
                 const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * scale)));
                 var m: win32.DWRITE_FONT_METRICS = undefined;
@@ -951,7 +962,12 @@ const FallbackResolver = struct {
 
                 const idx: u8 = @intCast(self.faces.items.len);
                 _ = ef.IUnknown.AddRef(); // faces takes its own owning reference
-                self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent, .size_px = adj }) catch {};
+                self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent, .size_px = adj }) catch {
+                    _ = ef.IUnknown.Release();
+                    self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
+                    return null;
+                };
+                self.embedded_index = idx;
                 self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
                 return &self.faces.items[idx];
             }
