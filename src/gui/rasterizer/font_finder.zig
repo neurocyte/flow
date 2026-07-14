@@ -8,7 +8,13 @@ pub const FallbackCandidate = if (builtin.os.tag == .linux)
 else
     struct { path: []u8, face_index: i32, has_color: bool };
 
-pub fn findFont(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
+/// A resolved font file plus the subfont index.
+pub const FontMatch = if (builtin.os.tag == .linux)
+    linux.FontMatch
+else
+    struct { path: []u8, face_index: i32 };
+
+pub fn findFont(allocator: std.mem.Allocator, name: []const u8) !FontMatch {
     return switch (builtin.os.tag) {
         .linux => linux.find(allocator, name),
         else => error.FontFinderNotSupported,
@@ -21,7 +27,7 @@ pub fn findFontVariant(
     family: []const u8,
     css_weight: u16,
     italic: bool,
-) ![]u8 {
+) !FontMatch {
     return switch (builtin.os.tag) {
         .linux => linux.findVariant(allocator, family, css_weight, italic),
         else => error.FontFinderNotSupported,

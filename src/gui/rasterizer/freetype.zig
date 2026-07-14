@@ -111,17 +111,17 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
-    const path = try font_finder.findFont(self.allocator, name);
-    defer self.allocator.free(path);
-    return self.loadFontFromPath(path, size_px);
+    const match = try font_finder.findFont(self.allocator, name);
+    defer self.allocator.free(match.path);
+    return self.loadFontFromPath(match.path, match.face_index, size_px);
 }
 
-pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
+pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
     const path_z = try self.allocator.dupeZ(u8, path);
     defer self.allocator.free(path_z);
 
     var face: c.FT_Face = undefined;
-    if (c.FT_New_Face(self.library, path_z.ptr, 0, &face) != 0)
+    if (c.FT_New_Face(self.library, path_z.ptr, face_index, &face) != 0)
         return error.FaceLoadFailed;
     errdefer _ = c.FT_Done_Face(face);
 
@@ -208,27 +208,27 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
         self.regular_path = null;
     }
 
-    const path = try font_finder.findFontVariant(
+    const match = try font_finder.findFontVariant(
         self.allocator,
         req.family,
         req.css_weight,
         req.italic,
     );
-    errdefer self.allocator.free(path);
+    errdefer self.allocator.free(match.path);
 
     const is_real = if (req.is_baseline)
         true
     else if (self.regular_path) |reg|
-        !std.mem.eql(u8, path, reg)
+        !std.mem.eql(u8, match.path, reg)
     else
         true;
 
-    const font = try self.loadFontFromPath(path, req.size_px);
+    const font = try self.loadFontFromPath(match.path, match.face_index, req.size_px);
 
     if (req.is_baseline) {
-        self.regular_path = path; // transfer ownership
+        self.regular_path = match.path; // transfer ownership
     } else {
-        self.allocator.free(path);
+        self.allocator.free(match.path);
     }
 
     return .{ .font = font, .is_real_match = is_real };

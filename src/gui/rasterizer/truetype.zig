@@ -55,7 +55,7 @@ fn isLoadableSfnt(data: []const u8) bool {
 
 fn extractTtcSubfont(allocator: std.mem.Allocator, data: []const u8, face_index: i32) ![]u8 {
     const num_fonts = rdU32(data, 8) orelse return error.BadFont;
-    const idx: u32 = if (face_index < 0) 0 else @intCast(face_index);
+    const idx: u32 = if (face_index < 0) 0 else @as(u32, @intCast(face_index)) & 0xffff;
     if (idx >= num_fonts) return error.BadFont;
     const off_table = rdU32(data, 12 + 4 * idx) orelse return error.BadFont;
     const num_tables = rdU16(data, off_table + 4) orelse return error.BadFont;
@@ -304,19 +304,21 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
-    const path = try font_finder.findFont(self.allocator, name);
-    defer self.allocator.free(path);
-    return self.loadFontFromPath(path, size_px);
+    const match = try font_finder.findFont(self.allocator, name);
+    defer self.allocator.free(match.path);
+    return self.loadFontFromPath(match.path, match.face_index, size_px);
 }
 
-pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
+pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
     const io = root.get_io();
     const f = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer f.close(io);
     const stat = try f.stat(io);
     var read_buf: [4096]u8 = undefined;
     var reader = f.reader(io, &read_buf);
-    const data = try reader.interface.readAlloc(self.allocator, @intCast(stat.size));
+    const raw = try reader.interface.readAlloc(self.allocator, @intCast(stat.size));
+    // Extract the requested subfont.
+    const data = loadFontData(self.allocator, raw, face_index) orelse return error.BadFont;
     errdefer self.allocator.free(data);
 
     const tt = try TrueType.load(data);
@@ -397,27 +399,27 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
         self.regular_path = null;
     }
 
-    const path = try font_finder.findFontVariant(
+    const match = try font_finder.findFontVariant(
         self.allocator,
         req.family,
         req.css_weight,
         req.italic,
     );
-    errdefer self.allocator.free(path);
+    errdefer self.allocator.free(match.path);
 
     const is_real = if (req.is_baseline)
         true
     else if (self.regular_path) |reg|
-        !std.mem.eql(u8, path, reg)
+        !std.mem.eql(u8, match.path, reg)
     else
         true;
 
-    const font = try self.loadFontFromPath(path, req.size_px);
+    const font = try self.loadFontFromPath(match.path, match.face_index, req.size_px);
 
     if (req.is_baseline) {
-        self.regular_path = path; // transfer ownership
+        self.regular_path = match.path; // transfer ownership
     } else {
-        self.allocator.free(path);
+        self.allocator.free(match.path);
     }
 
     return .{ .font = font, .is_real_match = is_real };

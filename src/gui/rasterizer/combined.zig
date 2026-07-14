@@ -173,12 +173,12 @@ pub fn setAllowColorGlyphs(self: *Self, allow: bool) void {
 
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     const allocator = if (is_windows) self.dw.allocator else self.tt.allocator;
-    const path = try font_finder.findFont(allocator, name);
-    defer allocator.free(path);
-    return self.loadFontFromPath(path, size_px);
+    const match = try font_finder.findFont(allocator, name);
+    defer allocator.free(match.path);
+    return self.loadFontFromPath(match.path, match.face_index, size_px);
 }
 
-fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
+fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
     if (is_windows) {
         switch (self.active) {
             .dwrite => {
@@ -194,7 +194,7 @@ fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     } else {
         switch (self.active) {
             .truetype => {
-                const f = try self.tt.loadFontFromPath(path, size_px);
+                const f = try self.tt.loadFontFromPath(path, face_index, size_px);
                 return .{
                     .cell_size = f.cell_size,
                     .underline_position = f.underline_position,
@@ -203,7 +203,7 @@ fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
                 };
             },
             .freetype => {
-                const f = try self.ft.loadFontFromPath(path, size_px);
+                const f = try self.ft.loadFontFromPath(path, face_index, size_px);
                 return .{
                     .cell_size = f.cell_size,
                     .underline_position = f.underline_position,

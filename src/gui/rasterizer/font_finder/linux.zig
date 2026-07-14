@@ -54,7 +54,13 @@ pub fn list(allocator: std.mem.Allocator) ![][]u8 {
     return try names.toOwnedSlice(allocator);
 }
 
-pub fn find(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
+/// A resolved font file plus the subfont index.
+pub const FontMatch = struct {
+    path: []u8,
+    face_index: i32,
+};
+
+pub fn find(allocator: std.mem.Allocator, name: []const u8) !FontMatch {
     const config = fc.FcInitLoadConfigAndFonts() orelse return error.FontconfigInit;
     defer fc.FcConfigDestroy(config);
 
@@ -75,7 +81,13 @@ pub fn find(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
     if (fc.FcPatternGetString(font, fc.FC_FILE, 0, &file) != fc.FcResultMatch)
         return error.FontPathNotFound;
 
-    return allocator.dupe(u8, std.mem.sliceTo(file, 0));
+    var index: c_int = 0;
+    _ = fc.FcPatternGetInteger(font, fc.FC_INDEX, 0, &index);
+
+    return .{
+        .path = try allocator.dupe(u8, std.mem.sliceTo(file, 0)),
+        .face_index = index,
+    };
 }
 
 /// Map CSS-style weight (100..900) to fontconfig's weight scale
@@ -169,7 +181,7 @@ pub fn findVariant(
     family: []const u8,
     css_weight: u16,
     italic: bool,
-) ![]u8 {
+) !FontMatch {
     const fc_weight = cssToFcWeight(css_weight);
     const slant: u16 = if (italic) 100 else 0; // ITALIC=100, ROMAN=0
     const query = try std.fmt.allocPrint(
