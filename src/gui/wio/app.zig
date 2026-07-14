@@ -737,7 +737,10 @@ fn reloadFont() void {
         .weight = font_weight,
         .bold_offset = font_weight_bold_offset,
         .line_height_pct = font_line_height,
-    }) catch return;
+    }) catch |e| {
+        log.err("failed to load font '{s}' ({s}): {}", .{ name, @tagName(font_backend), e });
+        return;
+    };
     wio_font_set = set;
 }
 
