@@ -10,8 +10,8 @@ h: usize = 1,
 w: usize = 1,
 
 // extra pixels available, always less than cell size
-extra_x: u8 = 0,
-extra_y: u8 = 0,
+extra_x: u16 = 0,
+extra_y: u16 = 0,
 
 // Pixel render extent. When unset, it is derived from cell grid plus
 // extra_x/extra_y

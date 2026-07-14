@@ -114,8 +114,8 @@ pub fn handle_resize(self: *Self, box_in: Widget.Box) void {
     const ch = self.plane.cell_y();
     const w_cells: u16 = @intCast(box.w);
     const h_cells: u16 = @intCast(box.h);
-    const layer_w_pix: u16 = @as(u16, w_cells) * cw + @as(u16, box.extra_x);
-    const layer_h_pix: u16 = @as(u16, h_cells) * ch + @as(u16, box.extra_y);
+    const layer_w_pix: u16 = @as(u16, w_cells) * cw + box.extra_x;
+    const layer_h_pix: u16 = @as(u16, h_cells) * ch + box.extra_y;
     self.layer.resize(w_cells, h_cells, layer_w_pix, layer_h_pix) catch return;
 
     const shift_x: i32 = switch (self.placement) {

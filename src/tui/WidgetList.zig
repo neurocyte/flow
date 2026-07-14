@@ -403,28 +403,28 @@ fn get_loc_b(self: *Self, pos: *Widget.Box) *usize {
     };
 }
 
-fn get_extra_a_const(self: *const Self, pos: *const Widget.Box) u8 {
+fn get_extra_a_const(self: *const Self, pos: *const Widget.Box) u16 {
     return switch (self.direction) {
         .vertical => pos.extra_y,
         .horizontal => pos.extra_x,
     };
 }
 
-fn get_extra_a(self: *Self, pos: *Widget.Box) *u8 {
+fn get_extra_a(self: *Self, pos: *Widget.Box) *u16 {
     return switch (self.direction) {
         .vertical => &pos.extra_y,
         .horizontal => &pos.extra_x,
     };
 }
 
-fn get_extra_b_const(self: *const Self, pos: *const Widget.Box) u8 {
+fn get_extra_b_const(self: *const Self, pos: *const Widget.Box) u16 {
     return switch (self.direction) {
         .vertical => pos.extra_x,
         .horizontal => pos.extra_y,
     };
 }
 
-fn get_extra_b(self: *Self, pos: *Widget.Box) *u8 {
+fn get_extra_b(self: *Self, pos: *Widget.Box) *u16 {
     return switch (self.direction) {
         .vertical => &pos.extra_x,
         .horizontal => &pos.extra_y,
@@ -511,8 +511,8 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     var first = true;
 
     // distribute extra pixels among children
-    const extras_a: u8 = self.get_extra_a_const(&self.deco_box);
-    const extras_b: u8 = self.get_extra_b_const(&self.deco_box);
+    const extras_a: u16 = self.get_extra_a_const(&self.deco_box);
+    const extras_b: u16 = self.get_extra_b_const(&self.deco_box);
     const last_idx: usize = if (widget_count == 0) 0 else widget_count - 1;
 
     const self_frame = self.client_frame(&client_box, padding);
