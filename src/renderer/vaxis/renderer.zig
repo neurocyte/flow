@@ -260,7 +260,8 @@ fn blend_color(base: vaxis.Cell.Color, over: vaxis.Cell.Color, alpha: u8) vaxis.
     } };
 }
 
-pub fn render(self: *Self) !?i64 {
+pub fn render(self: *Self, focused: bool) !?i64 {
+    _ = focused;
     if (crash.crash_in_progress()) return null;
     const order = build_draw_order(self.allocator, self.targets.items);
     defer self.allocator.free(order);

@@ -36,18 +36,19 @@ pub const CursorInfo = struct {
     color: RGBA = .init(255, 255, 255, 255),
 };
 
-fn packCursor(c: CursorInfo) u32 {
-    const shape: u32 = @as(u32, @intCast(@intFromEnum(c.shape))) + 1;
+fn packCursor(c: CursorInfo, focused: bool) u32 {
+    const shape_ = if (!focused) .unfocused else c.shape;
+    const shape: u32 = @as(u32, @intCast(@intFromEnum(shape_))) + 1;
     return shape |
         (@as(u32, c.color.r) << 8) |
         (@as(u32, c.color.g) << 16) |
         (@as(u32, c.color.b) << 24);
 }
 
-fn markCursors(shader_cells: []ShaderCell, cursors: []const CursorInfo, cols: u16, rows: u16) void {
+fn markCursors(shader_cells: []ShaderCell, cursors: []const CursorInfo, cols: u16, rows: u16, focused: bool) void {
     for (cursors) |cur| {
         if (!cur.vis or cur.row >= rows or cur.col >= cols) continue;
-        const packed_cursor = packCursor(cur);
+        const packed_cursor = packCursor(cur, focused);
         const row_off = @as(usize, cur.row) * cols;
         const width = if (cur.shape == .beam) 1 else cur.width;
         var c: u16 = 0;
@@ -669,6 +670,7 @@ pub fn paintLayerOffscreen(
     pixel_size: XY(u16),
     cursors: []const CursorInfo,
     bg_alpha: u8,
+    focused: bool,
 ) void {
     if (cols == 0 or rows == 0) return;
     if (pixel_size.x == 0 or pixel_size.y == 0) return;
@@ -696,7 +698,7 @@ pub fn paintLayerOffscreen(
         };
     }
 
-    markCursors(shader_cells, cursors, cols, rows);
+    markCursors(shader_cells, cursors, cols, rows, focused);
 
     if (window_state.glyph_atlas_dirty) flushGlyphAtlas(window_state);
 

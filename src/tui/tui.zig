@@ -722,7 +722,7 @@ fn render(self: *Self) void {
     const render_deadline: ?i64 = ret: {
         const frame = tracy.initZone(@src(), .{ .name = renderer.log_name ++ " render" });
         defer frame.deinit();
-        const dl = self.rdr_.render() catch |e| blk: {
+        const dl = self.rdr_.render(self.terminal_focus) catch |e| blk: {
             self.logger.err("render", e);
             break :blk @as(?i64, null);
         };

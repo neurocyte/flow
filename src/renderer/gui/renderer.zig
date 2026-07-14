@@ -110,6 +110,7 @@ const RenderActor = struct {
     parent: tp.pid,
     receiver: tp.Receiver(*@This()),
     initialized: bool = false,
+    focused: bool = true,
     keepalive_timer: ?tp.Cancellable = null,
 
     const StartArgs = struct {
@@ -132,21 +133,35 @@ const RenderActor = struct {
 
     fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
+
         if (try m.match(.{ "tick", tp.more })) {
-            if (self.initialized) app.renderActorTick();
+            if (self.initialized) app.renderActorTick(self.focused);
             return;
         }
+
+        if (try m.match(.{"focus_in"})) {
+            self.focused = true;
+            return;
+        }
+
+        if (try m.match(.{"focus_out"})) {
+            self.focused = false;
+            return;
+        }
+
         var w: u32 = 0;
         var h: u32 = 0;
         if (try m.match(.{ "window_ready", tp.extract(&w), tp.extract(&h) })) {
-            app.renderActorWindowReady(w, h);
+            app.renderActorWindowReady(w, h, self.focused);
             self.initialized = true;
             return;
         }
+
         if (try m.match(.{ "resize", tp.extract(&w), tp.extract(&h) })) {
             app.renderActorResize(w, h);
             return;
         }
+
         var refresh_mhz: u32 = 0;
         if (try m.match(.{ "refresh_rate", tp.extract(&refresh_mhz) })) {
             if (refresh_mhz == 0) return;
@@ -155,11 +170,13 @@ const RenderActor = struct {
             std.log.info("frame rate (Hz): {}", .{hz});
             return;
         }
+
         if (try m.match(.{"shutdown"})) {
             app.renderActorShutdown();
             self.initialized = false;
             return tp.exit_normal();
         }
+
         return tp.unexpected(m);
     }
 
@@ -274,7 +291,7 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
     return self.event_buffer.written();
 }
 
-pub fn render(self: *Self) error{}!?i64 {
+pub fn render(self: *Self, focused: bool) error{}!?i64 {
     if (!self.window_ready) {
         self.reset_all_cursors();
         self.targets.clearRetainingCapacity();
@@ -343,7 +360,7 @@ pub fn render(self: *Self) error{}!?i64 {
             hasher.update(std.mem.asBytes(&s.cursor.col));
         }
         if (s.cursor_vis or s.cursor_secondary.len > 0) {
-            if (isBlink(s.cursor_shape)) any_blink = true;
+            if (isBlink(s.cursor_shape, focused)) any_blink = true;
             hasher.update(std.mem.asBytes(&s.cursor_shape));
         }
         for (s.cursor_secondary) |sc| {
@@ -383,7 +400,7 @@ pub fn render(self: *Self) error{}!?i64 {
         const s = lv.screen;
         const sec_start = self.secondary_cursors_buf.items.len;
         const shape = vaxisCursorShape(s.cursor_shape);
-        const blinks = isBlink(s.cursor_shape);
+        const blinks = isBlink(s.cursor_shape, focused);
         const vis = if (blinks) self.blink_on else true;
         if (s.cursor_vis) {
             lv.cursor = .{
@@ -724,7 +741,8 @@ fn themeColorToGpu(color: Color) RGBA {
     };
 }
 
-fn isBlink(shape: CursorShape) bool {
+fn isBlink(shape: CursorShape, focused: bool) bool {
+    if (!focused) return false;
     return switch (shape) {
         .default, .block_blink, .beam_blink, .underline_blink => true,
         .block, .beam, .underline, .unfocused => false,

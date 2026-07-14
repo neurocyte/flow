@@ -914,10 +914,12 @@ fn wioLoop() void {
                     _ = syncModifiers();
                     window.enableTextInput(.{});
                     tui_pid.send(.{"focus_in"}) catch {};
+                    if (render_pid) |*rp| rp.send(.{"focus_in"}) catch {};
                 },
                 .unfocused => {
                     window.disableTextInput();
                     tui_pid.send(.{"focus_out"}) catch {};
+                    if (render_pid) |*rp| rp.send(.{"focus_out"}) catch {};
                 },
                 else => {
                     std.log.debug("wio unhandled event: {}", .{event});
@@ -1003,13 +1005,14 @@ const RenderCtx = struct {
     cell_height: u16,
     layers: std.AutoHashMapUnmanaged(Layer.Id, gpu.LayerGpuState) = .empty,
     frame_counter: u64 = 0,
+    focused: bool,
 };
 
 const layer_gc_grace_frames: u64 = 60;
 
 var render_ctx: ?RenderCtx = null;
 
-pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
+pub fn renderActorWindowReady(initial_w: u32, initial_h: u32, focused: bool) void {
     const allocator = root.get_init().gpa;
     const window = gui_window orelse {
         log.err("renderActorWindowReady: gui_window is null", .{});
@@ -1072,6 +1075,7 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
         .target_size = initial_size,
         .cell_width = 80,
         .cell_height = 24,
+        .focused = focused,
     };
 
     reloadFont();
@@ -1088,7 +1092,7 @@ pub fn renderActorResize(w: u32, h: u32) void {
     }
 }
 
-pub fn renderActorTick() void {
+pub fn renderActorTick(focused: bool) void {
     const ctx = if (render_ctx) |*c| c else return;
     const allocator = root.get_init().gpa;
     const io = root.get_io();
@@ -1134,8 +1138,9 @@ pub fn renderActorTick() void {
         applyDarkTitlebar(ctx.hwnd, dark_mode.load(.acquire));
     }
 
-    // Only paint when there's a new screen snapshot.
-    if (!screen_pending.swap(false, .acq_rel)) return;
+    // Only paint when there's a new screen snapshot or we have changed focus.
+    if (!(screen_pending.swap(false, .acq_rel) or ctx.focused != focused)) return;
+    ctx.focused = focused;
 
     screen_mutex.lockUncancelable(io);
     const snap_opt = screen_snap;
@@ -1256,6 +1261,7 @@ pub fn renderActorTick() void {
             pixel_size,
             ls.cursors,
             layer_bg_alpha,
+            focused,
         );
     }
 
