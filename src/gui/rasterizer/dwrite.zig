@@ -87,6 +87,30 @@ fn designGlyphAdvancePx(face: *win32.IDWriteFontFace, codepoint: u32, ppu: f64) 
     return if (adv > 0) adv else null;
 }
 
+fn faceKeyHash(face: *win32.IDWriteFontFace) ?u64 {
+    var count: u32 = 0;
+    if (face.GetFiles(&count, null) < 0 or count == 0 or count > 4) return null;
+
+    var files: [4]?*win32.IDWriteFontFile = .{ null, null, null, null };
+    if (face.GetFiles(&count, @ptrCast(&files)) < 0) return null;
+
+    var hasher = std.hash.Wyhash.init(0);
+    const face_index = face.GetIndex();
+    hasher.update(std.mem.asBytes(&face_index));
+
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        const file = files[i] orelse continue;
+        defer _ = file.IUnknown.Release();
+        var key_ptr: ?*anyopaque = null;
+        var key_size: u32 = 0;
+        if (file.GetReferenceKey(&key_ptr, &key_size) >= 0) {
+            if (key_ptr) |p| hasher.update(@as([*]const u8, @ptrCast(p))[0..key_size]);
+        }
+    }
+    return hasher.final();
+}
+
 pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
     return .{
         .cell_width = font.cell_size.x,
@@ -759,6 +783,7 @@ const FallbackResolver = struct {
         face: *win32.IDWriteFontFace,
         ascent_px: i32,
         size_px: u16,
+        key_hash: ?u64 = null,
     };
 
     const CacheEntry = struct { found: bool, index: u8 };
@@ -896,6 +921,19 @@ const FallbackResolver = struct {
         if (mapped.CreateFontFace(&face) < 0)
             return self.resolveEmbedded(allocator, codepoint, size_px, primary);
 
+        // Many codepoints resolve to the same fallback font.
+        const key_hash = faceKeyHash(face);
+        if (key_hash) |kh| {
+            for (self.faces.items, 0..) |existing, i| {
+                if (existing.key_hash) |eh| if (eh == kh) {
+                    _ = face.IUnknown.Release();
+                    const idx: u8 = @intCast(i);
+                    self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
+                    return &self.faces.items[idx];
+                };
+            }
+        }
+
         // Size-adjust the fallback to match the primary face
         const size_scale = face_metrics.faceScaleFactor(primary, dwriteFaceMetrics(face, size_px));
         const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * size_scale)));
@@ -920,6 +958,7 @@ const FallbackResolver = struct {
             .face = face,
             .ascent_px = face_ascent,
             .size_px = adj,
+            .key_hash = key_hash,
         }) catch {
             _ = face.IUnknown.Release();
             self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
