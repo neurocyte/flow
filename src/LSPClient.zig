@@ -998,6 +998,7 @@ fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (error
                 sel.start.character,
                 sel.end.line,
                 sel.end.character,
+                "byte",
             },
         } }) catch |e| {
             std.log.err("send navigate failed: {t}", .{e});
@@ -1009,6 +1010,7 @@ fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (error
             .goto = .{
                 location.targetRange.?.start.line + 1,
                 location.targetRange.?.start.character + 1,
+                "byte",
             },
         } }) catch |e| {
             std.log.err("send navigate failed: {t}", .{e});
