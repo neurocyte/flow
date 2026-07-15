@@ -57,8 +57,13 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                 state = state_stack.pop() orelse return error.InvalidState;
             },
             .tabstop => switch (c) {
-                '{' => {
+                // a brace only opens a placeholder directly after the '$'
+                '{' => if (id == null) {
                     state = .placeholder;
+                } else {
+                    try register_tabstop(allocator, &tabstops, &max_id, &id, .{ .begin = .{text.written().len} });
+                    state = state_stack.pop() orelse return error.InvalidState;
+                    continue :fsm .initial;
                 },
                 '0'...'9' => {
                     const digit: usize = @intCast(c - '0');

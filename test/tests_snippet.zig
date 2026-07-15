@@ -80,6 +80,16 @@ test "repeated tabstop id is grouped" {
     try expect(parsed.tabstops[0][1].end == null);
 }
 
+test "bare tabstop followed by a brace literal" {
+    const parsed = try Snippet.parse(allocator, "$1{}");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("{}", parsed.text);
+    try expectEqual(1, parsed.tabstops.len);
+    try expectEqual(1, parsed.tabstops[0].len);
+    try expectEqual(0, parsed.tabstops[0][0].begin[0]);
+    try expect(parsed.tabstops[0][0].end == null);
+}
+
 test "escaped dollar is literal" {
     const parsed = try Snippet.parse(allocator, "\\$1");
     defer parsed.deinit(allocator);
