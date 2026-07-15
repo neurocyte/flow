@@ -552,24 +552,32 @@ pub const TabBar = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const mv = tui.mainview() orelse return;
 
-        var tabs: std.ArrayList(TabBarTab) = .fromOwnedSlice(self.tabs);
-        defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to");
+        // self.tabs must be restored before anything that can re-enter this widget
+        const old_view, const new_view, const src_buffer_ref = blk: {
+            var tabs: std.ArrayList(TabBarTab) = .fromOwnedSlice(self.tabs);
+            defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to");
 
-        const old_view = tabs.items[src_idx].view;
-        const new_view = tabs.items[dst_idx].view;
+            const old_view = tabs.items[src_idx].view;
+            const new_view = tabs.items[dst_idx].view;
 
-        var src_tab = tabs.orderedRemove(src_idx);
-        src_tab.view = new_view;
-        const buffer = buffer_manager.buffer_from_ref(src_tab.buffer_ref);
+            var src_tab = tabs.orderedRemove(src_idx);
+            src_tab.view = new_view;
+
+            if (new_view == old_view) {
+                tabs.insert(self.allocator, dst_idx, src_tab) catch @panic("OOM move_tab_to");
+            } else {
+                if (new_view orelse 0 < old_view orelse 0)
+                    tabs.append(self.allocator, src_tab) catch @panic("OOM move_tab_to")
+                else
+                    tabs.insert(self.allocator, 0, src_tab) catch @panic("OOM move_tab_to");
+            }
+            break :blk .{ old_view, new_view, src_tab.buffer_ref };
+        };
+
+        const buffer = buffer_manager.buffer_from_ref(src_buffer_ref);
         const active = if (buffer) |buf| if (mv.get_editor_for_buffer(buf)) |_| true else false else false;
 
-        if (new_view == old_view) {
-            tabs.insert(self.allocator, dst_idx, src_tab) catch @panic("OOM move_tab_to");
-        } else {
-            if (new_view orelse 0 < old_view orelse 0)
-                tabs.append(self.allocator, src_tab) catch @panic("OOM move_tab_to")
-            else
-                tabs.insert(self.allocator, 0, src_tab) catch @panic("OOM move_tab_to");
+        if (new_view != old_view) {
             if (buffer) |buf| {
                 buf.set_last_view(new_view);
                 if (mv.get_editor_for_buffer(buf)) |editor|
@@ -580,23 +588,25 @@ pub const TabBar = struct {
         const drag_source, _ = tui.get_drag_source();
         self.update_tab_widgets(drag_source) catch {};
         if (active)
-            navigate_to_buffer(src_tab.buffer_ref);
+            navigate_to_buffer(src_buffer_ref);
     }
 
     fn move_tab_to_view(self: *Self, new_view: usize, src_idx: usize) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const mv = tui.mainview() orelse return;
 
-        var tabs: std.ArrayList(TabBarTab) = .fromOwnedSlice(self.tabs);
-        defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to_view");
+        // self.tabs must be restored before anything that can re-enter this widget
+        const old_view, const src_buffer_ref = blk: {
+            var tabs: std.ArrayList(TabBarTab) = .fromOwnedSlice(self.tabs);
+            defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to_view");
 
-        const old_view = tabs.items[src_idx].view;
+            const old_view = tabs.items[src_idx].view;
+            tabs.items[src_idx].view = new_view;
 
-        var src_tab = &tabs.items[src_idx];
-        const src_buffer_ref = src_tab.buffer_ref;
-        src_tab.view = new_view;
-
-        tabs.append(self.allocator, tabs.orderedRemove(src_idx)) catch @panic("OOM move_tab_to_view");
+            const src_tab = tabs.orderedRemove(src_idx);
+            tabs.append(self.allocator, src_tab) catch @panic("OOM move_tab_to_view");
+            break :blk .{ old_view, src_tab.buffer_ref };
+        };
 
         const buffer = buffer_manager.buffer_from_ref(src_buffer_ref);
         const active = if (buffer) |buf| if (mv.get_editor_for_buffer(buf)) |_| true else false else false;
@@ -612,7 +622,7 @@ pub const TabBar = struct {
         const drag_source, _ = tui.get_drag_source();
         self.update_tab_widgets(drag_source) catch {};
         if (active and new_view != old_view)
-            navigate_to_buffer(src_tab.buffer_ref);
+            navigate_to_buffer(src_buffer_ref);
     }
 
     fn move_tab_to_new_split(self: *Self, src_idx: usize, src_view: usize) void {
