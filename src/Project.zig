@@ -456,7 +456,6 @@ pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) RequestEr
 
 fn simple_query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
     var i: usize = 0;
-    defer from.send(.{ "PRJ", "new_or_modified_files_done", self.longest_file_path, query }) catch {};
     for (self.new_or_modified_files.items) |file| {
         if (file.path.len < query.len) continue;
         if (std.mem.indexOf(u8, file.path, query)) |idx| {
@@ -487,9 +486,9 @@ fn strip_non_search_chars(self: *const Self, s: []const u8) error{OutOfMemory}![
 pub fn query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, query_: []const u8) RequestError!usize {
     const query = try self.strip_non_search_chars(query_);
     defer self.allocator.free(query);
+    defer from.send(.{ "PRJ", "new_or_modified_files_done", self.longest_new_or_modified_file_path, query_ }) catch {};
     if (query.len < 3)
         return self.simple_query_new_or_modified_files(from, max, query);
-    defer from.send(.{ "PRJ", "new_or_modified_files_done", self.longest_file_path, query }) catch {};
 
     var searcher = try fuzzig.Ascii.init(
         self.allocator,
