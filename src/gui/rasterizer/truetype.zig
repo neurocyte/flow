@@ -274,8 +274,16 @@ pub const FaceResolution = struct {
     is_real_match: bool,
 };
 
+const CachedData = struct {
+    path: []u8,
+    face_index: i32,
+    data: []u8,
+    generation: u64,
+};
+
 allocator: std.mem.Allocator,
-font_data: std.ArrayListUnmanaged([]u8),
+font_data: std.ArrayListUnmanaged(CachedData),
+generation: u64 = 0,
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,
 fallback: ?*FallbackResolver = null,
@@ -296,20 +304,36 @@ pub fn deinit(self: *Self) void {
     self.fallback = null;
     if (self.regular_path) |p| self.allocator.free(p);
     self.regular_path = null;
-    for (self.font_data.items) |data| {
-        self.allocator.free(data);
+    for (self.font_data.items) |entry| {
+        self.allocator.free(entry.path);
+        self.allocator.free(entry.data);
     }
     self.font_data.deinit(self.allocator);
     self.glyph_scratch.deinit(self.allocator);
 }
 
-pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
-    const match = try font_finder.findFont(self.allocator, name);
-    defer self.allocator.free(match.path);
-    return self.loadFontFromPath(match.path, match.face_index, size_px);
+pub fn releaseUnusedFaces(self: *Self) void {
+    var i: usize = 0;
+    while (i < self.font_data.items.len) {
+        const entry = self.font_data.items[i];
+        if (entry.generation == self.generation) {
+            i += 1;
+            continue;
+        }
+        self.allocator.free(entry.path);
+        self.allocator.free(entry.data);
+        _ = self.font_data.swapRemove(i);
+    }
 }
 
-pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
+fn fontData(self: *Self, path: []const u8, face_index: i32) ![]u8 {
+    for (self.font_data.items) |*entry| {
+        if (entry.face_index == face_index and std.mem.eql(u8, entry.path, path)) {
+            entry.generation = self.generation;
+            return entry.data;
+        }
+    }
+
     const io = root.get_io();
     const f = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer f.close(io);
@@ -321,6 +345,26 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
     const data = loadFontData(self.allocator, raw, face_index) orelse return error.BadFont;
     errdefer self.allocator.free(data);
 
+    const path_copy = try self.allocator.dupe(u8, path);
+    errdefer self.allocator.free(path_copy);
+
+    try self.font_data.append(self.allocator, .{
+        .path = path_copy,
+        .face_index = face_index,
+        .data = data,
+        .generation = self.generation,
+    });
+    return data;
+}
+
+pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
+    const match = try font_finder.findFont(self.allocator, name);
+    defer self.allocator.free(match.path);
+    return self.loadFontFromPath(match.path, match.face_index, size_px);
+}
+
+pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
+    const data = try self.fontData(path, face_index);
     const tt = try TrueType.load(data);
 
     const head_offset = tt.table_offsets[@intFromEnum(TrueType.TableId.head)];
@@ -361,8 +405,6 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
         .cap_height = cap_height_px,
     });
 
-    try self.font_data.append(self.allocator, data);
-
     // Underline metrics: the TrueType package doesn't expose post/OS-2
     // tables, so use a heuristic derived from cell geometry. Roughly
     // matches what most fonts specify: thickness ≈ size / 14, position
@@ -395,6 +437,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
 /// Resolve a face for a given family + weight + style
 pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
     if (req.is_baseline) {
+        self.generation += 1;
         if (self.regular_path) |old| self.allocator.free(old);
         self.regular_path = null;
     }

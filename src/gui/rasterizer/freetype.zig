@@ -85,9 +85,19 @@ pub const FaceResolution = struct {
     is_real_match: bool,
 };
 
+const CachedFace = struct {
+    path: []u8,
+    face_index: i32,
+    face: c.FT_Face,
+    size_px: u16,
+    generation: u64,
+};
+
 library: c.FT_Library,
 allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
+faces: std.ArrayListUnmanaged(CachedFace) = .empty,
+generation: u64 = 0,
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,
 allow_color_glyphs: bool = true,
@@ -107,16 +117,39 @@ pub fn deinit(self: *Self) void {
     self.fallback = null;
     if (self.regular_path) |p| self.allocator.free(p);
     self.regular_path = null;
+    for (self.faces.items) |entry| {
+        _ = c.FT_Done_Face(entry.face);
+        self.allocator.free(entry.path);
+    }
+    self.faces.deinit(self.allocator);
     _ = c.FT_Done_FreeType(self.library);
 }
 
-pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
-    const match = try font_finder.findFont(self.allocator, name);
-    defer self.allocator.free(match.path);
-    return self.loadFontFromPath(match.path, match.face_index, size_px);
+pub fn releaseUnusedFaces(self: *Self) void {
+    var i: usize = 0;
+    while (i < self.faces.items.len) {
+        const entry = self.faces.items[i];
+        if (entry.generation == self.generation) {
+            i += 1;
+            continue;
+        }
+        _ = c.FT_Done_Face(entry.face);
+        self.allocator.free(entry.path);
+        _ = self.faces.swapRemove(i);
+    }
 }
 
-pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
+fn cachedFace(self: *Self, path: []const u8, face_index: i32, size_px: u16) !c.FT_Face {
+    for (self.faces.items) |*entry| {
+        if (entry.face_index != face_index or !std.mem.eql(u8, entry.path, path)) continue;
+        entry.generation = self.generation;
+        if (entry.size_px != size_px) {
+            if (!setFacePixelSize(entry.face, size_px)) return error.SetSizeFailed;
+            entry.size_px = size_px;
+        }
+        return entry.face;
+    }
+
     const path_z = try self.allocator.dupeZ(u8, path);
     defer self.allocator.free(path_z);
 
@@ -127,6 +160,28 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
 
     if (!setFacePixelSize(face, size_px))
         return error.SetSizeFailed;
+
+    const path_copy = try self.allocator.dupe(u8, path);
+    errdefer self.allocator.free(path_copy);
+
+    try self.faces.append(self.allocator, .{
+        .path = path_copy,
+        .face_index = face_index,
+        .face = face,
+        .size_px = size_px,
+        .generation = self.generation,
+    });
+    return face;
+}
+
+pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
+    const match = try font_finder.findFont(self.allocator, name);
+    defer self.allocator.free(match.path);
+    return self.loadFontFromPath(match.path, match.face_index, size_px);
+}
+
+pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
+    const face = try self.cachedFace(path, face_index, size_px);
 
     const sm = face.*.size.*.metrics;
     const m_ascent: f64 = @as(f64, @floatFromInt(sm.ascender)) / 64.0;
@@ -204,6 +259,7 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
 /// Resolve a face for a given family + weight + style
 pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
     if (req.is_baseline) {
+        self.generation += 1;
         if (self.regular_path) |old| self.allocator.free(old);
         self.regular_path = null;
     }

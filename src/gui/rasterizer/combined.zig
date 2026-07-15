@@ -359,6 +359,12 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
         for (&set.faces) |*f| applyLineHeightToFace(f, top_pad, target_h);
     }
 
+    if (!is_windows) {
+        self.tt.releaseUnusedFaces();
+        self.ft.releaseUnusedFaces();
+        // dwrite faces are refcounted
+    }
+
     return set;
 }
 
