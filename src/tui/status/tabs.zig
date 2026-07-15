@@ -401,11 +401,15 @@ pub const TabBar = struct {
         errdefer result.deinit(self.allocator);
 
         // add existing tabs in original order if they still exist
+        // existing_tab is left untouched so that the change check below still
+        // sees the view a tab had before this refresh
         outer: for (existing_tabs) |*existing_tab|
             for (buffers) |buffer| if (existing_tab.buffer_ref == buffer.to_ref()) {
-                existing_tab.view = buffer.get_last_view();
-                if (!buffer.hidden)
-                    (try result.addOne(self.allocator)).* = existing_tab.*;
+                if (!buffer.hidden) {
+                    const tab = try result.addOne(self.allocator);
+                    tab.* = existing_tab.*;
+                    tab.view = buffer.get_last_view();
+                }
                 continue :outer;
             };
 
