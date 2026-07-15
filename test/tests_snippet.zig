@@ -114,6 +114,11 @@ test "tabstop without id is invalid" {
     try expectError(error.InvalidIdValue, Snippet.parse(allocator, "$x"));
 }
 
+test "tabstop id that overflows is invalid" {
+    try expectError(error.InvalidIdValue, Snippet.parse(allocator, "${99999999999999999999}"));
+    try expectError(error.InvalidIdValue, Snippet.parse(allocator, "$99999999999999999999"));
+}
+
 test "unterminated placeholder is invalid" {
     try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "${1:foo"));
 }

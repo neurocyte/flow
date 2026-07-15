@@ -65,9 +65,9 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     state = state_stack.pop() orelse return error.InvalidState;
                     continue :fsm .initial;
                 },
-                '0'...'9' => {
-                    const digit: usize = @intCast(c - '0');
-                    id = if (id) |id_| (id_ * 10) + digit else digit;
+                '0'...'9' => append_id_digit(&id, c) catch {
+                    const pos = snippet.len - iter.len;
+                    return invalid(snippet, pos, error.InvalidIdValue);
                 },
                 else => {
                     const pos = snippet.len - iter.len;
@@ -79,9 +79,9 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                 },
             },
             .placeholder => switch (c) {
-                '0'...'9' => {
-                    const digit: usize = @intCast(c - '0');
-                    id = if (id) |id_| (id_ * 10) + digit else digit;
+                '0'...'9' => append_id_digit(&id, c) catch {
+                    const pos = snippet.len - iter.len;
+                    return invalid(snippet, pos, error.InvalidIdValue);
                 },
                 '}' => {
                     const pos = snippet.len - iter.len;
@@ -151,6 +151,14 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
         .text = owned_text,
         .tabstops = try result.toOwnedSlice(allocator),
     };
+}
+
+fn append_id_digit(id: *?usize, c: u8) error{Overflow}!void {
+    const digit: usize = @intCast(c - '0');
+    id.* = if (id.*) |id_|
+        try std.math.add(usize, try std.math.mul(usize, id_, 10), digit)
+    else
+        digit;
 }
 
 fn register_tabstop(
