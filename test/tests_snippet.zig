@@ -68,6 +68,20 @@ test "tabstop zero is ordered last" {
     try expectEqual(1, parsed.tabstops[1][0].begin[0]); // ${0}
 }
 
+test "sparse tabstop ids keep ascending order" {
+    const parsed = try Snippet.parse(allocator, "a${7}b${0}c${3}d${7}e");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("abcde", parsed.text);
+    try expectEqual(3, parsed.tabstops.len);
+    try expectEqual(1, parsed.tabstops[0].len); // ${3}
+    try expectEqual(3, parsed.tabstops[0][0].begin[0]);
+    try expectEqual(2, parsed.tabstops[1].len); // ${7}, both occurrences in order
+    try expectEqual(1, parsed.tabstops[1][0].begin[0]);
+    try expectEqual(4, parsed.tabstops[1][1].begin[0]);
+    try expectEqual(1, parsed.tabstops[2].len); // ${0} last
+    try expectEqual(2, parsed.tabstops[2][0].begin[0]);
+}
+
 test "repeated tabstop id is grouped" {
     const parsed = try Snippet.parse(allocator, "${1:a} $1");
     defer parsed.deinit(allocator);

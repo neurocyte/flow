@@ -22,7 +22,6 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
     var id: ?usize = null;
     var content_begin: std.ArrayList(Position) = .empty;
     defer content_begin.deinit(allocator);
-    var max_id: usize = 0;
     var text: std.Io.Writer.Allocating = .init(allocator);
     defer text.deinit();
 
@@ -61,7 +60,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                 '{' => if (id == null) {
                     state = .placeholder;
                 } else {
-                    try register_tabstop(allocator, &tabstops, &max_id, &id, .{ .begin = .{text.written().len} });
+                    try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
                     state = state_stack.pop() orelse return error.InvalidState;
                     continue :fsm .initial;
                 },
@@ -73,7 +72,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     const pos = snippet.len - iter.len;
                     if (id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    try register_tabstop(allocator, &tabstops, &max_id, &id, .{ .begin = .{text.written().len} });
+                    try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
                     state = state_stack.pop() orelse return error.InvalidState;
                     continue :fsm .initial;
                 },
@@ -87,7 +86,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     const pos = snippet.len - iter.len;
                     if (id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    try register_tabstop(allocator, &tabstops, &max_id, &id, .{ .begin = .{text.written().len} });
+                    try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
                     state = state_stack.pop() orelse return error.InvalidState;
                 },
                 ':' => {
@@ -114,7 +113,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     if (content_begin.items.len == 0)
                         return invalid(snippet, pos, error.InvalidPlaceholderValue);
                     const begin_pos = content_begin.pop() orelse return invalid(snippet, pos, error.InvalidPlaceholderValue);
-                    try register_tabstop(allocator, &tabstops, &max_id, &id, .{
+                    try register_tabstop(allocator, &tabstops, &id, .{
                         .begin = begin_pos,
                         .end = .{text.written().len},
                     });
@@ -129,22 +128,26 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
         const pos = snippet.len - iter.len;
         if (state != .tabstop or id == null)
             return invalid(snippet, pos, error.UnexpectedEndOfDocument);
-        try register_tabstop(allocator, &tabstops, &max_id, &id, .{ .begin = .{text.written().len} });
+        try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
     }
+
+    var ids: std.ArrayList(usize) = .empty;
+    defer ids.deinit(allocator);
+    for (tabstops.items) |item| {
+        for (ids.items) |seen| {
+            if (seen == item.id) break;
+        } else (try ids.addOne(allocator)).* = item.id;
+    }
+    std.mem.sort(usize, ids.items, {}, id_before);
 
     var result: std.ArrayList([]Range) = .empty;
     defer result.deinit(allocator);
     errdefer for (result.items) |ranges| allocator.free(ranges);
-    var n: usize = 1;
-    while (n <= max_id) : (n += 1)
-        if (try collect_ranges(allocator, tabstops.items, n)) |ranges| {
+    for (ids.items) |tabstop_id|
+        if (try collect_ranges(allocator, tabstops.items, tabstop_id)) |ranges| {
             errdefer allocator.free(ranges);
             (try result.addOne(allocator)).* = ranges;
         };
-    if (try collect_ranges(allocator, tabstops.items, 0)) |ranges| {
-        errdefer allocator.free(ranges);
-        (try result.addOne(allocator)).* = ranges;
-    }
     const owned_text = try text.toOwnedSlice();
     errdefer allocator.free(owned_text);
     return .{
@@ -164,7 +167,6 @@ fn append_id_digit(id: *?usize, c: u8) error{Overflow}!void {
 fn register_tabstop(
     allocator: std.mem.Allocator,
     tabstops: *std.ArrayList(Tabstop),
-    max_id: *usize,
     id: *?usize,
     range: Range,
 ) error{OutOfMemory}!void {
@@ -172,8 +174,14 @@ fn register_tabstop(
         .id = id.* orelse unreachable,
         .range = range,
     };
-    max_id.* = @max(id.* orelse unreachable, max_id.*);
     id.* = null;
+}
+
+// tabstop 0 is the final cursor position and always comes last
+fn id_before(_: void, lhs: usize, rhs: usize) bool {
+    if (lhs == 0) return false;
+    if (rhs == 0) return true;
+    return lhs < rhs;
 }
 
 fn collect_ranges(allocator: std.mem.Allocator, tabstops: []const Tabstop, id: usize) error{OutOfMemory}!?[]Range {
