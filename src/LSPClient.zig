@@ -1020,7 +1020,7 @@ fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (error
 pub fn navigate_to_alternate_destination(from: tp.pid_ref, dest: *const file_link.FileDest) error{}!void {
     from.send(.{ "cmd", "navigate", .{
         .file = dest.path,
-        .goto = .{ dest.line orelse 1, dest.column orelse 1 },
+        .goto = .{ dest.line orelse 1, dest.column orelse 1, "byte" },
     } }) catch |e| {
         std.log.err("send navigate failed: {t}", .{e});
         return;

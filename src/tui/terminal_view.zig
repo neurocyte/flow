@@ -681,7 +681,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
 fn navigate_to_file_link(dest: *const file_link.FileDest) void {
     tp.self_pid().send(.{ "cmd", "navigate", .{
         .file = dest.path,
-        .goto = .{ dest.line orelse 1, dest.column orelse 1 },
+        .goto = .{ dest.line orelse 1, dest.column orelse 1, "byte" },
     } }) catch |e| {
         std.log.err("send navigate failed: {t}", .{e});
         return;
