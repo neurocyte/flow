@@ -12,8 +12,13 @@ const Tabstop = struct {
 
 const Frame = struct {
     id: ?usize = null,
+    name_begin: ?usize = null,
     content_begin: ?Position = null,
+    discards: bool = false,
 };
+
+pub const Resolver = *const fn (allocator: std.mem.Allocator, name: []const u8) VariableError!?[]const u8;
+pub const VariableError = error{ OutOfMemory, WriteFailed };
 
 pub fn deinit(self: *const Snippet, allocator: std.mem.Allocator) void {
     for (self.tabstops) |tabstop| allocator.free(tabstop);
@@ -21,13 +26,16 @@ pub fn deinit(self: *const Snippet, allocator: std.mem.Allocator) void {
     allocator.free(self.text);
 }
 
-pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
+pub fn parse(allocator: std.mem.Allocator, snippet: []const u8, resolver: ?Resolver) Error!Snippet {
     var tabstops: std.ArrayList(Tabstop) = .empty;
     defer tabstops.deinit(allocator);
+    var unknown: std.ArrayList(Range) = .empty;
+    defer unknown.deinit(allocator);
     var frames: std.ArrayList(Frame) = .empty;
     defer frames.deinit(allocator);
     var text: std.Io.Writer.Allocating = .init(allocator);
     defer text.deinit();
+    var discard: usize = 0;
 
     var state: enum {
         initial,
@@ -35,6 +43,8 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
         tabstop,
         placeholder,
         content,
+        variable,
+        braced_variable,
     } = .initial;
 
     var state_stack: std.ArrayList(@TypeOf(state)) = .empty;
@@ -54,10 +64,10 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     (try frames.addOne(allocator)).* = .{};
                     state = .tabstop;
                 },
-                else => try text.writer.writeByte(c),
+                else => if (discard == 0) try text.writer.writeByte(c),
             },
             .escape => {
-                try text.writer.writeByte(c);
+                if (discard == 0) try text.writer.writeByte(c);
                 state = state_stack.pop() orelse return error.InvalidState;
             },
             .tabstop => switch (c) {
@@ -65,7 +75,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                 '{' => if ((try top(&frames)).id == null) {
                     state = .placeholder;
                 } else {
-                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
+                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} }, discard > 0);
                     state = state_stack.pop() orelse return error.InvalidState;
                     continue :fsm state;
                 },
@@ -76,11 +86,31 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                         return invalid(snippet, pos, error.InvalidIdValue);
                     };
                 },
+                'a'...'z', 'A'...'Z', '_' => {
+                    const frame = try top(&frames);
+                    // a name only starts directly after the '$', $1a is a tabstop followed by text
+                    if (frame.id != null) {
+                        try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} }, discard > 0);
+                        state = state_stack.pop() orelse return error.InvalidState;
+                        continue :fsm state;
+                    }
+                    frame.name_begin = snippet.len - iter.len;
+                    state = .variable;
+                },
                 else => {
                     const pos = snippet.len - iter.len;
                     if ((try top(&frames)).id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
+                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} }, discard > 0);
+                    state = state_stack.pop() orelse return error.InvalidState;
+                    continue :fsm state;
+                },
+            },
+            .variable => switch (c) {
+                'a'...'z', 'A'...'Z', '0'...'9', '_' => {},
+                else => {
+                    const pos = snippet.len - iter.len;
+                    try close_variable(allocator, &frames, &unknown, &text, snippet, pos, resolver, discard > 0);
                     state = state_stack.pop() orelse return error.InvalidState;
                     continue :fsm state;
                 },
@@ -93,11 +123,19 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                         return invalid(snippet, pos, error.InvalidIdValue);
                     };
                 },
+                'a'...'z', 'A'...'Z', '_' => {
+                    const pos = snippet.len - iter.len;
+                    const frame = try top(&frames);
+                    if (frame.id != null)
+                        return invalid(snippet, pos, error.InvalidIdValue);
+                    frame.name_begin = pos;
+                    state = .braced_variable;
+                },
                 '}' => {
                     const pos = snippet.len - iter.len;
                     if ((try top(&frames)).id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
+                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} }, discard > 0);
                     state = state_stack.pop() orelse return error.InvalidState;
                 },
                 ':' => {
@@ -105,6 +143,34 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     const frame = try top(&frames);
                     if (frame.id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
+                    frame.content_begin = .{text.written().len};
+                    state = .content;
+                },
+                else => {
+                    const pos = snippet.len - iter.len;
+                    return invalid(snippet, pos, error.InvalidIdValue);
+                },
+            },
+            .braced_variable => switch (c) {
+                'a'...'z', 'A'...'Z', '0'...'9', '_' => {},
+                '}' => {
+                    const pos = snippet.len - iter.len;
+                    try close_variable(allocator, &frames, &unknown, &text, snippet, pos, resolver, discard > 0);
+                    state = state_stack.pop() orelse return error.InvalidState;
+                },
+                ':' => {
+                    const pos = snippet.len - iter.len;
+                    const frame = try top(&frames);
+                    const name_begin = frame.name_begin orelse return error.InvalidState;
+                    // a variable that has a value skips its default entirely
+                    if (try resolve(allocator, resolver, snippet[name_begin..pos])) |value| {
+                        defer allocator.free(value);
+                        if (value.len > 0) {
+                            if (discard == 0) try text.writer.writeAll(value);
+                            frame.discards = true;
+                            discard += 1;
+                        }
+                    }
                     frame.content_begin = .{text.written().len};
                     state = .content;
                 },
@@ -126,27 +192,50 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                 '}' => {
                     const pos = snippet.len - iter.len;
                     const frame = try top(&frames);
-                    if (frame.id == null)
-                        return invalid(snippet, pos, error.InvalidIdValue);
                     const begin_pos = frame.content_begin orelse
                         return invalid(snippet, pos, error.InvalidPlaceholderValue);
-                    try close_tabstop(allocator, &tabstops, &frames, .{
-                        .begin = begin_pos,
-                        .end = .{text.written().len},
-                    });
+                    if (frame.id) |_| {
+                        try close_tabstop(allocator, &tabstops, &frames, .{
+                            .begin = begin_pos,
+                            .end = .{text.written().len},
+                        }, discard > 0);
+                    } else {
+                        // a variable default carries no tabstop of its own
+                        const closed = frames.pop() orelse return error.InvalidState;
+                        if (closed.discards) discard -= 1;
+                    }
                     state = state_stack.pop() orelse return error.InvalidState;
                 },
-                else => try text.writer.writeByte(c),
+                else => if (discard == 0) try text.writer.writeByte(c),
             },
         }
     }
 
     if (state != .initial) {
         const pos = snippet.len - iter.len;
-        // a trailing bare tabstop is complete, but only if nothing encloses it
-        if (state != .tabstop or frames.items.len != 1 or frames.items[0].id == null)
+        // a trailing bare tabstop or variable is complete, but only if nothing encloses it
+        if (frames.items.len != 1)
             return invalid(snippet, pos, error.UnexpectedEndOfDocument);
-        try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
+        switch (state) {
+            .tabstop => {
+                if (frames.items[0].id == null)
+                    return invalid(snippet, pos, error.UnexpectedEndOfDocument);
+                try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} }, discard > 0);
+            },
+            .variable => try close_variable(allocator, &frames, &unknown, &text, snippet, pos, resolver, discard > 0),
+            else => return invalid(snippet, pos, error.UnexpectedEndOfDocument),
+        }
+    }
+
+    // an unknown variable is a placeholder over its own name
+    if (unknown.items.len > 0) {
+        var next_id: usize = 0;
+        for (tabstops.items) |item| next_id = @max(next_id, item.id);
+        for (unknown.items) |range| {
+            next_id = std.math.add(usize, next_id, 1) catch
+                return invalid(snippet, snippet.len, error.InvalidIdValue);
+            (try tabstops.addOne(allocator)).* = .{ .id = next_id, .range = range };
+        }
     }
 
     var ids: std.ArrayList(usize) = .empty;
@@ -192,12 +281,45 @@ fn close_tabstop(
     tabstops: *std.ArrayList(Tabstop),
     frames: *std.ArrayList(Frame),
     range: Range,
+    discard: bool,
 ) error{ OutOfMemory, InvalidState }!void {
     const frame = frames.pop() orelse return error.InvalidState;
+    if (discard) return;
     (try tabstops.addOne(allocator)).* = .{
         .id = frame.id orelse return error.InvalidState,
         .range = range,
     };
+}
+
+fn resolve(allocator: std.mem.Allocator, resolver: ?Resolver, name: []const u8) VariableError!?[]const u8 {
+    return if (resolver) |resolve_| try resolve_(allocator, name) else null;
+}
+
+fn close_variable(
+    allocator: std.mem.Allocator,
+    frames: *std.ArrayList(Frame),
+    unknown: *std.ArrayList(Range),
+    text: *std.Io.Writer.Allocating,
+    snippet: []const u8,
+    name_end: usize,
+    resolver: ?Resolver,
+    discard: bool,
+) Error!void {
+    const frame = frames.pop() orelse return error.InvalidState;
+    const name_begin = frame.name_begin orelse return error.InvalidState;
+    if (discard) return;
+    const name = snippet[name_begin..name_end];
+    if (try resolve(allocator, resolver, name)) |value| {
+        defer allocator.free(value);
+        try text.writer.writeAll(value);
+    } else {
+        const begin = text.written().len;
+        try text.writer.writeAll(name);
+        (try unknown.addOne(allocator)).* = .{
+            .begin = .{begin},
+            .end = .{text.written().len},
+        };
+    }
 }
 
 // tabstop 0 is the final cursor position and always comes last

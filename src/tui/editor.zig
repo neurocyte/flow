@@ -22,6 +22,7 @@ const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const snippet = @import("snippet");
+const snippet_variables = @import("snippet_variables.zig");
 const Diff = @import("diff").LineDiff;
 
 const scrollbar_v = @import("scrollbar_v.zig");
@@ -3223,6 +3224,16 @@ pub const Editor = struct {
         return copy_selection(try self.buf_root(), sel, text_allocator, self.metrics);
     }
 
+    pub fn get_word_at_cursor(self: *const Self, text_allocator: Allocator) error{ Stop, OutOfMemory }![]u8 {
+        const root = try self.buf_root();
+        const cursor = self.get_primary().cursor;
+        if (!is_word_char_at_cursor(root, &cursor, self.metrics)) return &.{};
+        var sel: Selection = .{ .begin = cursor, .end = cursor };
+        try move_cursor_word_begin(root, &sel.begin, self.metrics);
+        try move_cursor_word_end(root, &sel.end, self.metrics);
+        return self.get_selection(sel, text_allocator);
+    }
+
     /// Returns the file link destination under the cursor, or null if none.
     /// Caller owns the `path` field in the returned Dest and must free it with `allocator`.
     pub fn get_file_link_at_cursor(self: *const Self, allocator: Allocator, cursor: Cursor) ?struct { file_link.Dest, Selection } {
@@ -5607,7 +5618,7 @@ pub const Editor = struct {
             },
         };
         self.logger.print("snippet: {s}", .{snippet_text});
-        const value = try snippet.parse(self.allocator, snippet_text);
+        const value = try snippet.parse(self.allocator, snippet_text, snippet_variables.resolve);
         defer value.deinit(self.allocator);
 
         const root_ = try self.buf_root();
