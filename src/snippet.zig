@@ -10,6 +10,11 @@ const Tabstop = struct {
     range: Range,
 };
 
+const Frame = struct {
+    id: ?usize = null,
+    content_begin: ?Position = null,
+};
+
 pub fn deinit(self: *const Snippet, allocator: std.mem.Allocator) void {
     for (self.tabstops) |tabstop| allocator.free(tabstop);
     allocator.free(self.tabstops);
@@ -19,9 +24,8 @@ pub fn deinit(self: *const Snippet, allocator: std.mem.Allocator) void {
 pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
     var tabstops: std.ArrayList(Tabstop) = .empty;
     defer tabstops.deinit(allocator);
-    var id: ?usize = null;
-    var content_begin: std.ArrayList(Position) = .empty;
-    defer content_begin.deinit(allocator);
+    var frames: std.ArrayList(Frame) = .empty;
+    defer frames.deinit(allocator);
     var text: std.Io.Writer.Allocating = .init(allocator);
     defer text.deinit();
 
@@ -47,6 +51,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                 },
                 '$' => {
                     (try state_stack.addOne(allocator)).* = state;
+                    (try frames.addOne(allocator)).* = .{};
                     state = .tabstop;
                 },
                 else => try text.writer.writeByte(c),
@@ -57,43 +62,50 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
             },
             .tabstop => switch (c) {
                 // a brace only opens a placeholder directly after the '$'
-                '{' => if (id == null) {
+                '{' => if ((try top(&frames)).id == null) {
                     state = .placeholder;
                 } else {
-                    try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
+                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
                     state = state_stack.pop() orelse return error.InvalidState;
-                    continue :fsm .initial;
+                    continue :fsm state;
                 },
-                '0'...'9' => append_id_digit(&id, c) catch {
-                    const pos = snippet.len - iter.len;
-                    return invalid(snippet, pos, error.InvalidIdValue);
+                '0'...'9' => {
+                    const frame = try top(&frames);
+                    append_id_digit(&frame.id, c) catch {
+                        const pos = snippet.len - iter.len;
+                        return invalid(snippet, pos, error.InvalidIdValue);
+                    };
                 },
                 else => {
                     const pos = snippet.len - iter.len;
-                    if (id == null)
+                    if ((try top(&frames)).id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
+                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
                     state = state_stack.pop() orelse return error.InvalidState;
-                    continue :fsm .initial;
+                    continue :fsm state;
                 },
             },
             .placeholder => switch (c) {
-                '0'...'9' => append_id_digit(&id, c) catch {
-                    const pos = snippet.len - iter.len;
-                    return invalid(snippet, pos, error.InvalidIdValue);
+                '0'...'9' => {
+                    const frame = try top(&frames);
+                    append_id_digit(&frame.id, c) catch {
+                        const pos = snippet.len - iter.len;
+                        return invalid(snippet, pos, error.InvalidIdValue);
+                    };
                 },
                 '}' => {
                     const pos = snippet.len - iter.len;
-                    if (id == null)
+                    if ((try top(&frames)).id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
+                    try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
                     state = state_stack.pop() orelse return error.InvalidState;
                 },
                 ':' => {
                     const pos = snippet.len - iter.len;
-                    if (id == null)
+                    const frame = try top(&frames);
+                    if (frame.id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    (try content_begin.addOne(allocator)).* = .{text.written().len};
+                    frame.content_begin = .{text.written().len};
                     state = .content;
                 },
                 else => {
@@ -106,14 +118,19 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     (try state_stack.addOne(allocator)).* = state;
                     state = .escape;
                 },
+                '$' => {
+                    (try state_stack.addOne(allocator)).* = state;
+                    (try frames.addOne(allocator)).* = .{};
+                    state = .tabstop;
+                },
                 '}' => {
                     const pos = snippet.len - iter.len;
-                    if (id == null)
+                    const frame = try top(&frames);
+                    if (frame.id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    if (content_begin.items.len == 0)
+                    const begin_pos = frame.content_begin orelse
                         return invalid(snippet, pos, error.InvalidPlaceholderValue);
-                    const begin_pos = content_begin.pop() orelse return invalid(snippet, pos, error.InvalidPlaceholderValue);
-                    try register_tabstop(allocator, &tabstops, &id, .{
+                    try close_tabstop(allocator, &tabstops, &frames, .{
                         .begin = begin_pos,
                         .end = .{text.written().len},
                     });
@@ -126,9 +143,10 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
 
     if (state != .initial) {
         const pos = snippet.len - iter.len;
-        if (state != .tabstop or id == null)
+        // a trailing bare tabstop is complete, but only if nothing encloses it
+        if (state != .tabstop or frames.items.len != 1 or frames.items[0].id == null)
             return invalid(snippet, pos, error.UnexpectedEndOfDocument);
-        try register_tabstop(allocator, &tabstops, &id, .{ .begin = .{text.written().len} });
+        try close_tabstop(allocator, &tabstops, &frames, .{ .begin = .{text.written().len} });
     }
 
     var ids: std.ArrayList(usize) = .empty;
@@ -164,17 +182,22 @@ fn append_id_digit(id: *?usize, c: u8) error{Overflow}!void {
         digit;
 }
 
-fn register_tabstop(
+fn top(frames: *std.ArrayList(Frame)) error{InvalidState}!*Frame {
+    if (frames.items.len == 0) return error.InvalidState;
+    return &frames.items[frames.items.len - 1];
+}
+
+fn close_tabstop(
     allocator: std.mem.Allocator,
     tabstops: *std.ArrayList(Tabstop),
-    id: *?usize,
+    frames: *std.ArrayList(Frame),
     range: Range,
-) error{OutOfMemory}!void {
+) error{ OutOfMemory, InvalidState }!void {
+    const frame = frames.pop() orelse return error.InvalidState;
     (try tabstops.addOne(allocator)).* = .{
-        .id = id.* orelse unreachable,
+        .id = frame.id orelse return error.InvalidState,
         .range = range,
     };
-    id.* = null;
 }
 
 // tabstop 0 is the final cursor position and always comes last

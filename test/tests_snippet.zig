@@ -104,6 +104,55 @@ test "bare tabstop followed by a brace literal" {
     try expect(parsed.tabstops[0][0].end == null);
 }
 
+test "nested placeholder" {
+    const parsed = try Snippet.parse(allocator, "${1:${2:nested}}");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("nested", parsed.text);
+    try expectEqual(2, parsed.tabstops.len);
+    try expectEqual(0, parsed.tabstops[0][0].begin[0]); // ${1} spans the whole content
+    try expectEqual(6, parsed.tabstops[0][0].end.?[0]);
+    try expectEqual(0, parsed.tabstops[1][0].begin[0]); // ${2} spans the same text
+    try expectEqual(6, parsed.tabstops[1][0].end.?[0]);
+}
+
+test "nested bare tabstop closes its placeholder" {
+    const parsed = try Snippet.parse(allocator, "a${1:b$2c}d");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("abcd", parsed.text);
+    try expectEqual(2, parsed.tabstops.len);
+    try expectEqual(1, parsed.tabstops[0][0].begin[0]); // ${1} spans "bc"
+    try expectEqual(3, parsed.tabstops[0][0].end.?[0]);
+    try expectEqual(2, parsed.tabstops[1][0].begin[0]); // $2 sits between b and c
+    try expect(parsed.tabstops[1][0].end == null);
+}
+
+test "nested placeholder does not clobber the outer id" {
+    const parsed = try Snippet.parse(allocator, "${3:x${1:y}z}");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("xyz", parsed.text);
+    try expectEqual(2, parsed.tabstops.len);
+    try expectEqual(1, parsed.tabstops[0][0].begin[0]); // ${1} spans "y"
+    try expectEqual(2, parsed.tabstops[0][0].end.?[0]);
+    try expectEqual(0, parsed.tabstops[1][0].begin[0]); // ${3} spans "xyz"
+    try expectEqual(3, parsed.tabstops[1][0].end.?[0]);
+}
+
+test "dollar in placeholder content starts a tabstop" {
+    // now that content can nest, a literal '$' must be escaped there, the same
+    // as at the top level
+    try expectError(error.InvalidIdValue, Snippet.parse(allocator, "${1:a $ b}"));
+    try expectError(error.InvalidIdValue, Snippet.parse(allocator, "a $ b"));
+    const parsed = try Snippet.parse(allocator, "${1:a \\$ b}");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("a $ b", parsed.text);
+    try expectEqual(1, parsed.tabstops.len);
+}
+
+test "unterminated nested placeholder is invalid" {
+    try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "${1:a$2"));
+    try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "${1:${2:x}"));
+}
+
 test "escaped dollar is literal" {
     const parsed = try Snippet.parse(allocator, "\\$1");
     defer parsed.deinit(allocator);
