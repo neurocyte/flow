@@ -554,7 +554,6 @@ pub fn request_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize) 
 
 fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
     var i: usize = 0;
-    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query, self.files.items.len }) catch {};
     for (self.files.items) |file| {
         if (file.path.len < query.len) continue;
         if (std.mem.indexOf(u8, file.path, query)) |idx| {
@@ -576,9 +575,9 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
 pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query_: []const u8) RequestError!usize {
     const query = try self.strip_non_search_chars(query_);
     defer self.allocator.free(query);
+    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query_, self.files.items.len }) catch {};
     if (query.len < 3)
         return self.simple_query_recent_files(from, max, query);
-    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query, self.files.items.len }) catch {};
 
     var searcher = try fuzzig.Ascii.init(
         self.allocator,
