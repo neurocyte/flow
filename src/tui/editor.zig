@@ -3398,24 +3398,25 @@ pub const Editor = struct {
         const writer = &buffer.writer;
 
         try writer.writeAll(self.file_path orelse "*");
+        const root = self.buf_root() catch return;
         if (cursel.selection) |sel_| {
             var sel = sel_;
             sel.normalize();
             if (sel.begin.row == sel.end.row)
                 try writer.print(":{d}:{d}:{d}", .{
                     sel.begin.row + 1,
-                    sel.begin.col + 1,
-                    sel.end.col + 1,
+                    sel.begin.to_pos(root, self.metrics).col + 1,
+                    sel.end.to_pos(root, self.metrics).col + 1,
                 })
             else
                 try writer.print(":{d}:{d}:{d}:{d}", .{
                     sel.begin.row + 1,
-                    sel.begin.col + 1,
+                    sel.begin.to_pos(root, self.metrics).col + 1,
                     sel.end.row + 1,
-                    sel.end.col + 1,
+                    sel.end.to_pos(root, self.metrics).col + 1,
                 });
         } else if (cursel.cursor.col != 0)
-            try writer.print(":{d}:{d}", .{ cursel.cursor.row + 1, cursel.cursor.col + 1 })
+            try writer.print(":{d}:{d}", .{ cursel.cursor.row + 1, cursel.cursor.to_pos(root, self.metrics).col + 1 })
         else
             try writer.print(":{d}", .{cursel.cursor.row + 1});
 
