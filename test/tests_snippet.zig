@@ -111,6 +111,44 @@ test "escaped dollar is literal" {
     try expectEqual(0, parsed.tabstops.len);
 }
 
+test "escaped brace and backslash are literal" {
+    const parsed = try Snippet.parse(allocator, "\\\\ and \\}");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("\\ and }", parsed.text);
+    try expectEqual(0, parsed.tabstops.len);
+}
+
+test "escaped brace in placeholder content is literal" {
+    const parsed = try Snippet.parse(allocator, "${1:a\\}b}");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("a}b", parsed.text);
+    try expectEqual(1, parsed.tabstops.len);
+    try expectEqual(0, parsed.tabstops[0][0].begin[0]);
+    try expectEqual(3, parsed.tabstops[0][0].end.?[0]);
+}
+
+test "multi digit tabstop id" {
+    const parsed = try Snippet.parse(allocator, "${10}x");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("x", parsed.text);
+    try expectEqual(1, parsed.tabstops.len);
+    try expectEqual(0, parsed.tabstops[0][0].begin[0]);
+}
+
+test "snippet without tabstops" {
+    const parsed = try Snippet.parse(allocator, "plain text");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("plain text", parsed.text);
+    try expectEqual(0, parsed.tabstops.len);
+}
+
+test "empty snippet" {
+    const parsed = try Snippet.parse(allocator, "");
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("", parsed.text);
+    try expectEqual(0, parsed.tabstops.len);
+}
+
 test "allocation failure does not leak" {
     var fail_index: usize = 0;
     while (fail_index < 64) : (fail_index += 1) {
@@ -126,6 +164,7 @@ test "empty braced tabstop is invalid" {
 
 test "tabstop without id is invalid" {
     try expectError(error.InvalidIdValue, Snippet.parse(allocator, "$x"));
+    try expectError(error.InvalidIdValue, Snippet.parse(allocator, "${a}"));
 }
 
 test "tabstop id that overflows is invalid" {
@@ -137,6 +176,14 @@ test "unterminated placeholder is invalid" {
     try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "${1:foo"));
 }
 
+test "unterminated braced tabstop is invalid" {
+    try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "${1"));
+}
+
 test "trailing dollar is invalid" {
     try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "foo$"));
+}
+
+test "trailing escape is invalid" {
+    try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "foo\\"));
 }
