@@ -415,3 +415,35 @@ test "find_at_point: unescaped space is still a separator" {
     // point 2 is the unescaped space, should return null (it's a separator)
     try std.testing.expectEqual(@as(?fl.Range, null), fl.find_at_point(text, 2));
 }
+
+test "find_in_line: file:line:col:end_line:end_col" {
+    const text = "src/main.zig:10:5:12:9";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5:12:9", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+    try std.testing.expectEqual(@as(?usize, 12), dest.file.end_line);
+    try std.testing.expectEqual(@as(?usize, 9), dest.file.end_column);
+}
+
+test "parse: three numbers leave end_line unset" {
+    const dest = try fl.parse("src/main.zig:10:5:12");
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 12), dest.file.end_column);
+    try std.testing.expectEqual(@as(?usize, null), dest.file.end_line);
+}
+
+test "parse: a non numeric fourth segment is not an end column" {
+    const dest = try fl.parse("src/main.zig:10:5:12:oops");
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 12), dest.file.end_column);
+    try std.testing.expectEqual(@as(?usize, null), dest.file.end_line);
+}
+
+test "find_in_line: fifth number is not part of the link" {
+    const text = "src/main.zig:10:5:12:9:7";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5:12:9", text[r.start..r.end]);
+}

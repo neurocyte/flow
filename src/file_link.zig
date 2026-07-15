@@ -12,6 +12,7 @@ pub const FileDest = struct {
     path: []const u8,
     line: ?usize = null,
     column: ?usize = null,
+    end_line: ?usize = null,
     end_column: ?usize = null,
     exists: bool = false,
     offset: ?usize = null,
@@ -79,6 +80,14 @@ pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
             };
             if (file.column) |_| if (it.next()) |col_| {
                 file.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
+            };
+            // a fourth number means the third was an end line, as produced for
+            // a selection that spans more than one line
+            if (file.end_column) |end_| if (it.next()) |col_| {
+                if (std.fmt.parseInt(usize, col_, 10) catch null) |end_column| {
+                    file.end_line = end_;
+                    file.end_column = end_column;
+                }
             };
             file.exists = root.is_file(file.path) and !is_binary_file(file.path);
         },
@@ -208,6 +217,13 @@ fn find_colon_link_end(token: []const u8) usize {
     const n3_start = pos;
     while (pos < token.len and token[pos] >= '0' and token[pos] <= '9') pos += 1;
     if (pos == n3_start) return end;
+    end = pos;
+    // Optional end_column, when the previous segment was an end_line.
+    if (pos >= token.len or token[pos] != ':') return end;
+    pos += 1;
+    const n4_start = pos;
+    while (pos < token.len and token[pos] >= '0' and token[pos] <= '9') pos += 1;
+    if (pos == n4_start) return end;
     return pos;
 }
 
@@ -326,8 +342,9 @@ pub fn navigate(to: tp.pid_ref, link: *const Dest) anyerror!void {
             if (file.line) |l| {
                 if (file.column) |col| {
                     try to.send(.{ "cmd", "navigate", .{ .file = file.path, .line = l, .column = col } });
+                    // a link without an end line ends on the line it starts on
                     if (file.end_column) |end|
-                        try to.send(.{ "A", l, col -| 1, l, end -| 1 });
+                        try to.send(.{ "A", l, col -| 1, file.end_line orelse l, end -| 1 });
                     return;
                 }
                 return to.send(.{ "cmd", "navigate", .{ .file = file.path, .line = l } });
