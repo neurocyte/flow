@@ -60,12 +60,12 @@ test "trailing bare tabstop" {
 }
 
 test "tabstop zero is ordered last" {
-    const parsed = try Snippet.parse(allocator, "${0}${1}");
+    const parsed = try Snippet.parse(allocator, "a${0}b${1}c");
     defer parsed.deinit(allocator);
-    try expectEqualStrings("", parsed.text);
+    try expectEqualStrings("abc", parsed.text);
     try expectEqual(2, parsed.tabstops.len);
-    try expectEqual(0, parsed.tabstops[0][0].begin[0]);
-    try expectEqual(0, parsed.tabstops[1][0].begin[0]);
+    try expectEqual(2, parsed.tabstops[0][0].begin[0]); // ${1}
+    try expectEqual(1, parsed.tabstops[1][0].begin[0]); // ${0}
 }
 
 test "repeated tabstop id is grouped" {
