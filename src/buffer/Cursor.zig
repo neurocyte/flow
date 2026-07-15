@@ -49,6 +49,13 @@ pub fn from_pos(self: Self, root: Buffer.Root, metrics: Buffer.Metrics) Self {
     };
 }
 
+pub fn to_pos(self: Self, root: Buffer.Root, metrics: Buffer.Metrics) Self {
+    return .{
+        .row = self.row,
+        .col = root.get_line_width_to_pos(self.row, self.col, metrics) catch self.col,
+    };
+}
+
 fn move_right_no_target(self: *Self, root: Buffer.Root, metrics: Metrics) !void {
     const lines = root.lines();
     if (lines <= self.row) return error.Stop;
