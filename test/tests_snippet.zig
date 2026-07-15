@@ -87,6 +87,15 @@ test "escaped dollar is literal" {
     try expectEqual(0, parsed.tabstops.len);
 }
 
+test "allocation failure does not leak" {
+    var fail_index: usize = 0;
+    while (fail_index < 64) : (fail_index += 1) {
+        var failing: std.testing.FailingAllocator = .init(allocator, .{ .fail_index = fail_index });
+        const parsed = Snippet.parse(failing.allocator(), "a${1:one} $1 ${2} ${0}") catch continue;
+        parsed.deinit(failing.allocator());
+    }
+}
+
 test "empty braced tabstop is invalid" {
     try expectError(error.InvalidIdValue, Snippet.parse(allocator, "${}"));
 }

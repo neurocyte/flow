@@ -129,15 +129,21 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
 
     var result: std.ArrayList([]Range) = .empty;
     defer result.deinit(allocator);
+    errdefer for (result.items) |ranges| allocator.free(ranges);
     var n: usize = 1;
     while (n <= max_id) : (n += 1)
         if (try collect_ranges(allocator, tabstops.items, n)) |ranges| {
+            errdefer allocator.free(ranges);
             (try result.addOne(allocator)).* = ranges;
         };
-    if (try collect_ranges(allocator, tabstops.items, 0)) |ranges|
+    if (try collect_ranges(allocator, tabstops.items, 0)) |ranges| {
+        errdefer allocator.free(ranges);
         (try result.addOne(allocator)).* = ranges;
+    }
+    const owned_text = try text.toOwnedSlice();
+    errdefer allocator.free(owned_text);
     return .{
-        .text = try text.toOwnedSlice(),
+        .text = owned_text,
         .tabstops = try result.toOwnedSlice(allocator),
     };
 }
