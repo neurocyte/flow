@@ -327,7 +327,7 @@ pub fn navigate(to: tp.pid_ref, link: *const Dest) anyerror!void {
                 if (file.column) |col| {
                     try to.send(.{ "cmd", "navigate", .{ .file = file.path, .line = l, .column = col } });
                     if (file.end_column) |end|
-                        try to.send(.{ "A", l, col - 1, end - 1 });
+                        try to.send(.{ "A", l, col -| 1, l, end -| 1 });
                     return;
                 }
                 return to.send(.{ "cmd", "navigate", .{ .file = file.path, .line = l } });
