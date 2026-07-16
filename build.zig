@@ -459,6 +459,10 @@ pub fn build_exe(
         .root_source_file = b.path("src/color.zig"),
     });
 
+    const xterm_mod = b.createModule(.{
+        .root_source_file = b.path("src/xterm.zig"),
+    });
+
     const match_mod = b.createModule(.{
         .root_source_file = b.path("src/match.zig"),
     });
@@ -618,8 +622,6 @@ pub fn build_exe(
                         .{ .name = "xy", .module = gui_xy_mod },
                     },
                 });
-                const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
-
                 const flow_sprite_dep = b.lazyDependency("flow_sprite", .{
                     .target = target,
                     .optimize = optimize_deps,
@@ -798,7 +800,7 @@ pub fn build_exe(
                         .{ .name = "MouseEvent", .module = MouseEvent_mod },
                         .{ .name = "uucode_utils", .module = uucode_utils_mod },
                         .{ .name = "nerd_font_attributes", .module = nerd_font_attributes_mod },
-                        .{ .name = "xterm", .module = gui_xterm_mod },
+                        .{ .name = "xterm", .module = xterm_mod },
                         .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
