@@ -18,6 +18,7 @@ const log = @import("log");
 
 pub const version = @embedFile("version");
 pub const version_info = @embedFile("version_info");
+pub const version_number: []const u8 = if (version.len > 0 and version[0] == 'v') version[1..] else version;
 
 pub const max_diff_lines: usize = 50000;
 pub const max_syntax_lines: usize = 50000;

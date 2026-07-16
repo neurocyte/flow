@@ -3,6 +3,7 @@ pub const hard_root = @import("root");
 
 pub const root = struct {
     pub const version = if (@hasDecl(hard_root, "version")) hard_root.version else dummy.version;
+    pub const version_number = if (@hasDecl(hard_root, "version_number")) hard_root.version_number else dummy.version_number;
     pub const version_info = if (@hasDecl(hard_root, "version_info")) hard_root.version_info else dummy.version_info;
     pub const application_name = if (@hasDecl(hard_root, "application_name")) hard_root.application_name else dummy.application_name;
     pub const application_title = if (@hasDecl(hard_root, "application_title")) hard_root.application_title else dummy.application_title;
@@ -50,6 +51,7 @@ pub const root = struct {
 
 const dummy = struct {
     pub const version = "dummy-version";
+    pub const version_number = "dummy-version";
     pub const version_info = "dummy-version_info";
     pub const application_name = "dummy-application_name";
     pub const application_title = "dummy-application_title";

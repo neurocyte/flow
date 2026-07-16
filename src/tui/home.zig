@@ -98,7 +98,7 @@ const info_margin_rows: u16 = 1; // gap above the status bar
 const info_bottom_bar_rows: u16 = 1; // status bar height the info sits above
 
 fn info_version() []const u8 {
-    return if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
+    return root.version_number;
 }
 
 const widget_type: Widget.Type = .home;
