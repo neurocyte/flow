@@ -518,6 +518,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "DoubleMappedRingBuffer", .module = double_mapped_ring_buffer_mod },
+            .{ .name = "xterm", .module = xterm_mod },
         },
     });
 

@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 const ansi = @import("ansi.zig");
 pub const Parser = @import("Parser.zig");
 const vaxis = @import("vaxis");
+const xterm = @import("xterm");
 
 // Platform-specific pty/command implementations
 const is_windows = builtin.os.tag == .windows;
@@ -122,6 +123,8 @@ mode: Mode = .{},
 /// Colours set by the embedding widget. Used for OSC queries.
 fg_color: [3]u8 = .{ 0xff, 0xff, 0xff },
 bg_color: [3]u8 = .{ 0x00, 0x00, 0x00 },
+/// 256-colour palette stored and fetched by OSC 4 queries.
+palette: [256][3]u8 = xterm_palette_default,
 /// Colours overridden by the terminal application via OSC 10/11/12.
 /// null = not overridden (fall back to fg_color/bg_color/default cursor).
 app_fg_color: ?[3]u8 = null,
@@ -1017,6 +1020,28 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     // OSC 9 ; 4 ; <state> ; <progress>
                     // Progress notification. Silently ignored; we have no progress UI.
                     9 => {},
+                    // OSC 4 - set or query a palette colour.
+                    // Payload is one or more `<index> ; <spec|?>` pairs. A "?"
+                    // spec is a query, answered with the current entry; any
+                    // other spec sets the entry.
+                    4 => {
+                        var it = std.mem.splitScalar(u8, osc[semicolon + 1 ..], ';');
+                        while (it.next()) |idx_str| {
+                            const spec = it.next() orelse break;
+                            const idx = std.fmt.parseUnsigned(u8, idx_str, 10) catch continue;
+                            if (std.mem.eql(u8, spec, "?")) {
+                                const c = self.palette[idx];
+                                const pty_writer = self.get_pty_writer();
+                                defer pty_writer.flush() catch {};
+                                try pty_writer.print(
+                                    "\x1B]4;{d};rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
+                                    .{ idx, c[0], c[0], c[1], c[1], c[2], c[2] },
+                                );
+                            } else if (parseOscRgb(spec)) |rgb| {
+                                self.palette[idx] = rgb;
+                            }
+                        }
+                    },
                     // OSC 10 - foreground colour set or query
                     10 => {
                         const val = osc[semicolon + 1 ..];
@@ -1258,6 +1283,14 @@ pub fn horizontalBackTab(self: *Terminal, n: usize) void {
     // Move left the delta
     self.back_screen.cursorLeft(final - col);
 }
+
+const xterm_palette_default: [256][3]u8 = blk: {
+    var p: [256][3]u8 = undefined;
+    for (xterm.colors, 0..) |c, i| {
+        p[i] = .{ @intCast(c >> 16), @intCast((c >> 8) & 0xff), @intCast(c & 0xff) };
+    }
+    break :blk p;
+};
 
 /// Parse an X11 rgb: colour spec of the form "rgb:RRRR/GGGG/BBBB".
 /// Returns the high byte of each 16-bit channel as [3]u8, or null on failure.

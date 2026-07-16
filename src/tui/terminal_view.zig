@@ -437,6 +437,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     // OSC 10/11 colour queries return accurate values.
     if (theme.editor.fg) |fg| self.vt.vt.fg_color = color.u24_to_u8s(fg.color);
     if (theme.editor.bg) |bg| self.vt.vt.bg_color = color.u24_to_u8s(bg.color);
+    // Refresh palette indices 0-15 so OSC 4 queries reflect the active theme.
+    @memcpy(self.vt.vt.palette[0..16], &theme.ansi_palette);
 
     // Blit the terminal's front screen into our vaxis.Window.
     const focused_view = self.focused and tui.terminal_has_focus();
@@ -1013,6 +1015,9 @@ const Vt = struct {
         const theme = tui.active_theme();
         if (theme.editor.fg) |fg| self.vt.fg_color = color.u24_to_u8s(fg.color);
         if (theme.editor.bg) |bg| self.vt.bg_color = color.u24_to_u8s(bg.color);
+        // Seed palette indices 0-15 from the theme before spawning, so the
+        // child's startup OSC 4 palette queries are answered correctly.
+        @memcpy(self.vt.palette[0..16], &theme.ansi_palette);
 
         try self.vt.spawn();
     }
