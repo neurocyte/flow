@@ -1149,7 +1149,7 @@ const cmds = struct {
         vt.send_text(text);
         tui.need_render(@src());
     }
-    pub const send_to_terminal_meta: Meta = .{ .description = "Send text to terminal", .arguments = &.{.string} };
+    pub const send_to_terminal_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn unfocus_terminal(self: *Self, _: Ctx) Result {
         if (self.get_panel_view(terminal_view)) |vt|
