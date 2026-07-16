@@ -930,13 +930,18 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             // TODO: DECCARA
                             continue;
                         }
-                        // DECSTBM
+                        // DECSTBM - Set Top and Bottom Margins.
                         var iter = seq.iterator(u16);
-                        const top = iter.next() orelse 1;
-                        const bottom = iter.next() orelse self.back_screen.height;
-                        self.back_screen.scrolling_region.top = top -| 1;
-                        self.back_screen.scrolling_region.bottom = bottom -| 1;
-                        self.homeCursor();
+                        const height = self.back_screen.height;
+                        const top_arg = iter.next() orelse 0;
+                        const bottom_arg = iter.next() orelse 0;
+                        const top = @min(if (top_arg == 0) 1 else top_arg, height) -| 1;
+                        const bottom = @min(if (bottom_arg == 0) height else bottom_arg, height) -| 1;
+                        if (bottom > top) {
+                            self.back_screen.scrolling_region.top = top;
+                            self.back_screen.scrolling_region.bottom = bottom;
+                            self.homeCursor();
+                        }
                     },
                     // CSI ? u - query Kitty keyboard protocol flags; respond with 0 (not enabled)
                     // Kitty keyboard protocol
