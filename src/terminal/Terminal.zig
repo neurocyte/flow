@@ -1428,14 +1428,16 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
         1015 => {}, // URXVT mouse encoding - we use SGR instead, ignore
         25 => self.mode.cursor = val,
         1049 => {
-            if (val)
-                self.back_screen = &self.back_screen_alt
-            else
-                self.back_screen = &self.back_screen_pri;
-            var i: usize = 0;
-            while (i < self.back_screen.buf.len) : (i += 1) {
-                self.back_screen.buf[i].dirty = true;
+            const from = self.back_screen;
+            const to = if (val) &self.back_screen_alt else &self.back_screen_pri;
+            self.back_screen = to;
+            // 1049 combines 1047 and 1048.
+            if (val and from != to) {
+                to.cursor.copyFrom(from.cursor, self.allocator) catch |e|
+                    log.warn("cursor copy failed entering alt screen: {}", .{e});
+                to.eraseAll();
             }
+            for (self.back_screen.buf) |*cell| cell.dirty = true;
         },
         2004 => self.mode.bracketed_paste = val,
         2026 => {
