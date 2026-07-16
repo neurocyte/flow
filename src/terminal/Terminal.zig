@@ -796,7 +796,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             switch (pm) {
                                 // Secondary
                                 '>' => try pty_writer.writeAll("\x1B[>1;69;0c"),
-                                '=' => try pty_writer.writeAll("\x1B[=0000c"),
+                                '=' => try pty_writer.writeAll("\x1BP!|00000000\x1B\\"),
                                 else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
                         } else {
