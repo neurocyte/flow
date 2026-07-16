@@ -564,10 +564,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     // Appears when ST is split from its OSC/APC across a read boundary.
                     '\\' => {},
                     // RIS - Reset to Initial State.
-                    // Full device reset is not yet implemented; for now we reset just the palette.
                     'c' => if (esc.len == 1) {
-                        self.palette = self.palette_default;
-                        self.palette_modified = false;
+                        self.hardReset() catch |e| log.err("RIS reset failed: {}", .{e});
+                        // Tell the widget the app colour overrides are gone.
+                        try handle_event(context, .{ .color_change = .{ .fg = null, .bg = null, .cursor = null } });
                     } else log.debug("unhandled escape: {s}", .{esc}),
                     else => log.debug("unhandled escape: {s}", .{esc}),
                 }
@@ -712,11 +712,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             var iter = seq.iterator(u16);
                             const n = iter.next() orelse continue;
                             if (n != 5) continue;
-                            self.tab_stops.clearRetainingCapacity();
-                            var col: u16 = 0;
-                            while (col < self.back_screen.width) : (col += 8) {
-                                try self.tab_stops.append(self.allocator, col);
-                            }
+                            try self.resetTabStops();
                         }
                     },
                     'X' => {
@@ -870,6 +866,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                         },
                                     }
                                 },
+                                // DECSTR - Soft Terminal Reset (CSI ! p)
+                                '!' => self.softReset(),
                                 else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
                         }
@@ -1224,6 +1222,66 @@ inline fn handleC0(self: *Terminal, b: ansi.C0, context: anytype, handle_event: 
         .SI => self.charset_shifted = false, // Shift In: activate G0 (default)
         else => log.warn("unhandled C0: 0x{x}", .{@intFromEnum(b)}),
     }
+}
+
+fn resetTabStops(self: *Terminal) !void {
+    self.tab_stops.clearRetainingCapacity();
+    var col: u16 = 0;
+    while (col < self.back_screen.width) : (col += 8) {
+        try self.tab_stops.append(self.allocator, col);
+    }
+}
+
+/// RIS (ESC c) - Reset to Initial State.
+fn hardReset(self: *Terminal) !void {
+    const w = self.front_screen.width;
+    const h = self.front_screen.height;
+
+    var new_pri = try Screen.initScrollback(self.allocator, w, h, self.scrollback_size);
+    errdefer new_pri.deinit(self.allocator);
+    const new_alt = try Screen.init(self.allocator, w, h);
+    self.back_screen_pri.deinit(self.allocator);
+    self.back_screen_pri = new_pri;
+    self.back_screen_alt.deinit(self.allocator);
+    self.back_screen_alt = new_alt;
+    self.back_screen = &self.back_screen_pri;
+    self.scroll_offset = 0;
+
+    self.mode = .{};
+    self.charset_g0 = .ascii;
+    self.charset_g1 = .ascii;
+    self.charset_shifted = false;
+    try self.resetTabStops();
+
+    self.palette = self.palette_default;
+    self.palette_modified = false;
+    self.app_fg_color = null;
+    self.app_bg_color = null;
+    self.app_cursor_color = null;
+    self.last_printed = "";
+
+    self.dirty = true;
+}
+
+/// DECSTR (CSI ! p) - Soft Terminal Reset.
+fn softReset(self: *Terminal) void {
+    self.mode.cursor_keys_app = false; // DECCKM -> normal
+    self.mode.origin = false; // DECOM -> absolute
+    self.mode.autowrap = true; // DECAWM -> flow power-on default
+    self.mode.cursor = true; // DECTCEM -> visible
+    self.mode.keypad_application = false; // DECNKM -> numeric
+    self.charset_g0 = .ascii;
+    self.charset_g1 = .ascii;
+    self.charset_shifted = false;
+    self.back_screen.cursor.visible = true;
+    self.back_screen.cursor.style = .{}; // SGR -> default
+    self.back_screen.cursor.pending_wrap = false;
+    self.back_screen.scrolling_region = .{
+        .top = 0,
+        .bottom = self.back_screen.height -| 1,
+        .left = 0,
+        .right = self.back_screen.width -| 1,
+    };
 }
 
 pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
