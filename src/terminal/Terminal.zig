@@ -935,21 +935,19 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                 }
             },
             .osc => |osc| {
-                const semicolon = std.mem.indexOfScalar(u8, osc, ';') orelse {
+                const sep = std.mem.indexOfScalar(u8, osc, ';');
+                const ps = std.fmt.parseUnsigned(u8, osc[0 .. sep orelse osc.len], 10) catch {
                     log.debug("unhandled osc: {s}", .{osc});
                     continue;
                 };
-                const ps = std.fmt.parseUnsigned(u8, osc[0..semicolon], 10) catch {
-                    log.debug("unhandled osc: {s}", .{osc});
-                    continue;
-                };
+                const rest = if (sep) |s| osc[s + 1 ..] else "";
                 switch (ps) {
                     // OSC 0 - set icon name and window title
                     // OSC 2 - set window title
                     // We have no separate icon name, so both just set the title.
                     0, 2 => {
                         self.title.clearRetainingCapacity();
-                        try self.title.appendSlice(self.allocator, osc[semicolon + 1 ..]);
+                        try self.title.appendSlice(self.allocator, rest);
                         try handle_event(context, .{ .title_change = self.title.items });
                     },
                     7 => {
@@ -959,7 +957,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         //   kitty-shell-cwd://hostname/path  (Kitty terminal extension)
                         // In both cases we want everything from the first '/' that
                         // begins the absolute path, percent-decoding as we go.
-                        const after_semi = osc[semicolon + 1 ..];
+                        const after_semi = rest;
                         const schemes = [_][]const u8{ "file://", "kitty-shell-cwd://" };
                         const after_scheme = for (schemes) |scheme| {
                             if (std.mem.startsWith(u8, after_semi, scheme))
@@ -997,7 +995,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     // param (in colon-separated `key=value` pairs) groups
                     // disjoint runs into one logical hyperlink.
                     8 => {
-                        const after_semi = osc[semicolon + 1 ..];
+                        const after_semi = rest;
                         const second_semi = std.mem.indexOfScalar(u8, after_semi, ';') orelse {
                             log.debug("unhandled osc: {s}", .{osc});
                             continue;
@@ -1025,7 +1023,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     // spec is a query, answered with the current entry; any
                     // other spec sets the entry.
                     4 => {
-                        var it = std.mem.splitScalar(u8, osc[semicolon + 1 ..], ';');
+                        var it = std.mem.splitScalar(u8, rest, ';');
                         while (it.next()) |idx_str| {
                             const spec = it.next() orelse break;
                             const idx = std.fmt.parseUnsigned(u8, idx_str, 10) catch continue;
@@ -1044,7 +1042,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     },
                     // OSC 10 - foreground colour set or query
                     10 => {
-                        const val = osc[semicolon + 1 ..];
+                        const val = rest;
                         if (std.mem.eql(u8, val, "?")) {
                             const c = self.app_fg_color orelse self.fg_color;
                             const pty_writer = self.get_pty_writer();
@@ -1064,7 +1062,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     },
                     // OSC 11 - background colour set or query
                     11 => {
-                        const val = osc[semicolon + 1 ..];
+                        const val = rest;
                         if (std.mem.eql(u8, val, "?")) {
                             const c = self.app_bg_color orelse self.bg_color;
                             const pty_writer = self.get_pty_writer();
@@ -1084,7 +1082,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     },
                     // OSC 12 - cursor colour set or query
                     12 => {
-                        const val = osc[semicolon + 1 ..];
+                        const val = rest;
                         if (std.mem.eql(u8, val, "?")) {
                             if (self.app_cursor_color) |c| {
                                 const pty_writer = self.get_pty_writer();
@@ -1105,7 +1103,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     },
                     // OSC 52 - clipboard access
                     // Format: 52;<targets>;<base64data|?>
-                    52 => try self.handleOsc52(osc[semicolon + 1 ..], context, handle_event),
+                    52 => try self.handleOsc52(rest, context, handle_event),
                     // OSC 110/111/112 - reset fg/bg/cursor colour to default
                     110 => {
                         self.app_fg_color = null;
@@ -1136,7 +1134,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     // Only tracked on the primary back screen — alt-screen
                     // apps don't emit shell prompt structure.
                     133 => if (self.back_screen == &self.back_screen_pri) {
-                        const after_semi = osc[semicolon + 1 ..];
+                        const after_semi = rest;
                         if (after_semi.len > 0) {
                             const kind: ?Screen.PromptMarkKind = switch (after_semi[0]) {
                                 'A' => .prompt_start,
