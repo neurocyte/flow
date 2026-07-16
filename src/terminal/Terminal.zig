@@ -146,6 +146,11 @@ tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
 working_directory: std.ArrayList(u8) = .empty,
 
+/// Size of a single cell in pixels, derived from every winsize we are given.
+/// Zero means the embedding widget could not determine the display geometry.
+cell_pixel_w: u16 = 0,
+cell_pixel_h: u16 = 0,
+
 last_printed_buf: [Screen.Grapheme.inline_capacity]u8 = undefined, // for REP (CSI b)
 last_printed_len: u8 = 0,
 /// Scratch buffer for decoding OSC 52 base64 clipboard data.
@@ -211,6 +216,8 @@ pub fn init(
         .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_size),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
+        .cell_pixel_w = cellPixelsOf(opts.winsize).w,
+        .cell_pixel_h = cellPixelsOf(opts.winsize).h,
     };
 }
 
@@ -282,7 +289,7 @@ pub fn respawn(
     }
     for (argv, argv_owned) |src_arg, *dst| dst.* = try self.allocator.dupe(u8, src_arg);
 
-    const ws: Winsize = .{ .rows = self.front_screen.height, .cols = self.front_screen.width, .x_pixel = 0, .y_pixel = 0 };
+    const ws: Winsize = self.winsizeForScreen();
     var new_pty = if (is_windows)
         try Pty.init(self.allocator, ws)
     else blk: {
@@ -316,10 +323,18 @@ pub fn respawn(
 /// This is safe to call every render cycle: there is a guard to only perform a resize if the size
 /// of the window has changed.
 pub fn resize(self: *Terminal, ws: Winsize) !void {
+    const cell = cellPixelsOf(ws);
+    const pixels_changed = cell.w != self.cell_pixel_w or cell.h != self.cell_pixel_h;
+    self.cell_pixel_w = cell.w;
+    self.cell_pixel_h = cell.h;
+
     // don't deinit with no size change
     if (ws.cols == self.front_screen.width and
         ws.rows == self.front_screen.height)
+    {
+        if (pixels_changed) try self.pty.setSize(ws);
         return;
+    }
 
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);

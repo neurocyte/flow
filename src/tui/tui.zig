@@ -955,8 +955,8 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.writeAll("\nlayers (composite order, low z first):\n");
     {
         const s = self.stdplane().window.screen;
-        const cw = s.width_pix / @max(1, s.width);
-        const ch = s.height_pix / @max(1, s.height);
+        const cw = self.stdplane().cell_x();
+        const ch = self.stdplane().cell_y();
         try writer.writeAll("           ");
         try writer.print(
             fmt,

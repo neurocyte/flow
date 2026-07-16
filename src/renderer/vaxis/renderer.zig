@@ -198,9 +198,9 @@ fn draw_target(target: *const Layer.Target) void {
     var cx1: i32 = dst_dim_x;
     var cy1: i32 = dst_dim_y;
     if (target.clip) |c| {
-        const scr = target.dst.screen;
-        const cw: i32 = if (scr.width > 0 and scr.width_pix > scr.width) @intCast(scr.width_pix / scr.width) else 1;
-        const ch: i32 = if (scr.height > 0 and scr.height_pix > scr.height) @intCast(scr.height_pix / scr.height) else 1;
+        const cell = Layer.cell_size_px(target.dst.screen) orelse Layer.CellSize{ .w = 1, .h = 1 };
+        const cw: i32 = @max(1, cell.w);
+        const ch: i32 = @max(1, cell.h);
         cx0 = @max(cx0, @divFloor(c.x, cw));
         cy0 = @max(cy0, @divFloor(c.y, ch));
         cx1 = @min(cx1, @divFloor(c.x + c.w, cw));
@@ -606,10 +606,8 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             const mouse = self.vx.translateMouse(mouse_);
             try self.sync_mod_state(0, .{ .ctrl = mouse.mods.ctrl, .shift = mouse.mods.shift, .alt = mouse.mods.alt });
 
-            const screen = self.vx.screen;
-            const cell_width: u16 = if (screen.width > 0 and screen.width_pix > 0) @intCast(screen.width_pix / screen.width) else 1;
-            const cell_height: u16 = if (screen.height > 0 and screen.height_pix > 0) @intCast(screen.height_pix / screen.height) else 1;
-            const coord = MouseEvent.Cell.from_vaxis(mouse).to_coord(.{ .cell_width = cell_width, .cell_height = cell_height });
+            const cell = self.cell_size() orelse Layer.CellSize{ .w = 1, .h = 1 };
+            const coord = MouseEvent.Cell.from_vaxis(mouse).to_coord(.{ .cell_width = cell.w, .cell_height = cell.h });
             const mouse_event: MouseEvent.Event = .{
                 MouseEvent.Type.from_vaxis(mouse.type),
                 MouseEvent.Button.from_vaxis(mouse.button),
@@ -745,6 +743,10 @@ fn handle_bracketed_paste_error(self: *Self, e: Error) !void {
     self.bracketed_paste_buffer.clearRetainingCapacity();
     self.bracketed_paste = false;
     return e;
+}
+
+pub fn cell_size(self: *const Self) ?Layer.CellSize {
+    return Layer.cell_size_px(&self.vx.screen);
 }
 
 pub fn set_sgr_pixel_mode_support(self: *Self, enable_sgr_pixel_mode_support: bool) void {

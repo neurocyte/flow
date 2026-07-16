@@ -584,6 +584,10 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     return error.UnexpectedRendererEvent;
 }
 
+pub fn cell_size(self: *const Self) ?Layer.CellSize {
+    return Layer.cell_size_px(&self.vx.screen);
+}
+
 pub fn set_sgr_pixel_mode_support(self: *Self, enable: bool) void {
     _ = self;
     _ = enable;

@@ -41,6 +41,20 @@ pub fn cell_size_override(comptime axis: enum { x, y }) u16 {
     };
 }
 
+pub const CellSize = struct { w: u16, h: u16 };
+
+pub fn cell_size_px(screen: *const vaxis.Screen) ?CellSize {
+    const override_x = cell_size_override(.x);
+    const override_y = cell_size_override(.y);
+    if (override_x > 0 and override_y > 0) return .{ .w = override_x, .h = override_y };
+    if (screen.width == 0 or screen.height == 0) return null;
+    if (screen.width_pix == 0 or screen.height_pix == 0) return null;
+    return .{
+        .w = @intCast(screen.width_pix / screen.width),
+        .h = @intCast(screen.height_pix / screen.height),
+    };
+}
+
 allocator: std.mem.Allocator,
 id: Id,
 screen: vaxis.Screen,
@@ -115,21 +129,13 @@ pub fn plane(self: *Layer) Plane {
 }
 
 pub inline fn cell_x(self: *const Layer) u15 {
-    const override = cell_size_override(.x);
-    if (override > 0) return std.math.lossyCast(u15, override);
-    if (self.screen.width == 0) return 1;
-    const xextra = self.screen.width_pix % self.screen.width;
-    const xcell = (self.screen.width_pix - xextra) / self.screen.width;
-    return std.math.lossyCast(u15, @max(1, xcell));
+    const size = cell_size_px(&self.screen) orelse return 1;
+    return std.math.lossyCast(u15, @max(1, size.w));
 }
 
 pub inline fn cell_y(self: *const Layer) u15 {
-    const override = Layer.cell_size_override(.y);
-    if (override > 0) return std.math.lossyCast(u15, override);
-    if (self.screen.height == 0) return 1;
-    const yextra = self.screen.height_pix % self.screen.height;
-    const ycell = (self.screen.height_pix - yextra) / self.screen.height;
-    return std.math.lossyCast(u15, @max(1, ycell));
+    const size = cell_size_px(&self.screen) orelse return 1;
+    return std.math.lossyCast(u15, @max(1, size.h));
 }
 
 pub fn global_origin_px(self: *const Layer) struct { i32, i32 } {
