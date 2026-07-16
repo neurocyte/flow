@@ -147,6 +147,9 @@ tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
 working_directory: std.ArrayList(u8) = .empty,
 
+/// When the in-progress synchronized update (DECSET 2026) stops being honoured.
+sync_deadline_ms: i64 = 0,
+
 /// Size of a single cell in pixels, derived from every winsize we are given.
 /// Zero means the embedding widget could not determine the display geometry.
 cell_pixel_w: u16 = 0,
@@ -366,6 +369,10 @@ pub fn draw(
     const default_bg: vaxis.Cell.Color = .{ .rgb = self.app_bg_color orelse self.bg_color };
     if (self.back_mutex.tryLock()) {
         defer self.back_mutex.unlock(self.io);
+        if (self.mode.sync and self.syncExpired()) {
+            log.debug("synchronized update expired after {d}ms; resuming", .{sync_timeout_ms});
+            self.mode.sync = false;
+        }
         // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
         // having sync
         if (!self.mode.sync) {
@@ -841,12 +848,17 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         }
                     },
                     'h', 'l' => {
+                        const private = switch (seq.private_marker orelse 0) {
+                            0 => false,
+                            '?' => true,
+                            else => {
+                                log.debug("unhandled CSI: {f}", .{seq});
+                                continue;
+                            },
+                        };
                         var iter = seq.iterator(u16);
-                        const mode = iter.next() orelse continue;
-                        // There is only one collision (mode = 4), and we don't support the private
-                        // version of it
-                        if (seq.private_marker != null and mode == 4) continue;
-                        self.setMode(mode, seq.final == 'h');
+                        while (iter.next()) |mode|
+                            self.setMode(mode, private, seq.final == 'h');
                     },
                     'm' => {
                         if (seq.intermediate == null and seq.private_marker == null) {
@@ -1385,7 +1397,21 @@ pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
     };
 }
 
-pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
+/// How long a synchronized update (DECSET 2026) may hold the display still.
+const sync_timeout_ms = 1000;
+
+fn syncExpired(self: *const Terminal) bool {
+    const now = root.get_now().toMilliseconds();
+    return now >= self.sync_deadline_ms or now < self.sync_deadline_ms - sync_timeout_ms;
+}
+
+/// DECSET/DECRST (private) and SM/RM (ANSI).
+pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
+    // We implement no ANSI modes yet (IRM, LNM, ...)
+    if (!private) {
+        log.debug("unhandled ANSI mode: {d}", .{mode});
+        return;
+    }
     switch (mode) {
         1 => self.mode.cursor_keys_app = val,
         6 => { // Setting or resetting origin mode also homes the cursor
@@ -1412,7 +1438,10 @@ pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
             }
         },
         2004 => self.mode.bracketed_paste = val,
-        2026 => self.mode.sync = val,
+        2026 => {
+            self.mode.sync = val;
+            if (val) self.sync_deadline_ms = root.get_now().toMilliseconds() + sync_timeout_ms;
+        },
         else => return,
     }
 }
