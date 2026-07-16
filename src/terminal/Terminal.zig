@@ -848,10 +848,15 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             defer pty_writer.flush() catch {};
                             switch (ps) {
                                 5 => try pty_writer.writeAll("\x1b[0n"),
-                                6 => try pty_writer.print("\x1b[{d};{d}R", .{
-                                    self.back_screen.cursor.row + 1,
-                                    self.back_screen.cursor.col + 1,
-                                }),
+                                // CPR - Cursor Position Report
+                                // Respects origin mode (DECOM)
+                                6 => {
+                                    const cur = self.back_screen.cursor;
+                                    const sr = self.back_screen.scrolling_region;
+                                    const row = if (self.mode.origin) cur.row -| sr.top else cur.row;
+                                    const col = if (self.mode.origin) cur.col -| sr.left else cur.col;
+                                    try pty_writer.print("\x1b[{d};{d}R", .{ row + 1, col + 1 });
+                                },
                                 else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
                         }
