@@ -11,7 +11,7 @@ const Screen = @This();
 
 /// SSO grapheme storage
 pub const Grapheme = union(enum) {
-    const inline_capacity = 22;
+    pub const inline_capacity = 22;
 
     inline_buf: Inline,
     heap: []u8,

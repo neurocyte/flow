@@ -146,7 +146,8 @@ tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
 working_directory: std.ArrayList(u8) = .empty,
 
-last_printed: []const u8 = "",
+last_printed_buf: [Screen.Grapheme.inline_capacity]u8 = undefined, // for REP (CSI b)
+last_printed_len: u8 = 0,
 /// Scratch buffer for decoding OSC 52 base64 clipboard data.
 osc52_buf: std.ArrayListUnmanaged(u8) = .empty,
 
@@ -496,6 +497,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         var n: usize = 1;
                         while (n < rest.len and rest[n] >= 0x20 and rest[n] < 0x7f) : (n += 1) {}
                         for (rest[0..n]) |*b| try self.back_screen.print(b[0..1], 1, self.mode.autowrap);
+                        self.setLastPrinted(rest[n - 1 .. n]);
                         rest = rest[n..];
                         continue;
                     }
@@ -507,8 +509,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     if (active_charset == .dec_special and gr.len == 1) {
                         const mapped = decSpecialChar(gr[0]);
                         try self.back_screen.print(mapped, @truncate(w), self.mode.autowrap);
+                        self.setLastPrinted(mapped);
                     } else {
                         try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
+                        self.setLastPrinted(gr);
                     }
                     rest = rest[gr.len..];
                 }
@@ -756,15 +760,17 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             self.back_screen.cursor.col + n,
                         );
                     },
-                    // Repeat Previous Character
+                    // REP - Repeat the last printed graphic character Ps times.
                     'b' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
-                        // TODO: maybe not .unicode
-                        const w = vaxis.gwidth.gwidth(self.last_printed, .unicode);
+                        const last = self.lastPrinted();
+                        if (last.len == 0) continue;
+                        // TODO: use actual instead of .unicode
+                        const w = vaxis.gwidth.gwidth(last, .unicode);
                         var i: usize = 0;
                         while (i < n) : (i += 1) {
-                            try self.back_screen.print(self.last_printed, @truncate(w), self.mode.autowrap);
+                            try self.back_screen.print(last, @truncate(w), self.mode.autowrap);
                         }
                     },
                     // Device Attributes
@@ -1281,7 +1287,7 @@ fn hardReset(self: *Terminal) !void {
     self.app_fg_color = null;
     self.app_bg_color = null;
     self.app_cursor_color = null;
-    self.last_printed = "";
+    self.last_printed_len = 0;
 
     self.dirty = true;
 }
@@ -1380,6 +1386,20 @@ pub fn paste(self: *Terminal, text: []const u8) void {
     if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[200~") catch {};
     pty_writer.writeAll(text) catch {};
     if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[201~") catch {};
+}
+
+fn setLastPrinted(self: *Terminal, bytes: []const u8) void {
+    if (bytes.len > self.last_printed_buf.len) {
+        // just ignore long graphemes
+        self.last_printed_len = 0;
+        return;
+    }
+    @memcpy(self.last_printed_buf[0..bytes.len], bytes);
+    self.last_printed_len = @intCast(bytes.len);
+}
+
+fn lastPrinted(self: *const Terminal) []const u8 {
+    return self.last_printed_buf[0..self.last_printed_len];
 }
 
 pub fn homeCursor(self: *Terminal) void {
