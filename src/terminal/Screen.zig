@@ -891,6 +891,19 @@ pub fn cursorDown(self: *Screen, n: usize) void {
         );
 }
 
+/// ECH - erase `n` characters starting at the cursor, without moving it.
+/// Erasing stops at the end of the line; it never runs on into the next row.
+pub fn eraseCharacters(self: *Screen, n: usize) void {
+    self.cursor.pending_wrap = false;
+    const last = @min(@as(usize, self.cursor.col) + n, @as(usize, self.width));
+    const start = self.rowIndex(self.cursor.row, self.cursor.col);
+    const end = self.rowIndex(self.cursor.row, last);
+    var i = start;
+    while (i < end) : (i += 1) {
+        self.buf[i].erase(self.allocator, self.cursor.style.bg);
+    }
+}
+
 pub fn eraseRight(self: *Screen) void {
     self.cursor.pending_wrap = false;
     const start = self.rowIndex(self.cursor.row, self.cursor.col);

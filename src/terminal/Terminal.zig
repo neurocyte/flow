@@ -726,20 +726,12 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             try self.resetTabStops();
                         }
                     },
+                    // ECH - erase Ps characters from the cursor onwards, without
+                    // moving it. Ps of 0 selects the default of 1.
                     'X' => {
-                        self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
-                        const start = self.back_screen.cursor.row * self.back_screen.width + self.back_screen.cursor.col;
-                        const end = @max(
-                            self.back_screen.cursor.row * self.back_screen.width + self.back_screen.width,
-                            n,
-                            1, // In case n == 0
-                        );
-                        var i: usize = start;
-                        while (i < end) : (i += 1) {
-                            self.back_screen.buf[i].erase(self.allocator, self.back_screen.cursor.style.bg);
-                        }
+                        self.back_screen.eraseCharacters(@max(n, 1));
                     },
                     'Z' => {
                         var iter = seq.iterator(u16);
