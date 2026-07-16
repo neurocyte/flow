@@ -519,6 +519,7 @@ pub fn build_exe(
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "DoubleMappedRingBuffer", .module = double_mapped_ring_buffer_mod },
             .{ .name = "xterm", .module = xterm_mod },
+            .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
 

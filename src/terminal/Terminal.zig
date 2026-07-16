@@ -7,6 +7,7 @@ const ansi = @import("ansi.zig");
 pub const Parser = @import("Parser.zig");
 const vaxis = @import("vaxis");
 const xterm = @import("xterm");
+const root = @import("soft_root").root;
 
 // Platform-specific pty/command implementations
 const is_windows = builtin.os.tag == .windows;
@@ -925,10 +926,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             const pty_writer = self.get_pty_writer();
                             defer pty_writer.flush() catch {};
                             switch (pm) {
-                                // XTVERSION
+                                // XTVERSION - `<name> <version>` is the common form
                                 '>' => try pty_writer.print(
-                                    "\x1bP>|libvaxis {s}\x1B\\",
-                                    .{"dev"},
+                                    "\x1bP>|{s} {s}\x1B\\",
+                                    .{ root.application_name, root.version_number },
                                 ),
                                 else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
