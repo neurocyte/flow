@@ -626,12 +626,19 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         self.back_screen.cursor.pending_wrap = false;
                     },
                     // Cursor Absolute Position
+                    // Depends on origin mode (DECOM).
                     'H', 'f' => {
                         var iter = seq.iterator(u16);
                         const row = iter.next() orelse 1;
                         const col = iter.next() orelse 1;
-                        self.back_screen.cursor.col = col -| 1;
-                        self.back_screen.cursor.row = row -| 1;
+                        const sr = self.back_screen.scrolling_region;
+                        if (self.mode.origin) {
+                            self.back_screen.cursor.row = @min(sr.top +| (row -| 1), sr.bottom);
+                            self.back_screen.cursor.col = @min(sr.left +| (col -| 1), sr.right);
+                        } else {
+                            self.back_screen.cursor.row = @min(row -| 1, self.back_screen.height -| 1);
+                            self.back_screen.cursor.col = @min(col -| 1, self.back_screen.width -| 1);
+                        }
                         self.back_screen.cursor.pending_wrap = false;
                     },
                     // Cursor Horizontal Tab
@@ -924,14 +931,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         const bottom = iter.next() orelse self.back_screen.height;
                         self.back_screen.scrolling_region.top = top -| 1;
                         self.back_screen.scrolling_region.bottom = bottom -| 1;
-                        self.back_screen.cursor.pending_wrap = false;
-                        if (self.mode.origin) {
-                            self.back_screen.cursor.col = self.back_screen.scrolling_region.left;
-                            self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
-                        } else {
-                            self.back_screen.cursor.col = 0;
-                            self.back_screen.cursor.row = 0;
-                        }
+                        self.homeCursor();
                     },
                     // CSI ? u - query Kitty keyboard protocol flags; respond with 0 (not enabled)
                     // Kitty keyboard protocol
@@ -1316,7 +1316,9 @@ pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
     if (!private) return .not_recognized;
     return switch (mode) {
         1 => modeState(self.mode.cursor_keys_app), // DECCKM
+        6 => modeState(self.mode.origin), // DECOM
         7 => modeState(self.mode.autowrap), // DECAWM
+        9 => modeState(self.mode.mouse == .x10), // X10 mouse
         25 => modeState(self.mode.cursor), // DECTCEM
         1000 => modeState(self.mode.mouse == .normal),
         1002 => modeState(self.mode.mouse == .button_event),
@@ -1333,7 +1335,12 @@ pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
 pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
     switch (mode) {
         1 => self.mode.cursor_keys_app = val,
+        6 => { // Setting or resetting origin mode also homes the cursor
+            self.mode.origin = val;
+            self.homeCursor();
+        },
         7 => self.mode.autowrap = val,
+        9 => self.mode.mouse = if (val) .x10 else .none,
         1000 => self.mode.mouse = if (val) .normal else .none,
         1002 => self.mode.mouse = if (val) .button_event else .none,
         1003 => self.mode.mouse = if (val) .any_event else .none,
@@ -1363,6 +1370,17 @@ pub fn paste(self: *Terminal, text: []const u8) void {
     if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[200~") catch {};
     pty_writer.writeAll(text) catch {};
     if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[201~") catch {};
+}
+
+pub fn homeCursor(self: *Terminal) void {
+    self.back_screen.cursor.pending_wrap = false;
+    if (self.mode.origin) {
+        self.back_screen.cursor.col = self.back_screen.scrolling_region.left;
+        self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
+    } else {
+        self.back_screen.cursor.col = 0;
+        self.back_screen.cursor.row = 0;
+    }
 }
 
 pub fn carriageReturn(self: *Terminal) void {
