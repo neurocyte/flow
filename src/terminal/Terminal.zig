@@ -125,6 +125,10 @@ fg_color: [3]u8 = .{ 0xff, 0xff, 0xff },
 bg_color: [3]u8 = .{ 0x00, 0x00, 0x00 },
 /// 256-colour palette stored and fetched by OSC 4 queries.
 palette: [256][3]u8 = xterm_palette_default,
+/// The palette an OSC 104 / RIS reset restores.
+palette_default: [256][3]u8 = xterm_palette_default,
+/// Set once a client overrides any entry.
+palette_modified: bool = false,
 /// Colours overridden by the terminal application via OSC 10/11/12.
 /// null = not overridden (fall back to fg_color/bg_color/default cursor).
 app_fg_color: ?[3]u8 = null,
@@ -559,6 +563,12 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     // ESC \ is ST (String Terminator) - a no-op at top level.
                     // Appears when ST is split from its OSC/APC across a read boundary.
                     '\\' => {},
+                    // RIS - Reset to Initial State.
+                    // Full device reset is not yet implemented; for now we reset just the palette.
+                    'c' => if (esc.len == 1) {
+                        self.palette = self.palette_default;
+                        self.palette_modified = false;
+                    } else log.debug("unhandled escape: {s}", .{esc}),
                     else => log.debug("unhandled escape: {s}", .{esc}),
                 }
             },
@@ -1037,6 +1047,20 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                 );
                             } else if (parseOscRgb(spec)) |rgb| {
                                 self.palette[idx] = rgb;
+                                self.palette_modified = true;
+                            }
+                        }
+                    },
+                    // OSC 104 - reset entire palette, or individual colours.
+                    104 => {
+                        if (rest.len == 0) {
+                            self.palette = self.palette_default;
+                            self.palette_modified = false;
+                        } else {
+                            var it = std.mem.splitScalar(u8, rest, ';');
+                            while (it.next()) |idx_str| {
+                                const idx = std.fmt.parseUnsigned(u8, idx_str, 10) catch continue;
+                                self.palette[idx] = self.palette_default[idx];
                             }
                         }
                     },
