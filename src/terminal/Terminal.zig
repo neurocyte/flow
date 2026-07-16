@@ -850,21 +850,34 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         }
                     },
                     'p' => {
-                        var iter = seq.iterator(u16);
-                        const ps = iter.next() orelse 0;
                         if (seq.intermediate) |int| {
                             switch (int) {
-                                // report mode
+                                // DECRQM - Request Mode.
+                                // `CSI Ps $ p` is ANSI. `CSI ? Ps $ p` is DEC private.
                                 '$' => {
+                                    const private = switch (seq.private_marker orelse 0) {
+                                        0 => false,
+                                        '?' => true,
+                                        else => {
+                                            log.debug("unhandled CSI: {f}", .{seq});
+                                            continue;
+                                        },
+                                    };
+                                    var iter = seq.iterator(u16);
+                                    const ps = iter.next() orelse 0;
+                                    const state = self.queryMode(ps, private);
+                                    if (state == .not_recognized)
+                                        log.debug("DECRQM for unimplemented mode: {s}{d}", .{
+                                            if (private) "?" else "",
+                                            ps,
+                                        });
                                     const pty_writer = self.get_pty_writer();
                                     defer pty_writer.flush() catch {};
-                                    switch (ps) {
-                                        2026 => try pty_writer.writeAll("\x1b[?2026;2$p"),
-                                        else => {
-                                            std.log.warn("unhandled mode: {}", .{ps});
-                                            try pty_writer.print("\x1b[?{d};0$p", .{ps});
-                                        },
-                                    }
+                                    try pty_writer.print("\x1b[{s}{d};{d}$y", .{
+                                        if (private) "?" else "",
+                                        ps,
+                                        @intFromEnum(state),
+                                    });
                                 },
                                 // DECSTR - Soft Terminal Reset (CSI ! p)
                                 '!' => self.softReset(),
@@ -1281,6 +1294,39 @@ fn softReset(self: *Terminal) void {
         .bottom = self.back_screen.height -| 1,
         .left = 0,
         .right = self.back_screen.width -| 1,
+    };
+}
+
+/// The state of a mode as reported by DECRPM in response to DECRQM.
+pub const ModeState = enum(u8) {
+    not_recognized = 0,
+    set = 1,
+    reset = 2,
+    permanently_set = 3,
+    permanently_reset = 4,
+};
+
+fn modeState(val: bool) ModeState {
+    return if (val) .set else .reset;
+}
+
+/// DECRQM - report the current state of `mode`.
+pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
+    // We implement no ANSI modes yet (IRM, LNM, ...).
+    if (!private) return .not_recognized;
+    return switch (mode) {
+        1 => modeState(self.mode.cursor_keys_app), // DECCKM
+        7 => modeState(self.mode.autowrap), // DECAWM
+        25 => modeState(self.mode.cursor), // DECTCEM
+        1000 => modeState(self.mode.mouse == .normal),
+        1002 => modeState(self.mode.mouse == .button_event),
+        1003 => modeState(self.mode.mouse == .any_event),
+        1006 => modeState(self.mode.mouse_sgr),
+        1049 => modeState(self.back_screen == &self.back_screen_alt),
+        2004 => modeState(self.mode.bracketed_paste),
+        2026 => modeState(self.mode.sync),
+        1005, 1015 => .permanently_reset,
+        else => .not_recognized,
     };
 }
 
