@@ -1552,6 +1552,16 @@ const xterm_palette_default: [256][3]u8 = blk: {
 
 /// Parse an X11 rgb: colour spec of the form "rgb:RRRR/GGGG/BBBB".
 /// Returns the high byte of each 16-bit channel as [3]u8, or null on failure.
+/// One `rgb:` component. Per the X colour spec each is 1-4 hex digits naming a
+/// fraction of full scale, so the digit count sets the scale: `f`, `ff`, `fff`
+/// and `ffff` are all fully saturated.
+fn parseRgbComponent(s: []const u8) ?u8 {
+    if (s.len == 0 or s.len > 4) return null;
+    const v = std.fmt.parseUnsigned(u16, s, 16) catch return null;
+    const scale: u32 = (@as(u32, 1) << @intCast(4 * s.len)) - 1;
+    return @intCast((@as(u32, v) * 255 + scale / 2) / scale);
+}
+
 fn parseOscRgb(spec: []const u8) ?[3]u8 {
     // Accept both "rgb:RRRR/GGGG/BBBB" (16-bit) and "#RRGGBB" (8-bit) formats.
     if (std.mem.startsWith(u8, spec, "rgb:")) {
@@ -1560,11 +1570,11 @@ fn parseOscRgb(spec: []const u8) ?[3]u8 {
         const rs = it.next() orelse return null;
         const gs = it.next() orelse return null;
         const bs = it.next() orelse return null;
-        // Take the high byte only (first two hex digits).
-        const r = std.fmt.parseUnsigned(u8, rs[0..@min(2, rs.len)], 16) catch return null;
-        const g = std.fmt.parseUnsigned(u8, gs[0..@min(2, gs.len)], 16) catch return null;
-        const b = std.fmt.parseUnsigned(u8, bs[0..@min(2, bs.len)], 16) catch return null;
-        return .{ r, g, b };
+        return .{
+            parseRgbComponent(rs) orelse return null,
+            parseRgbComponent(gs) orelse return null,
+            parseRgbComponent(bs) orelse return null,
+        };
     } else if (spec.len == 7 and spec[0] == '#') {
         const r = std.fmt.parseUnsigned(u8, spec[1..3], 16) catch return null;
         const g = std.fmt.parseUnsigned(u8, spec[3..5], 16) catch return null;
