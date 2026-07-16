@@ -449,9 +449,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     };
     if (!focused_view) self.plane.window.setCursorShape(.unfocused);
 
-    // Resolve ANSI colour indices 0–15 to theme RGB values
+    // Resolve colour indices against the terminal's palette.
     {
-        const palette = theme.ansi_palette;
+        const palette = &self.vt.vt.palette;
         const win = self.plane.window;
         const scr = win.screen;
         const y_off: usize = @intCast(win.y_off);
@@ -473,11 +473,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return self.vt.vt.dirty;
 }
 
-fn resolve_color(c: *vaxis.Cell.Color, palette: [16][3]u8) void {
+fn resolve_color(c: *vaxis.Cell.Color, palette: *const [256][3]u8) void {
     switch (c.*) {
-        .index => |idx| if (idx < 16) {
-            c.* = .{ .rgb = palette[idx] };
-        },
+        .index => |idx| c.* = .{ .rgb = palette[idx] },
         else => {},
     }
 }
