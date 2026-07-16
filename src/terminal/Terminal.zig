@@ -973,8 +973,37 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         '<' => {},
                         else => log.debug("unhandled CSI: {f}", .{seq}),
                     },
-                    // CSI Ps t - XTWINOPS window operations; silently ignore
-                    't' => {},
+                    // CSI Ps t - XTWINOPS. Only the geometry reports are
+                    // implemented; the window manipulation ops (resize/move/
+                    // iconify) are widely ignored.
+                    't' => {
+                        var iter = seq.iterator(u16);
+                        const ps = iter.next() orelse 0;
+                        switch (ps) {
+                            14, 16, 18 => {
+                                const rows = self.back_screen.height;
+                                const cols = self.back_screen.width;
+                                const pty_writer = self.get_pty_writer();
+                                defer pty_writer.flush() catch {};
+                                switch (ps) {
+                                    // Text area size in pixels.
+                                    14 => try pty_writer.print("\x1b[4;{d};{d}t", .{
+                                        self.cell_pixel_h *| rows,
+                                        self.cell_pixel_w *| cols,
+                                    }),
+                                    // Cell size in pixels.
+                                    16 => try pty_writer.print("\x1b[6;{d};{d}t", .{
+                                        self.cell_pixel_h,
+                                        self.cell_pixel_w,
+                                    }),
+                                    // Text area size in cells.
+                                    18 => try pty_writer.print("\x1b[8;{d};{d}t", .{ rows, cols }),
+                                    else => unreachable,
+                                }
+                            },
+                            else => log.debug("unhandled XTWINOPS: {f}", .{seq}),
+                        }
+                    },
                     else => log.debug("unhandled CSI: {f}", .{seq}),
                 }
             },
@@ -1407,6 +1436,24 @@ fn setLastPrinted(self: *Terminal, bytes: []const u8) void {
 
 fn lastPrinted(self: *const Terminal) []const u8 {
     return self.last_printed_buf[0..self.last_printed_len];
+}
+
+fn cellPixelsOf(ws: Winsize) struct { w: u16, h: u16 } {
+    return .{
+        .w = if (ws.cols > 0) ws.x_pixel / ws.cols else 0,
+        .h = if (ws.rows > 0) ws.y_pixel / ws.rows else 0,
+    };
+}
+
+fn winsizeForScreen(self: *const Terminal) Winsize {
+    const rows = self.front_screen.height;
+    const cols = self.front_screen.width;
+    return .{
+        .rows = rows,
+        .cols = cols,
+        .x_pixel = self.cell_pixel_w *| cols,
+        .y_pixel = self.cell_pixel_h *| rows,
+    };
 }
 
 pub fn homeCursor(self: *Terminal) void {

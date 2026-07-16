@@ -971,6 +971,21 @@ const cmds = struct {
     pub const terminal_open_last_command_output_meta: Meta = .{ .description = "Terminal: Open last command output" };
 };
 
+fn winsize_for(rows: u16, cols: u16) vaxis.Winsize {
+    const cell = tui.rdr().cell_size() orelse return .{
+        .rows = rows,
+        .cols = cols,
+        .x_pixel = 0,
+        .y_pixel = 0,
+    };
+    return .{
+        .rows = rows,
+        .cols = cols,
+        .x_pixel = cell.w *| cols,
+        .y_pixel = cell.h *| rows,
+    };
+}
+
 const Vt = struct {
     vt: Terminal,
     env: std.process.Environ.Map,
@@ -1004,7 +1019,7 @@ const Vt = struct {
             cmd_argv,
             &env,
             .{
-                .winsize = .{ .rows = rows, .cols = cols, .x_pixel = 0, .y_pixel = 0 },
+                .winsize = winsize_for(rows, cols),
                 .scrollback_size = tui.config().terminal_scrollback_size,
                 .initial_working_directory = blk: {
                     const project = tp.env.get().str("project");
@@ -1059,12 +1074,7 @@ const Vt = struct {
     pub fn resize(self: *@This(), pos: Widget.Box) void {
         const cols: u16 = @intCast(@max(1, pos.w));
         const rows: u16 = @intCast(@max(1, pos.h));
-        self.vt.resize(.{
-            .rows = rows,
-            .cols = cols,
-            .x_pixel = 0,
-            .y_pixel = 0,
-        }) catch |e| {
+        self.vt.resize(winsize_for(rows, cols)) catch |e| {
             std.log.err("terminal: resize failed: {}", .{e});
         };
     }
