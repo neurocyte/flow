@@ -9,6 +9,7 @@ const VcsStatus = @import("VcsStatus");
 const file_type_config = @import("file_type_config");
 const file_link = @import("file_link");
 const Buffer = @import("Buffer");
+const bin_path = @import("bin_path");
 const builtin = @import("builtin");
 
 const project_manager = @import("project_manager.zig");
@@ -347,6 +348,12 @@ pub fn handle_lsp_not_found(self: *Self, lsp_name: []const u8) void {
     self.logger_lsp.print("'{s}' executable not found", .{lsp_name});
 }
 
+fn check_lsp_available(self: *Self, lsp_name: []const u8) error{LspFailed}!void {
+    if (bin_path.can_execute(self.allocator, lsp_name)) return;
+    self.handle_lsp_not_found(lsp_name);
+    return error.LspFailed;
+}
+
 fn mark_lsp_unavailable(self: *Self, lsp_name: []const u8) void {
     if (self.lsp_unavailable.contains(lsp_name)) return;
     const key = self.allocator.dupe(u8, lsp_name) catch return;
@@ -378,6 +385,7 @@ fn restart_lsp_client_inner(self: *Self, lsp_name: []const u8, mode: RestartMode
         if (self.get_existing_lsp_client(lsp_name)) |client| return client;
     }
     const old_client = self.language_servers.get(lsp_name) orelse return error.LspFailed;
+    try self.check_lsp_available(lsp_name);
     const new_client = try old_client.restart();
     errdefer new_client.deinit();
     self.evict_lsp_client(lsp_name);
@@ -401,6 +409,7 @@ pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const
     if (self.is_lsp_unavailable(lsp_name)) return error.LspFailed;
 
     const client = self.get_existing_lsp_client(lsp_name) orelse blk: {
+        try self.check_lsp_available(lsp_name);
         self.evict_lsp_client(lsp_name);
         const new_client = try LSPClient.start(self.allocator, self.name, language_server, language_server_options, language_server_protocol, from, false);
         errdefer new_client.deinit();
