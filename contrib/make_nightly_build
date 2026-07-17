@@ -170,6 +170,17 @@ if [ -n "$ALLOW_DIRTY" ]; then
     exit 0
 fi
 
+if [ -z "$NO_AUR" ]; then
+    echo preparing upload to arch linux AUR
+    git clone ssh://aur@aur.archlinux.org/flow-control-nightly-bin
+    cd flow-control-nightly-bin
+    PKGVER=${VERSION#v}
+    sed -i "s/^pkgver=.*/pkgver=${PKGVER//-/.}/" PKGBUILD
+    makepkg --printsrcinfo >.SRCINFO
+    git commit -a -m "$title $VERSION"
+    cd ..
+fi
+
 if [ -z "$NO_FLOWCONTROL" ]; then
     ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz"
     ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz.sig"
@@ -198,11 +209,7 @@ fi
 
 if [ -z "$NO_AUR" ]; then
     echo uploading to arch linux AUR
-    git clone ssh://aur@aur.archlinux.org/flow-control-nightly-bin
     cd flow-control-nightly-bin
-    PKGVER=${VERSION#v}
-    sed -i "s/^pkgver=.*/pkgver=${PKGVER//-/.}/" PKGBUILD
-    makepkg --printsrcinfo >.SRCINFO
-    git commit -a -m "$title $VERSION"
     git push
+    cd ..
 fi
