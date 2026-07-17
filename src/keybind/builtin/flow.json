@@ -588,6 +588,7 @@
             ["ctrl+alt+shift+g", "terminal_open_last_command_output"],
             ["ctrl+alt+h", "terminal_open_scrollback_buffer"],
             ["ctrl+alt+shift+h", "terminal_open_scrollback_buffer"],
+            ["ctrl+alt+o", "terminal_open_file_links"],
             ["ctrl+shift+space", "terminal_open_file_links"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+shift+j", "toggle_maximize_panel"],
