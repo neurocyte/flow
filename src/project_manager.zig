@@ -551,6 +551,8 @@ const Process = struct {
             return;
         } else if (try cbor.match(m.buf, .{ "exit", "error.LspFailed", tp.more })) {
             return;
+        } else if (try cbor.match(m.buf, .{ "exit", "error.SendFailed", tp.more })) {
+            return;
         } else if (try cbor.match(m.buf, .{ "request_vcs_blame", tp.extract(&project_directory), tp.extract(&path) })) {
             self.request_vcs_blame(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "restart_language_server", tp.extract(&project_directory), tp.extract(&path) })) {
