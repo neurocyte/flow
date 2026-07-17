@@ -29,6 +29,7 @@ open_time: i64,
 language_servers: std.StringHashMap(*LSPClient),
 file_language_server_name: std.StringHashMap([]const u8),
 lsp_unavailable: std.StringHashMapUnmanaged(void) = .empty,
+lsp_commands: std.StringHashMapUnmanaged(LspCommand) = .empty,
 tasks: std.ArrayList(Task),
 persistent: bool = false,
 logger: log.Logger,
@@ -141,6 +142,13 @@ pub fn deinit(self: *Self) void {
     var i_unavail = self.lsp_unavailable.iterator();
     while (i_unavail.next()) |p| self.allocator.free(p.key_ptr.*);
     self.lsp_unavailable.deinit(self.allocator);
+    var i_commands = self.lsp_commands.iterator();
+    while (i_commands.next()) |p| {
+        self.allocator.free(p.key_ptr.*);
+        self.allocator.free(p.value_ptr.language_server);
+        self.allocator.free(p.value_ptr.language_server_options);
+    }
+    self.lsp_commands.deinit(self.allocator);
     for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
     self.new_or_modified_files.deinit(self.allocator);
     for (self.files.items) |file| self.allocator.free(file.path);
@@ -354,6 +362,33 @@ fn check_lsp_available(self: *Self, lsp_name: []const u8) error{LspFailed}!void 
     return error.LspFailed;
 }
 
+const LspCommand = struct {
+    language_server: []const u8,
+    language_server_options: []const u8,
+    language_server_protocol: file_type_config.ProtocolLevel,
+};
+
+fn remember_lsp_command(
+    self: *Self,
+    lsp_name: []const u8,
+    language_server: []const u8,
+    language_server_options: []const u8,
+    language_server_protocol: file_type_config.ProtocolLevel,
+) error{OutOfMemory}!void {
+    if (self.lsp_commands.contains(lsp_name)) return;
+    const key = try self.allocator.dupe(u8, lsp_name);
+    errdefer self.allocator.free(key);
+    const command = try self.allocator.dupe(u8, language_server);
+    errdefer self.allocator.free(command);
+    const options = try self.allocator.dupe(u8, language_server_options);
+    errdefer self.allocator.free(options);
+    try self.lsp_commands.put(self.allocator, key, .{
+        .language_server = command,
+        .language_server_options = options,
+        .language_server_protocol = language_server_protocol,
+    });
+}
+
 fn mark_lsp_unavailable(self: *Self, lsp_name: []const u8) void {
     if (self.lsp_unavailable.contains(lsp_name)) return;
     const key = self.allocator.dupe(u8, lsp_name) catch return;
@@ -384,9 +419,21 @@ fn restart_lsp_client_inner(self: *Self, lsp_name: []const u8, mode: RestartMode
         if (self.is_lsp_unavailable(lsp_name)) return error.LspFailed;
         if (self.get_existing_lsp_client(lsp_name)) |client| return client;
     }
-    const old_client = self.language_servers.get(lsp_name) orelse return error.LspFailed;
     try self.check_lsp_available(lsp_name);
-    const new_client = try old_client.restart();
+    const new_client = if (self.language_servers.get(lsp_name)) |old_client|
+        try old_client.restart()
+    else blk: {
+        const command = self.lsp_commands.get(lsp_name) orelse return error.LspFailed;
+        break :blk try LSPClient.start(
+            self.allocator,
+            self.name,
+            command.language_server,
+            command.language_server_options,
+            command.language_server_protocol,
+            self.parent.ref(),
+            true, // notify_restart
+        );
+    };
     errdefer new_client.deinit();
     self.evict_lsp_client(lsp_name);
     try self.language_servers.put(try self.allocator.dupe(u8, lsp_name), new_client);
@@ -408,7 +455,16 @@ pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const
         return self.restart_lsp_client(existing);
     if (self.is_lsp_unavailable(lsp_name)) return error.LspFailed;
 
-    const client = self.get_existing_lsp_client(lsp_name) orelse blk: {
+    try self.remember_lsp_command(lsp_name, language_server, language_server_options, language_server_protocol);
+    {
+        const key = try self.allocator.dupe(u8, file_path);
+        errdefer self.allocator.free(key);
+        const value = try self.allocator.dupe(u8, lsp_name);
+        errdefer self.allocator.free(value);
+        try self.file_language_server_name.put(key, value);
+    }
+
+    return self.get_existing_lsp_client(lsp_name) orelse blk: {
         try self.check_lsp_available(lsp_name);
         self.evict_lsp_client(lsp_name);
         const new_client = try LSPClient.start(self.allocator, self.name, language_server, language_server_options, language_server_protocol, from, false);
@@ -416,11 +472,6 @@ pub fn get_or_start_lsp_client(self: *Self, from: tp.pid_ref, file_path: []const
         try self.language_servers.put(try self.allocator.dupe(u8, lsp_name), new_client);
         break :blk new_client;
     };
-
-    const key = try self.allocator.dupe(u8, file_path);
-    const value = try self.allocator.dupe(u8, lsp_name);
-    try self.file_language_server_name.put(key, value);
-    return client;
 }
 
 pub fn get_lsp_client_for_file(self: *Self, file_path: []const u8) StartLspError!*LSPClient {
@@ -992,7 +1043,13 @@ pub const SendGotoRequestError = LSPClient.SendGotoRequestError;
 
 fn goto_client(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!?*LSPClient {
     return self.get_lsp_client_for_file(args.src.path) catch |e| switch (e) {
-        error.NoLsp => {
+        // no language server is available for this file
+        error.NoLsp,
+        error.LspFailed,
+        error.ThespianSpawnFailed,
+        error.InvalidLspCommand,
+        error.Timeout,
+        => {
             if (args.alternative_destination) |*link| try LSPClient.navigate_to_alternate_destination(from.ref(), link);
             return null;
         },

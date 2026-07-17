@@ -947,6 +947,11 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, args: *const SourceLocation,
             self_.from.deinit();
         }
 
+        fn goto_alternative_destination(self_: @This()) !void {
+            if (self_.alternative_destination) |*link_|
+                try navigate_to_alternate_destination(self_.from.ref(), link_);
+        }
+
         pub fn receive(self_: @This(), response: tp.message) !void {
             var link: []const u8 = undefined;
             var locations: []const u8 = undefined;
@@ -954,12 +959,14 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, args: *const SourceLocation,
                 if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
                     try navigate_to_location_link(self_.from.ref(), link);
                 } else if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&locations) })) {
+                    // an empty result array means the server found nothing
+                    var iter = locations;
+                    if (try cbor.decodeArrayHeader(&iter) == 0)
+                        return self_.goto_alternative_destination();
                     _ = try send_reference_list("REF", self_.from.ref(), locations, self_.name);
                 }
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-                if (self_.alternative_destination) |*link_|
-                    try navigate_to_alternate_destination(self_.from.ref(), link_);
-                return;
+                return self_.goto_alternative_destination();
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&link) })) {
                 try navigate_to_location_link(self_.from.ref(), link);
             }
