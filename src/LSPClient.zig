@@ -107,6 +107,10 @@ pub fn expired(self: *const Self) bool {
     return self.lsp.pid.expired();
 }
 
+pub fn process_instance_id(self: *const Self) usize {
+    return self.lsp.pid.instance_id();
+}
+
 pub fn restart(self: *const Self) StartLspError!*Self {
     return Self.start(
         self.allocator,

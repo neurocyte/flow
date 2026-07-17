@@ -11,6 +11,7 @@ const widgets = std.StaticStringMap(CreateFunction).initComptime(.{
     .{ "log", @import("minilog.zig").create },
     .{ "selection", @import("selectionstate.zig").create },
     .{ "diagnostics", @import("diagstate.zig").create },
+    .{ "lsp", @import("lspstate.zig").create },
     .{ "linenumber", @import("linenumstate.zig").create },
     .{ "modifiers", @import("modstate.zig").create },
     .{ "keystate", @import("keystate.zig").create },

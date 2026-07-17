@@ -24,6 +24,7 @@ pub const FilePos = Project.FilePos;
 pub const Error = ProjectError || ProjectManagerError;
 
 pub const ProjectError = error{NoProject};
+pub const LspStatus = Project.LspStatus;
 
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 const OutOfMemoryError = error{OutOfMemory};
@@ -50,6 +51,14 @@ fn create() SpawnError!Self {
 
 pub fn start() SpawnError!void {
     _ = try get();
+}
+
+pub fn subscribe_lsp_status() ProjectManagerError!void {
+    return send(.{"subscribe_lsp_status"});
+}
+
+pub fn unsubscribe_lsp_status() ProjectManagerError!void {
+    return send(.{"unsubscribe_lsp_status"});
 }
 
 pub fn shutdown() void {
@@ -468,7 +477,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "not found" })) {
             self.handle_lsp_not_found(project_directory, language_server);
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "done" })) {
-            self.handle_lsp_terminated(project_directory, language_server) catch |e|
+            self.handle_lsp_terminated(from, project_directory, language_server) catch |e|
                 self.logger.err("lsp-restart", e);
         } else if (try cbor.match(m.buf, .{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
@@ -557,9 +566,23 @@ const Process = struct {
             self.request_vcs_blame(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "restart_language_server", tp.extract(&project_directory), tp.extract(&path) })) {
             self.restart_language_server(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{"subscribe_lsp_status"})) {
+            self.subscribe_lsp_status(from);
+        } else if (try cbor.match(m.buf, .{"unsubscribe_lsp_status"})) {
+            self.unsubscribe_lsp_status(from);
         } else {
             self.logger.err("receive", tp.unexpected(m));
         }
+    }
+
+    fn subscribe_lsp_status(self: *Process, from: tp.pid_ref) void {
+        var i = self.projects.valueIterator();
+        while (i.next()) |project| project.*.add_lsp_status_subscriber(from);
+    }
+
+    fn unsubscribe_lsp_status(self: *Process, from: tp.pid_ref) void {
+        var i = self.projects.valueIterator();
+        while (i.next()) |project| project.*.remove_lsp_status_subscriber(from);
     }
 
     fn open(self: *Process, project_directory: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {
@@ -586,9 +609,9 @@ const Process = struct {
         }
     }
 
-    fn handle_lsp_terminated(self: *Process, project_directory: []const u8, language_server: []const u8) (ProjectError || Project.StartLspError)!void {
+    fn handle_lsp_terminated(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8) (ProjectError || Project.StartLspError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        try project.handle_lsp_terminated(language_server);
+        try project.handle_lsp_terminated(from, language_server);
     }
 
     fn handle_lsp_not_found(self: *Process, project_directory: []const u8, language_server: []const u8) void {

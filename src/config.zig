@@ -65,7 +65,7 @@ indent_mode: IndentMode = .auto,
 reflow_width: usize = 76,
 
 top_bar: []const u8 = "tabs",
-bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch linenumber clock spacer",
+bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch lsp linenumber clock spacer",
 show_bottom_bar_grip: bool = true,
 show_scrollbars: bool = true,
 show_fileicons: bool = true,
