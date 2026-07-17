@@ -1067,12 +1067,14 @@ pub const Editor = struct {
     pub fn resume_undo_history(self: *Self, ctx: Context) Result {
         self.pause_undo = false;
         const b = self.buffer orelse return;
+        const root = self.buf_root() catch return;
+        const paused_root = self.pause_undo_root orelse return;
+        if (root == paused_root) return;
         var sfa = std.heap.stackFallback(512, self.allocator);
         const sfa_allocator = sfa.get();
         const meta = try self.store_undo_meta(sfa_allocator);
         defer sfa_allocator.free(meta);
-        const root = self.buf_root() catch return;
-        if (self.pause_undo_root) |paused_root| b.update(paused_root, ctx.now);
+        b.update(paused_root, ctx.now);
         try b.store_undo(meta);
         b.update(root, ctx.now);
     }
