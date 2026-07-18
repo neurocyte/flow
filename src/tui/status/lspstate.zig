@@ -97,8 +97,7 @@ fn overall(self: *Self) Overall {
 
 fn symbol(status: LspStatus) []const u8 {
     return switch (status) {
-        .running => "󰒋 ",
-        .starting => "󰔟 ",
+        .running, .starting => "󰒋 ",
         else => "󰅚 ",
     };
 }
