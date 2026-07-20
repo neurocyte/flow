@@ -443,7 +443,7 @@ pub const TabBar = struct {
                 &(try result.addManyAt(self.allocator, i, 1))[0]
             else
                 try result.addOne(self.allocator),
-            .after => |i| if (i < result.items.len - 1)
+            .after => |i| if (i + 1 < result.items.len)
                 &(try result.addManyAt(self.allocator, i + 1, 1))[0]
             else
                 try result.addOne(self.allocator),
