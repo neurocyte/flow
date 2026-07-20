@@ -1743,6 +1743,16 @@ const cmds = struct {
     }
     pub const toggle_ignore_theme_alpha_meta: Meta = .{ .description = "Toggle theme alpha" };
 
+    pub fn toggle_fullscreen(_: *Self, _: Ctx) Result {
+        if (comptime @hasDecl(tui.renderer, "toggle_fullscreen"))
+            return tui.rdr().toggle_fullscreen();
+        std.log.info("fullscreen mode unavailable", .{});
+        return;
+    }
+    pub const toggle_fullscreen_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "toggle_fullscreen")) "Toggle fullscreen" else &.{},
+    };
+
     pub fn set_fontface(_: *Self, ctx: Ctx) Result {
         var fontface: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&fontface)}))

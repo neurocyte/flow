@@ -174,6 +174,11 @@ var cursor_dirty: std.atomic.Value(bool) = .init(false);
 // Window attention request
 var attention_pending: std.atomic.Value(bool) = .init(false);
 
+// Window mode
+var current_mode: std.atomic.Value(u8) = .init(@intFromEnum(wio.WindowMode.normal));
+var pending_mode: std.atomic.Value(u8) = .init(@intFromEnum(wio.WindowMode.normal));
+var mode_dirty: std.atomic.Value(bool) = .init(false);
+
 // Current font set — written and read only from the wio thread (after gpu.init).
 var wio_font_set: gpu.FontSet = .{
     .cell_size = .{ .x = 8, .y = 16 },
@@ -693,6 +698,14 @@ pub fn requestAttention() void {
     wio.cancelWait();
 }
 
+pub fn toggleFullscreen() void {
+    const now: wio.WindowMode = @enumFromInt(current_mode.load(.acquire));
+    const target: wio.WindowMode = if (now == .fullscreen) .normal else .fullscreen;
+    pending_mode.store(@intFromEnum(target), .release);
+    mode_dirty.store(true, .release);
+    wio.cancelWait();
+}
+
 // ── Internal helpers (wio thread only) ────────────────────────────────────
 
 const Pixel = struct {
@@ -854,6 +867,9 @@ fn wioLoop() void {
                 .refresh_rate => |r| {
                     if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
                 },
+                .mode => |m| {
+                    current_mode.store(@intFromEnum(m), .release);
+                },
                 .size_physical => {
                     // Handled by onWioEventSync - runs inline from the
                     // wndproc so it works during Win32 modal pumps too.
@@ -966,6 +982,9 @@ fn wioLoop() void {
         }
         if (attention_pending.swap(false, .acq_rel)) {
             window.requestAttention();
+        }
+        if (mode_dirty.swap(false, .acq_rel)) {
+            window.setMode(@enumFromInt(pending_mode.load(.acquire)));
         }
     }
 

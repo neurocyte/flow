@@ -643,6 +643,11 @@ pub fn toggle_ignore_theme_alpha(self: *Self) void {
     app.toggleIgnoreThemeAlpha();
 }
 
+pub fn toggle_fullscreen(self: *Self) void {
+    _ = self;
+    app.toggleFullscreen();
+}
+
 pub fn set_fontface(self: *Self, fontface: []const u8) void {
     _ = self;
     app.setFontFace(fontface);
