@@ -1720,13 +1720,13 @@ const cmds = struct {
     pub const change_theme_meta: Meta = .{ .description = "Change color theme" };
 
     pub fn change_fontface(self: *Self, _: Ctx) Result {
-        if (build_options.gui)
+        if (comptime @hasDecl(renderer, "get_fontfaces"))
             self.rdr_.get_fontfaces()
         else
-            self.logger.print("change_fontface not supported in terminal rendererd builds", .{});
+            self.logger.print("change_fontface not supported", .{});
     }
     pub const change_fontface_meta: Meta = .{
-        .description = if (build_options.gui) "Change font" else &.{},
+        .description = if (@hasDecl(renderer, "get_fontfaces")) "Change font" else &.{},
     };
 
     pub fn exit_overlay_mode(self: *Self, ctx: Ctx) Result {

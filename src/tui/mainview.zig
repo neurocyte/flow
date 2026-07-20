@@ -1693,32 +1693,45 @@ const cmds = struct {
         var amount: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&amount)}))
             return error.InvalidArgument;
-        if (build_options.gui)
-            tui.rdr().adjust_fontsize(amount);
+        if (comptime @hasDecl(tui.renderer, "adjust_fontsize"))
+            tui.rdr().adjust_fontsize(amount)
+        else
+            std.log.info("adjust_fontsize not supported", .{});
     }
-    pub const adjust_fontsize_meta: Meta = .{ .arguments = &.{.float} };
+    pub const adjust_fontsize_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "adjust_fontsize")) "Adjust font size" else &.{},
+        .arguments = &.{.float},
+    };
 
     pub fn set_fontsize(_: *Self, ctx: Ctx) Result {
         var fontsize: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&fontsize)}))
             return error.InvalidArgument;
-        if (build_options.gui)
-            tui.rdr().set_fontsize(fontsize);
+        if (comptime @hasDecl(tui.renderer, "set_fontsize"))
+            tui.rdr().set_fontsize(fontsize)
+        else
+            std.log.info("set_fontsize not supported", .{});
     }
     pub const set_fontsize_meta: Meta = .{ .arguments = &.{.float} };
 
     pub fn reset_fontsize(_: *Self, _: Ctx) Result {
-        if (build_options.gui)
-            tui.rdr().reset_fontsize();
+        if (comptime @hasDecl(tui.renderer, "reset_fontsize"))
+            tui.rdr().reset_fontsize()
+        else
+            std.log.info("reset_fontsize not supported", .{});
     }
-    pub const reset_fontsize_meta: Meta = .{ .description = "Reset font to configured size" };
+    pub const reset_fontsize_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "reset_fontsize")) "Reset font to configured size" else &.{},
+    };
 
     pub fn set_background_opacity(_: *Self, ctx: Ctx) Result {
         var value: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&value)}))
             return error.InvalidArgument;
-        if (build_options.gui)
-            tui.rdr().set_background_opacity(value);
+        if (comptime @hasDecl(tui.renderer, "set_background_opacity"))
+            tui.rdr().set_background_opacity(value)
+        else
+            std.log.info("set_background_opacity not supported", .{});
     }
     pub const set_background_opacity_meta: Meta = .{ .arguments = &.{.float} };
 
@@ -1726,28 +1739,41 @@ const cmds = struct {
         var delta: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&delta)}))
             return error.InvalidArgument;
-        if (build_options.gui)
-            tui.rdr().adjust_background_opacity(delta);
+        if (comptime @hasDecl(tui.renderer, "adjust_background_opacity"))
+            tui.rdr().adjust_background_opacity(delta)
+        else
+            std.log.info("adjust_background_opacity not supported", .{});
     }
-    pub const adjust_background_opacity_meta: Meta = .{ .arguments = &.{.float}, .description = "Adjust window opacity" };
+    pub const adjust_background_opacity_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "adjust_background_opacity")) "Adjust window opacity" else &.{},
+        .arguments = &.{.float},
+    };
 
     pub fn reset_background_opacity(_: *Self, _: Ctx) Result {
-        if (build_options.gui)
-            tui.rdr().reset_background_opacity();
+        if (comptime @hasDecl(tui.renderer, "reset_background_opacity"))
+            tui.rdr().reset_background_opacity()
+        else
+            std.log.info("reset_background_opacity not supported", .{});
     }
-    pub const reset_background_opacity_meta: Meta = .{ .description = "Reset window opacity" };
+    pub const reset_background_opacity_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "reset_background_opacity")) "Reset window opacity" else &.{},
+    };
 
     pub fn toggle_ignore_theme_alpha(_: *Self, _: Ctx) Result {
-        if (build_options.gui)
-            tui.rdr().toggle_ignore_theme_alpha();
+        if (comptime @hasDecl(tui.renderer, "toggle_ignore_theme_alpha"))
+            tui.rdr().toggle_ignore_theme_alpha()
+        else
+            std.log.info("toggle_ignore_theme_alpha not supported", .{});
     }
-    pub const toggle_ignore_theme_alpha_meta: Meta = .{ .description = "Toggle theme alpha" };
+    pub const toggle_ignore_theme_alpha_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "toggle_ignore_theme_alpha")) "Toggle theme alpha" else &.{},
+    };
 
     pub fn toggle_fullscreen(_: *Self, _: Ctx) Result {
         if (comptime @hasDecl(tui.renderer, "toggle_fullscreen"))
-            return tui.rdr().toggle_fullscreen();
-        std.log.info("fullscreen mode unavailable", .{});
-        return;
+            tui.rdr().toggle_fullscreen()
+        else
+            std.log.info("fullscreen mode unavailable", .{});
     }
     pub const toggle_fullscreen_meta: Meta = .{
         .description = if (@hasDecl(tui.renderer, "toggle_fullscreen")) "Toggle fullscreen" else &.{},
@@ -1757,22 +1783,26 @@ const cmds = struct {
         var fontface: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&fontface)}))
             return error.InvalidArgument;
-        if (build_options.gui)
-            tui.rdr().set_fontface(fontface);
+        if (comptime @hasDecl(tui.renderer, "set_fontface"))
+            tui.rdr().set_fontface(fontface)
+        else
+            std.log.info("set_fontface not supported", .{});
     }
     pub const set_fontface_meta: Meta = .{ .arguments = &.{.float} };
 
     pub fn reset_fontface(_: *Self, _: Ctx) Result {
-        if (build_options.gui)
-            tui.rdr().reset_fontface();
+        if (comptime @hasDecl(tui.renderer, "reset_fontface"))
+            tui.rdr().reset_fontface()
+        else
+            std.log.info("reset_fontface not supported", .{});
     }
-    pub const reset_fontface_meta: Meta = .{ .description = "Reset font to configured face" };
+    pub const reset_fontface_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "reset_fontface")) "Reset font to configured face" else &.{},
+    };
 
     pub fn toggle_symbol_rasterizer(_: *Self, _: Ctx) Result {
-        const logger = log.logger("gui");
-        defer logger.deinit();
         if (comptime !@hasDecl(tui.renderer, "set_symbol_rasterizer")) {
-            logger.print("block and line symbols fixed", .{});
+            std.log.info("block and line symbols rendered by terminal", .{});
             return;
         }
         const gui_config = @import("gui_config");
@@ -1781,9 +1811,11 @@ const cmds = struct {
             .sprite => .font,
         };
         tui.rdr().set_symbol_rasterizer(next);
-        logger.print("block and line symbols {t}", .{next});
+        std.log.info("block and line symbols {t}", .{next});
     }
-    pub const toggle_symbol_rasterizer_meta: Meta = .{ .description = "Toggle block and line symbol rasterizer" };
+    pub const toggle_symbol_rasterizer_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "set_symbol_rasterizer")) "Toggle block and line symbol rasterizer" else &.{},
+    };
 
     pub fn next_tab(self: *Self, _: Ctx) Result {
         _ = try self.widgets_widget.msg(.{"next_tab"});
