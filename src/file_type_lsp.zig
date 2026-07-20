@@ -6,6 +6,11 @@ pub const @"asm" = .{
 
 pub const astro = .{
     .language_server = .{ "astro-ls", "--stdio" },
+    .formatter = .{ "prettier", "--plugin", "prettier-plugin-astro", "--parser", "astro" },
+};
+
+pub const awk = .{
+    .formatter = .{ "gawk", "--pretty-print=/dev/stdout" },
 };
 
 pub const bash = .{
@@ -37,6 +42,7 @@ pub const cpp = .{
 
 pub const css = .{
     .language_server = .{ "vscode-css-language-server", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "css" },
 };
 
 pub const diff = .{};
@@ -230,9 +236,19 @@ pub const rust = .{
 
 pub const scheme = .{};
 
+pub const scss = .{
+    .language_server = .{ "vscode-css-language-server", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "scss" },
+};
+
 pub const sql = .{};
 
 pub const @"ssh-config" = .{};
+
+pub const svg = .{
+    .language_server = .{"oxvg"},
+    .formatter = .{ "oxvg", "format", "-" },
+};
 
 pub const swift = .{
     .language_server = .{"sourcekit-lsp"},
@@ -269,6 +285,10 @@ pub const vim = .{};
 
 pub const vue = .{
     .language_server = .{ "vue-language-server", "--stdio" },
+};
+
+pub const wgsl = .{
+    .language_server = .{"wgsl-analyzer"},
 };
 
 pub const xml = .{
