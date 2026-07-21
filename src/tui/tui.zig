@@ -38,6 +38,7 @@ rdr_: renderer,
 render_pid: ?tp.pid = null,
 top_layer_: ?*renderer.Layer = null,
 top_layer_handle: ?renderer.Layer.Handle = null,
+top_layer_id_: ?renderer.Layer.Id = null,
 config_: @import("config"),
 config_bufs: [][]const u8,
 session_tab_width: ?usize = null,
@@ -2241,9 +2242,15 @@ pub const TopLayerMode = enum {
 pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32, mode: TopLayerMode) ?renderer.Plane {
     const self = current();
     if (self.top_layer_) |_| return null;
+    const id = self.top_layer_id_ orelse blk: {
+        const new_id = renderer.Layer.next_id();
+        self.top_layer_id_ = new_id;
+        break :blk new_id;
+    };
     self.top_layer_ = renderer.Layer.init(self.allocator, .{
         .h = @intCast(box.h),
         .w = @intCast(box.w),
+        .id = id,
     }) catch @panic("OOM toplayer");
     self.top_layer_.?.z_index = .top;
     self.top_layer_.?.transparent_bg = mode == .solid;
