@@ -14,13 +14,33 @@ pub const Cleanup = struct {
     func: *const fn (ctx: *anyopaque) void,
 };
 
-/// Set/reset the cleanup hook run before a crash report
-pub fn set_cleanup(c: ?Cleanup) void {
-    cleanup = c;
+pub const CleanupHandle = enum(usize) { _ };
+
+/// Maximum number of cleanup hooks.
+const max_cleanups = 4;
+
+/// Install a cleanup hook, run before a crash report. Hooks are run in
+/// reverse install order.
+pub fn add_cleanup(c: Cleanup) CleanupHandle {
+    if (cleanups_len >= max_cleanups) @panic("crash: too many cleanup hooks");
+    const handle = cleanups_len;
+    cleanups[handle] = c;
+    cleanups_len += 1;
+    return @enumFromInt(handle);
+}
+
+/// Remove a previously installed cleanup hook.
+pub fn remove_cleanup(handle_: CleanupHandle) void {
+    const handle: usize = @intFromEnum(handle_);
+    if (handle >= cleanups.len) return;
+    cleanups[handle] = null;
+    while (cleanups_len > 0 and cleanups[cleanups_len - 1] == null)
+        cleanups_len -= 1;
 }
 
 var sink: Sink = .tty;
-var cleanup: ?Cleanup = null;
+var cleanups: [max_cleanups]?Cleanup = @splat(null);
+var cleanups_len: usize = 0;
 var jit_debugger: bool = false;
 var gui_crash_dialog: bool = false;
 var in_progress: std.atomic.Value(bool) = .init(false);
@@ -120,9 +140,14 @@ fn fault_address(info: *const std.posix.siginfo_t) ?usize {
 }
 
 fn run_cleanup() void {
-    const c = cleanup;
-    cleanup = null;
-    if (c) |cb| cb.func(cb.ctx);
+    var i = cleanups_len;
+    while (i > 0) {
+        i -= 1;
+        const c = cleanups[i];
+        cleanups[i] = null;
+        if (c) |cb| cb.func(cb.ctx);
+    }
+    cleanups_len = 0;
 }
 
 fn report_fault(name: []const u8, addr: ?usize, ctx: ?std.debug.CpuContextPtr) void {

@@ -32,6 +32,7 @@ vx: vaxis.Vaxis,
 tty_buffer: []u8,
 cache_storage: *GraphemeCache.Storage,
 targets: std.ArrayList(Layer.Target) = .empty,
+crash_cleanup: ?crash.CleanupHandle = null,
 
 no_alternate: bool,
 config_enable_terminal_cursor: bool,
@@ -117,7 +118,10 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
 
 pub fn deinit(self: *Self) void {
     self.allocator.destroy(self.cache_storage);
-    crash.set_cleanup(null);
+    if (self.crash_cleanup) |h| {
+        crash.remove_cleanup(h);
+        self.crash_cleanup = null;
+    }
     self.loop.stop();
     self.vx.deinit(self.allocator, self.tty.writer());
     self.tty.deinit();
@@ -164,7 +168,7 @@ pub fn run(self: *Self, render_pid: ?@import("thespian").pid_ref) Error!void {
 
     Layer.set_root_caps(&self.vx.caps);
 
-    crash.set_cleanup(.{ .ctx = self, .func = restore_terminal_on_crash });
+    self.crash_cleanup = crash.add_cleanup(.{ .ctx = self, .func = restore_terminal_on_crash });
     if (!self.no_alternate) self.vx.enterAltScreen(self.tty.writer()) catch return error.TtyWriteError;
     if (builtin.os.tag == .windows) {
         try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
