@@ -378,7 +378,9 @@ fn buildLayerSnapshot(
                 bg.a = effectiveAlphaU8(bg.a, opacity, ignore);
             }
         }
-        const flags: u8 = if (vc.style.glyph_alpha_from_bg) gpu.flag_glyph_alpha_from_bg else 0;
+        // bg_transparent zeroes only the background *fill* in the shader.
+        const flags: u8 = (if (vc.style.glyph_alpha_from_bg) gpu.flag_glyph_alpha_from_bg else 0) |
+            (if (vc.style.bg_transparent) gpu.flag_bg_transparent else 0);
         gc.* = .{
             .glyph_index = 0,
             .background = bg,

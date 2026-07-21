@@ -23,6 +23,7 @@ pub const Hinting = Rasterizer.Hinting;
 pub const SymbolRasterizer = Rasterizer.SymbolRasterizer;
 pub const Cell = @import("cell").Cell;
 pub const flag_glyph_alpha_from_bg = @import("cell").flag_glyph_alpha_from_bg;
+pub const flag_bg_transparent = @import("cell").flag_bg_transparent;
 pub const RGBA = @import("color").RGBA;
 
 pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2, unfocused = 3 };
@@ -106,7 +107,7 @@ fn atlasBackend() GlyphAtlas.Backend {
 //    7..5 : ul_style (3 bits, 0=off..5=dashed)
 //    4    : strikethrough flag
 //    3..2 : glyph_kind (00=alpha, 01=subpixel, 10=color, 11=reserved)
-//    1    : reserved
+//    1    : bg_transparent (background fill drawn at zero alpha)
 //    0    : glyph_alpha_from_bg (cell α taken from bg.a in shader)
 //
 // Cursor field bit layout (0 → no cursor on this cell):
@@ -131,7 +132,8 @@ fn packDeco(src: Cell, kind: u2) u32 {
     const strike: u32 = if (src.strikethrough != 0) (@as(u32, 1) << 4) else 0;
     const kbits: u32 = (@as(u32, kind) & 3) << 2;
     const fg_t: u32 = if ((src.flags & flag_glyph_alpha_from_bg) != 0) 1 else 0;
-    return color24 | style | strike | kbits | fg_t;
+    const bg_t: u32 = if ((src.flags & flag_bg_transparent) != 0) (@as(u32, 1) << 1) else 0;
+    return color24 | style | strike | kbits | bg_t | fg_t;
 }
 
 const global = struct {

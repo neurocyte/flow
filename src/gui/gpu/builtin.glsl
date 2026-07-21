@@ -123,17 +123,19 @@ void main() {
     bool strike = ((deco >> 4u) & 1u) != 0u;
     uint glyph_kind = (deco >> 2u) & 3u;
     bool fg_from_bg = (deco & 1u) != 0u;
+    bool bg_transparent = ((deco >> 1u) & 1u) != 0u;
     uint ul_packed = deco >> 8u;
 
     // Captured before the cursor branch potentially raises final_a to 1.0.
     float cell_a = bg.a;
+    float bg_fill_a = bg_transparent ? 0.0 : bg.a;
 
     // Per-cell cursor (0 = none; low byte = shape+1, high 24 bits = RRGGBB)
     uint cur_shape = cur_packed & 255u;
 
     vec3 final_bg = bg.rgb;
     vec3 final_fg = fg.rgb;
-    float final_a = bg.a;
+    float final_a = bg_fill_a;
 
     if (cur_shape != 0u) {
         vec3 cur = vec3(
@@ -170,11 +172,14 @@ void main() {
     }
 
     vec3 composed;
+    // Total glyph coverage of this pixel.
+    float glyph_cov = 0.0;
     if (glyph_kind == 0u) {
         // Alpha coverage in the red channel; blend fg over bg.
         float cov = fg.a * glyph_sample.r;
         composed = mix(final_bg, final_fg, cov);
         final_a = final_a + (1.0 - final_a) * cov;
+        glyph_cov = cov;
     } else if (glyph_kind == 1u) {
         // Per-channel subpixel coverage.
         composed = vec3(
@@ -185,10 +190,12 @@ void main() {
         // Approximate alpha coverage as luminance-weighted.
         float cov = fg.a * dot(glyph_sample.rgb, vec3(0.299, 0.587, 0.114));
         final_a = final_a + (1.0 - final_a) * cov;
+        glyph_cov = cov;
     } else {
         // Premultiplied RGBA color glyph composited over background.
         composed = glyph_sample.rgb + final_bg * (1.0 - glyph_sample.a);
         final_a = glyph_sample.a + final_a * (1.0 - glyph_sample.a);
+        glyph_cov = glyph_sample.a;
     }
 
     // Underline overlay
@@ -243,11 +250,10 @@ void main() {
         }
     }
 
-    // When the cell opts into "glyph alpha follows bg", clamp the output
-    // alpha to the captured bg.a so glyph/underline/strikethrough don't
-    // drag it up. Block cursor (shape == 1) is exempt: the cursor itself
-    // must be opaque for legibility.
-    if (fg_from_bg && cur_shape != 1u) final_a = cell_a;
+    // When the cell opts into "glyph alpha follows bg", the glyph foreground
+    // takes the styled bg alpha (cell_a) while the background fill keeps its
+    // own alpha (bg_fill_a).
+    if (fg_from_bg && cur_shape != 1u) final_a = mix(bg_fill_a, cell_a, glyph_cov);
 
     frag_color = vec4(composed, final_a);
 }

@@ -12,7 +12,10 @@ pub const Cell = extern struct {
     /// Rasterizer face index: 0=regular, 1=bold, 2=italic, 3=bold_italic.
     face: u8 = 0,
     /// Bit 0 = glyph_alpha_from_bg (cell α taken from bg.a in shader).
+    /// Bit 1 = bg_transparent (background fill rendered at zero alpha, while
+    /// bg.a still colours the glyph foreground under glyph_alpha_from_bg).
     flags: u8 = 0,
 };
 
 pub const flag_glyph_alpha_from_bg: u8 = 1 << 0;
+pub const flag_bg_transparent: u8 = 1 << 1;
