@@ -2231,7 +2231,14 @@ pub fn submit_layer(target: renderer.Layer.Target) renderer.Layer.Handle {
     return current().rdr_.submit_layer(target);
 }
 
-pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.Plane {
+pub const TopLayerMode = enum {
+    /// Frosted-glass overlay.
+    overlay,
+    /// Solid UI element.
+    solid,
+};
+
+pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32, mode: TopLayerMode) ?renderer.Plane {
     const self = current();
     if (self.top_layer_) |_| return null;
     self.top_layer_ = renderer.Layer.init(self.allocator, .{
@@ -2239,6 +2246,7 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .w = @intCast(box.w),
     }) catch @panic("OOM toplayer");
     self.top_layer_.?.z_index = .top;
+    self.top_layer_.?.transparent_bg = mode == .solid;
     self.top_layer_handle = self.rdr_.submit_layer(.{
         .src = self.top_layer_.?,
         .dst = self.rdr_.stdplane().window,
@@ -2246,9 +2254,15 @@ pub fn top_layer(box: @import("Box.zig"), xoffset: i32, yoffset: i32) ?renderer.
         .x = @intCast(box.x),
         .yoffset = @intCast(yoffset),
         .xoffset = @intCast(xoffset),
-        .alpha = self.palette_opacity_(),
+        .alpha = switch (mode) {
+            .overlay => self.palette_opacity_(),
+            .solid => 0xFF,
+        },
         .z_index = .top,
-        .blend = .src_over_blur,
+        .blend = switch (mode) {
+            .overlay => .src_over_blur,
+            .solid => .src_over,
+        },
     });
     return self.top_layer_.?.plane();
 }
