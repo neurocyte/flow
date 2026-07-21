@@ -16,23 +16,32 @@ pub const Stream = enum(usize) {
     }
 
     fn emit(self: Stream, line: []const u8) void {
-        switch (self) {
-            .stdout => std.log.scoped(.stdout).info("{s}", .{line}),
+        if (is_error(line)) switch (self) {
+            .stdout => std.log.scoped(.stdout).err("{s}", .{line}),
             .stderr => std.log.scoped(.stderr).err("{s}", .{line}),
+        } else switch (self) {
+            .stdout => std.log.scoped(.stdout).info("{s}", .{line}),
+            .stderr => std.log.scoped(.stderr).info("{s}", .{line}),
         }
     }
 };
 
+const error_markers = [_][]const u8{
+    "error",    "fatal",     "panic",    "abort",  "assert",
+    "critical", "exception", "segfault", "denied",
+};
+
+fn is_error(line: []const u8) bool {
+    for (error_markers) |marker|
+        if (std.ascii.findIgnoreCase(line, marker) != null) return true;
+    return false;
+}
+
 const max_chunk = 4096;
 const max_line = 8192;
 
-fn errno(rc: usize) linux.E {
-    const signed: isize = @bitCast(rc);
-    return if (signed < 0) @enumFromInt(@as(u16, @intCast(-signed))) else .SUCCESS;
-}
-
 fn sys(rc: usize) error{Syscall}!usize {
-    return switch (errno(rc)) {
+    return switch (linux.errno(rc)) {
         .SUCCESS => rc,
         else => error.Syscall,
     };
@@ -149,7 +158,7 @@ const Reader = struct {
         var buf: [max_chunk]u8 = undefined;
         while (true) {
             const rc = linux.read(self.read_fd, &buf, buf.len);
-            switch (errno(rc)) {
+            switch (linux.errno(rc)) {
                 .SUCCESS => {
                     if (rc == 0) return error.Closed; // EOF
                     try self.consume(buf[0..rc]);
