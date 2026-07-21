@@ -293,6 +293,7 @@ fn dtor(self: *Self) void {
 }
 
 fn install_stdio_capture(self: *Self) void {
+    if (builtin.os.tag == .windows) return;
     self.stdio_capture_stdout = stdio_capture.start(self.allocator, .stdout) catch |e| ret: {
         std.log.err("stdio capture (stdout) failed: {}", .{e});
         break :ret null;
