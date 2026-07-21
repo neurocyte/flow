@@ -68,13 +68,15 @@ transparent_bg: bool = false,
 pub const Options = struct {
     h: u16 = 0,
     w: u16 = 0,
+    /// optional fixed id to persist GPU layer state across usages
+    id: ?Id = null,
 };
 
 pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error!*Layer {
     const self = try allocator.create(Layer);
     self.* = .{
         .allocator = allocator,
-        .id = next_id(),
+        .id = opts.id orelse next_id(),
         .screen = try vaxis.Screen.init(allocator, .{
             .rows = opts.h,
             .cols = opts.w,
