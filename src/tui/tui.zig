@@ -11,6 +11,8 @@ const file_link = @import("file_link");
 const Buffer = @import("Buffer");
 
 pub const renderer = @import("renderer");
+const crash = @import("crash");
+const stdio_capture = @import("stdio_capture.zig");
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
@@ -39,6 +41,9 @@ render_pid: ?tp.pid = null,
 top_layer_: ?*renderer.Layer = null,
 top_layer_handle: ?renderer.Layer.Handle = null,
 top_layer_id_: ?renderer.Layer.Id = null,
+stdio_capture_stdout: ?tp.pid = null,
+stdio_capture_stderr: ?tp.pid = null,
+stdio_capture_cleanup: ?crash.CleanupHandle = null,
 config_: @import("config"),
 config_bufs: [][]const u8,
 session_tab_width: ?usize = null,
@@ -222,8 +227,10 @@ fn init(allocator: Allocator) InitError!*Self {
     self.rdr_.dispatch_event = dispatch_event;
     try self.rdr_.run(if (self.render_pid) |*p| p.ref() else null);
 
-    if (!tp.env.get().is("log-stdout"))
+    if (!tp.env.get().is("log-stdout")) {
         log.stderr(.disable);
+        self.install_stdio_capture();
+    }
 
     try project_manager.start();
 
@@ -285,7 +292,42 @@ fn dtor(self: *Self) void {
     self.allocator.destroy(self);
 }
 
+fn install_stdio_capture(self: *Self) void {
+    self.stdio_capture_stdout = stdio_capture.start(self.allocator, .stdout) catch |e| ret: {
+        std.log.err("stdio capture (stdout) failed: {}", .{e});
+        break :ret null;
+    };
+    self.stdio_capture_stderr = stdio_capture.start(self.allocator, .stderr) catch |e| ret: {
+        std.log.err("stdio capture (stderr) failed: {}", .{e});
+        break :ret null;
+    };
+    if (self.stdio_capture_stdout != null or self.stdio_capture_stderr != null)
+        self.stdio_capture_cleanup = crash.add_cleanup(.{ .ctx = self, .func = stdio_capture_crash_cleanup });
+}
+
+fn stdio_capture_crash_cleanup(_: *anyopaque) void {
+    stdio_capture.restore_all();
+}
+
+fn deinit_stdio_capture(self: *Self) void {
+    if (self.stdio_capture_cleanup) |h| {
+        crash.remove_cleanup(h);
+        self.stdio_capture_cleanup = null;
+    }
+    if (self.stdio_capture_stdout) |*p| {
+        p.send(.{"term"}) catch {};
+        p.deinit();
+        self.stdio_capture_stdout = null;
+    }
+    if (self.stdio_capture_stderr) |*p| {
+        p.send(.{"term"}) catch {};
+        p.deinit();
+        self.stdio_capture_stderr = null;
+    }
+}
+
 fn deinit(self: *Self) void {
+    self.deinit_stdio_capture();
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
