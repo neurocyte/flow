@@ -787,16 +787,16 @@ const Tab = struct {
             box.y = @intCast(@max(pos.y, anchor.y) - anchor.y);
             box.x = @intCast(@max(pos.x, anchor.x) - anchor.x);
             const xoffset, const yoffset = if (btn.drag_pos_offset) |offset| .{ offset.x, offset.y } else .{ 0, 0 };
-            if (tui.top_layer(box, xoffset, yoffset)) |top_layer_| {
+            if (tui.top_layer(box, xoffset, yoffset, .solid)) |top_layer_| {
                 var top_layer = top_layer_;
-                self.render_selected(&top_layer, btn.opts.label, false, theme, self.is_active());
+                self.render_selected(&top_layer, btn.opts.label, false, theme, self.is_active(), .dragging);
                 tui.rdr().request_mouse_cursor_pointer(true);
             }
         } else {
             const active = self.is_active();
             const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
             switch (mode) {
-                .selected => self.render_selected(&btn.plane, btn.opts.label, btn.hover, theme, active),
+                .selected => self.render_selected(&btn.plane, btn.opts.label, btn.hover, theme, active, .normal),
                 .active => if (self.is_focused())
                     self.render_active(&btn.plane, btn.opts.label, btn.hover, theme)
                 else
@@ -810,7 +810,13 @@ const Tab = struct {
         return false;
     }
 
-    fn render_selected(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme, active: bool) void {
+    const Rendering = enum { normal, dragging };
+
+    fn render_selected(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme, active: bool, rendering: Rendering) void {
+        const corner_bg: GlyphBackground = switch (rendering) {
+            .normal => .normal,
+            .dragging => .transparent,
+        };
         plane.set_base_style(theme.editor);
         plane.erase();
         plane.home();
@@ -833,7 +839,7 @@ const Tab = struct {
             .fg = self.tab_style.selected_left_fg.from_theme(theme),
             .bg = self.tab_style.selected_left_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.selected_left, self.tab_style.selected_left_fg_transparent);
+        put_glyph(plane, self.tab_style.selected_left, self.tab_style.selected_left_fg_transparent, corner_bg);
         plane.set_style(.{
             .fg = self.tab_style.selected_fg.from_theme(theme),
             .bg = self.tab_style.selected_bg.from_theme(theme),
@@ -844,7 +850,7 @@ const Tab = struct {
             .fg = self.tab_style.selected_right_fg.from_theme(theme),
             .bg = self.tab_style.selected_right_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.selected_right, self.tab_style.selected_right_fg_transparent);
+        put_glyph(plane, self.tab_style.selected_right, self.tab_style.selected_right_fg_transparent, corner_bg);
     }
 
     fn render_active(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
@@ -868,7 +874,7 @@ const Tab = struct {
             .fg = self.tab_style.active_left_fg.from_theme(theme),
             .bg = self.tab_style.active_left_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.active_left, self.tab_style.active_left_fg_transparent);
+        put_glyph(plane, self.tab_style.active_left, self.tab_style.active_left_fg_transparent, .normal);
 
         plane.set_style(.{
             .fg = self.tab_style.active_fg.from_theme(theme),
@@ -880,7 +886,7 @@ const Tab = struct {
             .fg = self.tab_style.active_right_fg.from_theme(theme),
             .bg = self.tab_style.active_right_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.active_right, self.tab_style.active_right_fg_transparent);
+        put_glyph(plane, self.tab_style.active_right, self.tab_style.active_right_fg_transparent, .normal);
     }
 
     fn render_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
@@ -898,7 +904,7 @@ const Tab = struct {
             .fg = self.tab_style.inactive_left_fg.from_theme(theme),
             .bg = self.tab_style.inactive_left_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.inactive_left, self.tab_style.inactive_left_fg_transparent);
+        put_glyph(plane, self.tab_style.inactive_left, self.tab_style.inactive_left_fg_transparent, .normal);
 
         plane.set_style(.{
             .fg = self.tab_style.inactive_fg.from_theme(theme),
@@ -910,7 +916,7 @@ const Tab = struct {
             .fg = self.tab_style.inactive_right_fg.from_theme(theme),
             .bg = self.tab_style.inactive_right_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.inactive_right, self.tab_style.inactive_right_fg_transparent);
+        put_glyph(plane, self.tab_style.inactive_right, self.tab_style.inactive_right_fg_transparent, .normal);
     }
 
     fn render_dragging(self: *@This(), plane: *Plane, theme: *const Widget.Theme) void {
@@ -946,7 +952,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_active_left_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_active_left_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.unfocused_active_left, self.tab_style.unfocused_active_left_fg_transparent);
+        put_glyph(plane, self.tab_style.unfocused_active_left, self.tab_style.unfocused_active_left_fg_transparent, .normal);
 
         plane.set_style(.{
             .fg = self.tab_style.unfocused_active_fg.from_theme(theme),
@@ -958,7 +964,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_active_right_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_active_right_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.unfocused_active_right, self.tab_style.unfocused_active_right_fg_transparent);
+        put_glyph(plane, self.tab_style.unfocused_active_right, self.tab_style.unfocused_active_right_fg_transparent, .normal);
     }
 
     fn render_unfocused_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
@@ -976,7 +982,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_inactive_left_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_inactive_left_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.unfocused_inactive_left, self.tab_style.unfocused_inactive_left_fg_transparent);
+        put_glyph(plane, self.tab_style.unfocused_inactive_left, self.tab_style.unfocused_inactive_left_fg_transparent, .normal);
 
         plane.set_style(.{
             .fg = self.tab_style.unfocused_inactive_fg.from_theme(theme),
@@ -988,7 +994,7 @@ const Tab = struct {
             .fg = self.tab_style.unfocused_inactive_right_fg.from_theme(theme),
             .bg = self.tab_style.unfocused_inactive_right_bg.from_theme(theme),
         });
-        put_glyph(plane, self.tab_style.unfocused_inactive_right, self.tab_style.unfocused_inactive_right_fg_transparent);
+        put_glyph(plane, self.tab_style.unfocused_inactive_right, self.tab_style.unfocused_inactive_right_fg_transparent, .normal);
     }
 
     fn render_content(self: *@This(), plane: *Plane, label: []const u8, hover: bool, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
@@ -1018,20 +1024,20 @@ const Tab = struct {
                 if (self.tab_style.save_icon_fg) |color|
                     plane.set_style(.{ .fg = color.from_theme(theme) });
                 self.save_pos = plane.cursor_x();
-                put_glyph(plane, self.tabbar.tab_style.save_icon, self.tabbar.tab_style.save_icon_fg_transparent);
+                put_glyph(plane, self.tabbar.tab_style.save_icon, self.tabbar.tab_style.save_icon_fg_transparent, .normal);
             } else {
                 plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
                 self.close_pos = plane.cursor_x();
-                put_glyph(plane, self.tabbar.tab_style.close_icon, self.tabbar.tab_style.close_icon_fg_transparent);
+                put_glyph(plane, self.tabbar.tab_style.close_icon, self.tabbar.tab_style.close_icon_fg_transparent, .normal);
             }
         } else if (is_dirty and !auto_save) {
             if (self.tab_style.dirty_indicator_fg) |color|
                 plane.set_style(.{ .fg = color.from_theme(theme) });
-            put_glyph(plane, self.tabbar.tab_style.dirty_indicator, self.tabbar.tab_style.dirty_indicator_fg_transparent);
+            put_glyph(plane, self.tabbar.tab_style.dirty_indicator, self.tabbar.tab_style.dirty_indicator_fg_transparent, .normal);
         } else {
             if (self.tab_style.clean_indicator_fg) |color|
                 plane.set_style(.{ .fg = color.from_theme(theme) });
-            put_glyph(plane, self.tabbar.tab_style.clean_indicator, self.tabbar.tab_style.clean_indicator_fg_transparent);
+            put_glyph(plane, self.tabbar.tab_style.clean_indicator, self.tabbar.tab_style.clean_indicator_fg_transparent, .normal);
         }
         plane.set_style(.{ .fg = fg });
         self.render_padding(plane, .right);
@@ -1229,9 +1235,14 @@ const colors = enum {
     }
 };
 
-fn put_glyph(plane: *Plane, glyph: []const u8, fg_transparent: bool) void {
+const GlyphBackground = enum { normal, transparent };
+
+fn put_glyph(plane: *Plane, glyph: []const u8, fg_transparent: bool, background: GlyphBackground) void {
     const old_fgt = plane.style.glyph_alpha_from_bg;
+    const old_bgt = plane.style.bg_transparent;
     defer plane.style.glyph_alpha_from_bg = old_fgt;
+    defer plane.style.bg_transparent = old_bgt;
     plane.style.glyph_alpha_from_bg = fg_transparent;
+    plane.style.bg_transparent = background == .transparent;
     _ = plane.putstr(glyph) catch {};
 }
