@@ -62,6 +62,8 @@ cache_storage: GraphemeCache.Storage = .{},
 z_index: Level = .main,
 origin_px_x: i32 = 0,
 origin_px_y: i32 = 0,
+/// layer is composited fully transparent, regardless of gui_window_transparency
+transparent_bg: bool = false,
 
 pub const Options = struct {
     h: u16 = 0,

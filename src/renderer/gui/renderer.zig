@@ -317,6 +317,7 @@ pub fn render(self: *Self, focused: bool) error{}!?i64 {
             layers_buf.append(self.allocator, .{
                 .id = t.src.id,
                 .screen = &t.src.screen,
+                .transparent_bg = t.src.transparent_bg,
             }) catch @panic("OOM render");
         }
 

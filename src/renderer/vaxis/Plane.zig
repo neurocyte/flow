@@ -337,6 +337,7 @@ fn write_cell(self: *Plane, col: i32, row: i32, egc: []const u8) void {
     if (self.transparent) {
         cell.style.fg = self.style.fg;
         cell.style.glyph_alpha_from_bg = self.style.glyph_alpha_from_bg;
+        cell.style.bg_transparent = self.style.bg_transparent;
     } else {
         cell.style = self.style;
     }

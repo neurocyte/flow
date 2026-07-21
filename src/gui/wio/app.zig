@@ -61,6 +61,7 @@ pub const LayerView = struct {
     screen: *const vaxis.Screen,
     cursor: gpu.CursorInfo = .{},
     secondary_cursors: []const gpu.CursorInfo = &.{},
+    transparent_bg: bool = false,
 };
 
 pub const TargetView = struct {
@@ -95,6 +96,7 @@ const LayerSnapshot = struct {
     width: u16,
     height: u16,
     cursors: []gpu.CursorInfo,
+    transparent_bg: bool,
 };
 
 const ScreenSnapshot = struct {
@@ -377,6 +379,10 @@ fn buildLayerSnapshot(
             } else {
                 bg.a = effectiveAlphaU8(bg.a, opacity, ignore);
             }
+        } else if (lv.transparent_bg and !is_root and vc.default) {
+            // A transparent_bg layer reveal what is behind the layer
+            // instead of its fill.
+            bg.a = 0;
         }
         // bg_transparent zeroes only the background *fill* in the shader.
         const flags: u8 = (if (vc.style.glyph_alpha_from_bg) gpu.flag_glyph_alpha_from_bg else 0) |
@@ -416,6 +422,7 @@ fn buildLayerSnapshot(
         .width = lv.screen.width,
         .height = lv.screen.height,
         .cursors = cursors,
+        .transparent_bg = lv.transparent_bg,
     };
 }
 
@@ -1296,7 +1303,7 @@ pub fn renderActorTick(focused: bool) void {
             .y = ls.height * font_set.cell_size.y,
         };
 
-        const layer_bg_alpha: u8 = if (window_transparency) blk: {
+        const layer_bg_alpha: u8 = if (ls.transparent_bg) 0 else if (window_transparency) blk: {
             if (idx != 0) break :blk 0;
             const op: f32 = @bitCast(background_opacity.load(.acquire));
             const ig = ignore_theme_alpha.load(.acquire);
