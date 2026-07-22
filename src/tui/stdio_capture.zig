@@ -1,17 +1,19 @@
 //! Capture a process's stdout/stderr and forward each line to std.log.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const tp = @import("thespian");
-const linux = std.os.linux;
+const posix = std.posix;
+const system = posix.system;
 
 pub const Stream = enum(usize) {
     stdout = 0,
     stderr = 1,
 
-    fn target_fd(self: Stream) i32 {
+    fn target_fd(self: Stream) posix.fd_t {
         return switch (self) {
-            .stdout => linux.STDOUT_FILENO,
-            .stderr => linux.STDERR_FILENO,
+            .stdout => posix.STDOUT_FILENO,
+            .stderr => posix.STDERR_FILENO,
         };
     }
 
@@ -40,16 +42,15 @@ fn is_error(line: []const u8) bool {
 const max_chunk = 4096;
 const max_line = 8192;
 
-fn sys(rc: usize) error{Syscall}!usize {
-    return switch (linux.errno(rc)) {
-        .SUCCESS => rc,
-        else => error.Syscall,
-    };
+const O_NONBLOCK: c_int = @intCast(@as(u32, @bitCast(posix.O{ .NONBLOCK = true })));
+
+fn check(rc: anytype) error{Syscall}!@TypeOf(rc) {
+    return if (posix.errno(rc) != .SUCCESS) error.Syscall else rc;
 }
 
 const Redirect = struct {
-    target: i32 = -1,
-    saved: i32 = -1,
+    target: posix.fd_t = -1,
+    saved: posix.fd_t = -1,
 };
 var redirects = [_]?Redirect{ null, null };
 
@@ -60,37 +61,40 @@ fn redirect(stream: Stream) *?Redirect {
 /// Restore every redirected fd to its original. Async-signal-safe.
 pub fn restore_all() void {
     for (&redirects) |*r_| if (r_.*) |*r| {
-        _ = linux.dup2(r.saved, r.target);
+        _ = system.dup2(r.saved, r.target);
     };
 }
 
 fn restore(stream: Stream) void {
     const r = if (redirect(stream).*) |*r_| r_ else return;
-    _ = linux.dup2(r.saved, r.target);
-    _ = linux.close(r.saved);
+    _ = system.dup2(r.saved, r.target);
+    _ = system.close(r.saved);
     redirect(stream).* = null;
 }
 
-fn install_redirect(stream: Stream) !i32 {
+fn install_redirect(stream: Stream) !posix.fd_t {
     const target = stream.target_fd();
 
-    const saved: i32 = @intCast(try sys(linux.fcntl(target, linux.F.DUPFD_CLOEXEC, 0)));
-    errdefer _ = linux.close(saved);
+    const saved: posix.fd_t = @intCast(try check(system.fcntl(target, posix.F.DUPFD_CLOEXEC, @as(c_int, 0))));
+    errdefer _ = system.close(saved);
 
-    var fds: [2]i32 = undefined;
-    _ = try sys(linux.pipe2(&fds, .{ .CLOEXEC = true }));
+    // No portable atomic pipe2(CLOEXEC): macOS lacks it, so use pipe() and
+    // set the flags explicitly.
+    var fds: [2]posix.fd_t = undefined;
+    _ = try check(system.pipe(&fds));
     errdefer {
-        _ = linux.close(fds[0]);
-        _ = linux.close(fds[1]);
+        _ = system.close(fds[0]);
+        _ = system.close(fds[1]);
     }
 
-    // Read end non-blocking. Write end blocking.
-    const fl = try sys(linux.fcntl(fds[0], linux.F.GETFL, 0));
-    const nonblock: u32 = @bitCast(linux.O{ .NONBLOCK = true });
-    _ = try sys(linux.fcntl(fds[0], linux.F.SETFL, fl | @as(usize, nonblock)));
+    // Both ends close-on-exec; read end non-blocking, write end blocking.
+    _ = try check(system.fcntl(fds[0], posix.F.SETFD, @as(c_int, posix.FD_CLOEXEC)));
+    _ = try check(system.fcntl(fds[1], posix.F.SETFD, @as(c_int, posix.FD_CLOEXEC)));
+    const fl = try check(system.fcntl(fds[0], posix.F.GETFL, @as(c_int, 0)));
+    _ = try check(system.fcntl(fds[0], posix.F.SETFL, fl | O_NONBLOCK));
 
-    _ = try sys(linux.dup2(fds[1], target));
-    _ = linux.close(fds[1]); // `target` now owns the write end
+    _ = try check(system.dup2(fds[1], target));
+    _ = system.close(fds[1]); // `target` now owns the write end
     redirect(stream).* = .{ .target = target, .saved = saved };
     return fds[0];
 }
@@ -101,7 +105,7 @@ pub fn start(allocator: std.mem.Allocator, stream: Stream) !tp.pid {
 
     const read_fd = try install_redirect(stream);
     errdefer restore(stream);
-    errdefer _ = linux.close(read_fd);
+    errdefer _ = system.close(read_fd);
 
     const self = try allocator.create(Reader);
     errdefer allocator.destroy(self);
@@ -120,7 +124,7 @@ pub fn start(allocator: std.mem.Allocator, stream: Stream) !tp.pid {
 const Reader = struct {
     allocator: std.mem.Allocator,
     stream: Stream,
-    read_fd: i32,
+    read_fd: posix.fd_t,
     tag: [:0]const u8,
     fd: ?tp.file_descriptor = null,
     line: std.ArrayList(u8) = .empty,
@@ -157,16 +161,12 @@ const Reader = struct {
     fn dispatch(self: *Reader) !void {
         var buf: [max_chunk]u8 = undefined;
         while (true) {
-            const rc = linux.read(self.read_fd, &buf, buf.len);
-            switch (linux.errno(rc)) {
-                .SUCCESS => {
-                    if (rc == 0) return error.Closed; // EOF
-                    try self.consume(buf[0..rc]);
-                },
-                .AGAIN => return,
-                .INTR => {},
+            const n = posix.read(self.read_fd, &buf) catch |e| switch (e) {
+                error.WouldBlock => return, // drained
                 else => return error.Read,
-            }
+            };
+            if (n == 0) return error.Closed; // EOF
+            try self.consume(buf[0..n]);
         }
     }
 
@@ -209,9 +209,41 @@ const Reader = struct {
     fn deinit(self: *Reader) void {
         if (self.fd) |fd| fd.deinit();
         restore(self.stream);
-        _ = linux.close(self.read_fd);
+        _ = system.close(self.read_fd);
         self.line.deinit(self.allocator);
         self.allocator.free(self.tag);
         self.allocator.destroy(self);
     }
 };
+
+test "redirect roundtrip" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const stream: Stream = .stdout;
+    const target = stream.target_fd();
+    const marker = "STDIO_CAPTURE_ROUNDTRIP_a1b2c3";
+    const payload = marker ++ "\n";
+
+    const read_fd = try install_redirect(stream);
+    defer _ = system.close(read_fd);
+    defer restore(stream);
+
+    var off: usize = 0;
+    while (off < payload.len) {
+        const n = system.write(target, payload.ptr + off, payload.len - off);
+        off += @intCast(try check(n));
+    }
+
+    var buf: [4096]u8 = undefined;
+    var total: usize = 0;
+    while (total < buf.len) {
+        const n = posix.read(read_fd, buf[total..]) catch |e| switch (e) {
+            error.WouldBlock => break,
+            else => return e,
+        };
+        if (n == 0) break;
+        total += n;
+        if (std.mem.indexOf(u8, buf[0..total], marker) != null) break;
+    }
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..total], marker) != null);
+}

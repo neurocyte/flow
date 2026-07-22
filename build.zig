@@ -989,6 +989,21 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const stdio_capture_test_run_cmd: ?*std.Build.Step.Run = if (target.result.os.tag == .windows) null else blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/tui/stdio_capture.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.link_libc = true;
+        tests.root_module.addImport("thespian", thespian_mod);
+        maybe_install_test(b, install_tests, tests, "test-stdio_capture");
+        break :blk b.addRunArtifact(tests);
+    };
+
     const shell_mod = b.createModule(.{
         .root_source_file = b.path("src/shell.zig"),
         .imports = &.{
@@ -1277,6 +1292,7 @@ pub fn build_exe(
     test_step.dependOn(&double_mapped_ring_buffer_test_run_cmd.step);
     test_step.dependOn(&mouse_event_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
+    if (stdio_capture_test_run_cmd) |cmd| test_step.dependOn(&cmd.step);
 
     const lints = b.addFmt(.{
         .paths = &.{ "src", "test", "build.zig" },
