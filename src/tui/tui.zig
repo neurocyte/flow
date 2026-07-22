@@ -717,6 +717,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
+    if (try m.match(.{ "FW", "change", tp.more })) // file watcher change events
+        return;
+
+    if (try m.match(.{ "FW", "rename", tp.more })) // file watcher rename events
+        return;
+
     return tp.unexpected(m);
 }
 

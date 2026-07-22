@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
 const tracy = @import("tracy");
+const file_watcher = @import("file_watcher");
 const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
 const root = @import("soft_root").root;
@@ -446,8 +447,15 @@ const Process = struct {
         var source_location: SourceLocation = undefined;
 
         var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
+        var event_type: file_watcher.EventType = undefined;
+        var object_type: file_watcher.ObjectType = undefined;
+        var from_path: []const u8 = undefined;
 
-        if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.more })) {
+        if (try cbor.match(m.buf, .{ "FW", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) })) {
+            self.handle_file_watch_rename(from_path, path, object_type);
+        } else if (try cbor.match(m.buf, .{ "FW", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) })) {
+            self.handle_file_watch_event(path, event_type, object_type);
+        } else if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.more })) {
             if (self.projects.get(project_directory)) |project|
                 project.walk_tree_entry(m) catch |e| self.logger.err("walk_tree_entry", e);
         } else if (try cbor.match(m.buf, .{ "walk_tree_done", tp.extract(&project_directory) })) {
@@ -550,6 +558,7 @@ const Process = struct {
             self.logger.print("{s} error: {s}", .{ tag, message });
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
             self.persist_projects();
+            file_watcher.shutdown();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
             return error.ExitNormal;
         } else if (try cbor.match(m.buf, .{ "exit", "normal" })) {
@@ -585,6 +594,56 @@ const Process = struct {
         while (i.next()) |project| project.*.remove_lsp_status_subscriber(from);
     }
 
+    fn project_for_path(self: *Process, abs_path: []const u8) ?struct { project: *Project, rel_path: []const u8 } {
+        var it = self.projects.iterator();
+        while (it.next()) |entry| {
+            const dir = entry.key_ptr.*;
+            if (!std.mem.startsWith(u8, abs_path, dir)) continue;
+            if (abs_path.len <= dir.len or abs_path[dir.len] != std.fs.path.sep) continue;
+            return .{ .project = entry.value_ptr.*, .rel_path = abs_path[dir.len + 1 ..] };
+        }
+        return null;
+    }
+
+    fn handle_file_watch_rename(self: *Process, abs_from: []const u8, abs_to: []const u8, object_type: file_watcher.ObjectType) void {
+        std.log.debug("file_watch_event: rename {s} -> {s}", .{ abs_from, abs_to });
+        if (object_type == .dir) return; // the project file index tracks files only
+        const src = self.project_for_path(abs_from);
+        const dst = self.project_for_path(abs_to);
+
+        if (src) |s| {
+            if (dst) |d| {
+                if (s.project == d.project) {
+                    s.project.file_renamed(s.rel_path, d.rel_path) catch |e| self.logger.err("file_watcher.file_renamed", e);
+                } else {
+                    s.project.file_deleted(s.rel_path);
+                    d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
+                }
+            } else {
+                s.project.file_deleted(s.rel_path);
+            }
+        } else if (dst) |d| {
+            d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
+        } else {
+            self.parent.send(.{ "FW", "rename", abs_from, abs_to, object_type }) catch {};
+        }
+    }
+
+    fn handle_file_watch_event(self: *Process, abs_path: []const u8, event_type: file_watcher.EventType, object_type: file_watcher.ObjectType) void {
+        std.log.debug("file_watch_event: {s} {s}", .{ @tagName(event_type), abs_path });
+        if (object_type == .dir) return; // nightwatch watches new directories itself; the file index tracks files only
+        if (self.project_for_path(abs_path)) |match| {
+            switch (event_type) {
+                .created => match.project.file_added(match.rel_path) catch |e| self.logger.err("file_watcher.file_added", e),
+                .modified => match.project.file_modified(match.rel_path),
+                .deleted => match.project.file_deleted(match.rel_path),
+                .closed => {}, // filtered by the file_watcher actor
+            }
+        } else {
+            self.parent.send(.{ "FW", "change", abs_path, event_type, object_type }) catch {};
+        }
+    }
+
     fn open(self: *Process, project_directory: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {
         if (self.projects.get(project_directory)) |project| {
             project.last_used = @as(i128, root.get_now().toNanoseconds());
@@ -596,6 +655,7 @@ const Process = struct {
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.query_git();
+            file_watcher.watch(project_directory) catch |e| self.logger.err("file_watcher.watch", e);
         }
     }
 
@@ -606,6 +666,7 @@ const Process = struct {
             kv.value.deinit();
             self.allocator.destroy(kv.value);
             self.logger.print("closed: {s}", .{project_directory});
+            file_watcher.unwatch(project_directory) catch |e| self.logger.err("file_watcher.unwatch", e);
         }
     }
 

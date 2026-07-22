@@ -95,6 +95,10 @@
             .url = "git+https://github.com/quangdn42/regex.zig#a22a2e68bcc5aa55310f12128de38e26bfa2cece",
             .hash = "regex-0.1.0-V8KKSWICBACgjPoyQLIoPwMnQjKzCpEOjUMEzkf3ebOD",
         },
+        .nightwatch = .{
+            .url = "git+https://github.com/neurocyte/nightwatch?ref=master#cac3b9edb3a59f5b3a290cf3b76044ad9b09ef28",
+            .hash = "nightwatch-1.0.0-uXzeHyOgAgCvaBhschfx3LA48n01bLYOVBQUXYjvrREM",
+        },
     },
     .paths = .{
         "src",

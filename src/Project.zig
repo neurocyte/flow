@@ -934,6 +934,61 @@ fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     parent.send(.{ "PRJ", "open_done", self.name, self.longest_file_path, self.files.items.len }) catch {};
 }
 
+pub fn file_added(self: *Self, file_path: []const u8) OutOfMemoryError!void {
+    for (self.files.items) |file|
+        if (std.mem.eql(u8, file.path, file_path)) return;
+    for (self.pending.items) |file|
+        if (std.mem.eql(u8, file.path, file_path)) return;
+    const file_type, const file_icon, const file_color = guess_file_type(file_path);
+    (try self.files.addOne(self.allocator)).* = .{
+        .path = try self.allocator.dupe(u8, file_path),
+        .type = file_type,
+        .icon = file_icon,
+        .color = file_color,
+        .mtime = @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()),
+    };
+    self.longest_file_path = @max(self.longest_file_path, file_path.len);
+    self.sort_files_by_mtime();
+}
+
+pub fn file_modified(self: *Self, file_path: []const u8) void {
+    for (self.files.items) |*file| {
+        if (!std.mem.eql(u8, file.path, file_path)) continue;
+        file.mtime = @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds());
+        self.sort_files_by_mtime();
+        return;
+    }
+}
+
+pub fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8) OutOfMemoryError!void {
+    for (self.files.items) |*file| {
+        if (!std.mem.eql(u8, file.path, to_path)) continue;
+        self.file_deleted(from_path);
+        return;
+    }
+    for (self.files.items) |*file| {
+        if (!std.mem.eql(u8, file.path, from_path)) continue;
+        const new_path = try self.allocator.dupe(u8, to_path);
+        self.allocator.free(file.path);
+        file.path = new_path;
+        file.mtime = @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds());
+        self.longest_file_path = @max(self.longest_file_path, to_path.len);
+        self.sort_files_by_mtime();
+        return;
+    }
+    return self.file_added(to_path);
+}
+
+pub fn file_deleted(self: *Self, file_path: []const u8) void {
+    for (self.files.items, 0..) |file, i| {
+        if (!std.mem.eql(u8, file.path, file_path)) continue;
+        self.allocator.free(file.path);
+        _ = self.files.swapRemove(i);
+        self.sort_files_by_mtime();
+        return;
+    }
+}
+
 pub fn update_mru(self: *Self, source_location: *const SourceLocation) OutOfMemoryError!void {
     defer self.sort_files_by_mtime();
     try self.update_mru_internal(source_location, @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()));

@@ -363,6 +363,16 @@ pub fn build_exe(
     });
     const syntax_mod = syntax_dep.module("syntax");
 
+    const nightwatch_dep = if (target.result.os.tag == .macos) b.dependency("nightwatch", .{
+        .target = target,
+        .optimize = optimize,
+        .macos_fsevents = true,
+    }) else b.dependency("nightwatch", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const nightwatch_mod = nightwatch_dep.module("nightwatch");
+
     const help_mod = b.createModule(.{
         .root_source_file = b.path("help.md"),
     });
@@ -1052,6 +1062,16 @@ pub fn build_exe(
         },
     });
 
+    const file_watcher_mod = b.createModule(.{
+        .root_source_file = b.path("src/file_watcher.zig"),
+        .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "nightwatch", .module = nightwatch_mod },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
     const project_manager_mod = b.createModule(.{
         .root_source_file = b.path("src/project_manager.zig"),
         .imports = &.{
@@ -1069,6 +1089,7 @@ pub fn build_exe(
             .{ .name = "git", .module = git_mod },
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
+            .{ .name = "file_watcher", .module = file_watcher_mod },
         },
     });
 
