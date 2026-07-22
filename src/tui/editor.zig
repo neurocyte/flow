@@ -4655,7 +4655,8 @@ pub const Editor = struct {
         root = try self.delete_selection(root, cursel, allocator);
         const new_text = text_manip.toggle_prefix_in_text(self.prefix, text, sfa_allocator) catch return error.Stop;
         defer sfa_allocator.free(new_text);
-        root = self.insert(root, cursel, new_text, allocator) catch return error.Stop;
+        if (new_text.len > 0)
+            root = self.insert(root, cursel, new_text, allocator) catch return error.Stop;
         cursel.* = saved;
         cursel.cursor.clamp_to_buffer(root, self.metrics);
         return root;
