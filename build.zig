@@ -1310,6 +1310,7 @@ pub fn build_exe(
     tests.root_module.addImport("project_manager", project_manager_mod);
     tests.root_module.addImport("regex", regex_mod);
     tests.root_module.addImport("snippet", snippet_mod);
+    tests.root_module.addImport("text_manip", text_manip_mod);
     if (install_tests) b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);
