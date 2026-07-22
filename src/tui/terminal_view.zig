@@ -441,6 +441,11 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     @memcpy(self.vt.vt.palette_default[0..16], &theme.ansi_palette);
     if (!self.vt.vt.palette_modified)
         @memcpy(self.vt.vt.palette[0..16], &theme.ansi_palette);
+    // Propagate color scheme so apps can query or subscribe to it.
+    self.vt.vt.setColorScheme(switch (theme.type) {
+        .dark => .dark,
+        .light => .light,
+    });
 
     // Blit the terminal's front screen into our vaxis.Window.
     const focused_view = self.focused and tui.terminal_has_focus();
@@ -1032,6 +1037,10 @@ const Vt = struct {
         if (theme.editor.bg) |bg| self.vt.bg_color = color.u24_to_u8s(bg.color);
         @memcpy(self.vt.palette[0..16], &theme.ansi_palette);
         @memcpy(self.vt.palette_default[0..16], &theme.ansi_palette);
+        self.vt.color_scheme = switch (theme.type) {
+            .dark => .dark,
+            .light => .light,
+        };
 
         try self.vt.spawn();
     }

@@ -67,6 +67,8 @@ pub const Mode = struct {
     mouse_sgr: bool = false,
     /// DECSET 2004: wrap pasted text in ESC[200~ / ESC[201~ markers
     bracketed_paste: bool = false,
+    /// DECSET 2031: send unsolicited color scheme reports (CSI ? 997 ; Ps n)
+    color_scheme_updates: bool = false,
 };
 
 pub const MouseMode = enum {
@@ -88,6 +90,8 @@ pub const Charset = enum {
     /// DEC Special Character and Line Drawing Set (ESC ( 0)
     dec_special,
 };
+
+pub const ColorScheme = enum(u8) { dark = 1, light = 2 };
 
 pub const InputEvent = union(enum) {
     key_press: vaxis.Key,
@@ -135,6 +139,8 @@ palette_modified: bool = false,
 app_fg_color: ?[3]u8 = null,
 app_bg_color: ?[3]u8 = null,
 app_cursor_color: ?[3]u8 = null,
+/// The host color scheme reported in response to color scheme queries (CSI ? 996 n).
+color_scheme: ColorScheme = .dark,
 
 /// G0 and G1 character set designations
 /// ESC ( X designates G0, ESC ) X designates G1
@@ -885,6 +891,12 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                 },
                                 else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
+                        } else if (seq.intermediate == null and (seq.private_marker orelse 0) == '?') {
+                            switch (ps) {
+                                // Color scheme query (CSI ? 996 n)
+                                996 => try self.reportColorScheme(),
+                                else => log.debug("unhandled CSI: {f}", .{seq}),
+                            }
                         }
                     },
                     'p' => {
@@ -1392,6 +1404,7 @@ pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
         1049 => modeState(self.back_screen == &self.back_screen_alt),
         2004 => modeState(self.mode.bracketed_paste),
         2026 => modeState(self.mode.sync),
+        2031 => modeState(self.mode.color_scheme_updates),
         1005, 1015 => .permanently_reset,
         else => .not_recognized,
     };
@@ -1444,8 +1457,24 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
             self.mode.sync = val;
             if (val) self.sync_deadline_ms = root.get_now().toMilliseconds() + sync_timeout_ms;
         },
+        2031 => self.mode.color_scheme_updates = val,
         else => return,
     }
+}
+
+/// DSR color scheme report (CSI ? 997 ; Ps n): 1 = dark, 2 = light.
+/// See https://github.com/contour-terminal/contour/blob/master/docs/vt-extensions/color-palette-update-notifications.md
+fn reportColorScheme(self: *Terminal) !void {
+    const pty_writer = self.get_pty_writer();
+    defer pty_writer.flush() catch |e| log.warn("color scheme report flush failed: {t}", .{e});
+    try pty_writer.print("\x1b[?997;{d}n", .{@intFromEnum(self.color_scheme)});
+}
+
+pub fn setColorScheme(self: *Terminal, scheme: ColorScheme) void {
+    if (self.color_scheme == scheme) return;
+    self.color_scheme = scheme;
+    if (self.mode.color_scheme_updates)
+        self.reportColorScheme() catch |e| log.warn("color scheme report failed: {t}", .{e});
 }
 
 pub fn paste(self: *Terminal, text: []const u8) void {
