@@ -79,16 +79,15 @@ pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: st
         };
 
     it = std.mem.splitScalar(u8, text, '\n');
+    var first = true;
     while (it.next()) |line| {
+        if (!first) try writer.writeAll("\n");
+        first = false;
         if (have_prefix) {
             try remove_prefix_in_line(prefix, line, writer);
         } else {
             try add_prefix_in_line(prefix, line, writer, prefix_pos);
         }
-    }
-
-    if (text.len > 0 and text[text.len - 1] == '\n') {
-        try writer.writeAll("\n");
     }
 
     return result.toOwnedSlice();
