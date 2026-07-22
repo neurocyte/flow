@@ -59,6 +59,10 @@ pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: st
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
     const writer = &result.writer;
+    if (text.len == 0) {
+        try writer.writeAll(prefix);
+        return result.toOwnedSlice();
+    }
     var prefix_pos: usize = std.math.maxInt(usize);
     var have_prefix = true;
     var it = std.mem.splitScalar(u8, text, '\n');

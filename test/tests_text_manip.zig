@@ -34,8 +34,12 @@ test "remove prefix from single line without newline" {
     try expect_toggle("//", "// one", "one");
 }
 
-test "empty text is unchanged" {
-    try expect_toggle("//", "", "");
+test "empty text is prefixed" {
+    try expect_toggle("//", "", "//");
+}
+
+test "empty text round-trips back to empty" {
+    try expect_toggle("//", "//", "");
 }
 
 test "blank lines are preserved and not prefixed" {
