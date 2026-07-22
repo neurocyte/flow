@@ -4644,7 +4644,15 @@ pub const Editor = struct {
     }
     pub const underline_with_char_meta: Meta = .{ .arguments = &.{.string} };
 
-    fn toggle_cursel_prefix(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+    fn toggle_cursel_prefix(self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return self.toggle_cursel_prefix_impl(root, cursel, allocator, false);
+    }
+
+    fn toggle_cursel_prefix_blank(self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return self.toggle_cursel_prefix_impl(root, cursel, allocator, true);
+    }
+
+    fn toggle_cursel_prefix_impl(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator, prefix_blank_lines: bool) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
         const sel = cursel.expand_selection_to_line(root, self.metrics);
@@ -4652,8 +4660,20 @@ pub const Editor = struct {
         const sfa_allocator = sfa.get();
         const text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(text);
+        const blank = blk: {
+            var it = std.mem.splitScalar(u8, text, '\n');
+            while (it.next()) |line| if (text_manip.find_first_non_ws(line) != null) break :blk false;
+            break :blk true;
+        };
+        if (blank and !prefix_blank_lines) {
+            cursel.* = saved;
+            return root;
+        }
         root = try self.delete_selection(root, cursel, allocator);
-        const new_text = text_manip.toggle_prefix_in_text(self.prefix, text, sfa_allocator) catch return error.Stop;
+        const new_text = if (blank) blk: {
+            const line_len = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
+            break :blk std.mem.concat(sfa_allocator, u8, &.{ text[0..line_len], self.prefix, text[line_len..] }) catch return error.Stop;
+        } else text_manip.toggle_prefix_in_text(self.prefix, text, sfa_allocator) catch return error.Stop;
         defer sfa_allocator.free(new_text);
         if (new_text.len > 0)
             root = self.insert(root, cursel, new_text, allocator) catch return error.Stop;
@@ -4669,7 +4689,8 @@ pub const Editor = struct {
         @memcpy(self.prefix_buf[0..prefix.len], prefix);
         self.prefix = self.prefix_buf[0..prefix.len];
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut_once(b.root, toggle_cursel_prefix, b.allocator);
+        const operator: cursel_operator_mut = if (self.count_cursels() == 1) toggle_cursel_prefix_blank else toggle_cursel_prefix;
+        const root = try self.with_cursels_mut_once(b.root, operator, b.allocator);
         try self.update_buf(root, ctx.now);
     }
     pub const toggle_prefix_meta: Meta = .{ .arguments = &.{.string} };
