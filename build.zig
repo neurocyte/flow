@@ -869,6 +869,7 @@ pub fn build_exe(
 
     const keybind_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-keybind",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/keybind/keybind.zig"),
                 .target = target,
@@ -884,12 +885,13 @@ pub fn build_exe(
         tests.root_module.addImport("Buffer", Buffer_mod);
         tests.root_module.addImport("config", config_mod);
         tests.root_module.addImport("soft_root", soft_root_mod);
-        maybe_install_test(b, install_tests, tests, "test-keybind");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const match_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-match",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/match.zig"),
                 .target = target,
@@ -897,12 +899,13 @@ pub fn build_exe(
             }),
             .filters = test_filters,
         });
-        maybe_install_test(b, install_tests, tests, "test-match");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const glyph_constraint_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-glyph_constraint",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/gui/glyph_constraint.zig"),
                 .target = target,
@@ -910,12 +913,13 @@ pub fn build_exe(
             }),
             .filters = test_filters,
         });
-        maybe_install_test(b, install_tests, tests, "test-glyph_constraint");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const glyph_atlas_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-glyph_atlas",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/gui/GlyphAtlas.zig"),
                 .target = target,
@@ -926,12 +930,13 @@ pub fn build_exe(
         tests.root_module.addImport("xy", b.createModule(.{
             .root_source_file = b.path("src/gui/xy.zig"),
         }));
-        maybe_install_test(b, install_tests, tests, "test-glyph_atlas");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const terminal_screen_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-terminal_screen",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/terminal/Screen.zig"),
                 .target = target,
@@ -941,12 +946,13 @@ pub fn build_exe(
         });
         tests.root_module.addImport("vaxis", vaxis_mod);
         tests.root_module.addImport("DoubleMappedRingBuffer", double_mapped_ring_buffer_mod);
-        maybe_install_test(b, install_tests, tests, "test-terminal_screen");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const double_mapped_ring_buffer_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-double_mapped_ring_buffer",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/DoubleMappedRingBuffer.zig"),
                 .target = target,
@@ -954,12 +960,13 @@ pub fn build_exe(
             }),
             .filters = test_filters,
         });
-        maybe_install_test(b, install_tests, tests, "test-double_mapped_ring_buffer");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const mouse_event_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-mouse_event",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/MouseEvent.zig"),
                 .target = target,
@@ -969,12 +976,13 @@ pub fn build_exe(
         });
         tests.root_module.addImport("vaxis", vaxis_mod);
         tests.root_module.addImport("cbor", cbor_mod);
-        maybe_install_test(b, install_tests, tests, "test-mouse_event");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const syntax_validator_test_run_cmd = blk: {
         const tests = b.addTest(.{
+            .name = "test-syntax_validator",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/syntax_validator.zig"),
                 .target = target,
@@ -985,12 +993,13 @@ pub fn build_exe(
         tests.root_module.addImport("cbor", cbor_mod);
         tests.root_module.addImport("syntax", syntax_mod);
         tests.root_module.addImport("match", match_mod);
-        maybe_install_test(b, install_tests, tests, "test-syntax_validator");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
     const stdio_capture_test_run_cmd: ?*std.Build.Step.Run = if (target.result.os.tag == .windows) null else blk: {
         const tests = b.addTest(.{
+            .name = "test-stdio_capture",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/tui/stdio_capture.zig"),
                 .target = target,
@@ -1000,7 +1009,7 @@ pub fn build_exe(
         });
         tests.root_module.link_libc = true;
         tests.root_module.addImport("thespian", thespian_mod);
-        maybe_install_test(b, install_tests, tests, "test-stdio_capture");
+        if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
 
@@ -1256,6 +1265,7 @@ pub fn build_exe(
     check_step.dependOn(&check_exe.step);
 
     const tests = b.addTest(.{
+        .name = "test-flow",
         .root_module = b.createModule(.{
             .root_source_file = b.path("test/tests.zig"),
             .target = target,
@@ -1279,7 +1289,7 @@ pub fn build_exe(
     tests.root_module.addImport("project_manager", project_manager_mod);
     tests.root_module.addImport("regex", regex_mod);
     tests.root_module.addImport("snippet", snippet_mod);
-    maybe_install_test(b, install_tests, tests, "test-flow");
+    if (install_tests) b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);
 
@@ -1301,12 +1311,6 @@ pub fn build_exe(
 
     lint_step.dependOn(&lints.step);
     b.default_step.dependOn(lint_step);
-}
-
-fn maybe_install_test(b: *std.Build, install_tests: bool, tests: *std.Build.Step.Compile, name: []const u8) void {
-    if (!install_tests) return;
-    const install = b.addInstallArtifact(tests, .{ .dest_sub_path = name });
-    b.getInstallStep().dependOn(&install.step);
 }
 
 fn gen_version_info(
