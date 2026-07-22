@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
     const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (default), gui") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
     const embed_emoji = b.option(bool, "embed-emoji", "Embed Noto Color Emoji as a built-in color glyph fallback (default: true)") orelse true;
+    const install_tests = b.option(bool, "install-tests", "Install unit test executables (default: no)") orelse false;
 
     const run_step = b.step("run", "Run the app");
     const check_step = b.step("check", "Check the app");
@@ -55,6 +56,7 @@ pub fn build(b: *std.Build) void {
         all_targets,
         test_filters,
         embed_emoji,
+        install_tests,
     );
 }
 
@@ -74,6 +76,7 @@ fn build_development(
     _: bool, // all_targets
     test_filters: []const []const u8,
     embed_emoji: bool,
+    install_tests: bool,
 ) void {
     // The gui renderer links system GL/X11 libraries which are not available
     // via the musl sysroot, so use the native ABI when building it.
@@ -99,6 +102,7 @@ fn build_development(
         version,
         test_filters,
         embed_emoji,
+        install_tests,
     );
 }
 
@@ -118,6 +122,7 @@ fn build_release(
     all_targets: bool,
     test_filters: []const []const u8,
     embed_emoji: bool,
+    install_tests: bool,
 ) void {
     const targets: []const struct { std.Target.Query, Renderer } = if (all_targets) &.{
         .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .terminal },
@@ -210,6 +215,7 @@ fn build_release(
             version,
             test_filters,
             embed_emoji,
+            install_tests,
         );
 
         build_exe(
@@ -230,6 +236,7 @@ fn build_release(
             version,
             test_filters,
             embed_emoji,
+            install_tests,
         );
     }
 }
@@ -252,6 +259,7 @@ pub fn build_exe(
     version: []const u8,
     test_filters: []const []const u8,
     embed_emoji: bool,
+    install_tests: bool,
 ) void {
     const use_llvm = use_llvm_ orelse if (target.result.os.tag == .linux) true else null;
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
@@ -876,27 +884,35 @@ pub fn build_exe(
         tests.root_module.addImport("Buffer", Buffer_mod);
         tests.root_module.addImport("config", config_mod);
         tests.root_module.addImport("soft_root", soft_root_mod);
-        // b.installArtifact(tests);
+        maybe_install_test(b, install_tests, tests, "test-keybind");
         break :blk b.addRunArtifact(tests);
     };
 
-    const match_test_run_cmd = b.addRunArtifact(b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/match.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-        .filters = test_filters,
-    }));
+    const match_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/match.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        maybe_install_test(b, install_tests, tests, "test-match");
+        break :blk b.addRunArtifact(tests);
+    };
 
-    const glyph_constraint_test_run_cmd = b.addRunArtifact(b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/gui/glyph_constraint.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-        .filters = test_filters,
-    }));
+    const glyph_constraint_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gui/glyph_constraint.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        maybe_install_test(b, install_tests, tests, "test-glyph_constraint");
+        break :blk b.addRunArtifact(tests);
+    };
 
     const glyph_atlas_test_run_cmd = blk: {
         const tests = b.addTest(.{
@@ -910,6 +926,7 @@ pub fn build_exe(
         tests.root_module.addImport("xy", b.createModule(.{
             .root_source_file = b.path("src/gui/xy.zig"),
         }));
+        maybe_install_test(b, install_tests, tests, "test-glyph_atlas");
         break :blk b.addRunArtifact(tests);
     };
 
@@ -924,6 +941,7 @@ pub fn build_exe(
         });
         tests.root_module.addImport("vaxis", vaxis_mod);
         tests.root_module.addImport("DoubleMappedRingBuffer", double_mapped_ring_buffer_mod);
+        maybe_install_test(b, install_tests, tests, "test-terminal_screen");
         break :blk b.addRunArtifact(tests);
     };
 
@@ -936,6 +954,7 @@ pub fn build_exe(
             }),
             .filters = test_filters,
         });
+        maybe_install_test(b, install_tests, tests, "test-double_mapped_ring_buffer");
         break :blk b.addRunArtifact(tests);
     };
 
@@ -950,6 +969,7 @@ pub fn build_exe(
         });
         tests.root_module.addImport("vaxis", vaxis_mod);
         tests.root_module.addImport("cbor", cbor_mod);
+        maybe_install_test(b, install_tests, tests, "test-mouse_event");
         break :blk b.addRunArtifact(tests);
     };
 
@@ -965,6 +985,7 @@ pub fn build_exe(
         tests.root_module.addImport("cbor", cbor_mod);
         tests.root_module.addImport("syntax", syntax_mod);
         tests.root_module.addImport("match", match_mod);
+        maybe_install_test(b, install_tests, tests, "test-syntax_validator");
         break :blk b.addRunArtifact(tests);
     };
 
@@ -1243,7 +1264,7 @@ pub fn build_exe(
     tests.root_module.addImport("project_manager", project_manager_mod);
     tests.root_module.addImport("regex", regex_mod);
     tests.root_module.addImport("snippet", snippet_mod);
-    // b.installArtifact(tests);
+    maybe_install_test(b, install_tests, tests, "test-flow");
 
     const test_run_cmd = b.addRunArtifact(tests);
 
@@ -1264,6 +1285,12 @@ pub fn build_exe(
 
     lint_step.dependOn(&lints.step);
     b.default_step.dependOn(lint_step);
+}
+
+fn maybe_install_test(b: *std.Build, install_tests: bool, tests: *std.Build.Step.Compile, name: []const u8) void {
+    if (!install_tests) return;
+    const install = b.addInstallArtifact(tests, .{ .dest_sub_path = name });
+    b.getInstallStep().dependOn(&install.step);
 }
 
 fn gen_version_info(
