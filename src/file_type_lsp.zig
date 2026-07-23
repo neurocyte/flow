@@ -285,6 +285,12 @@ pub const zig = .{
     .formatter = .{ "zig", "fmt", "--stdin" },
 };
 
-pub const ziggy = .{};
+pub const ziggy = .{
+    .language_server = .{ "ziggy", "lsp" },
+    .formatter = .{ "ziggy", "fmt", "--stdin" },
+};
 
-pub const @"ziggy-schema" = .{};
+pub const @"ziggy-schema" = .{
+    .language_server = .{ "ziggy", "lsp", "--schema" },
+    .formatter = .{ "ziggy", "fmt", "--stdin-schema" },
+};
