@@ -69,6 +69,8 @@ pub const Mode = struct {
     bracketed_paste: bool = false,
     /// DECSET 2031: send unsolicited color scheme reports (CSI ? 997 ; Ps n)
     color_scheme_updates: bool = false,
+    /// IRM (SM/RM 4): printed characters shift existing cells right instead of overwriting
+    insert: bool = false,
 };
 
 pub const MouseMode = enum {
@@ -525,7 +527,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     if (active_charset == .ascii and rest[0] >= 0x20 and rest[0] < 0x7f) {
                         var n: usize = 1;
                         while (n < rest.len and rest[n] >= 0x20 and rest[n] < 0x7f) : (n += 1) {}
-                        for (rest[0..n]) |*b| try self.back_screen.print(b[0..1], 1, self.mode.autowrap);
+                        for (rest[0..n]) |*b| try self.back_screen.print(b[0..1], 1, self.mode.autowrap, self.mode.insert);
                         self.setLastPrinted(rest[n - 1 .. n]);
                         rest = rest[n..];
                         continue;
@@ -537,10 +539,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     const w = vaxis.gwidth.gwidth(gr, .unicode);
                     if (active_charset == .dec_special and gr.len == 1) {
                         const mapped = decSpecialChar(gr[0]);
-                        try self.back_screen.print(mapped, @truncate(w), self.mode.autowrap);
+                        try self.back_screen.print(mapped, @truncate(w), self.mode.autowrap, self.mode.insert);
                         self.setLastPrinted(mapped);
                     } else {
-                        try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
+                        try self.back_screen.print(gr, @truncate(w), self.mode.autowrap, self.mode.insert);
                         self.setLastPrinted(gr);
                     }
                     rest = rest[gr.len..];
@@ -609,6 +611,17 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
             .ss3 => |ss3| log.debug("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
                 switch (seq.final) {
+                    // Insert Character
+                    '@' => {
+                        // CSI Ps SP @ is SL (scroll left), not ICH
+                        if (seq.intermediate != null) {
+                            log.debug("unhandled CSI: {f}", .{seq});
+                            continue;
+                        }
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        try self.back_screen.insertCharacters(n);
+                    },
                     // Cursor up
                     'A', 'k' => {
                         var iter = seq.iterator(u16);
@@ -791,7 +804,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         const w = vaxis.gwidth.gwidth(last, .unicode);
                         var i: usize = 0;
                         while (i < n) : (i += 1) {
-                            try self.back_screen.print(last, @truncate(w), self.mode.autowrap);
+                            try self.back_screen.print(last, @truncate(w), self.mode.autowrap, self.mode.insert);
                         }
                     },
                     // Device Attributes
@@ -1389,8 +1402,10 @@ fn modeState(val: bool) ModeState {
 
 /// DECRQM - report the current state of `mode`.
 pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
-    // We implement no ANSI modes yet (IRM, LNM, ...).
-    if (!private) return .not_recognized;
+    if (!private) return switch (mode) {
+        4 => modeState(self.mode.insert), // IRM
+        else => .not_recognized,
+    };
     return switch (mode) {
         1 => modeState(self.mode.cursor_keys_app), // DECCKM
         6 => modeState(self.mode.origin), // DECOM
@@ -1420,9 +1435,11 @@ fn syncExpired(self: *const Terminal) bool {
 
 /// DECSET/DECRST (private) and SM/RM (ANSI).
 pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
-    // We implement no ANSI modes yet (IRM, LNM, ...)
     if (!private) {
-        log.debug("unhandled ANSI mode: {d}", .{mode});
+        switch (mode) {
+            4 => self.mode.insert = val, // IRM
+            else => log.debug("unhandled ANSI mode: {d}", .{mode}),
+        }
         return;
     }
     switch (mode) {
