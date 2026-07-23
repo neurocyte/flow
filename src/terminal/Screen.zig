@@ -676,6 +676,7 @@ pub fn print(
     grapheme: []const u8,
     width: u8,
     wrap: bool,
+    insert: bool,
 ) !void {
     if (self.cursor.pending_wrap) {
         self.cursor.col = self.scrolling_region.left;
@@ -683,6 +684,7 @@ pub fn print(
     }
     if (self.cursor.col >= self.width) return;
     if (self.cursor.row >= self.height) return;
+    if (insert and width > 0) try self.insertCharacters(width);
     const col = self.cursor.col;
     const row = self.cursor.row;
 
@@ -1038,6 +1040,21 @@ pub fn deleteCharacters(self: *Screen, n: usize) !void {
     }
 }
 
+pub fn insertCharacters(self: *Screen, n: usize) !void {
+    if (n == 0) return;
+    if (!self.withinScrollingRegion()) return;
+    self.cursor.pending_wrap = false;
+    var col = self.scrolling_region.right;
+    while (true) : (col -= 1) {
+        const i = self.rowIndex(self.cursor.row, col);
+        if (col >= self.cursor.col + n)
+            try self.buf[i].copyFrom(self.allocator, self.buf[self.rowIndex(self.cursor.row, col - n)])
+        else
+            self.buf[i].erase(self.allocator, self.cursor.style.bg);
+        if (col == self.cursor.col) break;
+    }
+}
+
 pub fn reverseIndex(self: *Screen) !void {
     if (self.cursor.row != self.scrolling_region.top or
         self.cursor.col < self.scrolling_region.left or
@@ -1070,7 +1087,7 @@ test "scrollback ring drops the oldest line once full and keeps recent history" 
     var i: u8 = 0;
     while (i < 8) : (i += 1) {
         screen.cursor.col = 0;
-        try screen.print(&.{'0' + i}, 1, false);
+        try screen.print(&.{'0' + i}, 1, false, false);
         try screen.index();
     }
 
@@ -1089,9 +1106,48 @@ test "print: a wrap on the bottom row scrolls instead of overwriting it" {
 
     screen.cursor.row = 1;
     screen.cursor.col = 0;
-    for ("ABCDEF") |ch| try screen.print(&.{ch}, 1, true);
+    for ("ABCDEF") |ch| try screen.print(&.{ch}, 1, true, false);
 
     try testing.expectEqualStrings("A", screen.buf[screen.rowIndex(0, 0)].char.bytes());
     try testing.expectEqualStrings("E", screen.buf[screen.rowIndex(0, 4)].char.bytes());
     try testing.expectEqualStrings("F", screen.buf[screen.rowIndex(1, 0)].char.bytes());
+}
+
+fn expectRow(screen: *Screen, row: u16, expected: []const u8) !void {
+    for (expected, 0..) |ch, col|
+        try std.testing.expectEqualStrings(&.{ch}, screen.buf[screen.rowIndex(row, col)].char.bytes());
+}
+
+test "insertCharacters shifts cells right and drops cells past the right margin" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.init(alloc, 6, 2);
+    defer screen.deinit(alloc);
+
+    for ("abcdef") |ch| try screen.print(&.{ch}, 1, false, false);
+
+    // ICH 2 at column 2: "abcdef" -> "ab  cd" (ef pushed off)
+    screen.cursor.col = 2;
+    try screen.insertCharacters(2);
+    try expectRow(&screen, 0, "ab  cd");
+
+    // n larger than the remaining row blanks to the right margin
+    try screen.insertCharacters(100);
+    try expectRow(&screen, 0, "ab    ");
+}
+
+test "print in insert mode makes room instead of overwriting" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.init(alloc, 10, 2);
+    defer screen.deinit(alloc);
+
+    for ("abcdefgh") |ch| try screen.print(&.{ch}, 1, false, false);
+
+    // Move back 4 columns and insert "XY" as readline does with ich
+    screen.cursor.col = 4;
+    for ("XY") |ch| try screen.print(&.{ch}, 1, false, true);
+
+    try expectRow(&screen, 0, "abcdXYefgh");
+    try testing.expectEqual(@as(u16, 6), screen.cursor.col);
 }
