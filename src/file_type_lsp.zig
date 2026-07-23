@@ -125,6 +125,10 @@ pub const julia = .{
     .formatter = .{ "julia", "-e", "using JuliaFormatter; print(format_text(read(stdin, String)))" },
 };
 
+pub const just = .{
+    .language_server = .{"just-lsp"},
+};
+
 pub const kdl = .{
     .formatter = .{ "kdlfmt", "format", "-" },
 };
