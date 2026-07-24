@@ -655,7 +655,8 @@ const Process = struct {
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.query_git();
-            file_watcher.watch(project_directory) catch |e| self.logger.err("file_watcher.watch", e);
+            if (tp.env.get().is("enable_file_watcher"))
+                file_watcher.watch(project_directory) catch |e| self.logger.err("file_watcher.watch", e);
         }
     }
 
