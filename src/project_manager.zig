@@ -170,6 +170,13 @@ pub fn query_new_or_modified_files(max: usize, query: []const u8) (ProjectManage
     return send(.{ "query_new_or_modified_files", project, max, query });
 }
 
+pub fn query_tree_files(max: usize, query: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "query_tree_files", project, max, query });
+}
+
 pub fn request_path_files(max: usize, path: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -505,6 +512,8 @@ const Process = struct {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "query_new_or_modified_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
             self.query_new_or_modified_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "query_tree_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
+            self.query_tree_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_path_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&path) })) {
             self.request_path_files(from, project_directory, max, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_tasks", tp.extract(&project_directory) })) {
@@ -772,6 +781,15 @@ const Process = struct {
         const query_time = root.get_now().toMilliseconds() - start_time;
         if (query_time > 250)
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
+    }
+
+    fn query_tree_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.RequestError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        const start_time = root.get_now().toMilliseconds();
+        const matched = try project.query_tree_files(from, max, query);
+        const query_time = root.get_now().toMilliseconds() - start_time;
+        if (query_time > 250)
+            self.logger.print("tree query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
     }
 
     fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) (ProjectError || SpawnError || std.Io.Dir.OpenError)!void {

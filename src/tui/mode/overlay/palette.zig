@@ -297,6 +297,11 @@ pub fn Create(options: type) type {
             self.after_resize();
         }
 
+        pub fn resize(self: *Self) void {
+            const padding = tui.get_widget_style(widget_type).padding;
+            self.do_resize(padding);
+        }
+
         fn get_view_rows(screen: Widget.Box) usize {
             var h = screen.h;
             if (h > 0) h = h / 5 * 4;
@@ -372,9 +377,12 @@ pub fn Create(options: type) type {
             if (async_query) return options.query(self, self.inputbox.text.items);
             defer tui.reset_hover(@src());
             defer self.update_count_hint();
-            self.items = 0;
-            self.menu.reset_items();
-            self.menu.selected = null;
+            const should_clear = !@hasDecl(options, "should_clear_on_query") or options.should_clear_on_query(self);
+            if (should_clear) {
+                self.items = 0;
+                self.menu.reset_items();
+                self.menu.selected = null;
+            }
             self.longest = self.inputbox.text.items.len;
             for (self.entries.items) |entry|
                 self.longest = @max(self.longest, entry.label.len);
@@ -389,6 +397,8 @@ pub fn Create(options: type) type {
                     if (self.items < self.view_rows)
                         try options.add_menu_entry(self, entry, null);
                 }
+            } else if (@hasDecl(options, "on_query_changed")) {
+                try options.on_query_changed(self, self.inputbox.text.items);
             } else {
                 _ = try self.query_entries(self.inputbox.text.items);
             }
