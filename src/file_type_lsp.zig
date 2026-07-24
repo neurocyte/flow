@@ -133,6 +133,11 @@ pub const kdl = .{
     .formatter = .{ "kdlfmt", "format", "-" },
 };
 
+pub const latex = .{
+    .language_server = .{"texlab"},
+    .formatter = .{ "tex-fmt", "--stdin" },
+};
+
 pub const lua = .{
     .language_server = .{"lua-language-server"},
     .formatter = .{ "stylua", "--indent-type", "{{indent_mode}}", "--indent-width", "{{indent_size}}", "-" },
