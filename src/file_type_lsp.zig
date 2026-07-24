@@ -13,6 +13,21 @@ pub const bash = .{
     .formatter = .{ "shfmt", "--indent", "4" },
 };
 
+pub const bibtex = .{
+    .language_server = .{"texlab"},
+    .formatter = .{
+        "bibtex-tidy",
+        "-",
+        "--curly",
+        "--drop-all-caps",
+        "--remove-empty-fields",
+        "--sort-fields",
+        "--sort=year,author,id",
+        "--strip-enclosing-braces",
+        "--trailing-commas",
+    },
+};
+
 pub const c = .{
     .language_server = .{"clangd"},
     .formatter = .{"clang-format"},
