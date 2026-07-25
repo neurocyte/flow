@@ -205,7 +205,7 @@ pub const ninja = .{};
 
 pub const nix = .{
     .language_server = .{"nixd"},
-    .formatter = .{"alejandra"},
+    .formatter = .{ "alejandra", "-q" },
 };
 
 pub const nu = .{
