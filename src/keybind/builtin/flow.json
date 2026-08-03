@@ -567,6 +567,8 @@
     "terminal": {
         "on_match_failure": "nothing",
         "press": [
+            ["ctrl+shift+v", "system_paste"],
+            ["alt+shift+v", "clipboard_history"],
             ["ctrl+1", "focus_split", 0],
             ["ctrl+2", "focus_split", 1],
             ["ctrl+3", "focus_split", 2],
