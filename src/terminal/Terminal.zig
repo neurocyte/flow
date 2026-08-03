@@ -153,6 +153,8 @@ charset_shifted: bool = false,
 
 tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
+/// XTWINOPS 22/23 title save/restore stack (owns each entry)
+title_stack: std.ArrayList([]u8) = .empty,
 working_directory: std.ArrayList(u8) = .empty,
 
 /// When the in-progress synchronized update (DECSET 2026) stops being honoured.
@@ -246,6 +248,8 @@ pub fn deinit(self: *Terminal) void {
     self.osc52_buf.deinit(self.allocator);
     self.tab_stops.deinit(self.allocator);
     self.title.deinit(self.allocator);
+    for (self.title_stack.items) |t| self.allocator.free(t);
+    self.title_stack.deinit(self.allocator);
     self.working_directory.deinit(self.allocator);
 }
 
@@ -1039,6 +1043,26 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                     else => unreachable,
                                 }
                             },
+                            // Push the current title onto the title stack.
+                            22 => {
+                                const max_depth = 10;
+                                if (self.title_stack.items.len >= max_depth) {
+                                    const oldest = self.title_stack.orderedRemove(0);
+                                    self.allocator.free(oldest);
+                                }
+                                const saved = try self.allocator.dupe(u8, self.title.items);
+                                errdefer self.allocator.free(saved);
+                                try self.title_stack.append(self.allocator, saved);
+                            },
+                            // Pop and restore the title from the title stack.
+                            23 => {
+                                if (self.title_stack.pop()) |saved| {
+                                    defer self.allocator.free(saved);
+                                    self.title.clearRetainingCapacity();
+                                    try self.title.appendSlice(self.allocator, saved);
+                                    try handle_event(context, .{ .title_change = self.title.items });
+                                }
+                            },
                             else => log.debug("unhandled XTWINOPS: {f}", .{seq}),
                         }
                     },
@@ -1354,6 +1378,8 @@ fn hardReset(self: *Terminal) !void {
     self.charset_g0 = .ascii;
     self.charset_g1 = .ascii;
     self.charset_shifted = false;
+    for (self.title_stack.items) |t| self.allocator.free(t);
+    self.title_stack.clearRetainingCapacity();
     try self.resetTabStops();
 
     self.palette = self.palette_default;
