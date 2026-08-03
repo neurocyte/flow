@@ -37,7 +37,7 @@ pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
             return error.NotFound;
         };
         const text = func(allocator) catch |e| {
-            std.log.warn("expansion failed '{s}': {t}", .{ var_name, e });
+            std.log.err("expansion of variable '{s}' failed: {t}", .{ var_name, e });
             try result.writer.writeAll(arg);
             return e;
         };
@@ -191,7 +191,7 @@ const functions = struct {
         const ed = mv.get_active_editor() orelse return error.Unavailable;
         const row = ed.get_primary().cursor.row;
         const commit = ed.get_vcs_blame(row);
-        const id = if (commit) |c| c.id else "";
+        const id = if (commit) |c| c.id else return error.Unavailable;
         var stream: std.Io.Writer.Allocating = .init(allocator);
         try stream.writer.print("{s}", .{id});
         return stream.toOwnedSlice();
