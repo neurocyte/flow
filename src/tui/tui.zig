@@ -1734,13 +1734,8 @@ const cmds = struct {
         var on_exit: @import("config").TerminalOnExit = self.config_.terminal_on_exit;
         if (!(try ctx.args.match(.{tp.extract(&task)}) or
             try ctx.args.match(.{ tp.extract(&task), tp.extract(&on_exit) }))) return;
-        const cmd = @import("expansion.zig").expand(self.allocator, task) catch |e| switch (e) {
-            error.Unavailable, error.NotFound => return error.Stop,
-            else => |e_| return e_,
-        };
-        defer self.allocator.free(cmd);
         call_add_task(task);
-        try command.executeName("open_terminal", try command.fmtbuf(&buf, .{ cmd, on_exit }));
+        try command.executeName("open_terminal", try command.fmtbuf(&buf, .{ task, on_exit }));
     }
     pub const run_task_in_terminal_meta: Meta = .{
         .description = "Run a task in terminal",

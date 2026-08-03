@@ -99,8 +99,16 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
 
     var cmd_arg: []const u8 = "";
     var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
-    const have_arg = (ctx.args.match(.{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0) or
-        (ctx.args.match(.{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0);
+    const have_arg = (cbor.match(ctx.args.buf, .{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0) or
+        (cbor.match(ctx.args.buf, .{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0);
+
+    const expanded_cmd_arg = @import("expansion.zig").expand(self.allocator, cmd_arg) catch |e| switch (e) {
+        error.Unavailable, error.NotFound => return error.Stop,
+        else => |e_| return e_,
+    };
+    defer self.allocator.free(expanded_cmd_arg);
+    cmd_arg = expanded_cmd_arg;
+
     const display_cmd = cmd_arg;
     const argv_msg: ?tp.message = if (have_arg)
         try shell.parse_arg0_to_argv(self.allocator, &cmd_arg)
