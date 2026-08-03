@@ -91,6 +91,7 @@
             ["ctrl+alt+a ctrl+alt+e", ["shell_execute_log", "flow-gui", "{{project}}"]],
             ["ctrl+alt+a ctrl+alt+g", ["open_terminal", "tig --all", "hold_on_error"]],
             ["ctrl+alt+a ctrl+alt+h", ["open_terminal", "tig --all -- {{file}}", "hold_on_error"]],
+            ["ctrl+alt+a ctrl+alt+t", ["open_terminal", "btop", "hold_on_error"]],
             ["ctrl+alt+enter", ["shell_execute_log", "xdg-terminal-exec", "--dir={{project}}"]],
             ["f5", ["create_scratch_buffer", "*test*"], ["shell_execute_insert", "zig", "build", "test"]],
             ["f7", ["create_scratch_buffer", "*build*"], ["shell_execute_insert", "zig", "build"]],
