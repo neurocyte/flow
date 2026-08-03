@@ -36,7 +36,11 @@ pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
             std.log.err("unknown variable '{s}'", .{arg});
             return error.NotFound;
         };
-        const text = try func(allocator);
+        const text = func(allocator) catch |e| {
+            std.log.warn("expansion failed '{s}': {t}", .{ var_name, e });
+            try result.writer.writeAll(arg);
+            return e;
+        };
         defer allocator.free(text);
         try result.writer.writeAll(text);
     }
@@ -70,6 +74,7 @@ pub const Error = error{
     OutOfMemory,
     WriteFailed,
     NotFound,
+    Unavailable,
 };
 const variables = std.StaticStringMap(Function).initComptime(get_functions());
 
@@ -86,37 +91,37 @@ const functions = struct {
     }
 
     pub fn file(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
-        return allocator.dupe(u8, ed.file_path orelse &.{});
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
+        return allocator.dupe(u8, ed.file_path orelse return error.Unavailable);
     }
 
     pub fn line(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         var stream: std.Io.Writer.Allocating = .init(allocator);
         try stream.writer.print("{d}", .{ed.get_primary().cursor.row + 1});
         return stream.toOwnedSlice();
     }
 
     pub fn column(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         var stream: std.Io.Writer.Allocating = .init(allocator);
         try stream.writer.print("{d}", .{ed.get_primary().cursor.col + 1});
         return stream.toOwnedSlice();
     }
 
     pub fn selection(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
-        const sel = ed.get_primary().selection orelse return &.{};
-        return allocator.dupe(u8, ed.get_selection(sel, allocator) catch &.{});
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
+        const sel = ed.get_primary().selection orelse return error.Unavailable;
+        return allocator.dupe(u8, ed.get_selection(sel, allocator) catch return error.Unavailable);
     }
 
     pub fn selections(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         var results: std.Io.Writer.Allocating = .init(allocator);
         for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             const sel = cursel.selection orelse continue;
@@ -129,8 +134,8 @@ const functions = struct {
     }
 
     pub fn selectionsZ(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         var results: std.Io.Writer.Allocating = .init(allocator);
         for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             const sel = cursel.selection orelse continue;
@@ -143,8 +148,8 @@ const functions = struct {
     }
 
     // pub fn @"selections*"(allocator: Allocator) Error![][]const u8 {
-    //     const mv = tui.mainview() orelse return &.{};
-    //     const ed = mv.get_active_editor() orelse return &.{};
+    //     const mv = tui.mainview() orelse return error.Unavailable;
+    //     const ed = mv.get_active_editor() orelse return error.Unavailable;
     //     var results: std.ArrayList([]const u8) = .empty;
     //     for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
     //         const sel = cursel.selection orelse continue;
@@ -155,8 +160,8 @@ const functions = struct {
 
     /// {{indent_mode}} - The current indent mode ("tabs" or "spaces")
     pub fn indent_mode(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         var stream: std.Io.Writer.Allocating = .init(allocator);
         try stream.writer.print("{t}", .{ed.indent_mode});
         return stream.toOwnedSlice();
@@ -164,8 +169,8 @@ const functions = struct {
 
     /// {{indent_size}} - The current indent size (in columns)
     pub fn indent_size(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         var stream: std.Io.Writer.Allocating = .init(allocator);
         try stream.writer.print("{d}", .{ed.indent_size});
         return stream.toOwnedSlice();
@@ -173,8 +178,8 @@ const functions = struct {
 
     /// {{reflow_width}} - The current reflow width (in columns)
     pub fn reflow_width(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         var stream: std.Io.Writer.Allocating = .init(allocator);
         try stream.writer.print("{d}", .{ed.reflow_width orelse tui.config().reflow_width});
         return stream.toOwnedSlice();
@@ -182,8 +187,8 @@ const functions = struct {
 
     /// {{blame_commit}} - The blame commit ID at the line number of the primary cursor
     pub fn blame_commit(allocator: Allocator) Error![]const u8 {
-        const mv = tui.mainview() orelse return &.{};
-        const ed = mv.get_active_editor() orelse return &.{};
+        const mv = tui.mainview() orelse return error.Unavailable;
+        const ed = mv.get_active_editor() orelse return error.Unavailable;
         const row = ed.get_primary().cursor.row;
         const commit = ed.get_vcs_blame(row);
         const id = if (commit) |c| c.id else "";
