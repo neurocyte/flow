@@ -1707,25 +1707,20 @@ const cmds = struct {
 
     pub fn run_task(self: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
-        if (try ctx.args.match(.{tp.extract(&task)})) {
-            const args = @import("expansion.zig").expand_cbor(self.allocator, .{ .bytes = ctx.args.buf }) catch |e| switch (e) {
-                error.NotFound => return error.Stop,
-                else => |e_| return e_,
-            };
-            defer self.allocator.free(args.bytes);
-            var cmd: []const u8 = undefined;
-            if (!try cbor.match(args.bytes, .{tp.extract(&cmd)}))
-                cmd = task;
-            var buffer_name: std.Io.Writer.Allocating = .init(self.allocator);
-            defer buffer_name.deinit();
-            buffer_name.writer.print("*{s}*", .{cmd}) catch {};
-            call_add_task(task);
-            var buf: [tp.max_message_size]u8 = undefined;
-            try command.executeName("create_scratch_buffer", try command.fmtbuf(&buf, .{ buffer_name.written(), "", "conf" }));
-            tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{cmd} }) catch |e| self.logger.err("task", e);
-        } else {
+        if (!try ctx.args.match(.{tp.extract(&task)}))
             return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type, .empty_from(ctx));
-        }
+        const cmd = @import("expansion.zig").expand(self.allocator, task) catch |e| switch (e) {
+            error.Unavailable, error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer self.allocator.free(cmd);
+        call_add_task(task);
+        var buffer_name: std.Io.Writer.Allocating = .init(self.allocator);
+        defer buffer_name.deinit();
+        buffer_name.writer.print("*{s}*", .{cmd}) catch {};
+        var buf: [tp.max_message_size]u8 = undefined;
+        try command.executeName("create_scratch_buffer", try command.fmtbuf(&buf, .{ buffer_name.written(), "", "conf" }));
+        tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{cmd} }) catch |e| self.logger.err("task", e);
     }
     pub const run_task_meta: Meta = .{
         .description = "Run a task",
@@ -1739,14 +1734,11 @@ const cmds = struct {
         var on_exit: @import("config").TerminalOnExit = self.config_.terminal_on_exit;
         if (!(try ctx.args.match(.{tp.extract(&task)}) or
             try ctx.args.match(.{ tp.extract(&task), tp.extract(&on_exit) }))) return;
-        const args = @import("expansion.zig").expand_cbor(self.allocator, .{ .bytes = ctx.args.buf }) catch |e| switch (e) {
-            error.NotFound => return error.Stop,
+        const cmd = @import("expansion.zig").expand(self.allocator, task) catch |e| switch (e) {
+            error.Unavailable, error.NotFound => return error.Stop,
             else => |e_| return e_,
         };
-        defer self.allocator.free(args.bytes);
-        var cmd: []const u8 = undefined;
-        if (!try cbor.match(args.bytes, .{tp.extract(&cmd)}))
-            cmd = task;
+        defer self.allocator.free(cmd);
         call_add_task(task);
         try command.executeName("open_terminal", try command.fmtbuf(&buf, .{ cmd, on_exit }));
     }

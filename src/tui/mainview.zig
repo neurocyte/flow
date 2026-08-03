@@ -1589,8 +1589,12 @@ const cmds = struct {
     pub fn shell_execute_log(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
             return error.InvalidShellArgument;
-        const cmd = ctx.args;
-        try shell.execute(self.allocator, cmd, .{
+        const cmd = @import("expansion.zig").expand_cbor(self.allocator, .{ .bytes = ctx.args.buf }) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer self.allocator.free(cmd.bytes);
+        try shell.execute(self.allocator, .{ .buf = cmd.bytes }, .{
             .out = shell.log_handler,
             .err = shell.log_err_handler,
             .exit = shell.log_exit_err_handler,
@@ -1601,7 +1605,11 @@ const cmds = struct {
     pub fn shell_execute_insert(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
             return error.InvalidShellArgument;
-        const cmd = ctx.args;
+        const cmd = @import("expansion.zig").expand_cbor(self.allocator, .{ .bytes = ctx.args.buf }) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer self.allocator.free(cmd.bytes);
         const handlers = struct {
             fn out(_: usize, parent: tp.pid_ref, _: []const u8, output: []const u8) void {
                 var pos: usize = 0;
@@ -1620,14 +1628,18 @@ const cmds = struct {
                 parent.send(.{ "cmd", "insert_chars", .{output_} }) catch {};
             }
         };
-        try shell.execute(self.allocator, cmd, .{ .out = handlers.out });
+        try shell.execute(self.allocator, .{ .buf = cmd.bytes }, .{ .out = handlers.out });
     }
     pub const shell_execute_insert_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn shell_execute_stream(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
             return error.InvalidShellArgument;
-        const cmd = ctx.args;
+        const cmd = @import("expansion.zig").expand_cbor(self.allocator, .{ .bytes = ctx.args.buf }) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer self.allocator.free(cmd.bytes);
         const handlers = struct {
             fn out(context: usize, parent: tp.pid_ref, _: []const u8, output: []const u8) void {
                 const buffer_ref: Buffer.Ref = @enumFromInt(context);
@@ -1649,7 +1661,7 @@ const cmds = struct {
         const editor = self.get_active_editor() orelse return error.Stop;
         const buffer = editor.buffer orelse return error.Stop;
         const buffer_ref = buffer.to_ref();
-        try shell.execute(self.allocator, cmd, .{ .context = @intFromEnum(buffer_ref), .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
+        try shell.execute(self.allocator, .{ .buf = cmd.bytes }, .{ .context = @intFromEnum(buffer_ref), .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
     }
     pub const shell_execute_stream_meta: Meta = .{ .arguments = &.{.string} };
 
