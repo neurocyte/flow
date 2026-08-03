@@ -215,7 +215,7 @@ fn render_terminal_title(self: *Self, terminal_title: ?[]const u8) void {
     const edit_state = if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "";
 
     const new_title = if (terminal_title) |t|
-        std.fmt.bufPrint(&new_title_buf, "{s}", .{t}) catch &new_title_buf
+        std.fmt.bufPrint(&new_title_buf, "{s} {s}", .{ t, root.application_name }) catch &new_title_buf
     else if (self.file)
         std.fmt.bufPrint(&new_title_buf, "{s}{s} {s} {s}", .{ edit_state, file_name, project_name, root.application_name }) catch &new_title_buf
     else
