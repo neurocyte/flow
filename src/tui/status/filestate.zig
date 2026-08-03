@@ -41,6 +41,7 @@ auto_save: bool = false,
 have_mini_mode_cursor: bool = false,
 
 const project_icon = "";
+const terminal_icon = " ";
 const Self = @This();
 const ButtonType = Button.Options(Self).ButtonType;
 
@@ -101,8 +102,13 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.fill(" ");
         btn.plane.home();
     }
+
+    const active_terminal_title = if (tui.mainview()) |mv| mv.active_terminal_title() else null;
+
     if (tui.mini_mode()) |_|
         self.render_mini_mode(&btn.plane)
+    else if (active_terminal_title) |tt|
+        self.render_vt_title(&btn.plane, theme, tt)
     else if (self.detailed)
         self.render_detailed(&btn.plane, theme, auto_save)
     else
@@ -113,7 +119,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.cursor_disable();
     }
 
-    self.render_terminal_title();
+    self.render_terminal_title(active_terminal_title);
     return false;
 }
 
@@ -184,7 +190,16 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_
     return;
 }
 
-fn render_terminal_title(self: *Self) void {
+fn render_vt_title(_: *Self, plane: *Plane, _: *const Widget.Theme, terminal_title: []const u8) void {
+    plane.on_styles(styles.italic);
+    _ = plane.putstr(" ") catch {};
+    if (terminal_icon.len > 0 and tui.config().show_fileicons)
+        _ = plane.print("{s} ", .{terminal_icon}) catch {};
+    _ = plane.print("{s}", .{terminal_title}) catch {};
+    return;
+}
+
+fn render_terminal_title(self: *Self, terminal_title: ?[]const u8) void {
     var project_name_buf: [512]u8 = undefined;
     var new_title_buf: [512]u8 = undefined;
 
@@ -199,7 +214,9 @@ fn render_terminal_title(self: *Self) void {
         self.name;
     const edit_state = if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "";
 
-    const new_title = if (self.file)
+    const new_title = if (terminal_title) |t|
+        std.fmt.bufPrint(&new_title_buf, "{s}", .{t}) catch &new_title_buf
+    else if (self.file)
         std.fmt.bufPrint(&new_title_buf, "{s}{s} {s} {s}", .{ edit_state, file_name, project_name, root.application_name }) catch &new_title_buf
     else
         std.fmt.bufPrint(&new_title_buf, "{s} {s}", .{ project_name, root.application_name }) catch &new_title_buf;

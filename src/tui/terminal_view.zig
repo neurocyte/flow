@@ -39,7 +39,8 @@ focused: bool = false,
 input_mode: Mode,
 hover: bool = false,
 vt: *Vt,
-last_cmd: ?[]const u8,
+last_cmd: ?cbor.Raw,
+last_display_cmd: ?[]const u8,
 commands: Commands = undefined,
 
 hover_pos: ?HoverPos = null,
@@ -71,6 +72,7 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
         .input_mode = try keybind.mode("terminal", allocator, .{ .insert_command = "do_nothing" }),
         .vt = undefined,
         .last_cmd = null,
+        .last_display_cmd = null,
     };
     try self.run_cmd(ctx);
 
@@ -190,13 +192,18 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     }
 
     const new_last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
-    if (self.last_cmd) |cmd| self.allocator.free(cmd);
-    self.last_cmd = new_last_cmd;
+    if (self.last_cmd) |cmd| self.allocator.free(cmd.bytes);
+    self.last_cmd = .{ .bytes = new_last_cmd };
+    if (self.last_display_cmd) |cmd| {
+        self.allocator.free(cmd);
+        self.last_display_cmd = null;
+    }
+    self.last_display_cmd = try self.allocator.dupe(u8, display_cmd);
 }
 
 fn re_run_cmd(self: *Self) !void {
     return if (self.last_cmd) |cmd|
-        self.run_cmd(.init(.{ .buf = cmd }))
+        self.run_cmd(.init(.{ .buf = cmd.bytes }))
     else
         tp.exit("no command to re-run");
 }
@@ -378,6 +385,11 @@ pub fn toggle_focus(self: *Self) void {
     if (self.focused) self.unfocus() else self.focus();
 }
 
+pub fn get_title(self: *Self) []const u8 {
+    if (self.vt.title.items.len > 0) return self.vt.title.items;
+    return self.last_display_cmd orelse &.{};
+}
+
 pub fn focus(self: *Self) void {
     if (self.focused) return;
     self.focused = true;
@@ -420,8 +432,12 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.message_filters().remove_ptr(self);
     self.reset_file_link();
     if (self.last_cmd) |cmd| {
-        self.allocator.free(cmd);
+        self.allocator.free(cmd.bytes);
         self.last_cmd = null;
+    }
+    if (self.last_display_cmd) |cmd| {
+        self.allocator.free(cmd);
+        self.last_display_cmd = null;
     }
     if (global_vt) |*vt| if (vt.process_exited) {
         vt.deinit(allocator);

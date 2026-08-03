@@ -418,6 +418,13 @@ fn is_panel_view_showing(self: *Self, comptime view: type) bool {
     return self.get_panel_view(view) != null;
 }
 
+pub fn active_terminal_title(self: *Self) ?[]const u8 {
+    const tv = self.get_panel_view(terminal_view) orelse return null;
+    if (!tv.focused) return null;
+    const title = tv.get_title();
+    return if (title.len > 0) title else "(none)";
+}
+
 pub fn is_any_panel_view_showing(self: *Self) bool {
     return self.panels != null;
 }
