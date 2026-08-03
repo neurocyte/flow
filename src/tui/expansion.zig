@@ -43,10 +43,10 @@ pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
     return try result.toOwnedSlice();
 }
 
-pub fn expand_cbor(allocator: Allocator, args_cbor: []const u8) ![]const u8 {
+pub fn expand_cbor(allocator: Allocator, args_cbor: cbor.Raw) !cbor.Raw {
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
-    var iter = args_cbor;
+    var iter = args_cbor.bytes;
     var len = try cbor.decodeArrayHeader(&iter);
     try cbor.writeArrayHeader(&result.writer, len);
     while (len > 0) : (len -= 1) {
@@ -60,7 +60,7 @@ pub fn expand_cbor(allocator: Allocator, args_cbor: []const u8) ![]const u8 {
                 try result.writer.writeAll(arg);
         }
     }
-    return try result.toOwnedSlice();
+    return .{ .bytes = try result.toOwnedSlice() };
 }
 
 const var_begin_mark = "{{";
