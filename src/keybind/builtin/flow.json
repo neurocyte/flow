@@ -63,7 +63,7 @@
             ["f10", "theme_next"],
             ["f11", "toggle_fullscreen"],
             ["alt+enter", "toggle_fullscreen"],
-            ["ctrl+f11", "show_logview"],
+            ["ctrl+f11", "toggle_logview"],
             ["alt+f11", "toggle_color_scheme"],
             ["alt+f9", "panel_next_widget_style"],
             ["shift+alt+f9", "hint_window_next_widget_style"],
