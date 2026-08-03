@@ -39,8 +39,6 @@ focused: bool = false,
 input_mode: Mode,
 hover: bool = false,
 vt: *Vt,
-last_cmd: ?cbor.Raw,
-last_display_cmd: ?[]const u8,
 commands: Commands = undefined,
 
 hover_pos: ?HoverPos = null,
@@ -71,8 +69,6 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
         .plane = plane,
         .input_mode = try keybind.mode("terminal", allocator, .{ .insert_command = "do_nothing" }),
         .vt = undefined,
-        .last_cmd = null,
-        .last_display_cmd = null,
     };
     try self.run_cmd(ctx);
 
@@ -191,18 +187,16 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
         try vt.start_reader(self.allocator);
     }
 
-    const new_last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
-    if (self.last_cmd) |cmd| self.allocator.free(cmd.bytes);
-    self.last_cmd = .{ .bytes = new_last_cmd };
-    if (self.last_display_cmd) |cmd| {
-        self.allocator.free(cmd);
-        self.last_display_cmd = null;
+    if (have_arg or self.vt.last_cmd == null) {
+        const new_last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
+        if (self.vt.last_cmd) |cmd| self.allocator.free(cmd.bytes);
+        self.vt.last_cmd = .{ .bytes = new_last_cmd };
+        self.set_title(display_cmd);
     }
-    self.last_display_cmd = try self.allocator.dupe(u8, display_cmd);
 }
 
 fn re_run_cmd(self: *Self) !void {
-    return if (self.last_cmd) |cmd|
+    return if (self.vt.last_cmd) |cmd|
         self.run_cmd(.init(.{ .buf = cmd.bytes }))
     else
         tp.exit("no command to re-run");
@@ -386,8 +380,12 @@ pub fn toggle_focus(self: *Self) void {
 }
 
 pub fn get_title(self: *Self) []const u8 {
-    if (self.vt.title.items.len > 0) return self.vt.title.items;
-    return self.last_display_cmd orelse &.{};
+    return self.vt.title.items;
+}
+
+pub fn set_title(self: *Self, title: []const u8) void {
+    self.vt.title.clearRetainingCapacity();
+    self.vt.title.appendSlice(self.allocator, title) catch {};
 }
 
 pub fn focus(self: *Self) void {
@@ -431,14 +429,6 @@ fn reset_file_link(self: *Self) void {
 pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.message_filters().remove_ptr(self);
     self.reset_file_link();
-    if (self.last_cmd) |cmd| {
-        self.allocator.free(cmd.bytes);
-        self.last_cmd = null;
-    }
-    if (self.last_display_cmd) |cmd| {
-        self.allocator.free(cmd);
-        self.last_display_cmd = null;
-    }
     if (global_vt) |*vt| if (vt.process_exited) {
         vt.deinit(allocator);
         global_vt = null;
@@ -776,8 +766,7 @@ fn process_event(self: *Self, event: Terminal.Event) MessageFilter.Error!void {
             self.vt.cwd.appendSlice(self.allocator, path) catch {};
         },
         .title_change => |t| {
-            self.vt.title.clearRetainingCapacity();
-            self.vt.title.appendSlice(self.allocator, t) catch {};
+            self.set_title(t);
         },
         .color_change => |cc| {
             self.vt.app_fg = cc.fg;
@@ -1020,6 +1009,7 @@ const Vt = struct {
     pty_pid: ?tp.pid = null,
     cwd: std.ArrayListUnmanaged(u8) = .empty,
     title: std.ArrayListUnmanaged(u8) = .empty,
+    last_cmd: ?cbor.Raw = null,
     /// App-specified override colours (from OSC 10/11/12). null = use theme.
     app_fg: ?[3]u8 = null,
     app_bg: ?[3]u8 = null,
@@ -1092,6 +1082,7 @@ const Vt = struct {
     fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.cwd.deinit(allocator);
         self.title.deinit(allocator);
+        if (self.last_cmd) |cmd| allocator.free(cmd.bytes);
         if (self.pty_pid) |pid| {
             pid.send(.{"quit"}) catch {};
             pid.deinit();
