@@ -1167,6 +1167,16 @@ const cmds = struct {
     }
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
 
+    pub fn terminal_new(self: *Self, _: Ctx) Result {
+        const vt = try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
+        if (self.get_panel_view(terminal_view) == null)
+            try self.toggle_panel_view_with_args(terminal_view, .enable, .empty());
+        const tv = self.get_panel_view(terminal_view) orelse return;
+        tv.attach(vt);
+        tv.focus();
+    }
+    pub const terminal_new_meta: Meta = .{ .description = "Open a new terminal running the default shell" };
+
     pub fn terminal_next_vt(self: *Self, _: Ctx) Result {
         try self.switch_terminal_vt(.next);
     }

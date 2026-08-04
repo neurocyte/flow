@@ -26,6 +26,7 @@
             ["ctrl+7", "focus_split", 6],
             ["ctrl+8", "focus_split", 7],
             ["ctrl+`", "open_terminal"],
+            ["ctrl+alt+t", "terminal_new"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+shift+j", "toggle_maximize_panel"],
             ["ctrl+alt+home", "grow_panel"],
