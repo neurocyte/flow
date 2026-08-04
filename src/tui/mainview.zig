@@ -1187,6 +1187,18 @@ const cmds = struct {
     }
     pub const terminal_previous_vt_meta: Meta = .{ .description = "Switch to previous terminal" };
 
+    pub fn terminal_select(self: *Self, ctx: Ctx) Result {
+        var idx: usize = undefined;
+        if (!try ctx.args.match(.{tp.extract(&idx)})) return error.InvalidTerminalSelectArgument;
+        const vt = Vt.Manager.by_index(idx) orelse return;
+        if (self.get_panel_view(terminal_view) == null)
+            try self.toggle_panel_view_with_args(terminal_view, .enable, .empty());
+        const tv = self.get_panel_view(terminal_view) orelse return;
+        tv.attach(vt);
+        tv.focus();
+    }
+    pub const terminal_select_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn send_to_terminal(self: *Self, ctx: Ctx) Result {
         var text: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&text)}))

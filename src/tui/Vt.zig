@@ -149,6 +149,10 @@ fn inject_output_end(self: *@This(), code: u8) void {
     self.inject(s);
 }
 
+pub fn get_title(self: *@This()) []const u8 {
+    return self.title.items;
+}
+
 pub fn set_title(self: *@This(), title: []const u8) void {
     self.title.clearRetainingCapacity();
     self.title.appendSlice(self.vt.allocator, title) catch {};

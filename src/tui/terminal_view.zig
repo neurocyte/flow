@@ -247,7 +247,7 @@ pub fn toggle_focus(self: *Self) void {
 }
 
 pub fn get_title(self: *Self) []const u8 {
-    return self.vt.title.items;
+    return self.vt.get_title();
 }
 
 pub fn attach(self: *Self, vt: *Vt) void {

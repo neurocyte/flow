@@ -1764,6 +1764,11 @@ const cmds = struct {
         .description = if (@hasDecl(renderer, "get_fontfaces")) "Change font" else &.{},
     };
 
+    pub fn switch_terminals(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/terminal_palette.zig").Type, ctx);
+    }
+    pub const switch_terminals_meta: Meta = .{ .description = "Switch terminals" };
+
     pub fn exit_overlay_mode(self: *Self, ctx: Ctx) Result {
         if (self.input_mode_outer_ == null) return enter_mode_default(self, ctx);
         if (self.input_mode_) |*mode| mode.deinit();

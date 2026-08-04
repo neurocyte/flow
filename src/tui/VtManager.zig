@@ -72,9 +72,14 @@ pub fn running_except(exclude: *const Vt) ?*Vt {
     return null;
 }
 
-fn index_of(target: ?*const Vt) ?usize {
+pub fn index_of(target: ?*const Vt) ?usize {
     const t = target orelse return null;
     for (vts.items, 0..) |vt, i| if (vt == t) return i;
+    return null;
+}
+
+pub fn by_index(idx: usize) ?*Vt {
+    for (vts.items, 0..) |vt, i| if (i == idx) return vt;
     return null;
 }
 
