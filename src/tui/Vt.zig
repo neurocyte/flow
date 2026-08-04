@@ -1,7 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
-const config = @import("config");
 const command = @import("command");
 const color = @import("color");
 const shell = @import("shell");
@@ -12,15 +11,15 @@ const root = @import("root");
 const builtin = @import("builtin");
 
 const tui = @import("tui.zig");
-const Widget = @import("Widget.zig");
-const MessageFilter = @import("MessageFilter.zig");
+const Box = @import("Widget.zig").Box;
 const Pty = if (builtin.os.tag == .windows) @import("PtyWindows.zig") else @import("PtyPosix.zig");
 
 const Terminal = @import("Terminal");
-const TerminalOnExit = config.TerminalOnExit;
+const TerminalOnExit = @import("config").TerminalOnExit;
 
 pub const Screen = Terminal.Screen;
 pub const Event = Terminal.Event;
+pub const Manager = @import("VtManager.zig");
 
 const Vt = @This();
 
@@ -40,34 +39,10 @@ on_exit: TerminalOnExit,
 synthesize_marks: bool = false,
 started_at: i64 = 0,
 
-var global_vt: ?Vt = null;
-
-pub fn run(io: std.Io, allocator: std.mem.Allocator, ctx: command.Context, rows: u16, cols: u16) !*Vt {
-    if (global_vt) |*vt| {
-        try vt.run_cmd(ctx);
-        return vt;
-    }
-    return try run_new_cmd(io, allocator, ctx, rows, cols);
-}
-
-pub fn shutdown_all() void {
-    if (Vt.global_vt) |*vt| {
-        vt.deinit(vt.vt.allocator);
-        Vt.global_vt = null;
-    }
-}
-
 fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !*@This() {
     const home = env.get("HOME") orelse "/tmp";
 
-    global_vt = .{
-        .vt = undefined,
-        .env = env,
-        .write_buf = undefined, // managed via self.vt's pty_writer pointer
-        .pty_pid = null,
-        .on_exit = on_exit,
-    };
-    const self = &global_vt.?;
+    const self = try Manager.create(env, on_exit);
     self.vt = try Terminal.init(
         io,
         allocator,
@@ -130,12 +105,10 @@ pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
     self.vt.deinit();
     self.env.deinit();
     std.log.debug("terminal: vt destroyed", .{});
-    if (global_vt) |*vt| if (@intFromPtr(vt) == @intFromPtr(self)) {
-        global_vt = null;
-    };
+    Manager.destroyed(self);
 }
 
-pub fn resize(self: *@This(), pos: Widget.Box) void {
+pub fn resize(self: *@This(), pos: Box) void {
     const rows: u16 = @intCast(@max(1, pos.h));
     const cols: u16 = @intCast(@max(1, pos.w));
     self.vt.resize(winsize_for(rows, cols)) catch |e| {
@@ -182,7 +155,7 @@ fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.E
     return self.process_event(null, event) catch error.TerminalHandlerFailed;
 }
 
-pub fn process_event(self: *@This(), from_: ?tp.pid_ref, event: Terminal.Event) MessageFilter.Error!void {
+pub fn process_event(self: *@This(), from_: ?tp.pid_ref, event: Terminal.Event) !void {
     // drop events from another pty
     if (from_) |from| if (self.pty_pid) |pid| if (from.instance_id() != pid.instance_id())
         return;

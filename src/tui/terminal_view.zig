@@ -77,7 +77,7 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
 pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     const rows: u16 = @intCast(@max(24, self.plane.dim_y()));
     const cols: u16 = @intCast(@max(80, self.plane.dim_x()));
-    self.vt = try Vt.run(root.get_io(), self.allocator, ctx, rows, cols);
+    self.vt = try Vt.Manager.run(root.get_io(), self.allocator, ctx, rows, cols);
 }
 
 fn re_run_cmd(self: *Self) !void {
@@ -306,7 +306,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
 }
 
 pub fn shutdown_all() void {
-    Vt.shutdown_all();
+    Vt.Manager.shutdown_all();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
