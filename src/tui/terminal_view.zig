@@ -80,13 +80,6 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     self.vt = try Vt.Manager.run(root.get_io(), self.allocator, ctx, rows, cols);
 }
 
-fn re_run_cmd(self: *Self) !void {
-    return if (self.vt.last_cmd) |cmd|
-        self.run_cmd(.init(.{ .buf = cmd.bytes }))
-    else
-        tp.exit("no command to re-run");
-}
-
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         tui.rdr().request_mouse_cursor_default(self.hover);
@@ -231,7 +224,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             return true;
         }
         if (keypress == input.key.enter) {
-            self.re_run_cmd() catch |e|
+            self.vt.re_run_cmd() catch |e|
                 std.log.err("terminal_view: restart failed: {}", .{e});
             tui.need_render(@src());
             return true;

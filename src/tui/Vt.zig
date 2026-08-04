@@ -395,6 +395,13 @@ pub fn run_cmd(self: *@This(), ctx: command.Context) !void {
     }
 }
 
+pub fn re_run_cmd(self: *@This()) !void {
+    return if (self.last_cmd) |cmd|
+        self.run_cmd(.init(.{ .buf = cmd.bytes }))
+    else
+        tp.exit("no command to re-run");
+}
+
 pub fn is_vt_running(self: *const Vt) bool {
     return !self.process_exited;
 }
