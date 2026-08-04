@@ -250,6 +250,15 @@ pub fn get_title(self: *Self) []const u8 {
     return self.vt.title.items;
 }
 
+pub fn attach(self: *Self, vt: *Vt) void {
+    self.vt = vt;
+    self.vt.resize(.{
+        .h = @intCast(self.plane.dim_y()),
+        .w = @intCast(self.plane.dim_x()),
+    });
+    tui.need_render(@src());
+}
+
 pub fn focus(self: *Self) void {
     if (self.focused) return;
     self.focused = true;

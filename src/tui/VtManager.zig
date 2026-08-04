@@ -66,3 +66,20 @@ pub fn position(target: *const Vt) ?struct { index: usize, count: usize } {
         return .{ .index = i + 1, .count = vts.items.len };
     return null;
 }
+
+pub fn running_except(exclude: *const Vt) ?*Vt {
+    for (vts.items) |vt| if (vt != exclude and !vt.process_exited) return vt;
+    return null;
+}
+
+pub fn reap_exited(keep: ?*const Vt) void {
+    var i: usize = 0;
+    while (i < vts.items.len) {
+        const vt = vts.items[i];
+        if (vt.process_exited and vt != keep) {
+            // deinit calls back into destroyed(), which removes vt at index i,
+            // shifting the next entry into i, so we do not advance here.
+            vt.deinit(vt.vt.allocator);
+        } else i += 1;
+    }
+}

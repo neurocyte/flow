@@ -36,6 +36,7 @@ const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
 const terminal_view = @import("terminal_view.zig");
+const Vt = @import("Vt.zig");
 
 const Self = @This();
 const Commands = command.Collection(cmds);
@@ -1181,6 +1182,24 @@ const cmds = struct {
             try self.toggle_panel_view(terminal_view, .disable);
     }
     pub const close_terminal_meta: Meta = .{ .description = "Close terminal" };
+
+    pub fn close_terminal_on_exit(self: *Self, _: Ctx) Result {
+        const tv = self.get_panel_view(terminal_view) orelse {
+            Vt.Manager.reap_exited(null);
+            return;
+        };
+        if (tv.vt.process_exited) {
+            if (Vt.Manager.running_except(tv.vt)) |next| {
+                tv.attach(next);
+            } else {
+                try self.toggle_panel_view(terminal_view, .disable);
+                Vt.Manager.reap_exited(null);
+                return;
+            }
+        }
+        Vt.Manager.reap_exited(tv.vt);
+    }
+    pub const close_terminal_on_exit_meta: Meta = .{};
 
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
         if (self.file_list_type == .find_in_files)

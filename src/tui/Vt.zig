@@ -209,10 +209,10 @@ fn handle_child_exit(self: *@This(), code: u8) void {
     switch (self.on_exit) {
         .hold => self.show_exit_message(code),
         .hold_on_error => if (code == 0)
-            tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {}
+            tp.self_pid().send(.{ "cmd", "close_terminal_on_exit", .{} }) catch {}
         else
             self.show_exit_message(code),
-        .close => tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {},
+        .close => tp.self_pid().send(.{ "cmd", "close_terminal_on_exit", .{} }) catch {},
     }
 }
 
