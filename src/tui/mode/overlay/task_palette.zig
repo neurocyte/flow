@@ -38,7 +38,6 @@ pub fn load_entries(palette: *Type) !usize {
     var longest_hint: usize = 0;
     longest_hint = @max(longest_hint, try add_palette_command(palette, "add_task", hints));
     longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_delete_item", hints));
-    longest_hint = @max(longest_hint, try add_palette_command(palette, "run_task_in_terminal", hints));
     return longest_hint - @min(longest_hint, longest) + 3;
 }
 
