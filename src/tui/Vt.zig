@@ -294,6 +294,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) !struct {
     fn deinit(self: *@This(), a: std.mem.Allocator) void {
         if (self.env_owned) self.env.deinit();
         a.free(self.expanded_cmd_arg);
+        for (self.argv_list.items) |arg| a.free(arg);
         self.argv_list.deinit(a);
     }
 } {
@@ -328,7 +329,10 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) !struct {
     defer if (argv_msg) |msg| allocator.free(msg.buf);
 
     var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
-    errdefer argv_list.deinit(allocator);
+    errdefer {
+        for (argv_list.items) |arg| allocator.free(arg);
+        argv_list.deinit(allocator);
+    }
     var have_cmd = false;
     if (argv_msg) |msg| {
         var iter = msg.buf;
@@ -336,7 +340,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) !struct {
         while (len > 0) : (len -= 1) {
             var arg: []const u8 = undefined;
             if (try cbor.matchValue(&iter, cbor.extract(&arg)))
-                try argv_list.append(allocator, arg);
+                try argv_list.append(allocator, try allocator.dupe(u8, arg));
             have_cmd = true;
         }
     } else {
@@ -344,20 +348,20 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) !struct {
             env.get("COMSPEC") orelse "cmd.exe"
         else
             env.get("SHELL") orelse "/bin/sh";
-        try argv_list.append(allocator, default_shell);
+        try argv_list.append(allocator, try allocator.dupe(u8, default_shell));
     }
 
     // Resolve command with no path
-    var resolved_arg0: ?[:0]const u8 = null;
-    defer if (resolved_arg0) |r| allocator.free(r);
     if (argv_list.items.len > 0) {
         const arg0 = argv_list.items[0];
         const is_path = for (arg0) |c| {
             if (std.fs.path.isSep(c)) break true;
         } else false;
         if (!is_path) if (bin_path.find_binary_in_path(allocator, arg0) catch null) |found| {
-            resolved_arg0 = found;
-            argv_list.items[0] = found;
+            defer allocator.free(found);
+            const owned = try allocator.dupe(u8, found);
+            allocator.free(argv_list.items[0]);
+            argv_list.items[0] = owned;
         };
     }
 
@@ -389,7 +393,8 @@ pub fn run_new_cmd(io: std.Io, allocator: std.mem.Allocator, ctx: command.Contex
 }
 
 pub fn run_cmd(self: *@This(), ctx: command.Context) !void {
-    const cmd = try prepare_cmd(self.vt.allocator, ctx);
+    var cmd = try prepare_cmd(self.vt.allocator, ctx);
+    defer cmd.deinit(self.vt.allocator);
     const vt = self.vt;
     const allocator = vt.allocator;
 
