@@ -1134,6 +1134,7 @@ const cmds = struct {
         std.log.debug("open_terminal: {s}", .{if (ctx.args.buf.len > 0) ctx.args.to_json(&buf) catch "(error)" else "(none)"});
         if (self.get_panel_view(terminal_view)) |vt| {
             try vt.run_cmd(ctx);
+            vt.focus();
         } else {
             try self.toggle_panel_view_with_args(terminal_view, .enable, ctx);
             if (self.get_panel_view(terminal_view)) |vt|
