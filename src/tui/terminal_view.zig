@@ -82,116 +82,14 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
 }
 
 pub fn run_cmd(self: *Self, ctx: command.Context) !void {
-    const init = root.get_init();
-    var env = try init.environ_map.clone(self.allocator);
-    var env_consumed = false;
-    errdefer if (!env_consumed) env.deinit();
-    if (env.get("TERM") == null)
-        try env.put("TERM", "xterm-256color");
-    try env.put("COLORTERM", "truecolor");
-    // COLORFGBG tells apps whether the terminal background is dark or light
-    try env.put("COLORFGBG", switch (tui.active_color_scheme()) {
-        .dark => "15;0",
-        .light => "0;15",
-    });
-
-    var cmd_arg: []const u8 = "";
-    var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
-    const have_arg = (cbor.match(ctx.args.buf, .{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0) or
-        (cbor.match(ctx.args.buf, .{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0);
-
-    const expanded_cmd_arg = @import("expansion.zig").expand(self.allocator, cmd_arg) catch |e| switch (e) {
-        error.Unavailable, error.NotFound => return error.Stop,
-        else => |e_| return e_,
-    };
-    defer self.allocator.free(expanded_cmd_arg);
-    cmd_arg = expanded_cmd_arg;
-
-    const display_cmd = cmd_arg;
-    const argv_msg: ?tp.message = if (have_arg)
-        try shell.parse_arg0_to_argv(self.allocator, &cmd_arg)
-    else
-        null;
-    defer if (argv_msg) |msg| self.allocator.free(msg.buf);
-
-    var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
-    defer argv_list.deinit(self.allocator);
-    var have_cmd = false;
-    if (argv_msg) |msg| {
-        var iter = msg.buf;
-        var len = try cbor.decodeArrayHeader(&iter);
-        while (len > 0) : (len -= 1) {
-            var arg: []const u8 = undefined;
-            if (try cbor.matchValue(&iter, cbor.extract(&arg)))
-                try argv_list.append(self.allocator, arg);
-            have_cmd = true;
-        }
-    } else {
-        const default_shell = if (builtin.os.tag == .windows)
-            env.get("COMSPEC") orelse "cmd.exe"
-        else
-            env.get("SHELL") orelse "/bin/sh";
-        try argv_list.append(self.allocator, default_shell);
-    }
-
-    // Resolve command with no path
-    var resolved_arg0: ?[:0]const u8 = null;
-    defer if (resolved_arg0) |r| self.allocator.free(r);
-    if (argv_list.items.len > 0) {
-        const arg0 = argv_list.items[0];
-        const is_path = for (arg0) |c| {
-            if (std.fs.path.isSep(c)) break true;
-        } else false;
-        if (!is_path) if (bin_path.find_binary_in_path(self.allocator, arg0) catch null) |found| {
-            resolved_arg0 = found;
-            argv_list.items[0] = found;
-        };
-    }
-
-    // Use the current plane dimensions for the initial pty size. The plane
-    // starts at 0×0 before the first resize, so use a sensible fallback
-    // so the pty isn't created with a zero-cell screen.
     const cols: u16 = @intCast(@max(80, self.plane.dim_x()));
     const rows: u16 = @intCast(@max(24, self.plane.dim_y()));
 
-    if (global_vt) |*vt| {
+    if (Vt.global_vt) |*vt| {
         self.vt = vt;
-        const can_take_over = vt.process_exited or switch (self.vt.vt.shellState()) {
-            .at_prompt, .at_prompt_with_input => true,
-            .running => false,
-        };
-        if (have_cmd and !can_take_over) {
-            var msg: std.Io.Writer.Allocating = .init(self.allocator);
-            defer msg.deinit();
-            try msg.writer.writeAll("terminal is already running '");
-            try get_running_cmd(&msg.writer);
-            try msg.writer.writeAll("'");
-            return tp.exit(msg.written());
-        }
-        env.deinit();
-        env_consumed = true;
-        if (have_cmd) {
-            try vt.respawn(argv_list.items);
-            vt.on_exit = on_exit;
-            vt.synthesize_marks = true;
-            self.vt.inject_prompt(display_cmd);
-            try vt.start_reader(self.allocator);
-        }
+        try self.vt.run_cmd(ctx);
     } else {
-        env_consumed = true;
-        try Vt.init(init.io, self.allocator, argv_list.items, env, rows, cols, on_exit);
-        const vt = &global_vt.?;
-        self.vt = vt;
-        vt.synthesize_marks = have_cmd;
-        if (have_cmd) self.vt.inject_prompt(display_cmd);
-        try vt.start_reader(self.allocator);
-    }
-
-    if (have_arg or self.vt.last_cmd == null) {
-        const new_last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
-        if (self.vt.last_cmd) |cmd| self.allocator.free(cmd.bytes);
-        self.vt.last_cmd = .{ .bytes = new_last_cmd };
-        self.vt.set_title(display_cmd);
+        self.vt = try Vt.run_new_cmd(self.allocator, ctx, cols, rows);
     }
 }
 
@@ -424,9 +322,9 @@ fn reset_file_link(self: *Self) void {
 pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.message_filters().remove_ptr(self);
     self.reset_file_link();
-    if (global_vt) |*vt| if (vt.process_exited) {
+    if (Vt.global_vt) |*vt| if (vt.process_exited) {
         vt.deinit(allocator);
-        global_vt = null;
+        Vt.global_vt = null;
     };
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
     self.commands.unregister();
@@ -435,9 +333,9 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
 }
 
 pub fn shutdown(allocator: Allocator) void {
-    if (global_vt) |*vt| {
+    if (Vt.global_vt) |*vt| {
         vt.deinit(allocator);
-        global_vt = null;
+        Vt.global_vt = null;
     }
 }
 
@@ -886,7 +784,9 @@ const Vt = struct {
     synthesize_marks: bool = false,
     started_at: i64 = 0,
 
-    fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !void {
+    var global_vt: ?Vt = null;
+
+    fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !*@This() {
         const home = env.get("HOME") orelse "/tmp";
 
         global_vt = .{
@@ -924,6 +824,7 @@ const Vt = struct {
         };
 
         try self.vt.spawn();
+        return self;
     }
 
     /// Start the pty read actor.
@@ -1099,15 +1000,155 @@ const Vt = struct {
         defer parser.buf.deinit();
         _ = self.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
     }
+
+    pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) !struct {
+        env: std.process.Environ.Map,
+        display_cmd: []const u8,
+        have_cmd: bool,
+        have_arg: bool,
+        argv_list: std.ArrayListUnmanaged([]const u8),
+        on_exit: TerminalOnExit,
+
+        env_owned: bool = true,
+        expanded_cmd_arg: []const u8,
+
+        fn deinit(self: *@This(), a: std.mem.Allocator) void {
+            if (self.env_owned) self.env.deinit();
+            a.free(self.expanded_cmd_arg);
+            self.argv_list.deinit(a);
+        }
+    } {
+        var env = try root.get_init().environ_map.clone(allocator);
+        errdefer env.deinit();
+        if (env.get("TERM") == null)
+            try env.put("TERM", "xterm-256color");
+        try env.put("COLORTERM", "truecolor");
+        // COLORFGBG tells apps whether the terminal background is dark or light
+        try env.put("COLORFGBG", switch (tui.active_color_scheme()) {
+            .dark => "15;0",
+            .light => "0;15",
+        });
+
+        var cmd_arg: []const u8 = "";
+        var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
+        const have_arg = (cbor.match(ctx.args.buf, .{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0) or
+            (cbor.match(ctx.args.buf, .{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0);
+
+        const expanded_cmd_arg = @import("expansion.zig").expand(allocator, cmd_arg) catch |e| switch (e) {
+            error.Unavailable, error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        errdefer allocator.free(expanded_cmd_arg);
+        cmd_arg = expanded_cmd_arg;
+
+        const display_cmd = cmd_arg;
+        const argv_msg: ?tp.message = if (have_arg)
+            try shell.parse_arg0_to_argv(allocator, &cmd_arg)
+        else
+            null;
+        defer if (argv_msg) |msg| allocator.free(msg.buf);
+
+        var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
+        errdefer argv_list.deinit(allocator);
+        var have_cmd = false;
+        if (argv_msg) |msg| {
+            var iter = msg.buf;
+            var len = try cbor.decodeArrayHeader(&iter);
+            while (len > 0) : (len -= 1) {
+                var arg: []const u8 = undefined;
+                if (try cbor.matchValue(&iter, cbor.extract(&arg)))
+                    try argv_list.append(allocator, arg);
+                have_cmd = true;
+            }
+        } else {
+            const default_shell = if (builtin.os.tag == .windows)
+                env.get("COMSPEC") orelse "cmd.exe"
+            else
+                env.get("SHELL") orelse "/bin/sh";
+            try argv_list.append(allocator, default_shell);
+        }
+
+        // Resolve command with no path
+        var resolved_arg0: ?[:0]const u8 = null;
+        defer if (resolved_arg0) |r| allocator.free(r);
+        if (argv_list.items.len > 0) {
+            const arg0 = argv_list.items[0];
+            const is_path = for (arg0) |c| {
+                if (std.fs.path.isSep(c)) break true;
+            } else false;
+            if (!is_path) if (bin_path.find_binary_in_path(allocator, arg0) catch null) |found| {
+                resolved_arg0 = found;
+                argv_list.items[0] = found;
+            };
+        }
+
+        return .{
+            .env = env,
+            .display_cmd = display_cmd,
+            .expanded_cmd_arg = expanded_cmd_arg,
+            .have_cmd = have_cmd,
+            .have_arg = have_arg,
+            .argv_list = argv_list,
+            .on_exit = on_exit,
+        };
+    }
+
+    pub fn run_new_cmd(allocator: std.mem.Allocator, ctx: command.Context, cols: u16, rows: u16) !*@This() {
+        var cmd = try prepare_cmd(allocator, ctx);
+        defer cmd.deinit(allocator);
+        cmd.env_owned = false;
+        const self = try Vt.init(root.get_io(), allocator, cmd.argv_list.items, cmd.env, rows, cols, cmd.on_exit);
+        self.synthesize_marks = cmd.have_cmd;
+        if (cmd.have_cmd) self.inject_prompt(cmd.display_cmd);
+        try self.start_reader(allocator);
+
+        const new_last_cmd = try allocator.dupe(u8, ctx.args.buf);
+        if (self.last_cmd) |last_cmd| allocator.free(last_cmd.bytes);
+        self.last_cmd = .{ .bytes = new_last_cmd };
+        self.set_title(cmd.display_cmd);
+        return self;
+    }
+
+    pub fn run_cmd(self: *@This(), ctx: command.Context) !void {
+        const cmd = try prepare_cmd(self.vt.allocator, ctx);
+        const vt = self.vt;
+        const allocator = vt.allocator;
+
+        const can_take_over = self.process_exited or switch (self.vt.shellState()) {
+            .at_prompt, .at_prompt_with_input => true,
+            .running => false,
+        };
+        if (cmd.have_cmd and !can_take_over) {
+            var msg: std.Io.Writer.Allocating = .init(allocator);
+            defer msg.deinit();
+            try msg.writer.writeAll("terminal is already running '");
+            try get_running_cmd(&msg.writer);
+            try msg.writer.writeAll("'");
+            return tp.exit(msg.written());
+        }
+        if (cmd.have_cmd) {
+            try self.respawn(cmd.argv_list.items);
+            self.on_exit = cmd.on_exit;
+            self.synthesize_marks = true;
+            self.inject_prompt(cmd.display_cmd);
+            try self.start_reader(allocator);
+        }
+
+        if (cmd.have_arg or self.last_cmd == null) {
+            const new_last_cmd = try allocator.dupe(u8, ctx.args.buf);
+            if (self.last_cmd) |last_cmd| allocator.free(last_cmd.bytes);
+            self.last_cmd = .{ .bytes = new_last_cmd };
+            self.set_title(cmd.display_cmd);
+        }
+    }
 };
-var global_vt: ?Vt = null;
 
 pub fn is_vt_running() bool {
-    return if (global_vt) |vt| !vt.process_exited else false;
+    return if (Vt.global_vt) |vt| !vt.process_exited else false;
 }
 
 pub fn get_running_cmd(writer: *std.Io.Writer) std.Io.Writer.Error!void {
-    const cmd_argv = if (global_vt) |vt| vt.vt.cmd.argv else &.{};
+    const cmd_argv = if (Vt.global_vt) |vt| vt.vt.cmd.argv else &.{};
     if (cmd_argv.len > 0) {
         _ = argv.write(writer, cmd_argv) catch {};
     }
