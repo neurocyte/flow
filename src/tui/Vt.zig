@@ -249,7 +249,11 @@ fn show_exit_message(self: *@This(), code: u8) void {
     _ = self.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
 }
 
-pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) !struct {
+pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
+    OutOfMemory,
+    Stop,
+    WriteFailed,
+} || cbor.Error)!struct {
     env: std.process.Environ.Map,
     display_cmd: []const u8,
     have_cmd: bool,
@@ -361,7 +365,7 @@ pub fn run_new_cmd(io: std.Io, allocator: std.mem.Allocator, ctx: command.Contex
     return self;
 }
 
-pub fn run_cmd(self: *@This(), ctx: command.Context) !void {
+pub fn run_cmd(self: *@This(), ctx: command.Context) !enum { ok, busy } {
     var cmd = try prepare_cmd(self.vt.allocator, ctx);
     defer cmd.deinit(self.vt.allocator);
     const vt = self.vt;
@@ -371,14 +375,8 @@ pub fn run_cmd(self: *@This(), ctx: command.Context) !void {
         .at_prompt, .at_prompt_with_input => true,
         .running => false,
     };
-    if (cmd.have_cmd and !can_take_over) {
-        var msg: std.Io.Writer.Allocating = .init(allocator);
-        defer msg.deinit();
-        try msg.writer.writeAll("terminal is already running '");
-        try self.get_running_cmd(&msg.writer);
-        try msg.writer.writeAll("'");
-        return tp.exit(msg.written());
-    }
+    if (cmd.have_cmd and !can_take_over) return .busy;
+
     if (cmd.have_cmd) {
         try self.respawn(cmd.argv_list.items);
         self.on_exit = cmd.on_exit;
@@ -393,20 +391,33 @@ pub fn run_cmd(self: *@This(), ctx: command.Context) !void {
         self.last_cmd = .{ .bytes = new_last_cmd };
         self.set_title(cmd.display_cmd);
     }
+    return .ok;
 }
 
 pub fn re_run_cmd(self: *@This()) !void {
     return if (self.last_cmd) |cmd|
-        self.run_cmd(.init(.{ .buf = cmd.bytes }))
+        switch (try self.run_cmd(.init(.{ .buf = cmd.bytes }))) {
+            .busy => self.running_error(),
+            else => {},
+        }
     else
         tp.exit("no command to re-run");
+}
+
+fn running_error(self: *const @This()) error{Exit} {
+    var msg: std.Io.Writer.Allocating = .init(self.vt.allocator);
+    defer msg.deinit();
+    msg.writer.writeAll("terminal is already running '") catch {};
+    self.get_running_cmd(&msg.writer) catch {};
+    msg.writer.writeAll("'") catch {};
+    return tp.exit(msg.written());
 }
 
 pub fn is_vt_running(self: *const Vt) bool {
     return !self.process_exited;
 }
 
-pub fn get_running_cmd(self: *Vt, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+pub fn get_running_cmd(self: *const Vt, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const cmd_argv = self.vt.cmd.argv;
     if (cmd_argv.len > 0) _ = argv.write(writer, cmd_argv) catch {};
 }

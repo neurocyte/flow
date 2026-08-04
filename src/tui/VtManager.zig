@@ -1,50 +1,62 @@
 const std = @import("std");
 const tp = @import("thespian");
+const root = @import("root");
 const command = @import("command");
 
 const Vt = @import("Vt.zig");
 const TerminalOnExit = @import("config").TerminalOnExit;
 
-var global_vt: ?Vt = null;
+var vts: std.ArrayListUnmanaged(*Vt) = .empty;
 
 pub fn create(env: std.process.Environ.Map, on_exit: TerminalOnExit) !*Vt {
-    if (global_vt) |_| @panic("global_vt already exists");
-    global_vt = .{
+    const allocator = root.get_init().gpa;
+    const self = try allocator.create(Vt);
+    errdefer allocator.destroy(self);
+    self.* = .{
         .vt = undefined,
         .env = env,
         .write_buf = undefined, // managed via self.vt's pty_writer pointer
         .pty_pid = null,
         .on_exit = on_exit,
     };
-    return &global_vt.?;
+    try vts.append(allocator, self);
+    return self;
 }
 
 pub fn destroyed(gone: *Vt) void {
-    if (global_vt) |*vt| if (@intFromPtr(vt) == @intFromPtr(gone)) {
-        global_vt = null;
+    const allocator = root.get_init().gpa;
+    for (vts.items, 0..) |vt, i| if (vt == gone) {
+        _ = vts.orderedRemove(i);
+        break;
     };
+    allocator.destroy(gone);
 }
 
 pub fn run(io: std.Io, allocator: std.mem.Allocator, ctx: command.Context, rows: u16, cols: u16) !*Vt {
-    if (global_vt) |*vt| {
-        try vt.run_cmd(ctx);
-        return vt;
-    }
+    for (vts.items) |vt| switch (try vt.run_cmd(ctx)) {
+        .ok => return vt,
+        .busy => continue,
+    };
     return try Vt.run_new_cmd(io, allocator, ctx, rows, cols);
 }
 
 pub fn shutdown_all() void {
-    if (global_vt) |*vt| {
+    while (vts.items.len > 0) {
+        const vt = vts.items[vts.items.len - 1];
         vt.deinit(vt.vt.allocator);
-        global_vt = null;
     }
+    const allocator = root.get_init().gpa;
+    vts.deinit(allocator);
 }
 
 pub fn receive_event(from: tp.pid_ref, m: tp.message) !void {
-    const vt = &(global_vt orelse return);
     var event: Vt.Event = undefined;
     if (!(m.match(.{ "VT", tp.extract(&event) }) catch false)) return;
 
-    if (vt.pty_pid) |pty_pid| if (pty_pid.instance_id() == from.instance_id())
-        try vt.process_event(event);
+    for (vts.items) |vt| {
+        if (vt.pty_pid) |pty_pid| if (pty_pid.instance_id() == from.instance_id()) {
+            try vt.process_event(event);
+            return;
+        };
+    }
 }
