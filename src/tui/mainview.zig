@@ -1175,7 +1175,11 @@ const cmds = struct {
         tv.attach(vt);
         tv.focus();
     }
-    pub const terminal_new_meta: Meta = .{ .description = "Open a new terminal running the default shell" };
+    pub const terminal_new_meta: Meta = .{
+        .description = "Open a new terminal",
+        .arguments = &.{},
+        .icon = "",
+    };
 
     pub fn terminal_next_vt(self: *Self, _: Ctx) Result {
         try self.switch_terminal_vt(.next);
