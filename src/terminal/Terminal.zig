@@ -485,15 +485,33 @@ pub fn ptyFd(self: *const Terminal) std.posix.fd_t {
 
 /// Kill the foreground application.
 pub fn killForeground(self: *Terminal) void {
-    if (builtin.os.tag == .linux) {
-        var pgrp: std.os.linux.pid_t = undefined;
-        if (std.os.linux.tcgetpgrp(self.ptyFd(), &pgrp) == 0 and pgrp > 0) {
-            // A negative pid targets the whole process group.
-            std.posix.kill(-pgrp, std.posix.SIG.TERM) catch {};
+    const pgrp: std.posix.pid_t = switch (builtin.os.tag) {
+        .linux => blk: {
+            var p: std.os.linux.pid_t = undefined;
+            if (std.os.linux.tcgetpgrp(self.ptyFd(), &p) != 0) {
+                self.cmd.kill();
+                return;
+            }
+            break :blk p;
+        },
+        .macos, .freebsd => blk: {
+            const TIOCGPGRP: c_int = @bitCast(@as(u32, 0x40047477));
+            var p: std.c.pid_t = undefined;
+            if (std.posix.system.ioctl(self.ptyFd(), TIOCGPGRP, @intFromPtr(&p)) != 0) {
+                self.cmd.kill();
+                return;
+            }
+            break :blk p;
+        },
+        else => {
+            self.cmd.kill();
             return;
-        }
-    }
-    self.cmd.kill();
+        },
+    };
+    if (pgrp > 0) {
+        // A negative pid targets the whole process group.
+        std.posix.kill(-pgrp, std.posix.SIG.TERM) catch {};
+    } else self.cmd.kill();
 }
 
 /// Windows only: returns the output pipe read HANDLE - transfers handle ownership
