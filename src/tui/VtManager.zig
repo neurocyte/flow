@@ -14,6 +14,10 @@ pub fn set_most_recent(vt: *Vt) void {
     most_recent = vt;
 }
 
+pub fn most_recent_index() ?usize {
+    return index_of(most_recent);
+}
+
 pub fn create(env: std.process.Environ.Map, on_exit: TerminalOnExit) !*Vt {
     const allocator = root.get_init().gpa;
     const self = try allocator.create(Vt);

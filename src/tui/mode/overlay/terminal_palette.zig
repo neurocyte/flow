@@ -16,14 +16,22 @@ pub const Entry = struct {
     idx: usize,
 };
 
+fn add_entry(palette: *Type, vt: *Vt, idx: usize) !void {
+    (try palette.entries.addOne(palette.allocator)).* = .{
+        .label = try palette.allocator.dupe(u8, vt.get_title()),
+        .idx = idx,
+    };
+}
+
 pub fn load_entries(palette: *Type) !usize {
+    const mr_idx = Vt.Manager.most_recent_index();
+    if (mr_idx) |mri| {
+        if (Vt.Manager.by_index(mri)) |vt| try add_entry(palette, vt, mri);
+    }
     var idx: usize = 0;
-    while (Vt.Manager.by_index(idx)) |vt| {
-        (try palette.entries.addOne(palette.allocator)).* = .{
-            .label = try palette.allocator.dupe(u8, vt.get_title()),
-            .idx = idx,
-        };
-        idx += 1;
+    while (Vt.Manager.by_index(idx)) |vt| : (idx += 1) {
+        if (mr_idx == idx) continue;
+        try add_entry(palette, vt, idx);
     }
     return if (palette.entries.items.len == 0) label.len + 3 else 10;
 }
