@@ -418,11 +418,22 @@ fn is_panel_view_showing(self: *Self, comptime view: type) bool {
     return self.get_panel_view(view) != null;
 }
 
-pub fn active_terminal_title(self: *Self) ?[]const u8 {
+pub const TerminalStatus = struct {
+    title: []const u8,
+    index: usize,
+    count: usize,
+};
+
+pub fn active_terminal_title(self: *Self) ?TerminalStatus {
     const tv = self.get_panel_view(terminal_view) orelse return null;
     if (!tv.focused) return null;
+    const pos = @import("Vt.zig").Manager.position(tv.vt) orelse return null;
     const title = tv.get_title();
-    return if (title.len > 0) title else "(none)";
+    return .{
+        .title = if (title.len > 0) title else "(none)",
+        .index = pos.index,
+        .count = pos.count,
+    };
 }
 
 pub fn is_any_panel_view_showing(self: *Self) bool {

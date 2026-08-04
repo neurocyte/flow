@@ -60,3 +60,9 @@ pub fn receive_event(from: tp.pid_ref, m: tp.message) !void {
         };
     }
 }
+
+pub fn position(target: *const Vt) ?struct { index: usize, count: usize } {
+    for (vts.items, 0..) |vt, i| if (vt == target)
+        return .{ .index = i + 1, .count = vts.items.len };
+    return null;
+}

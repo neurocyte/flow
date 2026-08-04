@@ -103,12 +103,12 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.home();
     }
 
-    const active_terminal_title = if (tui.mainview()) |mv| mv.active_terminal_title() else null;
+    const terminal_status = if (tui.mainview()) |mv| mv.active_terminal_title() else null;
 
     if (tui.mini_mode()) |_|
         self.render_mini_mode(&btn.plane)
-    else if (active_terminal_title) |tt|
-        self.render_vt_title(&btn.plane, theme, tt)
+    else if (terminal_status) |ts|
+        self.render_vt_title(&btn.plane, theme, ts)
     else if (self.detailed)
         self.render_detailed(&btn.plane, theme, auto_save)
     else
@@ -119,7 +119,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.cursor_disable();
     }
 
-    self.render_terminal_title(active_terminal_title);
+    self.render_terminal_title(if (terminal_status) |ts| ts.title else null);
     return false;
 }
 
@@ -190,12 +190,14 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_
     return;
 }
 
-fn render_vt_title(_: *Self, plane: *Plane, _: *const Widget.Theme, terminal_title: []const u8) void {
+fn render_vt_title(_: *Self, plane: *Plane, _: *const Widget.Theme, status: anytype) void {
     plane.on_styles(styles.italic);
     _ = plane.putstr(" ") catch {};
     if (terminal_icon.len > 0 and tui.config().show_fileicons)
         _ = plane.print("{s} ", .{terminal_icon}) catch {};
-    _ = plane.print("{s}", .{terminal_title}) catch {};
+    if (status.count > 1)
+        _ = plane.print("({d}/{d}) ", .{ status.index, status.count }) catch {};
+    _ = plane.print("{s}", .{status.title}) catch {};
     return;
 }
 
