@@ -6,7 +6,7 @@ const Vt = @import("../../Vt.zig");
 const module_name = @typeName(@This());
 pub const Type = @import("palette.zig").Create(@This());
 
-pub const label = "Open terminals";
+pub const label = "Select terminal";
 pub const name = " terminal";
 pub const description = "terminal";
 pub const icon = "  ";
