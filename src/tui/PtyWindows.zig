@@ -10,7 +10,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const Terminal = @import("Terminal");
 
-const Parser = Terminal.Parser;
+pub const Parser = Terminal.Parser;
 const Receiver = tp.Receiver(*@This());
 const windows = std.os.windows;
 
