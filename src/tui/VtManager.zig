@@ -72,6 +72,24 @@ pub fn running_except(exclude: *const Vt) ?*Vt {
     return null;
 }
 
+fn index_of(target: ?*const Vt) ?usize {
+    const t = target orelse return null;
+    for (vts.items, 0..) |vt, i| if (vt == t) return i;
+    return null;
+}
+
+pub fn next(current: ?*const Vt) ?*Vt {
+    if (vts.items.len == 0) return null;
+    const i = index_of(current) orelse return vts.items[0];
+    return vts.items[(i + 1) % vts.items.len];
+}
+
+pub fn prev(current: ?*const Vt) ?*Vt {
+    if (vts.items.len == 0) return null;
+    const i = index_of(current) orelse return vts.items[vts.items.len - 1];
+    return vts.items[(i + vts.items.len - 1) % vts.items.len];
+}
+
 pub fn reap_exited(keep: ?*const Vt) void {
     var i: usize = 0;
     while (i < vts.items.len) {

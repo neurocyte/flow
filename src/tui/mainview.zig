@@ -378,6 +378,18 @@ fn toggle_panel_view(self: *Self, view: anytype, mode: PanelToggleMode) !void {
     return self.toggle_panel_view_with_args(view, mode, .empty());
 }
 
+fn switch_terminal_vt(self: *Self, dir: enum { next, previous }) !void {
+    if (self.get_panel_view(terminal_view) == null)
+        try self.toggle_panel_view_with_args(terminal_view, .enable, .empty());
+    const tv = self.get_panel_view(terminal_view) orelse return;
+    const target = switch (dir) {
+        .next => Vt.Manager.next(tv.vt),
+        .previous => Vt.Manager.prev(tv.vt),
+    };
+    if (target) |t| if (t != tv.vt) tv.attach(t);
+    tv.focus();
+}
+
 fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode, ctx: command.Context) !void {
     if (self.panels) |panels| {
         if (self.get_panel(@typeName(view))) |w| {
@@ -1154,6 +1166,16 @@ const cmds = struct {
         }
     }
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
+
+    pub fn terminal_next_vt(self: *Self, _: Ctx) Result {
+        try self.switch_terminal_vt(.next);
+    }
+    pub const terminal_next_vt_meta: Meta = .{ .description = "Switch to next terminal" };
+
+    pub fn terminal_previous_vt(self: *Self, _: Ctx) Result {
+        try self.switch_terminal_vt(.previous);
+    }
+    pub const terminal_previous_vt_meta: Meta = .{ .description = "Switch to previous terminal" };
 
     pub fn send_to_terminal(self: *Self, ctx: Ctx) Result {
         var text: []const u8 = undefined;
