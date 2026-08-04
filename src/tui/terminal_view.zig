@@ -503,12 +503,7 @@ fn navigate_to_file_link(dest: *const file_link.FileDest) void {
     };
 }
 
-fn receive_filter(self: *Self, from: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    var event: Vt.Event = undefined;
-    if (m.match(.{ "VT", tp.extract(&event) }) catch false) {
-        try self.vt.process_event(from, event);
-        return true;
-    }
+fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     // consume paste when focused
     var text: []const u8 = undefined;
     if (self.focused and m.match(.{ "system_clipboard", tp.extract(&text) }) catch false) {
@@ -720,7 +715,3 @@ const cmds = struct {
     }
     pub const terminal_open_last_command_output_meta: Meta = .{ .description = "Terminal: Open last command output" };
 };
-
-pub fn is_vt_running() bool {
-    return if (Vt.global_vt) |vt| vt.is_vt_running() else false;
-}

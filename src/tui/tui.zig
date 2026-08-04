@@ -480,6 +480,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{ "VT", tp.more }))
+        return @import("Vt.zig").Manager.receive_event(from, m) catch |e| self.logger.err("vt", e);
+
     if (self.message_filters_.filter(from, m) catch |e| return self.logger.err("filter", e))
         return;
 
@@ -650,9 +653,6 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
 
     if (try m.match(.{ "DIFF", tp.more })) // drop late diff responses
-        return;
-
-    if (try m.match(.{ "VT", tp.more })) // drop late vt messages
         return;
 
     if (try m.match(.{"INPUT_IDLE"})) {

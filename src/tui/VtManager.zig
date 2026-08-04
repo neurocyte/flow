@@ -1,5 +1,7 @@
 const std = @import("std");
+const tp = @import("thespian");
 const command = @import("command");
+
 const Vt = @import("Vt.zig");
 const TerminalOnExit = @import("config").TerminalOnExit;
 
@@ -36,4 +38,13 @@ pub fn shutdown_all() void {
         vt.deinit(vt.vt.allocator);
         global_vt = null;
     }
+}
+
+pub fn receive_event(from: tp.pid_ref, m: tp.message) !void {
+    const vt = &(global_vt orelse return);
+    var event: Vt.Event = undefined;
+    if (!(m.match(.{ "VT", tp.extract(&event) }) catch false)) return;
+
+    if (vt.pty_pid) |pty_pid| if (pty_pid.instance_id() == from.instance_id())
+        try vt.process_event(event);
 }

@@ -152,14 +152,10 @@ pub fn set_title(self: *@This(), title: []const u8) void {
 
 fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
     const self: *@This() = @ptrCast(@alignCast(ctx));
-    return self.process_event(null, event) catch error.TerminalHandlerFailed;
+    return self.process_event(event) catch error.TerminalHandlerFailed;
 }
 
-pub fn process_event(self: *@This(), from_: ?tp.pid_ref, event: Terminal.Event) !void {
-    // drop events from another pty
-    if (from_) |from| if (self.pty_pid) |pid| if (from.instance_id() != pid.instance_id())
-        return;
-
+pub fn process_event(self: *@This(), event: Terminal.Event) !void {
     switch (event) {
         .exited => |code| {
             self.process_exited = true;
