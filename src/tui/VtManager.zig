@@ -8,6 +8,12 @@ const TerminalOnExit = @import("config").TerminalOnExit;
 
 var vts: std.ArrayListUnmanaged(*Vt) = .empty;
 
+var most_recent: ?*Vt = null;
+
+pub fn set_most_recent(vt: *Vt) void {
+    most_recent = vt;
+}
+
 pub fn create(env: std.process.Environ.Map, on_exit: TerminalOnExit) !*Vt {
     const allocator = root.get_init().gpa;
     const self = try allocator.create(Vt);
@@ -25,6 +31,7 @@ pub fn create(env: std.process.Environ.Map, on_exit: TerminalOnExit) !*Vt {
 
 pub fn destroyed(gone: *Vt) void {
     const allocator = root.get_init().gpa;
+    if (most_recent == gone) most_recent = null;
     for (vts.items, 0..) |vt, i| if (vt == gone) {
         _ = vts.orderedRemove(i);
         break;
@@ -33,11 +40,23 @@ pub fn destroyed(gone: *Vt) void {
 }
 
 pub fn run(io: std.Io, allocator: std.mem.Allocator, ctx: command.Context, rows: u16, cols: u16) !*Vt {
-    for (vts.items) |vt| switch (try vt.run_cmd(ctx)) {
-        .ok => return vt,
-        .busy => continue,
+    if (most_recent) |mr| if (index_of(mr) != null) switch (try mr.run_cmd(ctx)) {
+        .ok => return set_most_recent_and(mr),
+        .busy => {},
     };
-    return try Vt.run_new_cmd(io, allocator, ctx, rows, cols);
+    for (vts.items) |vt| {
+        if (vt == most_recent) continue; // already tried above
+        switch (try vt.run_cmd(ctx)) {
+            .ok => return set_most_recent_and(vt),
+            .busy => continue,
+        }
+    }
+    return set_most_recent_and(try Vt.run_new_cmd(io, allocator, ctx, rows, cols));
+}
+
+fn set_most_recent_and(vt: *Vt) *Vt {
+    most_recent = vt;
+    return vt;
 }
 
 pub fn shutdown_all() void {

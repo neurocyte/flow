@@ -252,6 +252,7 @@ pub fn get_title(self: *Self) []const u8 {
 
 pub fn attach(self: *Self, vt: *Vt) void {
     self.vt = vt;
+    Vt.Manager.set_most_recent(vt);
     self.vt.resize(.{
         .h = @intCast(self.plane.dim_y()),
         .w = @intCast(self.plane.dim_x()),
