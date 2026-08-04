@@ -386,6 +386,8 @@
             ["ctrl+e", "palette_menu_down"],
             ["ctrl+r", "palette_menu_down"],
             ["ctrl+t", "palette_menu_down"],
+            ["ctrl+shift+`", "palette_menu_down"],
+            ["ctrl+alt+`", "palette_menu_down"],
             ["ctrl+c", "palette_menu_cancel"],
             ["ctrl+g", "palette_menu_cancel"],
             ["ctrl+escape", "palette_menu_cancel"],
