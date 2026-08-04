@@ -121,6 +121,10 @@ pub fn paste(self: *@This(), text: []const u8) void {
     self.vt.paste(text);
 }
 
+pub fn kill(self: *@This()) void {
+    self.vt.killForeground();
+}
+
 fn inject(self: *@This(), bytes: []const u8) void {
     var parser: Pty.Parser = .{ .buf = .init(self.vt.allocator) };
     defer parser.buf.deinit();

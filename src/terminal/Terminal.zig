@@ -483,6 +483,22 @@ pub fn ptyFd(self: *const Terminal) std.posix.fd_t {
     return self.pty.pty.handle;
 }
 
+// std.c doesn't declare tcgetpgrp
+extern "c" fn tcgetpgrp(fd: c_int) std.posix.pid_t;
+
+/// Kill the foreground application.
+pub fn killForeground(self: *Terminal) void {
+    if (is_windows) {
+        self.cmd.kill();
+        return;
+    }
+    const pgrp = tcgetpgrp(self.ptyFd());
+    if (pgrp > 0) {
+        // A negative pid targets the whole process group.
+        std.posix.kill(-pgrp, std.posix.SIG.TERM) catch {};
+    } else self.cmd.kill();
+}
+
 /// Windows only: returns the output pipe read HANDLE - transfers handle ownership
 pub fn ptyOutputHandle(self: *Terminal) *anyopaque {
     if (!is_windows) @compileError("ptyOutputHandle() is not available on POSIX; use ptyFd()");

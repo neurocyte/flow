@@ -548,6 +548,11 @@ const cmds = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
+    pub fn terminal_kill(self: *Self, _: Ctx) Result {
+        self.vt.kill();
+    }
+    pub const terminal_kill_meta: Meta = .{ .description = "Terminal: Kill running application (SIGTERM)" };
+
     pub fn terminal_scroll_up(self: *Self, _: Ctx) Result {
         const half_page = @max(1, self.vt.vt.front_screen.height / 2);
         if (self.vt.vt.scroll(@intCast(half_page)))

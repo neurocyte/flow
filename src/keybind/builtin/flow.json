@@ -600,6 +600,7 @@
             ["ctrl+shift+space", "terminal_open_file_links"],
             ["ctrl+alt+tab", "terminal_next_vt"],
             ["ctrl+alt+shift+tab", "terminal_previous_vt"],
+            ["ctrl+alt+w", "terminal_kill"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+shift+j", "toggle_maximize_panel"],
             ["ctrl+alt+home", "grow_panel"],
