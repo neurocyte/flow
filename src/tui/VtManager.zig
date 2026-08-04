@@ -68,8 +68,8 @@ pub fn shutdown_all() void {
         const vt = vts.items[vts.items.len - 1];
         vt.deinit(vt.vt.allocator);
     }
-    const allocator = root.get_init().gpa;
-    vts.deinit(allocator);
+    vts.clearAndFree(root.get_init().gpa);
+    most_recent = null;
 }
 
 pub fn receive_event(from: tp.pid_ref, m: tp.message) !void {
