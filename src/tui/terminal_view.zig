@@ -174,7 +174,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
             try vt.respawn(argv_list.items);
             vt.on_exit = on_exit;
             vt.synthesize_marks = true;
-            self.inject_prompt(display_cmd);
+            self.vt.inject_prompt(display_cmd);
             try vt.start_reader(self.allocator);
         }
     } else {
@@ -183,7 +183,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
         const vt = &global_vt.?;
         self.vt = vt;
         vt.synthesize_marks = have_cmd;
-        if (have_cmd) self.inject_prompt(display_cmd);
+        if (have_cmd) self.vt.inject_prompt(display_cmd);
         try vt.start_reader(self.allocator);
     }
 
@@ -191,7 +191,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
         const new_last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
         if (self.vt.last_cmd) |cmd| self.allocator.free(cmd.bytes);
         self.vt.last_cmd = .{ .bytes = new_last_cmd };
-        self.set_title(display_cmd);
+        self.vt.set_title(display_cmd);
     }
 }
 
@@ -381,11 +381,6 @@ pub fn toggle_focus(self: *Self) void {
 
 pub fn get_title(self: *Self) []const u8 {
     return self.vt.title.items;
-}
-
-pub fn set_title(self: *Self, title: []const u8) void {
-    self.vt.title.clearRetainingCapacity();
-    self.vt.title.appendSlice(self.allocator, title) catch {};
 }
 
 pub fn focus(self: *Self) void {
@@ -624,75 +619,6 @@ fn byte_offset_for_col(col_at_byte: []const u16, col: u16) ?usize {
     return null;
 }
 
-fn handle_child_exit(self: *Self, code: u8) void {
-    switch (self.vt.on_exit) {
-        .hold => self.show_exit_message(code),
-        .hold_on_error => if (code == 0)
-            tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {}
-        else
-            self.show_exit_message(code),
-        .close => tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {},
-    }
-}
-
-fn show_exit_message(self: *Self, code: u8) void {
-    var msg: std.Io.Writer.Allocating = .init(self.allocator);
-    defer msg.deinit();
-    const w = &msg.writer;
-    w.writeAll("\r\n") catch {};
-    w.writeAll("\x1b[0m\x1b[2m") catch {};
-    w.writeAll("[process exited") catch {};
-    if (code != 0)
-        w.print(" with code {d}", .{code}) catch {};
-    const runtime_ms = std.Io.Clock.now(.awake, root.get_io()).toMilliseconds() - self.vt.started_at;
-    if (runtime_ms >= 2 * std.time.ms_per_s) {
-        const secs = @divFloor(runtime_ms, std.time.ms_per_s);
-        if (secs >= std.time.s_per_min)
-            w.print(" in {d}m{d}s", .{ @divFloor(secs, std.time.s_per_min), @mod(secs, std.time.s_per_min) }) catch {}
-        else
-            w.print(" in {d}s", .{secs}) catch {};
-    }
-    w.writeAll("]") catch {};
-    // Re-run prompt
-    const cmd_argv = self.vt.vt.cmd.argv;
-    if (cmd_argv.len > 0) {
-        w.writeAll(" Press enter to re-run '") catch {};
-        _ = argv.write(w, cmd_argv) catch {};
-        w.writeAll("', shift+enter for a shell, or escape/ctrl+d to close") catch {};
-    } else {
-        w.writeAll(" Press shift+enter for a shell, or escape/ctrl+d to close") catch {};
-    }
-    w.writeAll("\x1b[0m\r\n") catch {};
-    var parser: pty.Parser = .{ .buf = .init(self.allocator) };
-    defer parser.buf.deinit();
-    _ = self.vt.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
-}
-
-// Feed bytes into the screen (not the pty)
-fn inject(self: *Self, bytes: []const u8) void {
-    var parser: pty.Parser = .{ .buf = .init(self.allocator) };
-    defer parser.buf.deinit();
-    _ = self.vt.vt.processOutput(&parser, bytes, self, process_terminal_event) catch {};
-}
-
-// Write a shell-style prompt with OSC 133 marks
-fn inject_prompt(self: *Self, display: []const u8) void {
-    var msg: std.Io.Writer.Allocating = .init(self.allocator);
-    defer msg.deinit();
-    const w = &msg.writer;
-    w.writeAll("\x1b[0m\x1b]133;A\x1b\\") catch {}; // reset SGR, prompt_start
-    w.print("\x1b[1;34m$\x1b[0m {s}\r\n", .{display}) catch {}; // visible command line
-    w.writeAll("\x1b]133;C\x1b\\") catch {}; // output_start
-    self.inject(msg.written());
-}
-
-// Close command output range
-fn inject_output_end(self: *Self, code: u8) void {
-    var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "\x1b]133;D;{d}\x1b\\", .{code}) catch return;
-    self.inject(s);
-}
-
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
@@ -712,11 +638,7 @@ fn navigate_to_file_link(dest: *const file_link.FileDest) void {
 fn receive_filter(self: *Self, from: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     var event: Terminal.Event = undefined;
     if (m.match(.{ "VT", tp.extract(&event) }) catch false) {
-        // drop events from an old pty
-        if (self.vt.pty_pid) |pid| if (from.instance_id() != pid.instance_id())
-            return true;
-
-        try self.process_event(event);
+        try self.vt.process_event(from, event);
         return true;
     }
     // consume paste when focused
@@ -743,61 +665,6 @@ pub fn send_text(self: *Self, text: []const u8) void {
         pty_writer.flush() catch {};
     }
     tui.need_render(@src());
-}
-
-fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
-    const self: *Self = @ptrCast(@alignCast(ctx));
-    return self.process_event(event) catch error.TerminalHandlerFailed;
-}
-
-fn process_event(self: *Self, event: Terminal.Event) MessageFilter.Error!void {
-    switch (event) {
-        .exited => |code| {
-            self.vt.process_exited = true;
-            if (self.vt.synthesize_marks) self.inject_output_end(code);
-            self.handle_child_exit(code);
-            tui.need_render(@src());
-        },
-        .redraw, .bell => {
-            tui.need_render(@src());
-        },
-        .pwd_change => |path| {
-            self.vt.cwd.clearRetainingCapacity();
-            self.vt.cwd.appendSlice(self.allocator, path) catch {};
-        },
-        .title_change => |t| {
-            self.set_title(t);
-        },
-        .color_change => |cc| {
-            self.vt.app_fg = cc.fg;
-            self.vt.app_bg = cc.bg;
-            self.vt.app_cursor = cc.cursor;
-        },
-        .osc_copy => |text| {
-            // Terminal app wrote to clipboard via OSC 52.
-            // Add to flow clipboard history and forward to system clipboard.
-            const owned = try tui.clipboard_allocator().dupe(u8, text);
-            tui.clipboard_clear_all();
-            tui.clipboard_start_group();
-            tui.clipboard_add_chunk(owned);
-            tui.clipboard_send_to_system() catch {};
-        },
-        .osc_paste_request => {
-            // Terminal app requested clipboard contents via OSC 52.
-            // Assemble from flow clipboard history and respond.
-            if (tui.clipboard_get_history()) |history| {
-                var buf: std.Io.Writer.Allocating = .init(self.allocator);
-                defer buf.deinit();
-                var first = true;
-                for (history) |chunk| {
-                    if (first) first = false else buf.writer.writeByte('\n') catch break;
-                    buf.writer.writeAll(chunk.text) catch break;
-                }
-                self.vt.vt.respondOsc52Paste(buf.written());
-            }
-        },
-        .shell_state_change => {},
-    }
 }
 
 fn scroll_command_to_top(self: *Self, target_row: usize) void {
@@ -1099,6 +966,138 @@ const Vt = struct {
         self.vt.resize(winsize_for(rows, cols)) catch |e| {
             std.log.err("terminal: resize failed: {}", .{e});
         };
+    }
+
+    fn inject(self: *@This(), bytes: []const u8) void {
+        var parser: pty.Parser = .{ .buf = .init(self.vt.allocator) };
+        defer parser.buf.deinit();
+        _ = self.vt.processOutput(&parser, bytes, self, process_terminal_event) catch {};
+    }
+
+    // Write a shell-style prompt with OSC 133 marks
+    fn inject_prompt(self: *@This(), display: []const u8) void {
+        var msg: std.Io.Writer.Allocating = .init(self.vt.allocator);
+        defer msg.deinit();
+        const w = &msg.writer;
+        w.writeAll("\x1b[0m\x1b]133;A\x1b\\") catch {}; // reset SGR, prompt_start
+        w.print("\x1b[1;34m$\x1b[0m {s}\r\n", .{display}) catch {}; // visible command line
+        w.writeAll("\x1b]133;C\x1b\\") catch {}; // output_start
+        self.inject(msg.written());
+    }
+
+    // Close command output range
+    fn inject_output_end(self: *@This(), code: u8) void {
+        var buf: [64]u8 = undefined;
+        const s = std.fmt.bufPrint(&buf, "\x1b]133;D;{d}\x1b\\", .{code}) catch return;
+        self.inject(s);
+    }
+
+    pub fn set_title(self: *@This(), title: []const u8) void {
+        self.title.clearRetainingCapacity();
+        self.title.appendSlice(self.vt.allocator, title) catch {};
+    }
+
+    fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        return self.process_event(null, event) catch error.TerminalHandlerFailed;
+    }
+
+    fn process_event(self: *@This(), from_: ?tp.pid_ref, event: Terminal.Event) MessageFilter.Error!void {
+        // drop events from an old pty
+        if (from_) |from| if (self.pty_pid) |pid| if (from.instance_id() != pid.instance_id())
+            return;
+
+        switch (event) {
+            .exited => |code| {
+                self.process_exited = true;
+                if (self.synthesize_marks) self.inject_output_end(code);
+                self.handle_child_exit(code);
+                tui.need_render(@src());
+            },
+            .redraw, .bell => {
+                tui.need_render(@src());
+            },
+            .pwd_change => |path| {
+                self.cwd.clearRetainingCapacity();
+                self.cwd.appendSlice(self.vt.allocator, path) catch {};
+            },
+            .title_change => |t| {
+                self.set_title(t);
+            },
+            .color_change => |cc| {
+                self.app_fg = cc.fg;
+                self.app_bg = cc.bg;
+                self.app_cursor = cc.cursor;
+            },
+            .osc_copy => |text| {
+                // Terminal app wrote to clipboard via OSC 52.
+                // Add to flow clipboard history and forward to system clipboard.
+                const owned = try tui.clipboard_allocator().dupe(u8, text);
+                tui.clipboard_clear_all();
+                tui.clipboard_start_group();
+                tui.clipboard_add_chunk(owned);
+                tui.clipboard_send_to_system() catch {};
+            },
+            .osc_paste_request => {
+                // Terminal app requested clipboard contents via OSC 52.
+                // Assemble from flow clipboard history and respond.
+                if (tui.clipboard_get_history()) |history| {
+                    var buf: std.Io.Writer.Allocating = .init(self.vt.allocator);
+                    defer buf.deinit();
+                    var first = true;
+                    for (history) |chunk| {
+                        if (first) first = false else buf.writer.writeByte('\n') catch break;
+                        buf.writer.writeAll(chunk.text) catch break;
+                    }
+                    self.vt.respondOsc52Paste(buf.written());
+                }
+            },
+            .shell_state_change => {},
+        }
+    }
+
+    fn handle_child_exit(self: *@This(), code: u8) void {
+        switch (self.on_exit) {
+            .hold => self.show_exit_message(code),
+            .hold_on_error => if (code == 0)
+                tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {}
+            else
+                self.show_exit_message(code),
+            .close => tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {},
+        }
+    }
+
+    fn show_exit_message(self: *@This(), code: u8) void {
+        var msg: std.Io.Writer.Allocating = .init(self.vt.allocator);
+        defer msg.deinit();
+        const w = &msg.writer;
+        w.writeAll("\r\n") catch {};
+        w.writeAll("\x1b[0m\x1b[2m") catch {};
+        w.writeAll("[process exited") catch {};
+        if (code != 0)
+            w.print(" with code {d}", .{code}) catch {};
+        const runtime_ms = std.Io.Clock.now(.awake, root.get_io()).toMilliseconds() - self.started_at;
+        if (runtime_ms >= 2 * std.time.ms_per_s) {
+            const secs = @divFloor(runtime_ms, std.time.ms_per_s);
+            if (secs >= std.time.s_per_min)
+                w.print(" in {d}m{d}s", .{ @divFloor(secs, std.time.s_per_min), @mod(secs, std.time.s_per_min) }) catch {}
+            else
+                w.print(" in {d}s", .{secs}) catch {};
+        }
+        w.writeAll("]") catch {};
+        // Re-run prompt
+        const cmd_argv = self.vt.cmd.argv;
+        if (cmd_argv.len > 0) {
+            w.writeAll(" Press enter to re-run '") catch {};
+            _ = argv.write(w, cmd_argv) catch {};
+            w.writeAll("', shift+enter for a shell, or escape/ctrl+d to close") catch {};
+        } else {
+            w.writeAll(" Press shift+enter for a shell, or escape/ctrl+d to close") catch {};
+        }
+        w.writeAll("\x1b[0m\r\n") catch {};
+        var parser: pty.Parser = .{ .buf = .init(self.vt.allocator) };
+        defer parser.buf.deinit();
+        _ = self.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
     }
 };
 var global_vt: ?Vt = null;
