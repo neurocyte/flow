@@ -1073,6 +1073,12 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         '<' => {},
                         else => log.debug("unhandled CSI: {f}", .{seq}),
                     },
+                    // DECRQCRA - Request Checksum of Rectangular Area.
+                    // CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y (intermediate '*').
+                    'y' => if ((seq.intermediate orelse 0) == '*')
+                        self.reportRectChecksum(seq)
+                    else
+                        log.debug("unhandled CSI: {f}", .{seq}),
                     // CSI Ps t - XTWINOPS. Only the geometry reports are
                     // implemented; the window manipulation ops (resize/move/
                     // iconify) are widely ignored.
@@ -1338,7 +1344,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     },
                     // OSC 133 ; <kind> [; <param> ...]
                     // Semantic prompt marks (FinalTerm/iTerm2 conventions).
-                    // Only tracked on the primary back screen — alt-screen
+                    // Only tracked on the primary back screen - alt-screen
                     // apps don't emit shell prompt structure.
                     133 => if (self.back_screen == &self.back_screen_pri) {
                         const after_semi = rest;
@@ -1595,6 +1601,57 @@ fn restoreCursor(self: *Terminal) void {
     self.charset_g1 = saved.charset_g1;
     self.charset_shifted = saved.charset_shifted;
     self.mode.origin = saved.origin;
+}
+
+/// DECRQCRA - Request Checksum of Rectangular Area
+/// (CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y). Replies
+/// `DCS Pid ! ~ <4 hex> ST` with the negated 16-bit sum of the character
+/// codepoints in the rectangle. This is xterm's pre-#279 (DEC-compatible)
+/// algorithm - characters only, no attribute weights. Coordinates are
+/// 1-based inclusive.
+fn reportRectChecksum(self: *Terminal, seq: ansi.CSI) void {
+    var iter = seq.iterator(u16);
+    const pid = iter.next() orelse 0;
+    _ = iter.next(); // Pp (page) - ignored, flow has a single page
+    const screen = self.back_screen;
+    const top = rectCoord(iter.next(), 1, screen.height);
+    const left = rectCoord(iter.next(), 1, screen.width);
+    const bottom = rectCoord(iter.next(), screen.height, screen.height);
+    const right = rectCoord(iter.next(), screen.width, screen.width);
+
+    var sum: u32 = 0;
+    var row: u16 = top;
+    while (row <= bottom) : (row += 1) {
+        var col: u16 = left;
+        while (col <= right) : (col += 1) {
+            const cell = screen.readCell(col - 1, row - 1) orelse continue;
+            sum +%= graphemeCodepointSum(cell.char.grapheme);
+        }
+    }
+    const checksum: u16 = @truncate(0 -% sum);
+
+    const pty_writer = self.get_pty_writer();
+    defer pty_writer.flush() catch |e| log.warn("DECRQCRA reply flush failed: {t}", .{e});
+    pty_writer.print("\x1bP{d}!~{X:0>4}\x1b\\", .{ pid, checksum }) catch |e|
+        log.warn("DECRQCRA reply failed: {t}", .{e});
+}
+
+/// Resolve one DECRQCRA rectangle coordinate: an omitted or zero parameter
+/// means the default; the result is clamped to [1, max].
+fn rectCoord(param: ?u16, default: u16, max: u16) u16 {
+    const v = param orelse 0;
+    const chosen = if (v == 0) default else v;
+    return @max(1, @min(chosen, max));
+}
+
+/// Sum the Unicode codepoints of a cell's grapheme for DECRQCRA. An empty
+/// cell counts as a blank (space).
+fn graphemeCodepointSum(bytes: []const u8) u32 {
+    if (bytes.len == 0) return ' ';
+    var sum: u32 = 0;
+    var it = std.unicode.Utf8Iterator{ .bytes = bytes, .i = 0 };
+    while (it.nextCodepoint()) |cp| sum += cp;
+    return sum;
 }
 
 /// DSR color scheme report (CSI ? 997 ; Ps n): 1 = dark, 2 = light.
