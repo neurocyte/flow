@@ -470,6 +470,11 @@ fn check_all_not_dirty(self: *const Self) command.Result {
         return tp.exit("unsaved changes");
 }
 
+fn check_no_active_terminals(_: *const Self) command.Result {
+    if (Vt.Manager.any_active_applications())
+        return tp.exit("terminal application running");
+}
+
 fn open_style_config(self: *Self, Style: type, now: std.Io.Timestamp) command.Result {
     const file_name = try root.get_config_file_name(Style);
     const style, const style_bufs: [][]const u8 = if (root.exists_config(Style)) blk: {
@@ -499,8 +504,7 @@ const cmds = struct {
 
     pub fn quit(self: *Self, _: Ctx) Result {
         try self.check_all_not_dirty();
-        if (Vt.Manager.any_active_applications())
-            return tp.exit("terminal application running");
+        try self.check_no_active_terminals();
         try tp.self_pid().send("quit");
     }
     pub const quit_meta: Meta = .{ .description = "Quit" };
@@ -573,6 +577,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
         try self.check_all_not_dirty();
+        try self.check_no_active_terminals();
 
         {
             var state_writer: std.Io.Writer.Allocating = .init(self.allocator);
