@@ -166,7 +166,8 @@ charset_g1: Charset = .ascii,
 charset_shifted: bool = false,
 
 /// Cursor state saved by DECSC/SCOSC, restored by DECRC/SCORC.
-saved_cursor: ?SavedCursor = null,
+saved_cursor_pri: ?SavedCursor = null,
+saved_cursor_alt: ?SavedCursor = null,
 
 tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
@@ -1442,7 +1443,8 @@ fn hardReset(self: *Terminal) !void {
     self.charset_g0 = .ascii;
     self.charset_g1 = .ascii;
     self.charset_shifted = false;
-    self.saved_cursor = null;
+    self.saved_cursor_pri = null;
+    self.saved_cursor_alt = null;
     for (self.title_stack.items) |t| self.allocator.free(t);
     self.title_stack.clearRetainingCapacity();
     try self.resetTabStops();
@@ -1467,7 +1469,8 @@ fn softReset(self: *Terminal) void {
     self.charset_g0 = .ascii;
     self.charset_g1 = .ascii;
     self.charset_shifted = false;
-    self.saved_cursor = null; // DECSTR sets the saved cursor to home
+    // DECSTR sets the saved cursor to home; clear the active screen's slot.
+    self.savedCursorSlot().* = null;
     self.back_screen.cursor.visible = true;
     self.back_screen.cursor.style = .{}; // SGR -> default
     self.back_screen.cursor.pending_wrap = false;
@@ -1508,7 +1511,8 @@ pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
         1002 => modeState(self.mode.mouse == .button_event),
         1003 => modeState(self.mode.mouse == .any_event),
         1006 => modeState(self.mode.mouse_sgr),
-        1049 => modeState(self.back_screen == &self.back_screen_alt),
+        47, 1047, 1049 => modeState(self.back_screen == &self.back_screen_alt),
+        1048 => modeState(self.savedCursorSlot().* != null),
         2004 => modeState(self.mode.bracketed_paste),
         2026 => modeState(self.mode.sync),
         2031 => modeState(self.mode.color_scheme_updates),
@@ -1549,6 +1553,12 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
         1006 => self.mode.mouse_sgr = val,
         1015 => {}, // URXVT mouse encoding - we use SGR instead, ignore
         25 => self.mode.cursor = val,
+        // 47 - alternate screen buffer (no clear on exit).
+        47 => self.switchScreen(val, false),
+        // 1047 - alternate screen buffer; DECRESET clears the alt buffer first.
+        1047 => self.switchScreen(val, true),
+        // 1048 - save (set) / restore (reset) cursor, as DECSC/DECRC.
+        1048 => if (val) self.saveCursor() else self.restoreCursor(),
         1049 => {
             const from = self.back_screen;
             const to = if (val) &self.back_screen_alt else &self.back_screen_pri;
@@ -1571,11 +1581,33 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
     }
 }
 
+/// DECSET/DECRESET 47 and 1047: switch between the primary and alternate
+/// screen buffers. Unlike 1049 these do not save/restore the cursor.
+/// `clear_alt_on_exit` clears the alternate buffer when leaving it, the
+/// only difference between 1047 and plain 47.
+fn switchScreen(self: *Terminal, to_alt: bool, clear_alt_on_exit: bool) void {
+    const target = if (to_alt) &self.back_screen_alt else &self.back_screen_pri;
+    if (self.back_screen == target) return;
+    if (!to_alt and clear_alt_on_exit) self.back_screen.eraseAll();
+    target.cursor.copyFrom(self.back_screen.cursor, self.allocator) catch |e|
+        log.warn("cursor copy failed switching screen: {}", .{e});
+    self.back_screen = target;
+    for (self.back_screen.buf) |*cell| cell.dirty = true;
+}
+
+/// The DECSC/SCOSC saved-cursor slot for the currently active screen.
+fn savedCursorSlot(self: *Terminal) *?SavedCursor {
+    return if (self.back_screen == &self.back_screen_alt)
+        &self.saved_cursor_alt
+    else
+        &self.saved_cursor_pri;
+}
+
 /// DECSC (ESC 7) / SCOSC (CSI s): save the cursor position and the
-/// attributes that travel with it into a single shared slot.
+/// attributes that travel with it into the active screen's slot.
 fn saveCursor(self: *Terminal) void {
     const cursor = self.back_screen.cursor;
-    self.saved_cursor = .{
+    self.savedCursorSlot().* = .{
         .row = cursor.row,
         .col = cursor.col,
         .pending_wrap = cursor.pending_wrap,
@@ -1587,11 +1619,11 @@ fn saveCursor(self: *Terminal) void {
     };
 }
 
-/// DECRC (ESC 8) / SCORC (CSI u): restore the cursor saved by
-/// saveCursor. With nothing saved the spec says home the cursor and
+/// DECRC (ESC 8) / SCORC (CSI u): restore the cursor saved by saveCursor for
+/// the active screen. With nothing saved the spec says home the cursor and
 /// reset attributes to defaults.
 fn restoreCursor(self: *Terminal) void {
-    const saved = self.saved_cursor orelse SavedCursor{};
+    const saved = self.savedCursorSlot().* orelse SavedCursor{};
     const screen = self.back_screen;
     screen.cursor.row = @min(saved.row, screen.height -| 1);
     screen.cursor.col = @min(saved.col, screen.width -| 1);
