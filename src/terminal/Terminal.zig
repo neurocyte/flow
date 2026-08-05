@@ -506,6 +506,12 @@ fn encodeKey(self: *Terminal, k: vaxis.Key, event: key.Event) !void {
     try key.encode(pty_writer, k, event, self.back_screen.csi_u_flags, self.mode.cursor_keys_app, self.modify_other_keys);
 }
 
+/// True when the running application has enabled the kitty keyboard "report all
+/// keys as escape codes" mode, in which it wants every key event.
+pub fn wantsAllKeys(self: *const Terminal) bool {
+    return self.back_screen.csi_u_flags.report_all_as_ctl_seqs;
+}
+
 /// POSIX only: returns the pty master fd for use by the pty actor read loop.
 pub fn ptyFd(self: *const Terminal) std.posix.fd_t {
     if (is_windows) @compileError("ptyFd() is not available on Windows; use ptyOutputHandle()");

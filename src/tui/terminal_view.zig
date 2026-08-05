@@ -196,9 +196,6 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
     if (!self.focused) return false;
 
-    if (try self.input_mode.bindings.receive(from, m))
-        return true;
-
     var event: input.Event = 0;
     var keypress: input.Key = 0;
     var keypress_shifted: input.Key = 0;
@@ -207,6 +204,10 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
     if (!try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.extract(&keypress_shifted), tp.extract(&text), tp.extract(&modifiers) }))
         return false;
+
+    const divert_to_vt = input.is_modifier(keypress) and self.vt.vt.wantsAllKeys();
+    if (!divert_to_vt and try self.input_mode.bindings.receive(from, m))
+        return true;
 
     switch (event) {
         input.event.press, input.event.repeat, input.event.release => {},
