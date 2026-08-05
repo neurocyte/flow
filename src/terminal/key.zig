@@ -7,17 +7,54 @@ pub fn encode(
     press: bool,
     kitty_flags: vaxis.Key.KittyFlags,
     cursor_keys_app: bool,
+    modify_other_keys: u8,
 ) !void {
     const flags: u5 = @bitCast(kitty_flags);
     switch (press) {
         true => {
             switch (flags) {
-                0 => try legacy(writer, key, cursor_keys_app),
+                0 => {
+                    if (modify_other_keys >= 1 and try encodeModifyOtherKeys(writer, key, modify_other_keys))
+                        return;
+                    try legacy(writer, key, cursor_keys_app);
+                },
                 else => unreachable, // TODO: kitty encodings
             }
         },
         false => {},
     }
+}
+
+/// The CSI-u / modifyOtherKeys modifier parameter: 1 + the modifier bitmask.
+fn modifierParam(mods: vaxis.Key.Modifiers) u8 {
+    var v: u8 = 0;
+    if (mods.shift) v |= 1;
+    if (mods.alt) v |= 2;
+    if (mods.ctrl) v |= 4;
+    if (mods.super) v |= 8;
+    if (mods.hyper) v |= 16;
+    if (mods.meta) v |= 32;
+    return v + 1;
+}
+
+/// XTMODKEYS modifyOtherKeys: format Ctrl/Alt/Meta-modified "other" keys (not
+/// the named cursor/function keys) as `CSI 27 ; modifier ; codepoint ~`.
+/// Returns true if the key was emitted.
+fn encodeModifyOtherKeys(writer: *std.Io.Writer, key: vaxis.Key, level: u8) !bool {
+    const cp = key.codepoint;
+    // Functional keys (vaxis puts them at 57344+) keep their legacy CSI forms.
+    if (cp == 0 or cp >= 57344) return false;
+    const m = key.mods;
+    // Only Ctrl/Alt/Meta trigger this; Shift alone stays a plain character.
+    if (!(m.ctrl or m.alt or m.super or m.hyper or m.meta)) return false;
+    if (level < 2) {
+        // Level 1: leave combinations the legacy encoding represents cleanly
+        // (a lone Ctrl or lone Alt) to the legacy encoder; format the rest.
+        const complex = m.shift or (m.ctrl and m.alt) or m.super or m.hyper or m.meta;
+        if (!complex) return false;
+    }
+    try writer.print("\x1b[27;{d};{d}~", .{ modifierParam(m), cp });
+    return true;
 }
 
 fn legacy(writer: *std.Io.Writer, key: vaxis.Key, cursor_keys_app: bool) !void {

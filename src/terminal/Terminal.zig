@@ -171,6 +171,9 @@ charset_shifted: bool = false,
 saved_cursor_pri: ?SavedCursor = null,
 saved_cursor_alt: ?SavedCursor = null,
 
+/// XTMODKEYS modifyOtherKeys level (CSI > 4 ; Pv m): 0 off, 1, or 2.
+modify_other_keys: u8 = 0,
+
 tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
 /// XTWINOPS 22/23 title save/restore stack (owns each entry)
@@ -479,7 +482,7 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
         .key_press => |k| {
             const pty_writer = self.get_pty_writer();
             defer pty_writer.flush() catch {};
-            try key.encode(pty_writer, k, true, self.back_screen.csi_u_flags, self.mode.cursor_keys_app);
+            try key.encode(pty_writer, k, true, self.back_screen.csi_u_flags, self.mode.cursor_keys_app, self.modify_other_keys);
         },
         .mouse => |m| {
             if (self.mode.mouse == .none) return;
@@ -939,10 +942,29 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             self.setMode(mode, private, seq.final == 'h');
                     },
                     'm' => {
-                        if (seq.intermediate == null and seq.private_marker == null) {
+                        if (seq.private_marker) |pm| switch (pm) {
+                            // XTMODKEYS - CSI > Pp ; Pv m. Only modifyOtherKeys
+                            // (Pp = 4) changes behaviour; other resources are
+                            // accepted but not acted upon. Pv omitted resets to 0.
+                            '>' => {
+                                var iter = seq.iterator(u16);
+                                const pp = iter.next() orelse 0;
+                                const pv = iter.next() orelse 0;
+                                if (pp == 4) self.modify_other_keys = @min(pv, 2);
+                            },
+                            // XTQMODKEYS - CSI ? Pp m -> reply CSI > Pp ; Pv m.
+                            '?' => {
+                                var iter = seq.iterator(u16);
+                                const pp = iter.next() orelse 0;
+                                const pv: u16 = if (pp == 4) self.modify_other_keys else 0;
+                                const pty_writer = self.get_pty_writer();
+                                defer pty_writer.flush() catch {};
+                                try pty_writer.print("\x1b[>{d};{d}m", .{ pp, pv });
+                            },
+                            else => log.debug("unhandled CSI: {f}", .{seq}),
+                        } else if (seq.intermediate == null) {
                             self.back_screen.sgr(seq);
-                        }
-                        // TODO: private marker and intermediates
+                        } else log.debug("unhandled CSI: {f}", .{seq});
                     },
                     'n' => {
                         var iter = seq.iterator(u16);
@@ -1448,6 +1470,7 @@ fn hardReset(self: *Terminal) !void {
     self.charset_shifted = false;
     self.saved_cursor_pri = null;
     self.saved_cursor_alt = null;
+    self.modify_other_keys = 0;
     for (self.title_stack.items) |t| self.allocator.free(t);
     self.title_stack.clearRetainingCapacity();
     try self.resetTabStops();
