@@ -448,7 +448,7 @@ pub fn scroll(self: *Terminal, delta: i32) bool {
     const new_offset: usize = if (delta > 0)
         @min(history, self.scroll_offset + @as(usize, @intCast(delta)))
     else
-        self.scroll_offset -| @as(usize, @intCast(-delta));
+        self.scroll_offset -| @as(usize, @intCast(-@as(i64, delta)));
     if (new_offset == self.scroll_offset) return false;
     self.scroll_offset = new_offset;
     self.back_mutex.lockUncancelable(self.io);
@@ -845,10 +845,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         const max_end = if (self.mode.origin)
                             self.back_screen.scrolling_region.right
                         else
-                            self.back_screen.width - 1;
+                            self.back_screen.width -| 1;
                         self.back_screen.cursor.col = @min(
-                            self.back_screen.cursor.col + max_end,
-                            self.back_screen.cursor.col + n,
+                            self.back_screen.cursor.col +| @max(n, 1),
+                            max_end,
                         );
                     },
                     // REP - Repeat the last printed graphic character Ps times.
@@ -895,14 +895,14 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             n -| 1,
                         );
                     },
-                    // Cursor Vertical Position Absolute
+                    // Cursor Vertical Position Relative
                     'e' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
                         self.back_screen.cursor.pending_wrap = false;
                         self.back_screen.cursor.row = @min(
-                            self.back_screen.width -| 1,
-                            n -| 1,
+                            self.back_screen.cursor.row +| @max(n, 1),
+                            self.back_screen.height -| 1,
                         );
                     },
                     // Tab Clear
@@ -1011,7 +1011,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                 ' ' => {
                                     var iter = seq.iterator(u8);
                                     const shape = iter.next() orelse 0;
-                                    self.back_screen.cursor.shape = @enumFromInt(shape);
+                                    if (shape <= @intFromEnum(vaxis.Cell.CursorShape.unfocused))
+                                        self.back_screen.cursor.shape = @enumFromInt(shape);
                                 },
                                 else => {},
                             }
@@ -1772,7 +1773,7 @@ pub fn horizontalTab(self: *Terminal, n: usize) void {
         if (ts <= col) continue;
         i += 1;
         if (i == n) break ts;
-    } else self.back_screen.width - 1;
+    } else self.back_screen.width -| 1;
 
     // Move right the delta
     self.back_screen.cursorRight(final -| col);

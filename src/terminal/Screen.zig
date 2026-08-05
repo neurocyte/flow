@@ -765,10 +765,13 @@ pub fn sgr(self: *Screen, seq: ansi.CSI) void {
             2 => self.cursor.style.dim = true,
             3 => self.cursor.style.italic = true,
             4 => {
-                const kind: vaxis.Style.Underline = if (iter.next_is_sub)
-                    @enumFromInt(iter.next() orelse 1)
-                else
-                    .single;
+                const kind: vaxis.Style.Underline = if (iter.next_is_sub) blk: {
+                    const v = iter.next() orelse 1;
+                    break :blk if (v <= @intFromEnum(vaxis.Style.Underline.dashed))
+                        @enumFromInt(v)
+                    else
+                        .single;
+                } else .single;
                 self.cursor.style.ul_style = kind;
             },
             5 => self.cursor.style.blink = true,
@@ -869,13 +872,13 @@ pub fn cursorRight(self: *Screen, n: u16) void {
     self.cursor.pending_wrap = false;
     if (self.withinScrollingRegion())
         self.cursor.col = @min(
-            self.cursor.col + n,
+            self.cursor.col +| n,
             self.scrolling_region.right,
         )
     else
         self.cursor.col = @min(
-            self.cursor.col + n,
-            self.width - 1,
+            self.cursor.col +| n,
+            self.width -| 1,
         );
 }
 
