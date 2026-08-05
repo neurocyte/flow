@@ -875,6 +875,30 @@ pub fn sgr(self: *Screen, seq: ansi.CSI) void {
                 }
             },
             49 => self.cursor.style.bg = .default,
+            58 => {
+                // Set underline colour. Same encoding as SGR 38/48.
+                const kind = iter.next() orelse return;
+                switch (kind) {
+                    2 => { // rgb
+                        const r = r: {
+                            // First param can be an empty colour-space id.
+                            var ps_r = iter.next() orelse return;
+                            if (iter.is_empty)
+                                ps_r = iter.next() orelse return;
+                            break :r ps_r;
+                        };
+                        const g = iter.next() orelse return;
+                        const b = iter.next() orelse return;
+                        self.cursor.style.ul = .{ .rgb = .{ r, g, b } };
+                    },
+                    5 => {
+                        const idx = iter.next() orelse return;
+                        self.cursor.style.ul = .{ .index = idx };
+                    }, // index
+                    else => return,
+                }
+            },
+            59 => self.cursor.style.ul = .default,
             90...97 => self.cursor.style.fg = .{ .index = ps - 90 + 8 },
             100...107 => self.cursor.style.bg = .{ .index = ps - 100 + 8 },
             else => continue,

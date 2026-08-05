@@ -358,6 +358,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
             for (scr.buf[row_base..row_end]) |*cell| {
                 resolve_color(&cell.style.fg, palette);
                 resolve_color(&cell.style.bg, palette);
+                resolve_color(&cell.style.ul, palette);
             }
         }
     }
