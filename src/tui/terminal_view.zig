@@ -208,35 +208,44 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (!try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.extract(&keypress_shifted), tp.extract(&text), tp.extract(&modifiers) }))
         return false;
 
-    // Only forward press and repeat events; ignore releases.
-    if (event != input.event.press and event != input.event.repeat) return true;
+    switch (event) {
+        input.event.press, input.event.repeat, input.event.release => {},
+        else => return true,
+    }
+    const is_release = event == input.event.release;
     const key: vaxis.Key = .{
         .codepoint = keypress,
         .shifted_codepoint = if (keypress_shifted != keypress) keypress_shifted else null,
         .mods = @bitCast(modifiers),
         .text = if (text.len > 0) text else null,
     };
-    if (self.vt.process_exited) {
-        if (keypress == input.key.enter and key.mods.shift) {
-            self.vt.restart_shell() catch |e|
-                std.log.err("terminal_view: shell restart failed: {}", .{e});
-            tui.need_render(@src());
-            return true;
+    if (!is_release) {
+        if (self.vt.process_exited) {
+            if (keypress == input.key.enter and key.mods.shift) {
+                self.vt.restart_shell() catch |e|
+                    std.log.err("terminal_view: shell restart failed: {}", .{e});
+                tui.need_render(@src());
+                return true;
+            }
+            if (keypress == input.key.enter) {
+                self.vt.re_run_cmd() catch |e|
+                    std.log.err("terminal_view: restart failed: {}", .{e});
+                tui.need_render(@src());
+                return true;
+            }
+            if (keypress == input.key.escape or (keypress == 'd' and key.mods.ctrl)) {
+                tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {};
+                return true;
+            }
         }
-        if (keypress == input.key.enter) {
-            self.vt.re_run_cmd() catch |e|
-                std.log.err("terminal_view: restart failed: {}", .{e});
-            tui.need_render(@src());
-            return true;
-        }
-        if (keypress == input.key.escape or (keypress == 'd' and key.mods.ctrl)) {
-            tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {};
-            return true;
-        }
+        if (!input.is_modifier(keypress))
+            self.vt.vt.scrollToBottom();
     }
-    if (!input.is_modifier(keypress))
-        self.vt.vt.scrollToBottom();
-    self.vt.vt.update(.{ .key_press = key }) catch |e|
+    self.vt.vt.update(switch (event) {
+        input.event.release => .{ .key_release = key },
+        input.event.repeat => .{ .key_repeat = key },
+        else => .{ .key_press = key },
+    }) catch |e|
         std.log.err("terminal_view: input failed: {}", .{e});
     tui.need_render(@src());
     return true;

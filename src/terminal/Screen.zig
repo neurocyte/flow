@@ -215,7 +215,43 @@ cursor: Cursor = .{},
 /// OSC 133 prompt/command markers
 prompt_marks: std.ArrayList(PromptMark) = .empty,
 
+/// Kitty keyboard protocol: the currently active progressive-enhancement flags
+/// (top of the stack) plus the saved stack below it.
 csi_u_flags: vaxis.Key.KittyFlags = @bitCast(@as(u5, 0)),
+csi_u_stack: [kitty_stack_max]vaxis.Key.KittyFlags = @splat(@bitCast(@as(u5, 0))),
+csi_u_depth: u8 = 0,
+
+pub const kitty_stack_max = 16;
+
+/// CSI > flags u - push the given kitty keyboard flags, making them current.
+pub fn kittyPush(self: *Screen, flags: vaxis.Key.KittyFlags) void {
+    if (self.csi_u_depth < self.csi_u_stack.len) {
+        self.csi_u_stack[self.csi_u_depth] = self.csi_u_flags;
+        self.csi_u_depth += 1;
+    }
+    self.csi_u_flags = flags;
+}
+
+/// CSI < number u - pop `n` entries, restoring the previous flags (0 if empty).
+pub fn kittyPop(self: *Screen, n: usize) void {
+    var i: usize = 0;
+    while (i < n and self.csi_u_depth > 0) : (i += 1) {
+        self.csi_u_depth -= 1;
+        self.csi_u_flags = self.csi_u_stack[self.csi_u_depth];
+    }
+}
+
+/// CSI = flags ; mode u - modify the current flags. mode 3 clears the given
+/// bits, mode 2 sets them, any other value replaces the flags outright.
+pub fn kittySet(self: *Screen, flags: vaxis.Key.KittyFlags, mode: u8) void {
+    const cur: u5 = @bitCast(self.csi_u_flags);
+    const f: u5 = @bitCast(flags);
+    self.csi_u_flags = @bitCast(switch (mode) {
+        3 => cur & ~f,
+        2 => cur | f,
+        else => f,
+    });
+}
 
 /// sets each cell to the default cell
 pub fn init(alloc: std.mem.Allocator, w: u16, h: u16) !Screen {

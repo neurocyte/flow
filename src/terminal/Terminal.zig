@@ -113,6 +113,8 @@ pub const SavedCursor = struct {
 
 pub const InputEvent = union(enum) {
     key_press: vaxis.Key,
+    key_repeat: vaxis.Key,
+    key_release: vaxis.Key,
     mouse: vaxis.Mouse,
 };
 
@@ -479,11 +481,9 @@ pub fn shellState(self: *Terminal) Screen.ShellState {
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
     switch (event) {
-        .key_press => |k| {
-            const pty_writer = self.get_pty_writer();
-            defer pty_writer.flush() catch {};
-            try key.encode(pty_writer, k, true, self.back_screen.csi_u_flags, self.mode.cursor_keys_app, self.modify_other_keys);
-        },
+        .key_press => |k| try self.encodeKey(k, .press),
+        .key_repeat => |k| try self.encodeKey(k, .repeat),
+        .key_release => |k| try self.encodeKey(k, .release),
         .mouse => |m| {
             if (self.mode.mouse == .none) return;
             // Ignore motion events unless the mode tracks them
@@ -498,6 +498,12 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
             try mouse.encode(pty_writer, m, self.mode.mouse_sgr, self.mode.mouse_pixel, self.cell_pixel_w, self.cell_pixel_h);
         },
     }
+}
+
+fn encodeKey(self: *Terminal, k: vaxis.Key, event: key.Event) !void {
+    const pty_writer = self.get_pty_writer();
+    defer pty_writer.flush() catch {};
+    try key.encode(pty_writer, k, event, self.back_screen.csi_u_flags, self.mode.cursor_keys_app, self.modify_other_keys);
 }
 
 /// POSIX only: returns the pty master fd for use by the pty actor read loop.
@@ -1085,18 +1091,31 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     'u' => switch (seq.private_marker orelse 0) {
                         // SCORC - Restore Cursor (ANSI.SYS).
                         0 => self.restoreCursor(),
-                        // CSI ? u - query flags; respond with 0 (not enabled)
+                        // CSI ? u - report the current kitty keyboard flags.
                         '?' => {
                             const pty_writer = self.get_pty_writer();
                             defer pty_writer.flush() catch {};
-                            try pty_writer.writeAll("\x1B[?0u");
+                            const f: u5 = @bitCast(self.back_screen.csi_u_flags);
+                            try pty_writer.print("\x1b[?{d}u", .{f});
                         },
-                        // CSI > Flags u - push flags onto stack; silently accept
-                        '>' => {},
-                        // CSI = Flags u - set flags with mode; silently accept
-                        '=' => {},
-                        // CSI < u - pop flags from stack; silently accept
-                        '<' => {},
+                        // CSI > flags u - push flags onto the stack.
+                        '>' => {
+                            var iter = seq.iterator(u16);
+                            const flags: u5 = @truncate(iter.next() orelse 0);
+                            self.back_screen.kittyPush(@bitCast(flags));
+                        },
+                        // CSI = flags ; mode u - set the current flags.
+                        '=' => {
+                            var iter = seq.iterator(u16);
+                            const flags: u5 = @truncate(iter.next() orelse 0);
+                            const mode: u8 = @truncate(iter.next() orelse 1);
+                            self.back_screen.kittySet(@bitCast(flags), mode);
+                        },
+                        // CSI < number u - pop flags from the stack.
+                        '<' => {
+                            var iter = seq.iterator(u16);
+                            self.back_screen.kittyPop(iter.next() orelse 1);
+                        },
                         else => log.debug("unhandled CSI: {f}", .{seq}),
                     },
                     // DECRQCRA - Request Checksum of Rectangular Area.

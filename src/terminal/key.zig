@@ -1,28 +1,226 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 
+/// A key event action. Values match the kitty protocol's event-type encoding
+/// (press+1 = 1, repeat+1 = 2, release+1 = 3).
+pub const Event = enum(u8) { press = 0, repeat = 1, release = 2 };
+
 pub fn encode(
     writer: *std.Io.Writer,
     key: vaxis.Key,
-    press: bool,
+    event: Event,
     kitty_flags: vaxis.Key.KittyFlags,
     cursor_keys_app: bool,
     modify_other_keys: u8,
 ) !void {
     const flags: u5 = @bitCast(kitty_flags);
-    switch (press) {
-        true => {
-            switch (flags) {
-                0 => {
-                    if (modify_other_keys >= 1 and try encodeModifyOtherKeys(writer, key, modify_other_keys))
-                        return;
-                    try legacy(writer, key, cursor_keys_app);
-                },
-                else => unreachable, // TODO: kitty encodings
-            }
-        },
-        false => {},
+    if (flags != 0) return kitty(writer, key, event, kitty_flags, cursor_keys_app);
+    // Legacy path: releases are not reported.
+    if (event == .release) return;
+    if (modify_other_keys >= 1 and try encodeModifyOtherKeys(writer, key, modify_other_keys))
+        return;
+    try legacy(writer, key, cursor_keys_app);
+}
+
+// Kitty keyboard protocol encoder
+
+const FUNC_FIRST = 57344; // Unicode PUA start = GLFW_FKEY_FIRST
+const FUNC_LAST = 57454; // iso_level_5_shift = last functional key
+const MOD_FIRST = 57441; // left_shift
+const MOD_LAST = 57454; // iso_level_5_shift
+
+fn modifierValue(mods: vaxis.Key.Modifiers) u8 {
+    var v: u8 = 0;
+    if (mods.shift) v |= 1;
+    if (mods.alt) v |= 2;
+    if (mods.ctrl) v |= 4;
+    if (mods.super) v |= 8;
+    if (mods.hyper) v |= 16;
+    if (mods.meta) v |= 32;
+    if (mods.caps_lock) v |= 64;
+    if (mods.num_lock) v |= 128;
+    return v;
+}
+
+fn isModifierKey(cp: u21) bool {
+    return cp >= MOD_FIRST and cp <= MOD_LAST;
+}
+
+fn isFunctional(cp: u21) bool {
+    return kittyDef(cp) != null or (cp >= FUNC_FIRST and cp <= FUNC_LAST);
+}
+
+fn kittyDef(cp: u21) ?Definition {
+    return switch (cp) {
+        vaxis.Key.escape => escape,
+        vaxis.Key.enter, vaxis.Key.kp_enter => enter,
+        vaxis.Key.tab => tab,
+        vaxis.Key.backspace => backspace,
+        vaxis.Key.insert, vaxis.Key.kp_insert => insert,
+        vaxis.Key.delete, vaxis.Key.kp_delete => delete,
+        vaxis.Key.left, vaxis.Key.kp_left => left,
+        vaxis.Key.right, vaxis.Key.kp_right => right,
+        vaxis.Key.up, vaxis.Key.kp_up => up,
+        vaxis.Key.down, vaxis.Key.kp_down => down,
+        vaxis.Key.page_up, vaxis.Key.kp_page_up => page_up,
+        vaxis.Key.page_down, vaxis.Key.kp_page_down => page_down,
+        vaxis.Key.home, vaxis.Key.kp_home => home,
+        vaxis.Key.end, vaxis.Key.kp_end => end,
+        vaxis.Key.f1 => f1,
+        vaxis.Key.f2 => f2,
+        vaxis.Key.f3 => f3,
+        vaxis.Key.f4 => f4,
+        vaxis.Key.f5 => f5,
+        vaxis.Key.f6 => f6,
+        vaxis.Key.f7 => f7,
+        vaxis.Key.f8 => f8,
+        vaxis.Key.f9 => f9,
+        vaxis.Key.f10 => f10,
+        vaxis.Key.f11 => f11,
+        vaxis.Key.f12 => f12,
+        else => null,
+    };
+}
+
+fn hasText(key: vaxis.Key) bool {
+    const t = key.text orelse return false;
+    return t.len > 0 and !(t[0] < 0x20 or t[0] == 0x7f);
+}
+
+fn encodeUtf8(writer: *std.Io.Writer, cp: u21) !void {
+    var buf: [4]u8 = undefined;
+    const n = std.unicode.utf8Encode(cp, &buf) catch return;
+    try writer.writeAll(buf[0..n]);
+}
+
+const Encoding = struct {
+    key: u21,
+    shifted: u21 = 0,
+    mods: u8, // raw bitmask
+    event: Event,
+    report_events: bool,
+    add_alternates: bool = false,
+    text: ?[]const u8 = null, // associated text (embed) or null
+};
+
+fn serialize(writer: *std.Io.Writer, e: Encoding, csi_trailer: u8) !void {
+    const encoded_mods: u16 = @as(u16, e.mods) + 1;
+    const has_mods = encoded_mods != 1;
+    const add_actions = e.report_events and e.event != .press;
+    const shifted: u21 = if (e.add_alternates and (e.mods & 1) != 0) e.shifted else 0;
+    const add_text = e.text != null and e.text.?.len > 0;
+    const second = has_mods or add_actions;
+    const third = add_text;
+
+    try writer.writeAll("\x1b[");
+    if (e.key != 1 or e.add_alternates or second or third) try writer.print("{d}", .{e.key});
+    if (e.add_alternates) {
+        try writer.writeAll(":");
+        if (shifted != 0) try writer.print("{d}", .{shifted});
+        // base-layout (alternate) key is never available from flow's input.
     }
+    if (second or third) {
+        try writer.writeAll(";");
+        if (second) try writer.print("{d}", .{encoded_mods});
+        if (add_actions) try writer.print(":{d}", .{@intFromEnum(e.event) + 1});
+    }
+    if (third) {
+        if (std.unicode.Utf8View.init(e.text.?)) |view| {
+            var it = view.iterator();
+            var first = true;
+            while (it.nextCodepoint()) |c| {
+                try writer.writeAll(if (first) ";" else ":");
+                try writer.print("{d}", .{c});
+                first = false;
+            }
+        } else |_| {}
+    }
+    try writer.writeByte(csi_trailer);
+}
+
+fn kitty(writer: *std.Io.Writer, key: vaxis.Key, event: Event, kf: vaxis.Key.KittyFlags, cursor_keys_app: bool) !void {
+    const cp = key.codepoint;
+    const report_all = kf.report_all_as_ctl_seqs; // kitty "report_text" flag (bit 3)
+    const embed_text = kf.report_text; // kitty "embed_text" flag (bit 4)
+
+    // Lone modifier keys are not reported unless all keys are reported.
+    if (!report_all and isModifierKey(cp)) return;
+    // A key that produces text just sends it, unless reporting all as escapes.
+    if (!report_all and hasText(key) and event != .release) return writer.writeAll(key.text.?);
+    // Releases require the report-event-types flag.
+    if (event == .release and !kf.report_events) return;
+
+    if (isFunctional(cp)) return kittyFunctional(writer, key, event, kf, cursor_keys_app);
+
+    // Text key.
+    const mods = modifierValue(key.mods);
+    const has_mods = mods != 0;
+    const shifted = key.shifted_codepoint orelse 0;
+    const add_alternates = kf.report_alternate_keys and key.mods.shift and shifted != 0 and shifted != cp;
+    const embed = embed_text and hasText(key) and event != .release;
+    const add_actions = kf.report_events and event != .press;
+    const simple = !add_actions and !add_alternates and !embed;
+
+    if (simple and !has_mods) {
+        if (report_all) return serialize(writer, .{ .key = cp, .mods = 0, .event = event, .report_events = kf.report_events }, 'u');
+        return encodeUtf8(writer, cp);
+    }
+    if (simple and has_mods and !kf.disambiguate and !report_all) {
+        // Disambiguation off: fall back to the legacy encoding.
+        return legacy(writer, key, cursor_keys_app);
+    }
+    return serialize(writer, .{
+        .key = cp,
+        .shifted = shifted,
+        .mods = mods,
+        .event = event,
+        .report_events = kf.report_events,
+        .add_alternates = add_alternates,
+        .text = if (embed) key.text else null,
+    }, 'u');
+}
+
+fn kittyFunctional(writer: *std.Io.Writer, key: vaxis.Key, event: Event, kf: vaxis.Key.KittyFlags, cursor_keys_app: bool) !void {
+    const cp = key.codepoint;
+    const mods = modifierValue(key.mods);
+    const non_lock = mods & ~@as(u8, 64 | 128);
+    const report_all = kf.report_all_as_ctl_seqs;
+    const legacy_mode = !kf.report_events and !kf.disambiguate and !report_all;
+
+    if (cursor_keys_app and legacy_mode and mods == 0) switch (cp) {
+        vaxis.Key.up => return writer.writeAll("\x1bOA"),
+        vaxis.Key.down => return writer.writeAll("\x1bOB"),
+        vaxis.Key.right => return writer.writeAll("\x1bOC"),
+        vaxis.Key.left => return writer.writeAll("\x1bOD"),
+        vaxis.Key.end => return writer.writeAll("\x1bOF"),
+        vaxis.Key.home => return writer.writeAll("\x1bOH"),
+        else => {},
+    };
+    if (mods == 0 and legacy_mode) switch (cp) {
+        vaxis.Key.f1 => return writer.writeAll("\x1bOP"),
+        vaxis.Key.f2 => return writer.writeAll("\x1bOQ"),
+        vaxis.Key.f3 => return writer.writeAll("\x1bOR"),
+        vaxis.Key.f4 => return writer.writeAll("\x1bOS"),
+        else => {},
+    };
+    if (mods == 0 and !kf.disambiguate and !report_all and cp == vaxis.Key.escape) return writer.writeAll("\x1b");
+    // Enter/Tab/Backspace keep their control bytes unless all keys are reported.
+    if (non_lock == 0 and !report_all and event != .release) switch (cp) {
+        vaxis.Key.enter, vaxis.Key.kp_enter => return writer.writeAll("\r"),
+        vaxis.Key.backspace => return writer.writeAll("\x7f"),
+        vaxis.Key.tab => return writer.writeAll("\t"),
+        else => {},
+    };
+
+    const def = kittyDef(cp);
+    const number: u21 = if (def) |d| d.number else cp;
+    const trailer: u8 = if (def) |d| d.suffix else 'u';
+    return serialize(writer, .{
+        .key = number,
+        .mods = mods,
+        .event = event,
+        .report_events = kf.report_events,
+    }, trailer);
 }
 
 /// The CSI-u / modifyOtherKeys modifier parameter: 1 + the modifier bitmask.
