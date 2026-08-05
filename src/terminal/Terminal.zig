@@ -1779,22 +1779,21 @@ pub fn horizontalTab(self: *Terminal, n: usize) void {
 }
 
 pub fn horizontalBackTab(self: *Terminal, n: usize) void {
-    // Get the current cursor position
     const col = self.back_screen.cursor.col;
-
-    // Find the index of the next backtab
-    const idx = for (self.tab_stops.items, 0..) |ts, i| {
-        if (ts <= col) continue;
-        break i;
-    } else self.tab_stops.items.len - 1;
-
-    const final = if (self.mode.origin)
-        @max(self.tab_stops.items[idx -| (n -| 1)], self.back_screen.scrolling_region.left)
-    else
-        self.tab_stops.items[idx -| (n -| 1)];
-
-    // Move left the delta
-    self.back_screen.cursorLeft(final - col);
+    // Walk left over tab stops strictly left of the cursor, up to n of them.
+    // CBT ignores the left/right margin region and clamps at column 0.
+    var target: u16 = 0;
+    var remaining = n;
+    var i = self.tab_stops.items.len;
+    while (i > 0 and remaining > 0) {
+        i -= 1;
+        const ts = self.tab_stops.items[i];
+        if (ts >= col) continue; // only stops strictly left of the cursor
+        target = ts;
+        remaining -= 1;
+    }
+    self.back_screen.cursor.col = target;
+    self.back_screen.cursor.pending_wrap = false;
 }
 
 const xterm_palette_default: [256][3]u8 = blk: {
