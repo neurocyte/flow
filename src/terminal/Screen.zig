@@ -922,7 +922,7 @@ pub fn eraseRight(self: *Screen) void {
 pub fn eraseLeft(self: *Screen) void {
     self.cursor.pending_wrap = false;
     const start = self.rowIndex(self.cursor.row, 0);
-    const end = self.rowIndex(self.cursor.row, self.cursor.col + 1);
+    const end = self.rowIndex(self.cursor.row, @min(@as(usize, self.cursor.col) + 1, self.width));
     var i = start;
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
@@ -978,6 +978,7 @@ pub fn insertLine(self: *Screen, n: usize) !void {
     if (!self.withinScrollingRegion()) return;
 
     const adjusted_n = @min(self.scrolling_region.bottom - self.cursor.row, n);
+    if (adjusted_n == 0) return;
     const stride = (self.width) * adjusted_n;
 
     var row: usize = self.scrolling_region.bottom;
@@ -1030,6 +1031,7 @@ pub fn eraseAll(self: *Screen) void {
 }
 
 pub fn deleteCharacters(self: *Screen, n: usize) !void {
+    if (n == 0) return;
     if (!self.withinScrollingRegion()) return;
 
     self.cursor.pending_wrap = false;

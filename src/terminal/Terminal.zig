@@ -1176,7 +1176,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         self.working_directory.clearRetainingCapacity();
                         var i: usize = 0;
                         while (i < enc.len) : (i += 1) {
-                            const b = if (enc[i] == '%') blk: {
+                            const b = if (enc[i] == '%' and i + 3 <= enc.len) blk: {
                                 defer i += 2;
                                 break :blk std.fmt.parseUnsigned(u8, enc[i + 1 .. i + 3], 16) catch |e| switch (e) {
                                     error.Overflow, error.InvalidCharacter => {
