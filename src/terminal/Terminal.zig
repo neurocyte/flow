@@ -95,6 +95,20 @@ pub const Charset = enum {
 
 pub const ColorScheme = enum(u8) { dark = 1, light = 2 };
 
+/// Snapshot taken by DECSC (ESC 7) / SCOSC (CSI s) and reapplied by
+/// DECRC (ESC 8) / SCORC (CSI u). Covers the cursor position plus the
+/// attributes the VT spec says travel with it.
+pub const SavedCursor = struct {
+    row: u16 = 0,
+    col: u16 = 0,
+    pending_wrap: bool = false,
+    style: vaxis.Style = .{},
+    charset_g0: Charset = .ascii,
+    charset_g1: Charset = .ascii,
+    charset_shifted: bool = false,
+    origin: bool = false,
+};
+
 pub const InputEvent = union(enum) {
     key_press: vaxis.Key,
     mouse: vaxis.Mouse,
@@ -150,6 +164,9 @@ charset_g0: Charset = .ascii,
 charset_g1: Charset = .ascii,
 /// When true, G1 is active (SO); when false, G0 is active (SI / default).
 charset_shifted: bool = false,
+
+/// Cursor state saved by DECSC/SCOSC, restored by DECRC/SCORC.
+saved_cursor: ?SavedCursor = null,
 
 tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
@@ -626,6 +643,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     },
                     // Reverse Index
                     'M' => try self.back_screen.reverseIndex(),
+                    // DECSC - Save Cursor
+                    '7' => self.saveCursor(),
+                    // DECRC - Restore Cursor
+                    '8' => self.restoreCursor(),
                     // DECKPAM - keypad application mode
                     '=' => self.mode.keypad_application = true,
                     // DECKPNM - keypad numeric mode
@@ -1029,9 +1050,15 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             self.homeCursor();
                         }
                     },
+                    // SCOSC - Save Cursor (ANSI.SYS). CSI s is DECSLRM when
+                    // left/right margin mode is enabled, which flow does not
+                    // implement, so it always means save cursor here.
+                    's' => self.saveCursor(),
                     // CSI ? u - query Kitty keyboard protocol flags; respond with 0 (not enabled)
                     // Kitty keyboard protocol
                     'u' => switch (seq.private_marker orelse 0) {
+                        // SCORC - Restore Cursor (ANSI.SYS).
+                        0 => self.restoreCursor(),
                         // CSI ? u - query flags; respond with 0 (not enabled)
                         '?' => {
                             const pty_writer = self.get_pty_writer();
@@ -1409,6 +1436,7 @@ fn hardReset(self: *Terminal) !void {
     self.charset_g0 = .ascii;
     self.charset_g1 = .ascii;
     self.charset_shifted = false;
+    self.saved_cursor = null;
     for (self.title_stack.items) |t| self.allocator.free(t);
     self.title_stack.clearRetainingCapacity();
     try self.resetTabStops();
@@ -1433,6 +1461,7 @@ fn softReset(self: *Terminal) void {
     self.charset_g0 = .ascii;
     self.charset_g1 = .ascii;
     self.charset_shifted = false;
+    self.saved_cursor = null; // DECSTR sets the saved cursor to home
     self.back_screen.cursor.visible = true;
     self.back_screen.cursor.style = .{}; // SGR -> default
     self.back_screen.cursor.pending_wrap = false;
@@ -1534,6 +1563,38 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
         2031 => self.mode.color_scheme_updates = val,
         else => return,
     }
+}
+
+/// DECSC (ESC 7) / SCOSC (CSI s): save the cursor position and the
+/// attributes that travel with it into a single shared slot.
+fn saveCursor(self: *Terminal) void {
+    const cursor = self.back_screen.cursor;
+    self.saved_cursor = .{
+        .row = cursor.row,
+        .col = cursor.col,
+        .pending_wrap = cursor.pending_wrap,
+        .style = cursor.style,
+        .charset_g0 = self.charset_g0,
+        .charset_g1 = self.charset_g1,
+        .charset_shifted = self.charset_shifted,
+        .origin = self.mode.origin,
+    };
+}
+
+/// DECRC (ESC 8) / SCORC (CSI u): restore the cursor saved by
+/// saveCursor. With nothing saved the spec says home the cursor and
+/// reset attributes to defaults.
+fn restoreCursor(self: *Terminal) void {
+    const saved = self.saved_cursor orelse SavedCursor{};
+    const screen = self.back_screen;
+    screen.cursor.row = @min(saved.row, screen.height -| 1);
+    screen.cursor.col = @min(saved.col, screen.width -| 1);
+    screen.cursor.pending_wrap = saved.pending_wrap;
+    screen.cursor.style = saved.style;
+    self.charset_g0 = saved.charset_g0;
+    self.charset_g1 = saved.charset_g1;
+    self.charset_shifted = saved.charset_shifted;
+    self.mode.origin = saved.origin;
 }
 
 /// DSR color scheme report (CSI ? 997 ; Ps n): 1 = dark, 2 = light.
