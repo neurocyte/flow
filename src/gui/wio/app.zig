@@ -885,7 +885,7 @@ fn wioLoop() void {
                 },
                 .button_press => |btn| {
                     held_buttons.press(btn);
-                    const mods = syncModifiers();
+                    const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.press, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
@@ -899,7 +899,7 @@ fn wioLoop() void {
                     }
                 },
                 .button_repeat => |btn| {
-                    const mods = syncModifiers();
+                    const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn) == null) {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
@@ -909,7 +909,7 @@ fn wioLoop() void {
                 },
                 .button_release => |btn| {
                     held_buttons.release(btn);
-                    const mods = syncModifiers();
+                    const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.release, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
@@ -926,7 +926,7 @@ fn wioLoop() void {
                     // ASCII keys are fully handled by .button_press with correct
                     // base/shifted codepoints, avoiding double-firing on X11.
                     if (cp > 0x7f) {
-                        const mods = syncModifiers();
+                        const mods = syncModifiers(null);
                         sendKey(press, cp, cp, mods);
                     }
                 },
@@ -947,7 +947,7 @@ fn wioLoop() void {
                     sendMouse(.press, @enumFromInt(btn_id), mouse_pos, .{});
                 },
                 .focused => {
-                    _ = syncModifiers();
+                    _ = syncModifiers(null);
                     window.enableTextInput(.{});
                     tui_pid.send(.{"focus_in"}) catch {};
                     if (render_pid) |*rp| rp.send(.{"focus_in"}) catch {};
@@ -1501,25 +1501,40 @@ fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, mods: input_transla
     }) catch {};
 }
 
-fn syncModifiers() input_translate.Mods {
+fn syncModifiers(current_button: ?wio.Button) input_translate.Mods {
     const mods = input_translate.fromWioModifiers(wio.getModifiers());
-    // Synthesize release events for any modifier keys no
-    // longer held so they don't appear stuck.
+    // A modifier state change caused by pressing/releasing a modifier key is
+    // already reported by the button handler.
+    var skip_shift = false;
+    var skip_alt = false;
+    var skip_ctrl = false;
+    var skip_super = false;
+    if (current_button) |b| switch (b) {
+        .left_shift, .right_shift => skip_shift = true,
+        .left_alt, .right_alt => skip_alt = true,
+        .left_control, .right_control => skip_ctrl = true,
+        .left_gui, .right_gui => skip_super = true,
+        else => {},
+    };
     if (mods.shift != last_mods.shift) {
         last_mods.shift = mods.shift;
-        sendKey(if (last_mods.shift) press else release, vaxis.Key.left_shift, vaxis.Key.left_shift, last_mods);
+        if (!skip_shift)
+            sendKey(if (last_mods.shift) press else release, vaxis.Key.left_shift, vaxis.Key.left_shift, last_mods);
     }
     if (mods.alt != last_mods.alt) {
         last_mods.alt = mods.alt;
-        sendKey(if (last_mods.alt) press else release, vaxis.Key.left_alt, vaxis.Key.left_alt, last_mods);
+        if (!skip_alt)
+            sendKey(if (last_mods.alt) press else release, vaxis.Key.left_alt, vaxis.Key.left_alt, last_mods);
     }
     if (mods.ctrl != last_mods.ctrl) {
         last_mods.ctrl = mods.ctrl;
-        sendKey(if (last_mods.ctrl) press else release, vaxis.Key.left_control, vaxis.Key.left_control, last_mods);
+        if (!skip_ctrl)
+            sendKey(if (last_mods.ctrl) press else release, vaxis.Key.left_control, vaxis.Key.left_control, last_mods);
     }
     if (mods.super != last_mods.super) {
         last_mods.super = mods.super;
-        sendKey(if (last_mods.super) press else release, vaxis.Key.left_super, vaxis.Key.left_super, last_mods);
+        if (!skip_super)
+            sendKey(if (last_mods.super) press else release, vaxis.Key.left_super, vaxis.Key.left_super, last_mods);
     }
     last_mods = mods;
     return mods;
