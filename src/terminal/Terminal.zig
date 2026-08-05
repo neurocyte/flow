@@ -65,6 +65,8 @@ pub const Mode = struct {
     mouse: MouseMode = .none,
     /// SGR extended mouse coordinates (mode 1006); always enabled alongside any mouse mode
     mouse_sgr: bool = false,
+    /// SGR-Pixels mouse coordinates (mode 1016): report position in pixels, not cells
+    mouse_pixel: bool = false,
     /// DECSET 2004: wrap pasted text in ESC[200~ / ESC[201~ markers
     bracketed_paste: bool = false,
     /// DECSET 2031: send unsolicited color scheme reports (CSI ? 997 ; Ps n)
@@ -490,7 +492,7 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
             }
             const pty_writer = self.get_pty_writer();
             defer pty_writer.flush() catch {};
-            try mouse.encode(pty_writer, m, self.mode.mouse_sgr);
+            try mouse.encode(pty_writer, m, self.mode.mouse_sgr, self.mode.mouse_pixel, self.cell_pixel_w, self.cell_pixel_h);
         },
     }
 }
@@ -1512,6 +1514,7 @@ pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
         1002 => modeState(self.mode.mouse == .button_event),
         1003 => modeState(self.mode.mouse == .any_event),
         1006 => modeState(self.mode.mouse_sgr),
+        1016 => modeState(self.mode.mouse_pixel),
         47, 1047, 1049 => modeState(self.back_screen == &self.back_screen_alt),
         1048 => modeState(self.savedCursorSlot().* != null),
         2004 => modeState(self.mode.bracketed_paste),
@@ -1552,6 +1555,7 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
         1003 => self.mode.mouse = if (val) .any_event else .none,
         1005 => {}, // UTF-8 mouse encoding - we use SGR instead, ignore
         1006 => self.mode.mouse_sgr = val,
+        1016 => self.mode.mouse_pixel = val,
         1015 => {}, // URXVT mouse encoding - we use SGR instead, ignore
         25 => self.mode.cursor = val,
         // 47 - alternate screen buffer (no clear on exit).

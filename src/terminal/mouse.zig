@@ -6,9 +6,12 @@ const vaxis = @import("vaxis");
 /// SGR (mode 1006): CSI < Cb ; Cx ; Cy M  (press/motion/drag)
 ///                  CSI < Cb ; Cx ; Cy m  (release)
 ///
+/// SGR-Pixels (mode 1016): same framing as SGR, but Cx/Cy are pixel offsets
+///   from the top-left of the terminal (`cell * cell_size + in-cell offset`).
+///
 /// Normal (X10):    ESC [ M <cb+32> <cx+32> <cy+32>
 ///   Limited to coordinates 1-223. Release uses button code 3.
-pub fn encode(writer: *std.Io.Writer, m: vaxis.Mouse, sgr: bool) !void {
+pub fn encode(writer: *std.Io.Writer, m: vaxis.Mouse, sgr: bool, pixel: bool, cell_w: u16, cell_h: u16) !void {
     // Base button code per X10/SGR spec
     const btn_base: u8 = switch (m.button) {
         .left => 0,
@@ -35,7 +38,17 @@ pub fn encode(writer: *std.Io.Writer, m: vaxis.Mouse, sgr: bool) !void {
     // Motion/drag bit
     if (m.type == .motion or m.type == .drag) cb |= 32;
 
-    // 1-based coordinates
+    // SGR-Pixels (mode 1016): pixel coordinates in the same SGR framing.
+    if (pixel) {
+        const px: i32 = @as(i32, m.col) * @as(i32, cell_w) + @as(i32, m.xoffset) + 1;
+        const py: i32 = @as(i32, m.row) * @as(i32, cell_h) + @as(i32, m.yoffset) + 1;
+        if (px < 1 or py < 1) return;
+        const final: u8 = if (m.type == .release) 'm' else 'M';
+        try writer.print("\x1b[<{d};{d};{d}{c}", .{ cb, px, py, final });
+        return;
+    }
+
+    // 1-based cell coordinates
     const cx: i32 = m.col + 1;
     const cy: i32 = m.row + 1;
     if (cx < 1 or cy < 1) return;
