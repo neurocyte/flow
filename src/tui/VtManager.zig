@@ -14,6 +14,11 @@ pub fn set_most_recent(vt: *Vt) void {
     most_recent = vt;
 }
 
+pub fn any_active_applications() bool {
+    for (vts.items) |vt| if (vt.has_active_application()) return true;
+    return false;
+}
+
 pub fn most_recent_index() ?usize {
     return index_of(most_recent);
 }

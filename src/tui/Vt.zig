@@ -425,6 +425,16 @@ pub fn is_vt_running(self: *const Vt) bool {
     return !self.process_exited;
 }
 
+/// True when this vt is running an application rather than sitting idle at
+/// a shell prompt (or having exited).
+pub fn has_active_application(self: *Vt) bool {
+    if (self.process_exited) return false;
+    return switch (self.vt.shellState()) {
+        .at_prompt, .at_prompt_with_input => false,
+        .running => true,
+    };
+}
+
 pub fn get_running_cmd(self: *const Vt, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const cmd_argv = self.vt.cmd.argv;
     if (cmd_argv.len > 0) _ = argv.write(writer, cmd_argv) catch {};

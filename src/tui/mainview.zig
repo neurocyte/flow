@@ -498,13 +498,9 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn quit(self: *Self, _: Ctx) Result {
-        const logger = log.logger("buffer");
-        defer logger.deinit();
-        self.check_all_not_dirty() catch |err| {
-            const count_dirty_buffers = self.buffer_manager.count_dirty_buffers();
-            logger.print("{} unsaved buffer(s), use 'quit without saving' to exit", .{count_dirty_buffers});
-            return err;
-        };
+        try self.check_all_not_dirty();
+        if (Vt.Manager.any_active_applications())
+            return tp.exit("terminal application running");
         try tp.self_pid().send("quit");
     }
     pub const quit_meta: Meta = .{ .description = "Quit" };
