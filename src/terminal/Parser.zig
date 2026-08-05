@@ -125,12 +125,33 @@ pub fn parseReader(self: *Parser, reader: *Reader) !Event {
             0x00...0x1a,
             0x1c...0x1f,
             => return .{ .c0 = @enumFromInt(b) },
+            // Single-byte C1 controls, mapped to their 7-bit escape equivalents.
+            0x84 => return try self.c1Escape('D'), // IND
+            0x85 => return try self.c1Escape('E'), // NEL
+            0x88 => return try self.c1Escape('H'), // HTS
+            0x8d => return try self.c1Escape('M'), // RI
+            0x8e => return .{ .ss2 = try reader.takeByte() }, // SS2
+            0x8f => return .{ .ss3 = try reader.takeByte() }, // SS3
+            // 8-bit string introducers.
+            0x90, 0x98, 0x9e => try skipUntilST(reader), // DCS / SOS / PM
+            0x9b => return self.parseCsi(reader), // CSI
+            0x9d => return self.parseOsc(reader), // OSC
+            0x9f => return self.parseApc(reader), // APC
+            // Remaining C1 controls (including ST 0x9c) have no ground effect.
+            0x80...0x83, 0x86, 0x87, 0x89...0x8c, 0x91...0x97, 0x99, 0x9a, 0x9c => {},
             else => {
                 try self.buf.append(b);
                 return self.parseGround(reader);
             },
         }
     }
+}
+
+/// Emit a single-byte C1 control as its 7-bit ESC-final equivalent.
+fn c1Escape(self: *Parser, final: u8) !Event {
+    self.buf.clearRetainingCapacity();
+    try self.buf.append(final);
+    return .{ .escape = self.buf.items };
 }
 
 /// Returns the number of continuation bytes expected after a given start byte,
@@ -181,7 +202,7 @@ inline fn parseGroundGreedy(self: *Parser, reader: *Reader) !Event {
         if (n == 0) return .{ .print = self.buf.items };
         const b = buf[0];
         switch (b) {
-            0x00...0x1f => {
+            0x00...0x1f, 0x80...0x9f => {
                 self.pending_byte = b;
                 return .{ .print = self.buf.items };
             },
@@ -269,15 +290,24 @@ inline fn parseApc(self: *Parser, reader: *Reader) !Event {
                 _ = reader.discard(std.Io.Limit.limited(1)) catch {};
                 return .{ .apc = self.buf.items };
             },
+            0x9c => return .{ .apc = self.buf.items },
             else => try self.buf.append(b),
         }
     }
 }
 
-/// Skips sequences until we see an ST (String Terminator, ESC \)
+/// Skips sequences until we see an ST (String Terminator, 7-bit ESC \ or 8-bit 0x9c)
 inline fn skipUntilST(reader: *Reader) !void {
-    _ = try reader.discardDelimiterExclusive('\x1b');
-    _ = try reader.discard(std.Io.Limit.limited(1));
+    while (true) {
+        switch (try reader.takeByte()) {
+            0x1b => {
+                _ = reader.discard(std.Io.Limit.limited(1)) catch {};
+                return;
+            },
+            0x9c => return,
+            else => {},
+        }
+    }
 }
 
 /// Parses an OSC sequence
@@ -306,6 +336,7 @@ inline fn resumeOsc(self: *Parser, reader: *Reader) !Event {
                 _ = reader.discard(std.Io.Limit.limited(1)) catch {};
                 return .{ .osc = self.buf.items };
             },
+            0x9c => return .{ .osc = self.buf.items },
             0x07 => return .{ .osc = self.buf.items },
             else => try self.buf.append(b),
         }
