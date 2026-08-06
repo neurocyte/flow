@@ -281,8 +281,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
 } {
     var env = try root.get_init().environ_map.clone(allocator);
     errdefer env.deinit();
-    if (env.get("TERM") == null)
-        try env.put("TERM", "xterm-256color");
+    try env.put("TERM", tui.config().terminal_TERM);
     try env.put("COLORTERM", "truecolor");
     // COLORFGBG tells apps whether the terminal background is dark or light
     try env.put("COLORFGBG", switch (tui.active_color_scheme()) {
