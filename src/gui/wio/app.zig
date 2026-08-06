@@ -134,6 +134,8 @@ var background_color: std.atomic.Value(u32) = .init(RGBA.init(0, 255, 255, 255).
 var background_dirty: std.atomic.Value(bool) = .init(false);
 
 var window_transparency: bool = false;
+var initial_window_width: u16 = 0;
+var initial_window_height: u16 = 0;
 var background_opacity: std.atomic.Value(u32) = .init(@bitCast(@as(f32, 0.5))); // f32 stored via u32 bitcast
 var ignore_theme_alpha: std.atomic.Value(bool) = .init(true);
 var opacity_dirty: std.atomic.Value(bool) = .init(false);
@@ -662,6 +664,8 @@ pub fn loadConfig() void {
     block_and_line_symbols = conf.block_and_line_symbols;
     allow_color_glyphs = conf.allow_color_glyphs;
     window_transparency = conf.gui_window_transparency;
+    initial_window_width = conf.initial_window_x;
+    initial_window_height = conf.initial_window_y;
     background_opacity.store(@bitCast(std.math.clamp(conf.gui_background_opacity, 0.0, 1.0)), .release);
     ignore_theme_alpha.store(conf.gui_ignore_theme_alpha, .release);
     glyph_atlas_budget_bytes = @as(usize, conf.gui_glyph_atlas_budget_mb) << 20;
@@ -869,7 +873,7 @@ fn wioLoop() void {
         .event_fn_data = &event_queue,
         .title = "flow",
         .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow-control",
-        .size = .{ .width = 1280, .height = 720 },
+        .size = .{ .width = initial_window_width, .height = initial_window_height },
         .scale = 1.0,
         .gl_options = if (builtin.os.tag == .windows) null else gl_options(),
         .transparent = window_transparency,
@@ -897,7 +901,7 @@ fn wioLoop() void {
     // synchronously during createWindow. Forward them to the render actor so
     // it has the correct initial state. The render actor will handle font
     // load + GPU init in its window_ready handler.
-    var initial_size: wio.Size = .{ .width = 1280, .height = 720 };
+    var initial_size: wio.Size = .{ .width = initial_window_width, .height = initial_window_height };
     while (event_queue.pop()) |event| {
         switch (event) {
             .modifiers => |m| wio_modifiers = m,
