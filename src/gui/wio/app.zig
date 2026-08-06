@@ -834,6 +834,11 @@ fn wioLoop() void {
 
     gui_window = &window;
 
+    // Printable keys are delivered via .char, so text input must already be on
+    // before the first keystroke can arrive. .focused normally turns it on, but
+    // enable it up front too so nothing is dropped if a key lands first.
+    window.enableTextInput(.{});
+
     // Initial wio events (scale, size_physical, refresh_rate) are queued
     // synchronously during createWindow. Forward them to the render actor so
     // it has the correct initial state. The render actor will handle font
