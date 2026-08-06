@@ -493,6 +493,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         shifted_codepoint: u21,
         text: []const u8,
         mods: u8,
+        base_layout_codepoint: u21,
     };
     const Winsize = struct {
         cell_width: u16,
@@ -511,6 +512,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             cbor.extract(&args.shifted_codepoint),
             cbor.extract(&args.text),
             cbor.extract(&args.mods),
+            cbor.extract(&args.base_layout_codepoint),
         })) {
             const cbor_msg = try self.fmtmsg(.{
                 "I",
@@ -519,6 +521,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
                 args.shifted_codepoint,
                 args.text,
                 args.mods,
+                args.base_layout_codepoint,
             });
             if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
             return;

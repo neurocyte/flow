@@ -201,8 +201,9 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var keypress_shifted: input.Key = 0;
     var text: []const u8 = "";
     var modifiers: u8 = 0;
+    var keypress_base_layout: input.Key = 0;
 
-    if (!try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.extract(&keypress_shifted), tp.extract(&text), tp.extract(&modifiers) }))
+    if (!try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.extract(&keypress_shifted), tp.extract(&text), tp.extract(&modifiers), tp.extract(&keypress_base_layout) }))
         return false;
 
     const divert_to_vt = input.is_modifier(keypress) and self.vt.vt.wantsAllKeys();
@@ -217,6 +218,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const key: vaxis.Key = .{
         .codepoint = keypress,
         .shifted_codepoint = if (keypress_shifted != keypress) keypress_shifted else null,
+        .base_layout_codepoint = if (keypress_base_layout != 0 and keypress_base_layout != keypress) keypress_base_layout else null,
         .mods = @bitCast(modifiers),
         .text = if (text.len > 0) text else null,
     };

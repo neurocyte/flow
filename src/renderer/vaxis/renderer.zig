@@ -579,6 +579,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse "",
                 @as(u8, @bitCast(key_.mods)),
+                key_.base_layout_codepoint orelse 0,
             });
             if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| return self.handle_bracketed_paste_error(e)) {
                 // we have stored it to handle on .paste_end, so do nothing more here
@@ -593,6 +594,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse "",
                 @as(u8, @bitCast(key_.mods)),
+                key_.base_layout_codepoint orelse 0,
             });
             if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
         },
@@ -705,7 +707,7 @@ fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
     var mods: usize = undefined;
     var text: []const u8 = undefined;
     const writer = &self.bracketed_paste_buffer.writer;
-    if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.extract(&text), cbor.extract(&mods) })) {
+    if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.extract(&text), cbor.extract(&mods), cbor.more })) {
         switch (keypress) {
             106 => if (mods == 4) try writer.writeAll("\n") else try writer.writeAll("j"),
             input.key.enter => try writer.writeAll("\n"),
@@ -898,6 +900,7 @@ fn send_sync_key(self: *Self, event: input.Event, keypress: u32, key_string: []c
             keypress,
             key_string,
             @as(u8, @bitCast(modifiers)),
+            @as(u21, 0),
         }),
     );
 }

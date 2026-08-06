@@ -960,6 +960,21 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const terminal_key_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-terminal_key",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/terminal/key.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("vaxis", vaxis_mod);
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const double_mapped_ring_buffer_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-double_mapped_ring_buffer",
@@ -1321,6 +1336,7 @@ pub fn build_exe(
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);
     test_step.dependOn(&terminal_screen_test_run_cmd.step);
+    test_step.dependOn(&terminal_key_test_run_cmd.step);
     test_step.dependOn(&double_mapped_ring_buffer_test_run_cmd.step);
     test_step.dependOn(&mouse_event_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);

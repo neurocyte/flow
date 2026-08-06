@@ -131,6 +131,7 @@ fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
         tp.extract(&keypress_shifted),
         tp.extract(&text),
         tp.extract(&modifiers),
+        tp.more,
     })) {
         const key_event = input.KeyEvent.from_message(event, keypress, keypress_shifted, text, modifiers);
         writer.print(" -> {f}", .{key_event}) catch |e| return tp.exit_error(e, @errorReturnTrace());

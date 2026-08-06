@@ -821,14 +821,19 @@ const ComposedKeys = struct {
         self.pending_kind = kind;
     }
 
-    // Claim the pending button for this .char, returning press or repeat.
-    fn claim(self: *@This(), cp: u21) u8 {
+    // Claim the pending button for this .char. The button's own codepoint is
+    // its PC-101 position, which is exactly the kitty base layout key.
+    fn claim(self: *@This(), cp: u21) struct { kind: u8, base_layout: u21 } {
         defer {
             self.pending = null;
             self.pending_kind = press;
         }
-        if (self.pending) |btn| self.held.put(btn, cp);
-        return self.pending_kind;
+        var base_layout: u21 = 0;
+        if (self.pending) |btn| {
+            self.held.put(btn, cp);
+            base_layout = input_translate.codepointFromButton(btn, .{}) orelse 0;
+        }
+        return .{ .kind = self.pending_kind, .base_layout = base_layout };
     }
 
     fn release_key(self: *@This(), btn: wio.Button) ?u21 {
@@ -942,10 +947,10 @@ fn wioLoop() void {
                                 continue;
                             }
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(press, base_cp, shifted_cp orelse base_cp, mods);
+                            sendKey(press, base_cp, shifted_cp orelse base_cp, base_cp, mods);
                         } else {
                             if (input_translate.modifierCodepoint(btn)) |mod_cp|
-                                sendKey(press, mod_cp, mod_cp, mods);
+                                sendKey(press, mod_cp, mod_cp, 0, mods);
                         }
                     }
                 },
@@ -960,7 +965,7 @@ fn wioLoop() void {
                                 continue;
                             }
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(repeat, base_cp, shifted_cp orelse base_cp, mods);
+                            sendKey(repeat, base_cp, shifted_cp orelse base_cp, base_cp, mods);
                         }
                     }
                 },
@@ -973,18 +978,19 @@ fn wioLoop() void {
                         if (composed.release_key(btn)) |cp| {
                             // Report the codepoint .char composed on press, so
                             // press and release agree on layout-dependent keys.
-                            sendKey(release, cp, cp, mods);
+                            sendKey(release, cp, cp, input_translate.codepointFromButton(btn, .{}) orelse 0, mods);
                         } else if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(release, base_cp, shifted_cp orelse base_cp, mods);
+                            sendKey(release, base_cp, shifted_cp orelse base_cp, base_cp, mods);
                         } else if (input_translate.modifierCodepoint(btn)) |mod_cp| {
-                            sendKey(release, mod_cp, mod_cp, mods);
+                            sendKey(release, mod_cp, mod_cp, 0, mods);
                         }
                     }
                 },
                 .char => |cp| {
                     const mods = syncModifiers(null);
-                    sendKey(composed.claim(cp), cp, cp, mods);
+                    const claimed = composed.claim(cp);
+                    sendKey(claimed.kind, cp, cp, claimed.base_layout, mods);
                 },
                 .mouse => |pos| {
                     mouse_pos = pos;
@@ -1540,7 +1546,10 @@ fn sendResize(
     }) catch {};
 }
 
-fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, mods: input_translate.Mods) void {
+/// `base_layout_codepoint` is the key's PC-101 position, which the kitty
+/// keyboard protocol reports as an alternate key. Pass 0 when it does not
+/// apply, as for modifier and functional keys.
+fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, base_layout_codepoint: u21, mods: input_translate.Mods) void {
     var text_buf: [4]u8 = undefined;
     // Text is the character that would be typed: empty when ctrl/alt active,
     // shifted_codepoint when shift is held, otherwise codepoint.
@@ -1553,7 +1562,7 @@ fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, mods: input_transla
         "RDR",                       "I",
         kind,                        @as(u21, codepoint),
         @as(u21, shifted_codepoint), text_buf[0..text_len],
-        @as(u8, @bitCast(mods)),
+        @as(u8, @bitCast(mods)),     @as(u21, base_layout_codepoint),
     }) catch {};
 }
 
@@ -1575,22 +1584,22 @@ fn syncModifiers(current_button: ?wio.Button) input_translate.Mods {
     if (mods.shift != last_mods.shift) {
         last_mods.shift = mods.shift;
         if (!skip_shift)
-            sendKey(if (last_mods.shift) press else release, vaxis.Key.left_shift, vaxis.Key.left_shift, last_mods);
+            sendKey(if (last_mods.shift) press else release, vaxis.Key.left_shift, vaxis.Key.left_shift, 0, last_mods);
     }
     if (mods.alt != last_mods.alt) {
         last_mods.alt = mods.alt;
         if (!skip_alt)
-            sendKey(if (last_mods.alt) press else release, vaxis.Key.left_alt, vaxis.Key.left_alt, last_mods);
+            sendKey(if (last_mods.alt) press else release, vaxis.Key.left_alt, vaxis.Key.left_alt, 0, last_mods);
     }
     if (mods.ctrl != last_mods.ctrl) {
         last_mods.ctrl = mods.ctrl;
         if (!skip_ctrl)
-            sendKey(if (last_mods.ctrl) press else release, vaxis.Key.left_control, vaxis.Key.left_control, last_mods);
+            sendKey(if (last_mods.ctrl) press else release, vaxis.Key.left_control, vaxis.Key.left_control, 0, last_mods);
     }
     if (mods.super != last_mods.super) {
         last_mods.super = mods.super;
         if (!skip_super)
-            sendKey(if (last_mods.super) press else release, vaxis.Key.left_super, vaxis.Key.left_super, last_mods);
+            sendKey(if (last_mods.super) press else release, vaxis.Key.left_super, vaxis.Key.left_super, 0, last_mods);
     }
     last_mods = mods;
     return mods;

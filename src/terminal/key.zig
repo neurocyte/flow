@@ -96,6 +96,7 @@ fn encodeUtf8(writer: *std.Io.Writer, cp: u21) !void {
 const Encoding = struct {
     key: u21,
     shifted: u21 = 0,
+    base_layout: u21 = 0,
     mods: u8, // raw bitmask
     event: Event,
     report_events: bool,
@@ -107,7 +108,10 @@ fn serialize(writer: *std.Io.Writer, e: Encoding, csi_trailer: u8) !void {
     const encoded_mods: u16 = @as(u16, e.mods) + 1;
     const has_mods = encoded_mods != 1;
     const add_actions = e.report_events and e.event != .press;
+    // The shifted key is only meaningful while shift is held; the base layout
+    // key stands on its own.
     const shifted: u21 = if (e.add_alternates and (e.mods & 1) != 0) e.shifted else 0;
+    const base_layout: u21 = if (e.add_alternates) e.base_layout else 0;
     const add_text = e.text != null and e.text.?.len > 0;
     const second = has_mods or add_actions;
     const third = add_text;
@@ -117,7 +121,7 @@ fn serialize(writer: *std.Io.Writer, e: Encoding, csi_trailer: u8) !void {
     if (e.add_alternates) {
         try writer.writeAll(":");
         if (shifted != 0) try writer.print("{d}", .{shifted});
-        // base-layout (alternate) key is never available from flow's input.
+        if (base_layout != 0) try writer.print(":{d}", .{base_layout});
     }
     if (second or third) {
         try writer.writeAll(";");
@@ -156,7 +160,12 @@ fn kitty(writer: *std.Io.Writer, key: vaxis.Key, event: Event, kf: vaxis.Key.Kit
     const mods = modifierValue(key.mods);
     const has_mods = mods != 0;
     const shifted = key.shifted_codepoint orelse 0;
-    const add_alternates = kf.report_alternate_keys and key.mods.shift and shifted != 0 and shifted != cp;
+    const base_layout = key.base_layout_codepoint orelse 0;
+    // Either alternate may be reported on its own: the shifted key when shift
+    // is held, the base layout key whenever the active layout moved the key.
+    const has_shifted = key.mods.shift and shifted != 0 and shifted != cp;
+    const has_base_layout = base_layout != 0 and base_layout != cp;
+    const add_alternates = kf.report_alternate_keys and (has_shifted or has_base_layout);
     const embed = embed_text and hasText(key) and event != .release;
     const add_actions = kf.report_events and event != .press;
     const simple = !add_actions and !add_alternates and !embed;
@@ -172,6 +181,7 @@ fn kitty(writer: *std.Io.Writer, key: vaxis.Key, event: Event, kf: vaxis.Key.Kit
     return serialize(writer, .{
         .key = cp,
         .shifted = shifted,
+        .base_layout = base_layout,
         .mods = mods,
         .event = event,
         .report_events = kf.report_events,
@@ -416,3 +426,120 @@ const f9: Definition = .{ .number = 20, .suffix = '~' };
 const f10: Definition = .{ .number = 21, .suffix = '~' };
 const f11: Definition = .{ .number = 23, .suffix = '~' };
 const f12: Definition = .{ .number = 24, .suffix = '~' };
+
+// Alternate key reporting. Expectations are taken from kitty's own output for
+// the same keystrokes (`kitten show-key --key-mode=kitty`).
+
+fn expectEncoded(
+    expected: []const u8,
+    key: vaxis.Key,
+    event: Event,
+    kitty_flags: vaxis.Key.KittyFlags,
+) !void {
+    var buf: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    try encode(&writer, key, event, kitty_flags, false, 0);
+    try std.testing.expectEqualStrings(expected, writer.buffered());
+}
+
+// A layout that moves the key reports the base layout key, with the shifted
+// slot left empty. German ö on the physical `o` key, no modifiers held.
+test "alternates: base layout key without shift" {
+    try expectEncoded("\x1b[246::111u", .{
+        .codepoint = 246,
+        .base_layout_codepoint = 111,
+    }, .press, .{
+        .report_events = false,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+}
+
+test "alternates: base layout key on release" {
+    try expectEncoded("\x1b[246::111;1:3u", .{
+        .codepoint = 246,
+        .base_layout_codepoint = 111,
+    }, .release, .{
+        .report_events = true,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+}
+
+// With text embedding on, the associated text follows in the third field.
+test "alternates: base layout key with embedded text" {
+    try expectEncoded("\x1b[246::111;;246u", .{
+        .codepoint = 246,
+        .base_layout_codepoint = 111,
+        .text = "ö",
+    }, .press, .{ .report_events = false });
+}
+
+// An unmoved key has no alternates to report.
+test "alternates: omitted when base layout matches" {
+    try expectEncoded("a", .{
+        .codepoint = 'a',
+        .base_layout_codepoint = 'a',
+    }, .press, .{
+        .report_events = false,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+}
+
+test "alternates: omitted when unknown" {
+    try expectEncoded("a", .{ .codepoint = 'a' }, .press, .{
+        .report_events = false,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+}
+
+// The shifted slot stays gated on shift being held.
+test "alternates: shifted key requires shift" {
+    try expectEncoded("\x1b[97:65;2u", .{
+        .codepoint = 'a',
+        .shifted_codepoint = 'A',
+        .mods = .{ .shift = true },
+    }, .press, .{
+        .report_events = false,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+    // Same key without shift: no alternates section at all.
+    try expectEncoded("a", .{
+        .codepoint = 'a',
+        .shifted_codepoint = 'A',
+    }, .press, .{
+        .report_events = false,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+}
+
+// Both slots populated: shifted and base layout together.
+test "alternates: shifted and base layout together" {
+    try expectEncoded("\x1b[246:214:111;2u", .{
+        .codepoint = 246,
+        .shifted_codepoint = 214,
+        .base_layout_codepoint = 111,
+        .mods = .{ .shift = true },
+    }, .press, .{
+        .report_events = false,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+}
+
+// Functional keys never carry alternates.
+test "alternates: not reported for functional keys" {
+    try expectEncoded("\x1b[1;2P", .{
+        .codepoint = vaxis.Key.f1,
+        .base_layout_codepoint = 111,
+        .mods = .{ .shift = true },
+    }, .press, .{
+        .report_events = false,
+        .report_all_as_ctl_seqs = false,
+        .report_text = false,
+    });
+}
