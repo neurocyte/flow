@@ -15,6 +15,7 @@ pub const Command = if (is_windows) @import("CommandWindows.zig") else @import("
 const Pty = if (is_windows) @import("ConPTY.zig") else @import("Pty.zig");
 const Winsize = vaxis.Winsize;
 pub const Screen = @import("Screen.zig");
+pub const WtProfiles = @import("WtProfiles.zig");
 const Key = vaxis.Key;
 const key = @import("key.zig");
 const mouse = @import("mouse.zig");

@@ -3,6 +3,7 @@ const root = @import("soft_root").root;
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
+const command_line = @import("command_line");
 
 pid: ?tp.pid,
 stdin_behavior: tp.subprocess.StdIo,
@@ -304,20 +305,14 @@ const Process = struct {
 };
 
 pub fn parse_arg0_to_argv(allocator: std.mem.Allocator, arg0: *[]const u8) !tp.message {
-    // this is horribly simplistic
-    // TODO: add quotes parsing and workspace variables, etc.
-    var args: std.ArrayList([]const u8) = .empty;
-    defer args.deinit(allocator);
-
-    var it = std.mem.splitScalar(u8, arg0.*, ' ');
-    while (it.next()) |arg|
-        try args.append(allocator, arg);
+    const args = try command_line.split(allocator, arg0.*);
+    defer command_line.free(allocator, args);
 
     var msg_cb: std.Io.Writer.Allocating = .init(allocator);
     defer msg_cb.deinit();
 
-    try cbor.writeArrayHeader(&msg_cb.writer, args.items.len);
-    for (args.items) |arg|
+    try cbor.writeArrayHeader(&msg_cb.writer, args.len);
+    for (args) |arg|
         try cbor.writeValue(&msg_cb.writer, arg);
 
     // toOwnedSlice may relocate the buffer

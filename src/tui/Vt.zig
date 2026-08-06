@@ -324,11 +324,9 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
             have_cmd = true;
         }
     } else {
-        const default_shell = if (builtin.os.tag == .windows)
-            env.get("COMSPEC") orelse "cmd.exe"
-        else
-            env.get("SHELL") orelse "/bin/sh";
-        try argv_list.append(allocator, try allocator.dupe(u8, default_shell));
+        const shell_argv = try defaultShellArgv(allocator, env);
+        defer allocator.free(shell_argv); // elements are moved into argv_list
+        for (shell_argv) |arg| try argv_list.append(allocator, arg);
     }
 
     // Resolve command with no path
@@ -434,17 +432,34 @@ pub fn has_active_application(self: *Vt) bool {
     };
 }
 
+/// Argv of the shell to spawn when no command was given.
+fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map) ![][]const u8 {
+    if (builtin.os.tag == .windows) {
+        if (Terminal.WtProfiles.defaultArgv(allocator)) |args| {
+            if (args.len > 0) return args;
+            Terminal.WtProfiles.freeArgv(allocator, args);
+        }
+    }
+    const shell_path = if (builtin.os.tag == .windows)
+        env.get("COMSPEC") orelse "cmd.exe"
+    else
+        env.get("SHELL") orelse "/bin/sh";
+
+    const args = try allocator.alloc([]const u8, 1);
+    errdefer allocator.free(args);
+    args[0] = try allocator.dupe(u8, shell_path);
+    return args;
+}
+
 pub fn get_running_cmd(self: *const Vt, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const cmd_argv = self.vt.cmd.argv;
     if (cmd_argv.len > 0) _ = argv.write(writer, cmd_argv) catch {};
 }
 
 pub fn restart_shell(self: *Vt) !void {
-    const default_shell = if (builtin.os.tag == .windows)
-        self.env.get("COMSPEC") orelse "cmd.exe"
-    else
-        self.env.get("SHELL") orelse "/bin/sh";
-    try self.respawn(&.{default_shell});
+    const shell_argv = try defaultShellArgv(self.vt.allocator, self.env);
+    defer Terminal.WtProfiles.freeArgv(self.vt.allocator, shell_argv);
+    try self.respawn(shell_argv);
     self.synthesize_marks = false;
     self.on_exit = tui.config().terminal_on_exit;
     try self.start_reader(self.vt.allocator);
