@@ -132,7 +132,7 @@ fn append(
     const command = if (raw_command.len > 0)
         try expandEnvVars(allocator, raw_command, env)
     else if (obj.get("source")) |v|
-        try commandFromSource(allocator, asString(v) orelse "", name_str) orelse return
+        try commandFromSource(allocator, asString(v) orelse "", name_str, env) orelse return
     else
         return;
     errdefer allocator.free(command);
@@ -149,9 +149,10 @@ fn commandFromSource(
     allocator: std.mem.Allocator,
     source: []const u8,
     name: []const u8,
+    env: anytype,
 ) std.mem.Allocator.Error!?[]u8 {
     if (std.mem.eql(u8, source, "Windows.Terminal.PowershellCore"))
-        return try allocator.dupe(u8, "pwsh.exe");
+        return try resolvePowerShellCore(allocator, env);
 
     // WSL distributions are launched by name. The store-installed distros use
     // their own package as the source but launch the same way.
@@ -165,6 +166,76 @@ fn commandFromSource(
     }
 
     return null;
+}
+
+/// Locate PowerShell Core the way Windows Terminal does. (yes, this is crazy)
+fn resolvePowerShellCore(allocator: std.mem.Allocator, env: anytype) std.mem.Allocator.Error![]u8 {
+    if (builtin.os.tag != .windows) return allocator.dupe(u8, "pwsh.exe");
+
+    const io = root.get_io();
+
+    if (env.get("LOCALAPPDATA")) |local_app_data| {
+        const dir_path = try std.fs.path.join(allocator, &.{ local_app_data, "Microsoft\\WindowsApps" });
+        defer allocator.free(dir_path);
+        if (dirHasEntry(io, dir_path, "pwsh.exe")) {
+            const path = try std.fs.path.join(allocator, &.{ dir_path, "pwsh.exe" });
+            log.debug("resolved pwsh via the Store alias: {s}", .{path});
+            return path;
+        }
+    }
+
+    for ([_][]const u8{ "ProgramFiles", "ProgramFiles(x86)" }) |var_name| {
+        const program_files = env.get(var_name) orelse continue;
+        if (try highestPowerShellInstall(allocator, io, program_files)) |path| {
+            log.debug("resolved pwsh under {s}: {s}", .{ var_name, path });
+            return path;
+        }
+    }
+
+    log.debug("no pwsh install found, falling back to PATH lookup", .{});
+    return allocator.dupe(u8, "pwsh.exe");
+}
+
+fn highestPowerShellInstall(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    program_files: []const u8,
+) std.mem.Allocator.Error!?[]u8 {
+    const root_path = try std.fs.path.join(allocator, &.{ program_files, "PowerShell" });
+    defer allocator.free(root_path);
+
+    var dir = std.Io.Dir.openDirAbsolute(io, root_path, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+
+    var best_version: ?u32 = null;
+    var best_path: ?[]u8 = null;
+    errdefer if (best_path) |path| allocator.free(path);
+
+    var iter = dir.iterate();
+    while (iter.next(io) catch null) |entry| {
+        if (entry.kind != .directory) continue;
+        const version = std.fmt.parseInt(u32, entry.name, 10) catch continue;
+        if (best_version) |best| if (version <= best) continue;
+
+        const install_dir = try std.fs.path.join(allocator, &.{ root_path, entry.name });
+        defer allocator.free(install_dir);
+        if (!dirHasEntry(io, install_dir, "pwsh.exe")) continue;
+        const path = try std.fs.path.join(allocator, &.{ install_dir, "pwsh.exe" });
+        if (best_path) |old| allocator.free(old);
+        best_version = version;
+        best_path = path;
+    }
+
+    return best_path;
+}
+
+fn dirHasEntry(io: std.Io, dir_path: []const u8, name: []const u8) bool {
+    var dir = std.Io.Dir.openDirAbsolute(io, dir_path, .{ .iterate = true }) catch return false;
+    defer dir.close(io);
+    var iter = dir.iterate();
+    while (iter.next(io) catch null) |entry|
+        if (std.ascii.eqlIgnoreCase(entry.name, name)) return true;
+    return false;
 }
 
 /// Expand %VAR% references, which Windows Terminal writes into the static
