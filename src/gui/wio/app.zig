@@ -110,6 +110,7 @@ var screen_snap: ?ScreenSnapshot = null;
 var tui_pid: thespian.pid = undefined;
 var render_pid: ?thespian.pid = null;
 var last_mods: input_translate.Mods = .{};
+var wio_modifiers: wio.Modifiers = .{};
 var font_size_pt: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
@@ -850,14 +851,22 @@ fn wioLoop() void {
         _ = win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
-    wio.init(allocator, io, .{}) catch |e| {
+    var event_queue: wio.EventQueue = .empty;
+
+    wio.init(.{
+        .allocator = allocator,
+        .io = io,
+        .eventFn = wioEventFn,
+    }) catch |e| {
         log.err("wio.init failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
         return;
     };
     defer wio.deinit();
+    defer event_queue.deinit();
 
-    var window = wio.createWindow(.{
+    var window = wio.Window.create(.{
+        .event_fn_data = &event_queue,
         .title = "flow",
         .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow-control",
         .size = .{ .width = 1280, .height = 720 },
@@ -865,7 +874,7 @@ fn wioLoop() void {
         .gl_options = if (builtin.os.tag == .windows) null else gl_options(),
         .transparent = window_transparency,
     }) catch |e| {
-        log.err("wio.createWindow failed: {s}", .{@errorName(e)});
+        log.err("wio.Window.create failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
         return;
     };
@@ -889,8 +898,9 @@ fn wioLoop() void {
     // it has the correct initial state. The render actor will handle font
     // load + GPU init in its window_ready handler.
     var initial_size: wio.Size = .{ .width = 1280, .height = 720 };
-    while (window.getEvent()) |event| {
+    while (event_queue.pop()) |event| {
         switch (event) {
+            .modifiers => |m| wio_modifiers = m,
             .scale => |s| dpi_scale = s,
             .size_physical => |sz| initial_size = sz,
             .refresh_rate => |r| if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {},
@@ -904,8 +914,6 @@ fn wioLoop() void {
         @as(u32, @intCast(initial_size.height)),
     }) catch {};
 
-    window.setEventCallback(onWioEventSync, null);
-
     var held_buttons = input_translate.ButtonSet{};
     var composed = ComposedKeys{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
@@ -915,8 +923,11 @@ fn wioLoop() void {
         wio.wait(.{});
         if (stop_requested.load(.acquire)) break;
 
-        while (window.getEvent()) |event| {
+        while (event_queue.pop()) |event| {
             switch (event) {
+                .modifiers => |m| {
+                    wio_modifiers = m;
+                },
                 .close => {
                     running = false;
                 },
@@ -936,6 +947,7 @@ fn wioLoop() void {
                 },
                 .button_press => |btn| {
                     held_buttons.press(btn);
+                    applyModifierButton(btn, true);
                     const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.press, @enumFromInt(mb_id), mouse_pos, .{});
@@ -971,6 +983,7 @@ fn wioLoop() void {
                 },
                 .button_release => |btn| {
                     held_buttons.release(btn);
+                    applyModifierButton(btn, false);
                     const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.release, @enumFromInt(mb_id), mouse_pos, .{});
@@ -1019,6 +1032,7 @@ fn wioLoop() void {
                     tui_pid.send(.{"focus_out"}) catch {};
                     if (render_pid) |*rp| rp.send(.{"focus_out"}) catch {};
                 },
+                .draw, .position, .visible, .hidden => {},
                 else => {
                     std.log.debug("wio unhandled event: {}", .{event});
                 },
@@ -1078,7 +1092,7 @@ fn gl_options() wio.GlOptions {
 }
 
 // Synchronous wio event hook
-fn onWioEventSync(_: ?*anyopaque, event: wio.Event) void {
+fn wioEventFn(data: ?*anyopaque, event: wio.Event) void {
     switch (event) {
         .size_physical => |sz| {
             if (render_pid) |*rp| rp.send(.{
@@ -1089,6 +1103,7 @@ fn onWioEventSync(_: ?*anyopaque, event: wio.Event) void {
         },
         else => {},
     }
+    wio.EventQueue.eventFn(data, event);
 }
 
 // ── Render actor worker functions (run on the render actor's thread) ──────
@@ -1566,8 +1581,20 @@ fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, base_layout_codepoi
     }) catch {};
 }
 
+// Backends disagree on whether .modifiers precedes or follows the button event
+// for a modifier key: x11 and wayland send it first, win32 sends it after.
+fn applyModifierButton(btn: wio.Button, down: bool) void {
+    switch (btn) {
+        .left_shift, .right_shift => wio_modifiers.shift = down,
+        .left_control, .right_control => wio_modifiers.control = down,
+        .left_alt, .right_alt => wio_modifiers.alt = down,
+        .left_gui, .right_gui => wio_modifiers.gui = down,
+        else => {},
+    }
+}
+
 fn syncModifiers(current_button: ?wio.Button) input_translate.Mods {
-    const mods = input_translate.fromWioModifiers(wio.getModifiers());
+    const mods = input_translate.fromWioModifiers(wio_modifiers);
     // A modifier state change caused by pressing/releasing a modifier key is
     // already reported by the button handler.
     var skip_shift = false;
