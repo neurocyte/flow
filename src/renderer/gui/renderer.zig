@@ -111,6 +111,7 @@ const RenderActor = struct {
     receiver: tp.Receiver(*@This()),
     initialized: bool = false,
     focused: bool = true,
+    visible: bool = true,
     keepalive_timer: ?tp.Cancellable = null,
 
     const StartArgs = struct {
@@ -135,7 +136,13 @@ const RenderActor = struct {
         errdefer self.deinit();
 
         if (try m.match(.{ "tick", tp.more })) {
-            if (self.initialized) app.renderActorTick(self.focused);
+            if (self.initialized) app.renderActorTick(self.focused, self.visible);
+            return;
+        }
+
+        var visible: bool = false;
+        if (try m.match(.{ "visible", tp.extract(&visible) })) {
+            self.visible = visible;
             return;
         }
 

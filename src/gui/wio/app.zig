@@ -916,6 +916,7 @@ fn wioLoop() void {
 
     var held_buttons = input_translate.ButtonSet{};
     var composed = ComposedKeys{};
+    var window_visible = true;
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
     var running = true;
 
@@ -1032,7 +1033,20 @@ fn wioLoop() void {
                     tui_pid.send(.{"focus_out"}) catch {};
                     if (render_pid) |*rp| rp.send(.{"focus_out"}) catch {};
                 },
-                .draw, .position, .visible, .hidden => {},
+                .draw => {
+                    // Requesting a render here would break tui sleep/idle
+                },
+                .visible, .hidden => |_, tag| {
+                    const now_visible = tag == .visible;
+                    if (now_visible != window_visible) {
+                        window_visible = now_visible;
+                        if (render_pid) |*rp| rp.send(.{ "visible", now_visible }) catch {};
+                        if (now_visible) tui_pid.send(.{"render"}) catch {};
+                    }
+                },
+                .position => {
+                    // TODO: save/restore window position
+                },
                 else => {
                     std.log.debug("wio unhandled event: {}", .{event});
                 },
@@ -1208,7 +1222,7 @@ pub fn renderActorResize(w: u32, h: u32) void {
     }
 }
 
-pub fn renderActorTick(focused: bool) void {
+pub fn renderActorTick(focused: bool, visible: bool) void {
     const ctx = if (render_ctx) |*c| c else return;
     const allocator = root.get_init().gpa;
     const io = root.get_io();
@@ -1253,6 +1267,11 @@ pub fn renderActorTick(focused: bool) void {
     if (builtin.os.tag == .windows and dark_mode_dirty.swap(false, .acq_rel)) {
         applyDarkTitlebar(ctx.hwnd, dark_mode.load(.acquire));
     }
+
+    // Nothing to show while the window is hidden. Bookkeeping above still
+    // runs, and screen_pending stays set, so the first tick after .visible
+    // paints the pending snapshot.
+    if (!visible) return;
 
     // Only paint when there's a new screen snapshot or we have changed focus.
     if (!(screen_pending.swap(false, .acq_rel) or ctx.focused != focused)) return;
