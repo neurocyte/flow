@@ -439,15 +439,28 @@ fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map) 
             if (args.len > 0) return args;
             Terminal.WtProfiles.freeArgv(allocator, args);
         }
+
+        // Prefer a real PowerShell over cmd.exe. Searched without the
+        // extension because find_binary_in_path appends PATHEXT itself.
+        for ([_][]const u8{ "pwsh", "powershell" }) |candidate| {
+            const found = (bin_path.find_binary_in_path(allocator, candidate) catch null) orelse continue;
+            defer allocator.free(found);
+            std.log.info("terminal: using {s} as the default shell", .{found});
+            return singleArgv(allocator, found);
+        }
     }
+
     const shell_path = if (builtin.os.tag == .windows)
         env.get("COMSPEC") orelse "cmd.exe"
     else
         env.get("SHELL") orelse "/bin/sh";
+    return singleArgv(allocator, shell_path);
+}
 
+fn singleArgv(allocator: std.mem.Allocator, arg0: []const u8) ![][]const u8 {
     const args = try allocator.alloc([]const u8, 1);
     errdefer allocator.free(args);
-    args[0] = try allocator.dupe(u8, shell_path);
+    args[0] = try allocator.dupe(u8, arg0);
     return args;
 }
 
