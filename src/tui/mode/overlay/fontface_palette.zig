@@ -11,6 +11,8 @@ pub const Type = @import("palette.zig").Create(@This());
 pub const label = "Select font face";
 pub const name = " font";
 pub const description = "font";
+pub const modal_dim = false;
+pub const placement = .top_right;
 
 pub const Entry = struct {
     label: []const u8,
