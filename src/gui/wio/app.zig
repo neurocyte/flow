@@ -796,6 +796,46 @@ fn effectiveAlphaU8(theme_a_u8: u8, opacity: f32, ignore: bool) u8 {
 // render actor's thread. This thread forwards size_physical/refresh_rate to
 // the render actor and input/focus/etc. to tui.
 
+// A printable key with no ctrl/alt held produces text, so wio reports it as a
+// .char with the active layout applied. With a modifier held there is no .char
+// and the button event carries the key itself.
+fn isCharacterKey(base_cp: u21, mods: input_translate.Mods) bool {
+    if (mods.alt or mods.ctrl) return false;
+    const ascii = std.math.cast(u8, base_cp) orelse return false;
+    return std.ascii.isPrint(ascii);
+}
+
+// Correlates wio's layout-composed .char events with the physical button that
+// produced them. A .char carries no button of its own, but every backend pushes
+// the button event first, so the most recently deferred press/repeat is its
+// source. Remembering that pairing lets .button_release report the composed
+// codepoint (ö) instead of the bare PC-101 scancode letter (o).
+const ComposedKeys = struct {
+    pending: ?wio.Button = null,
+    pending_kind: u8 = press,
+    held: std.EnumMap(wio.Button, u21) = .{},
+
+    // A character key whose event we deferred to the .char that follows.
+    fn defer_to_char(self: *@This(), btn: wio.Button, kind: u8) void {
+        self.pending = btn;
+        self.pending_kind = kind;
+    }
+
+    // Claim the pending button for this .char, returning press or repeat.
+    fn claim(self: *@This(), cp: u21) u8 {
+        defer {
+            self.pending = null;
+            self.pending_kind = press;
+        }
+        if (self.pending) |btn| self.held.put(btn, cp);
+        return self.pending_kind;
+    }
+
+    fn release_key(self: *@This(), btn: wio.Button) ?u21 {
+        return self.held.fetchRemove(btn);
+    }
+};
+
 fn wioLoop() void {
     const io = root.get_io();
     const allocator = root.get_init().gpa;
@@ -862,6 +902,7 @@ fn wioLoop() void {
     window.setEventCallback(onWioEventSync, null);
 
     var held_buttons = input_translate.ButtonSet{};
+    var composed = ComposedKeys{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
     var running = true;
 
@@ -896,12 +937,9 @@ fn wioLoop() void {
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             // Character keys are handled by .char unless modifiers are held.
-                            if (std.math.cast(u8, base_cp)) |ascii| {
-                                if (std.ascii.isPrint(ascii)) {
-                                    if (!mods.alt and !mods.ctrl) {
-                                        continue;
-                                    }
-                                }
+                            if (isCharacterKey(base_cp, mods)) {
+                                composed.defer_to_char(btn, press);
+                                continue;
                             }
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
                             sendKey(press, base_cp, shifted_cp orelse base_cp, mods);
@@ -915,8 +953,14 @@ fn wioLoop() void {
                     const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn) == null) {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
+                            // Every backend also emits .char for repeats, so
+                            // defer to it exactly as .button_press does.
+                            if (isCharacterKey(base_cp, mods)) {
+                                composed.defer_to_char(btn, repeat);
+                                continue;
+                            }
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(2, base_cp, shifted_cp orelse base_cp, mods);
+                            sendKey(repeat, base_cp, shifted_cp orelse base_cp, mods);
                         }
                     }
                 },
@@ -926,17 +970,21 @@ fn wioLoop() void {
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.release, @enumFromInt(mb_id), mouse_pos, .{});
                     } else {
-                        if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
+                        if (composed.release_key(btn)) |cp| {
+                            // Report the codepoint .char composed on press, so
+                            // press and release agree on layout-dependent keys.
+                            sendKey(release, cp, cp, mods);
+                        } else if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(3, base_cp, shifted_cp orelse base_cp, mods);
+                            sendKey(release, base_cp, shifted_cp orelse base_cp, mods);
                         } else if (input_translate.modifierCodepoint(btn)) |mod_cp| {
-                            sendKey(3, mod_cp, mod_cp, mods);
+                            sendKey(release, mod_cp, mod_cp, mods);
                         }
                     }
                 },
                 .char => |cp| {
                     const mods = syncModifiers(null);
-                    sendKey(press, cp, cp, mods);
+                    sendKey(composed.claim(cp), cp, cp, mods);
                 },
                 .mouse => |pos| {
                     mouse_pos = pos;
