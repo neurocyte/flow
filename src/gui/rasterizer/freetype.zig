@@ -15,6 +15,7 @@ const fallback_resolver = @import("fallback_resolver");
 const Self = @This();
 
 pub const GlyphSplit = enum { single, left, right };
+const gui_config = @import("gui_config");
 const Hinting = @import("gui_config").Hinting;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 const uucode_utils = @import("uucode_utils");
@@ -174,6 +175,39 @@ fn cachedFace(self: *Self, path: []const u8, face_index: i32, size_px: u16) !c.F
     return face;
 }
 
+fn cachedMemoryFace(self: *Self, tag: []const u8, data: []const u8, size_px: u16) !c.FT_Face {
+    for (self.faces.items) |*entry| {
+        if (entry.face_index != 0 or !std.mem.eql(u8, entry.path, tag)) continue;
+        entry.generation = self.generation;
+        if (entry.size_px != size_px) {
+            if (!setFacePixelSize(entry.face, size_px)) return error.SetSizeFailed;
+            entry.size_px = size_px;
+        }
+        return entry.face;
+    }
+
+    var face: c.FT_Face = undefined;
+    // The data is embedded in the binary, so it outlives every face.
+    if (c.FT_New_Memory_Face(self.library, data.ptr, @intCast(data.len), 0, &face) != 0)
+        return error.FaceLoadFailed;
+    errdefer _ = c.FT_Done_Face(face);
+
+    if (!setFacePixelSize(face, size_px))
+        return error.SetSizeFailed;
+
+    const tag_copy = try self.allocator.dupe(u8, tag);
+    errdefer self.allocator.free(tag_copy);
+
+    try self.faces.append(self.allocator, .{
+        .path = tag_copy,
+        .face_index = 0,
+        .face = face,
+        .size_px = size_px,
+        .generation = self.generation,
+    });
+    return face;
+}
+
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     const match = try font_finder.findFont(self.allocator, name);
     defer self.allocator.free(match.path);
@@ -181,8 +215,16 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
 }
 
 pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
-    const face = try self.cachedFace(path, face_index, size_px);
+    return fontFromFace(try self.cachedFace(path, face_index, size_px), size_px);
+}
 
+/// Load one of the built-in faces. `tag` keys the face cache, so it must be
+/// stable and distinct per embedded font.
+pub fn loadFontFromMemory(self: *Self, tag: []const u8, data: []const u8, size_px: u16) !Font {
+    return fontFromFace(try self.cachedMemoryFace(tag, data, size_px), size_px);
+}
+
+fn fontFromFace(face: c.FT_Face, size_px: u16) !Font {
     const sm = face.*.size.*.metrics;
     const m_ascent: f64 = @as(f64, @floatFromInt(sm.ascender)) / 64.0;
     const m_descent: f64 = @as(f64, @floatFromInt(sm.descender)) / 64.0; // < 0, below baseline
@@ -256,6 +298,20 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
     };
 }
 
+fn resolveBuiltin(self: *Self, req: FaceRequest) !FaceResolution {
+    const bold = req.css_weight >= 600;
+    const tag = embeddedDefaultTag(bold, req.italic);
+    const font = try self.loadFontFromMemory(tag, embeddedDefault(bold, req.italic), req.size_px);
+    if (req.is_baseline) {
+        if (self.regular_path) |old| self.allocator.free(old);
+        self.regular_path = self.allocator.dupe(u8, tag) catch null;
+    }
+    // Each style is a distinct embedded face, so a non-baseline request is a
+    // real match whenever it resolved to a different one than the baseline.
+    const is_real = if (req.is_baseline) true else if (self.regular_path) |reg| !std.mem.eql(u8, tag, reg) else true;
+    return .{ .font = font, .is_real_match = is_real };
+}
+
 /// Resolve a face for a given family + weight + style
 pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
     if (req.is_baseline) {
@@ -264,12 +320,19 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
         self.regular_path = null;
     }
 
-    const match = try font_finder.findFontVariant(
+    // The built-in face bypasses font lookup entirely.
+    if (std.mem.eql(u8, req.family, gui_config.builtin_fontface))
+        return self.resolveBuiltin(req);
+
+    const match = font_finder.findFontVariant(
         self.allocator,
         req.family,
         req.css_weight,
         req.italic,
-    );
+    ) catch {
+        // No font_finder backend on this platform, or lookup failed outright.
+        return self.resolveBuiltin(req);
+    };
     errdefer self.allocator.free(match.path);
 
     const is_real = if (req.is_baseline)
@@ -497,6 +560,29 @@ const build_options = @import("build_options");
 
 const noto_emoji_data: []const u8 = if (build_options.embed_emoji) @embedFile("noto_emoji_font") else "";
 
+// Built-in default face. Also the last-resort fallback, so flow renders text on
+// systems with no usable font setup.
+pub const iosevka_medium = @embedFile("iosevka_medium");
+pub const iosevka_extrabold = @embedFile("iosevka_extrabold");
+pub const iosevka_medium_italic = @embedFile("iosevka_medium_italic");
+pub const iosevka_extrabold_italic = @embedFile("iosevka_extrabold_italic");
+
+pub fn embeddedDefault(bold: bool, italic: bool) []const u8 {
+    return if (bold and italic) iosevka_extrabold_italic else if (bold) iosevka_extrabold else if (italic) iosevka_medium_italic else iosevka_medium;
+}
+
+/// Cache key for the built-in faces; must not collide with a real font path.
+pub fn embeddedDefaultTag(bold: bool, italic: bool) []const u8 {
+    return if (bold and italic)
+        "<embedded:iosevka-extrabold-italic>"
+    else if (bold)
+        "<embedded:iosevka-extrabold>"
+    else if (italic)
+        "<embedded:iosevka-medium-italic>"
+    else
+        "<embedded:iosevka-medium>";
+}
+
 fn setFacePixelSize(face: c.FT_Face, size_px: u16) bool {
     if (c.FT_Set_Pixel_Sizes(face, 0, size_px) == 0) return true;
 
@@ -530,6 +616,7 @@ const FtBackend = struct {
     pub const embedded_fonts = [_]fallback_resolver.EmbeddedFont{
         .{ .data = nerd_font_data, .is_color = false, .tag = "<embedded:nerd_font>" },
         .{ .data = noto_emoji_data, .is_color = true, .tag = "<embedded:noto_color_emoji>" },
+        .{ .data = iosevka_medium, .is_color = false, .tag = "<embedded:iosevka>" },
     };
 
     pub fn preferColor(codepoint: u21) bool {

@@ -22,6 +22,7 @@ pub const Constraint = glyph_constraint.Constraint;
 pub const Fonts = struct {};
 pub const font_finder = Primary.font_finder;
 
+pub const builtin_fontface = @import("gui_config").builtin_fontface;
 pub const Backend = @import("gui_config").RasterizerBackend;
 pub const Hinting = @import("gui_config").Hinting;
 pub const SymbolRasterizer = @import("gui_config").SymbolRasterizer;

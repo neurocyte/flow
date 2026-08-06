@@ -680,6 +680,36 @@ pub fn build_exe(
                     });
                 };
 
+                const Face = struct { name: []const u8, file: []const u8 };
+                const iosevka_faces = [_]Face{
+                    .{ .name = "iosevka_medium", .file = "iosevka-34.8.0/Iosevka-Medium.ttf" },
+                    .{ .name = "iosevka_extrabold", .file = "iosevka-34.8.0/Iosevka-ExtraBold.ttf" },
+                    .{ .name = "iosevka_medium_italic", .file = "iosevka-34.8.0/Iosevka-MediumItalic.ttf" },
+                    .{ .name = "iosevka_extrabold_italic", .file = "iosevka-34.8.0/Iosevka-ExtraBoldItalic.ttf" },
+                };
+                const iosevka_mods: ?[iosevka_faces.len]*std.Build.Module = blk2: {
+                    const flow_fonts_dep = b.lazyDependency("flow_fonts", .{}) orelse break :blk2 null;
+                    var mods: [iosevka_faces.len]*std.Build.Module = undefined;
+                    inline for (iosevka_faces, 0..) |face, i| {
+                        mods[i] = b.createModule(.{
+                            .root_source_file = flow_fonts_dep.path(face.file),
+                        });
+                    }
+                    break :blk2 mods;
+                };
+
+                const add_iosevka = struct {
+                    fn f(mod: *std.Build.Module, mods: ?[iosevka_faces.len]*std.Build.Module) void {
+                        const m = mods orelse return;
+                        inline for (iosevka_faces, 0..) |face, i|
+                            mod.addImport(face.name, m[i]);
+                    }
+                }.f;
+
+                const gui_embed_options = b.addOptions();
+                gui_embed_options.addOption(bool, "embed_emoji", embed_emoji);
+                const gui_embed_options_mod = gui_embed_options.createModule();
+
                 if (target.result.os.tag == .windows) {
                     const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
                     const win32_mod = win32_dep.module("win32");
@@ -695,9 +725,12 @@ pub fn build_exe(
                             .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                             .{ .name = "face_metrics", .module = gui_face_metrics_mod },
                             .{ .name = "blit", .module = gui_blit_mod },
+                            .{ .name = "build_options", .module = gui_embed_options_mod },
                         },
                     });
                     if (nerd_font_mod) |m| dwrite_rasterizer_mod.addImport("nerd_font", m);
+                    if (noto_emoji_font_mod) |m| dwrite_rasterizer_mod.addImport("noto_emoji_font", m);
+                    add_iosevka(dwrite_rasterizer_mod, iosevka_mods);
                     combined_rasterizer_mod.addImport("dw_rasterizer", dwrite_rasterizer_mod);
                 } else {
                     const tt_dep = b.lazyDependency("TrueType", .{
@@ -746,10 +779,7 @@ pub fn build_exe(
                         },
                     });
                     if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);
-
-                    const gui_embed_options = b.addOptions();
-                    gui_embed_options.addOption(bool, "embed_emoji", embed_emoji);
-                    const gui_embed_options_mod = gui_embed_options.createModule();
+                    add_iosevka(truetype_rasterizer_mod, iosevka_mods);
 
                     const freetype_rasterizer_mod = b.createModule(.{
                         .root_source_file = b.path("src/gui/rasterizer/freetype.zig"),
@@ -768,6 +798,7 @@ pub fn build_exe(
                     });
                     if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
                     if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
+                    add_iosevka(freetype_rasterizer_mod, iosevka_mods);
                     if (cross_linux) {
                         const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
                         freetype_rasterizer_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols).getEmittedBin());

@@ -13,6 +13,7 @@ const log = std.log.scoped(.dwrite_rasterizer);
 const Self = @This();
 
 pub const GlyphSplit = enum { single, left, right };
+const gui_config = @import("gui_config");
 pub const Hinting = @import("gui_config").Hinting;
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 
@@ -338,7 +339,32 @@ fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void
     };
 }
 
+fn resolveBuiltin(self: *Self, req: FaceRequest) !FaceResolution {
+    const key = FaceKey{
+        .family_hash = std.hash.Wyhash.hash(0, gui_config.builtin_fontface),
+        .weight = req.css_weight,
+        .italic = req.italic,
+    };
+    const face = self.cache.get(key) orelse blk: {
+        const bold = req.css_weight >= 600;
+        const f = builtinFace(self.factory, bold, req.italic) orelse return error.FontNotFound;
+        self.cache.put(self.allocator, key, f) catch {
+            _ = f.IUnknown.Release();
+            return error.FontNotFound;
+        };
+        break :blk f;
+    };
+
+    var font: Font = .{};
+    try fillFontMetrics(face, req.size_px, &font);
+    return .{ .font = font, .is_real_match = true };
+}
+
 pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
+    // The built-in face bypasses font lookup entirely.
+    if (std.mem.eql(u8, req.family, gui_config.builtin_fontface))
+        return self.resolveBuiltin(req);
+
     const fallbacks = [_][]const u8{ "Cascadia Mono", "Consolas" };
 
     const res = self.resolveCachedFace(req.family, req.css_weight, req.italic) catch |first_err| blk: {
@@ -350,7 +376,8 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
                 break :blk r;
             } else |_| {}
         }
-        return first_err;
+        // Nothing usable on this system.
+        return self.resolveBuiltin(req) catch first_err;
     };
 
     var font: Font = .{};
@@ -775,6 +802,31 @@ fn clamp255(v: f32) u8 {
 
 const nerd_font_data = @embedFile("nerd_font");
 
+const build_options = @import("build_options");
+const noto_emoji_data: []const u8 = if (build_options.embed_emoji) @embedFile("noto_emoji_font") else "";
+
+// Built-in default face and last-resort fallback.
+pub const iosevka_medium = @embedFile("iosevka_medium");
+pub const iosevka_extrabold = @embedFile("iosevka_extrabold");
+pub const iosevka_medium_italic = @embedFile("iosevka_medium_italic");
+pub const iosevka_extrabold_italic = @embedFile("iosevka_extrabold_italic");
+
+pub fn embeddedDefault(bold: bool, italic: bool) []const u8 {
+    return if (bold and italic) iosevka_extrabold_italic else if (bold) iosevka_extrabold else if (italic) iosevka_medium_italic else iosevka_medium;
+}
+
+/// Create a DWrite face for the requested built-in style. The caller owns it.
+fn builtinFace(factory: *win32.IDWriteFactory, bold: bool, italic: bool) ?*win32.IDWriteFontFace {
+    return if (bold and italic)
+        EmbeddedFont(iosevka_extrabold_italic).createFace(factory)
+    else if (bold)
+        EmbeddedFont(iosevka_extrabold).createFace(factory)
+    else if (italic)
+        EmbeddedFont(iosevka_medium_italic).createFace(factory)
+    else
+        EmbeddedFont(iosevka_medium).createFace(factory);
+}
+
 const HRESULT = win32.HRESULT;
 const S_OK: HRESULT = 0;
 
@@ -792,9 +844,8 @@ const FallbackResolver = struct {
     faces: std.ArrayList(FallbackFace) = .empty,
     font_fallback: ?*win32.IDWriteFontFallback = null,
     system_collection: ?*win32.IDWriteFontCollection = null,
-    embedded_face: ?*win32.IDWriteFontFace = null,
-    embedded_ascent: i32 = 0,
-    embedded_index: ?u8 = null,
+    embedded_faces: [embedded_fonts.len]?*win32.IDWriteFontFace = @splat(null),
+    embedded_indices: [embedded_fonts.len]?u8 = @splat(null),
     current_size_px: u16 = 0,
 
     fn initResolver(factory: *win32.IDWriteFactory) FallbackResolver {
@@ -816,36 +867,14 @@ const FallbackResolver = struct {
     }
 
     fn loadEmbeddedFont(self: *FallbackResolver, factory: *win32.IDWriteFactory) void {
-        const reg = factory.RegisterFontFileLoader(@ptrCast(&embedded_loader_instance));
-        if (reg < 0 and @as(u32, @bitCast(reg)) != DWRITE_E_ALREADYREGISTERED) return;
-
-        var font_file: *win32.IDWriteFontFile = undefined;
-        const key: u32 = 0;
-        if (factory.CreateCustomFontFileReference(
-            @ptrCast(&key),
-            @sizeOf(u32),
-            @ptrCast(&embedded_loader_instance),
-            &font_file,
-        ) < 0) return;
-        defer _ = font_file.IUnknown.Release();
-
-        var files = [_]*win32.IDWriteFontFile{font_file};
-        var face: *win32.IDWriteFontFace = undefined;
-        if (factory.CreateFontFace(.TRUETYPE, 1, @ptrCast(@constCast(&files)), 0, .{}, &face) < 0) return;
-
-        var metrics: win32.DWRITE_FONT_METRICS = undefined;
-        face.GetMetrics(&metrics);
-        self.embedded_face = face;
-        if (metrics.designUnitsPerEm != 0) {
-            self.embedded_ascent = @intFromFloat(@round(
-                @as(f32, @floatFromInt(metrics.ascent)) /
-                    @as(f32, @floatFromInt(metrics.designUnitsPerEm)) * 16.0,
-            ));
-        }
+        inline for (embedded_fonts, 0..) |F, i|
+            self.embedded_faces[i] = F.createFace(factory);
     }
 
     fn deinit(self: *FallbackResolver, allocator: std.mem.Allocator) void {
-        if (self.embedded_face) |ef| _ = ef.IUnknown.Release();
+        for (self.embedded_faces) |maybe| if (maybe) |ef| {
+            _ = ef.IUnknown.Release();
+        };
         for (self.faces.items) |f| _ = f.face.IUnknown.Release();
         if (self.font_fallback) |fb| _ = fb.IUnknown.Release();
         if (self.system_collection) |coll| _ = coll.IUnknown.Release();
@@ -864,7 +893,7 @@ const FallbackResolver = struct {
             for (self.faces.items) |f| _ = f.face.IUnknown.Release();
             self.faces.clearRetainingCapacity();
             self.cache.clearRetainingCapacity();
-            self.embedded_index = null;
+            self.embedded_indices = @splat(null);
         }
         self.current_size_px = size_px;
 
@@ -976,128 +1005,156 @@ const FallbackResolver = struct {
         size_px: u16,
         primary: face_metrics.FaceMetrics,
     ) ?*const FallbackFace {
-        if (self.embedded_face) |ef| {
+        for (self.embedded_faces, 0..) |maybe, slot| {
+            const ef = maybe orelse continue;
+
             var gi: [2]u16 = .{ 0, 0 };
             const cps = [_]u32{@intCast(codepoint)};
-            if (ef.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) >= 0 and gi[0] != 0) {
-                if (self.embedded_index) |idx| {
-                    self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
-                    return &self.faces.items[idx];
-                }
-                if (self.faces.items.len >= 255) {
-                    self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
-                    return null;
-                }
+            if (!(ef.GetGlyphIndices(@ptrCast(&cps), 1, @ptrCast(&gi)) >= 0 and gi[0] != 0)) continue;
 
-                const scale = face_metrics.faceScaleFactor(primary, dwriteFaceMetrics(ef, size_px));
-                const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * scale)));
-                var m: win32.DWRITE_FONT_METRICS = undefined;
-                ef.GetMetrics(&m);
-                const ascent: i32 = if (m.designUnitsPerEm != 0) blk: {
-                    const em: f32 = @floatFromInt(adj);
-                    const s: f32 = em / @as(f32, @floatFromInt(m.designUnitsPerEm));
-                    break :blk @intFromFloat(@round(@as(f32, @floatFromInt(m.ascent)) * s));
-                } else @intCast(adj);
-
-                const idx: u8 = @intCast(self.faces.items.len);
-                _ = ef.IUnknown.AddRef(); // faces takes its own owning reference
-                self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent, .size_px = adj }) catch {
-                    _ = ef.IUnknown.Release();
-                    self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
-                    return null;
-                };
-                self.embedded_index = idx;
+            if (self.embedded_indices[slot]) |idx| {
                 self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
                 return &self.faces.items[idx];
             }
+            if (self.faces.items.len >= 255) break;
+
+            const scale = face_metrics.faceScaleFactor(primary, dwriteFaceMetrics(ef, size_px));
+            const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * scale)));
+            var m: win32.DWRITE_FONT_METRICS = undefined;
+            ef.GetMetrics(&m);
+            const ascent: i32 = if (m.designUnitsPerEm != 0) blk: {
+                const em: f32 = @floatFromInt(adj);
+                const sc: f32 = em / @as(f32, @floatFromInt(m.designUnitsPerEm));
+                break :blk @intFromFloat(@round(@as(f32, @floatFromInt(m.ascent)) * sc));
+            } else @intCast(adj);
+
+            const idx: u8 = @intCast(self.faces.items.len);
+            _ = ef.IUnknown.AddRef(); // faces takes its own owning reference
+            self.faces.append(allocator, .{ .face = ef, .ascent_px = ascent, .size_px = adj }) catch {
+                _ = ef.IUnknown.Release();
+                break;
+            };
+            self.embedded_indices[slot] = idx;
+            self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
+            return &self.faces.items[idx];
         }
         self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
         return null;
     }
 };
 
-/// Minimal IDWriteFontFileLoader that serves a single embedded font from memory.
-const EmbeddedFontFileLoader = extern struct {
-    vtable: *const win32.IDWriteFontFileLoader.VTable,
-    data: [*]const u8,
-    data_len: u32,
+/// COM plumbing for one embedded font.
+///
+/// Parameterised by the data so each font gets its own loader and stream. Both
+/// instances are container-level globals and so live for the whole process:
+/// DWrite may call back into them at any point, and giving them a shorter
+/// lifetime has previously caused a crash on shutdown.
+fn EmbeddedFont(comptime data: []const u8) type {
+    return struct {
+        const Self2 = @This();
 
-    const loader_vtable: win32.IDWriteFontFileLoader.VTable = .{
-        .base = .{
-            .QueryInterface = @ptrCast(&loaderQueryInterface),
-            .AddRef = @ptrCast(&loaderAddRef),
-            .Release = @ptrCast(&loaderRelease),
-        },
-        .CreateStreamFromKey = @ptrCast(&loaderCreateStream),
+        var loader: Loader = .{ .vtable = &Loader.loader_vtable };
+        var stream: Stream = .{ .vtable = &Stream.stream_vtable };
+
+        const Loader = extern struct {
+            vtable: *const win32.IDWriteFontFileLoader.VTable,
+
+            const loader_vtable: win32.IDWriteFontFileLoader.VTable = .{
+                .base = .{
+                    .QueryInterface = @ptrCast(&queryInterface),
+                    .AddRef = @ptrCast(&addRef),
+                    .Release = @ptrCast(&release),
+                },
+                .CreateStreamFromKey = @ptrCast(&createStream),
+            };
+
+            fn queryInterface(_: *const Loader, _: *const win32.Guid, _: *?*anyopaque) callconv(.winapi) HRESULT {
+                return @bitCast(@as(u32, 0x80004002)); // E_NOINTERFACE
+            }
+            fn addRef(_: *const Loader) callconv(.winapi) u32 {
+                return 1;
+            }
+            fn release(_: *const Loader) callconv(.winapi) u32 {
+                return 1;
+            }
+            fn createStream(_: *const Loader, _: ?*const anyopaque, _: u32, stream_out: **win32.IDWriteFontFileStream) callconv(.winapi) HRESULT {
+                stream_out.* = @ptrCast(&Self2.stream);
+                return S_OK;
+            }
+        };
+
+        const Stream = extern struct {
+            vtable: *const win32.IDWriteFontFileStream.VTable,
+
+            const stream_vtable: win32.IDWriteFontFileStream.VTable = .{
+                .base = .{
+                    .QueryInterface = @ptrCast(&queryInterface),
+                    .AddRef = @ptrCast(&addRef),
+                    .Release = @ptrCast(&release),
+                },
+                .ReadFileFragment = @ptrCast(&readFileFragment),
+                .ReleaseFileFragment = @ptrCast(&releaseFileFragment),
+                .GetFileSize = @ptrCast(&getFileSize),
+                .GetLastWriteTime = @ptrCast(&getLastWriteTime),
+            };
+
+            fn queryInterface(_: *const Stream, _: *const win32.Guid, _: *?*anyopaque) callconv(.winapi) HRESULT {
+                return @bitCast(@as(u32, 0x80004002));
+            }
+            fn addRef(_: *const Stream) callconv(.winapi) u32 {
+                return 1;
+            }
+            fn release(_: *const Stream) callconv(.winapi) u32 {
+                return 1;
+            }
+            fn readFileFragment(_: *const Stream, fragment_start: *?*const anyopaque, offset: u64, size: u64, ctx: *?*anyopaque) callconv(.winapi) HRESULT {
+                if (offset + size > data.len) return @bitCast(@as(u32, 0x80070057)); // E_INVALIDARG
+                fragment_start.* = @ptrCast(data.ptr + @as(usize, @intCast(offset)));
+                ctx.* = null;
+                return S_OK;
+            }
+            fn releaseFileFragment(_: *const Stream, _: ?*anyopaque) callconv(.winapi) void {}
+            fn getFileSize(_: *const Stream, size: *u64) callconv(.winapi) HRESULT {
+                size.* = data.len;
+                return S_OK;
+            }
+            fn getLastWriteTime(_: *const Stream, time: *u64) callconv(.winapi) HRESULT {
+                time.* = 0;
+                return S_OK;
+            }
+        };
+
+        /// Register with DWrite and build a face. Returns null if unavailable.
+        fn createFace(factory: *win32.IDWriteFactory) ?*win32.IDWriteFontFace {
+            if (data.len == 0) return null;
+
+            const reg = factory.RegisterFontFileLoader(@ptrCast(&loader));
+            if (reg < 0 and @as(u32, @bitCast(reg)) != DWRITE_E_ALREADYREGISTERED) return null;
+
+            var font_file: *win32.IDWriteFontFile = undefined;
+            const key: u32 = 0;
+            if (factory.CreateCustomFontFileReference(
+                @ptrCast(&key),
+                @sizeOf(u32),
+                @ptrCast(&loader),
+                &font_file,
+            ) < 0) return null;
+            defer _ = font_file.IUnknown.Release();
+
+            var files = [_]*win32.IDWriteFontFile{font_file};
+            var face: *win32.IDWriteFontFace = undefined;
+            if (factory.CreateFontFace(.TRUETYPE, 1, @ptrCast(@constCast(&files)), 0, .{}, &face) < 0) return null;
+            return face;
+        }
     };
+}
 
-    fn init(data: []const u8) EmbeddedFontFileLoader {
-        return .{ .vtable = &loader_vtable, .data = data.ptr, .data_len = @intCast(data.len) };
-    }
-
-    fn loaderQueryInterface(_: *const EmbeddedFontFileLoader, _: *const win32.Guid, _: *?*anyopaque) callconv(.winapi) HRESULT {
-        return @bitCast(@as(u32, 0x80004002)); // E_NOINTERFACE
-    }
-    fn loaderAddRef(_: *const EmbeddedFontFileLoader) callconv(.winapi) u32 {
-        return 1;
-    }
-    fn loaderRelease(_: *const EmbeddedFontFileLoader) callconv(.winapi) u32 {
-        return 1;
-    }
-
-    fn loaderCreateStream(self: *const EmbeddedFontFileLoader, _: ?*const anyopaque, _: u32, stream_out: **win32.IDWriteFontFileStream) callconv(.winapi) HRESULT {
-        stream_out.* = @ptrCast(&embedded_stream_instance);
-        _ = self;
-        return S_OK;
-    }
+/// Every embedded font, in fallback priority order.
+const embedded_fonts = [_]type{
+    EmbeddedFont(nerd_font_data),
+    EmbeddedFont(noto_emoji_data),
+    EmbeddedFont(iosevka_medium),
 };
-
-/// Static IDWriteFontFileStream that serves from the compile-time embedded nerd font data.
-const EmbeddedFontFileStream = extern struct {
-    vtable: *const win32.IDWriteFontFileStream.VTable,
-
-    const stream_vtable: win32.IDWriteFontFileStream.VTable = .{
-        .base = .{
-            .QueryInterface = @ptrCast(&streamQueryInterface),
-            .AddRef = @ptrCast(&streamAddRef),
-            .Release = @ptrCast(&streamRelease),
-        },
-        .ReadFileFragment = @ptrCast(&streamReadFileFragment),
-        .ReleaseFileFragment = @ptrCast(&streamReleaseFileFragment),
-        .GetFileSize = @ptrCast(&streamGetFileSize),
-        .GetLastWriteTime = @ptrCast(&streamGetLastWriteTime),
-    };
-
-    fn streamQueryInterface(_: *const EmbeddedFontFileStream, _: *const win32.Guid, _: *?*anyopaque) callconv(.winapi) HRESULT {
-        return @bitCast(@as(u32, 0x80004002));
-    }
-    fn streamAddRef(_: *const EmbeddedFontFileStream) callconv(.winapi) u32 {
-        return 1;
-    }
-    fn streamRelease(_: *const EmbeddedFontFileStream) callconv(.winapi) u32 {
-        return 1;
-    }
-
-    fn streamReadFileFragment(_: *const EmbeddedFontFileStream, fragment_start: *?*const anyopaque, offset: u64, size: u64, ctx: *?*anyopaque) callconv(.winapi) HRESULT {
-        const data = nerd_font_data;
-        if (offset + size > data.len) return @bitCast(@as(u32, 0x80070057)); // E_INVALIDARG
-        fragment_start.* = @ptrCast(data.ptr + @as(usize, @intCast(offset)));
-        ctx.* = null;
-        return S_OK;
-    }
-    fn streamReleaseFileFragment(_: *const EmbeddedFontFileStream, _: ?*anyopaque) callconv(.winapi) void {}
-    fn streamGetFileSize(_: *const EmbeddedFontFileStream, size: *u64) callconv(.winapi) HRESULT {
-        size.* = nerd_font_data.len;
-        return S_OK;
-    }
-    fn streamGetLastWriteTime(_: *const EmbeddedFontFileStream, time: *u64) callconv(.winapi) HRESULT {
-        time.* = 0;
-        return S_OK;
-    }
-};
-
-var embedded_stream_instance: EmbeddedFontFileStream = .{ .vtable = &EmbeddedFontFileStream.stream_vtable };
-var embedded_loader_instance: EmbeddedFontFileLoader = EmbeddedFontFileLoader.init(nerd_font_data);
 
 const DWRITE_E_ALREADYREGISTERED: u32 = 0x8898000C;
 

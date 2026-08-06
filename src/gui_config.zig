@@ -1,9 +1,6 @@
 const builtin = @import("builtin");
 
-fontface: []const u8 = if (builtin.os.tag == .windows)
-    "Cascadia Mono"
-else
-    "IosevkaTerm Nerd Font Mono",
+fontface: []const u8 = builtin_fontface,
 fontsize: u8 = 14,
 fontweight: u16 = 500,
 fontweight_bold_offset: u16 = 300,
@@ -24,6 +21,9 @@ gui_background_opacity: f32 = 0.95,
 gui_ignore_theme_alpha: bool = true,
 
 include_files: []const u8 = "",
+
+/// Reserved family name for the Iosevka bundled into the binary.
+pub const builtin_fontface = "Iosevka (built-in)";
 
 pub const RasterizerBackend = if (builtin.os.tag == .windows)
     enum { dwrite }

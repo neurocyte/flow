@@ -5,6 +5,7 @@ pub const font_finder = @import("font_finder");
 const fallback_resolver = @import("fallback_resolver");
 const flow_sprite = @import("flow_sprite");
 const root = @import("soft_root").root;
+const gui_config = @import("gui_config");
 const SymbolRasterizer = @import("gui_config").SymbolRasterizer;
 const glyph_constraint = @import("glyph_constraint");
 const blit = @import("blit");
@@ -12,6 +13,28 @@ const blit = @import("blit");
 const Self = @This();
 
 const nerd_font_data = @embedFile("nerd_font");
+
+// Built-in default face and last-resort fallback.
+pub const iosevka_medium = @embedFile("iosevka_medium");
+pub const iosevka_extrabold = @embedFile("iosevka_extrabold");
+pub const iosevka_medium_italic = @embedFile("iosevka_medium_italic");
+pub const iosevka_extrabold_italic = @embedFile("iosevka_extrabold_italic");
+
+pub fn embeddedDefault(bold: bool, italic: bool) []const u8 {
+    return if (bold and italic) iosevka_extrabold_italic else if (bold) iosevka_extrabold else if (italic) iosevka_medium_italic else iosevka_medium;
+}
+
+/// Identifies the built-in faces in regular_path; must not collide with a real path.
+pub fn embeddedDefaultTag(bold: bool, italic: bool) []const u8 {
+    return if (bold and italic)
+        "<embedded:iosevka-extrabold-italic>"
+    else if (bold)
+        "<embedded:iosevka-extrabold>"
+    else if (italic)
+        "<embedded:iosevka-medium-italic>"
+    else
+        "<embedded:iosevka-medium>";
+}
 
 fn unitsPerEm(tt: *const TrueType) u16 {
     const head = tt.table_offsets[@intFromEnum(TrueType.TableId.head)];
@@ -114,6 +137,7 @@ const TtBackend = struct {
 
     pub const embedded_fonts = [_]fallback_resolver.EmbeddedFont{
         .{ .data = nerd_font_data, .is_color = false, .tag = "<embedded:nerd_font>" },
+        .{ .data = iosevka_medium, .is_color = false, .tag = "<embedded:iosevka>" },
     };
 
     pub fn preferColor(_: u21) bool {
@@ -364,7 +388,16 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
 }
 
 pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
-    const data = try self.fontData(path, face_index);
+    return fontFromData(try self.fontData(path, face_index), size_px);
+}
+
+/// Load one of the built-in faces. The data is embedded in the binary, so
+/// it needs no caching or ownership tracking.
+pub fn loadFontFromMemory(_: *Self, data: []const u8, size_px: u16) !Font {
+    return fontFromData(data, size_px);
+}
+
+fn fontFromData(data: []const u8, size_px: u16) !Font {
     const tt = try TrueType.load(data);
 
     const head_offset = tt.table_offsets[@intFromEnum(TrueType.TableId.head)];
@@ -434,6 +467,18 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px:
     };
 }
 
+fn resolveBuiltin(self: *Self, req: FaceRequest) !FaceResolution {
+    const bold = req.css_weight >= 600;
+    const tag = embeddedDefaultTag(bold, req.italic);
+    const font = try self.loadFontFromMemory(embeddedDefault(bold, req.italic), req.size_px);
+    if (req.is_baseline) {
+        if (self.regular_path) |old| self.allocator.free(old);
+        self.regular_path = self.allocator.dupe(u8, tag) catch null;
+    }
+    const is_real = if (req.is_baseline) true else if (self.regular_path) |reg| !std.mem.eql(u8, tag, reg) else true;
+    return .{ .font = font, .is_real_match = is_real };
+}
+
 /// Resolve a face for a given family + weight + style
 pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
     if (req.is_baseline) {
@@ -442,12 +487,19 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
         self.regular_path = null;
     }
 
-    const match = try font_finder.findFontVariant(
+    // The built-in face bypasses font lookup entirely.
+    if (std.mem.eql(u8, req.family, gui_config.builtin_fontface))
+        return self.resolveBuiltin(req);
+
+    const match = font_finder.findFontVariant(
         self.allocator,
         req.family,
         req.css_weight,
         req.italic,
-    );
+    ) catch {
+        // No font_finder backend on this platform, or lookup failed outright.
+        return self.resolveBuiltin(req);
+    };
     errdefer self.allocator.free(match.path);
 
     const is_real = if (req.is_baseline)

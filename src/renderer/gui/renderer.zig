@@ -688,6 +688,12 @@ pub fn get_fontfaces(self: *Self) void {
         dispatch(self.handler_ctx, msg)
     else |_| {}
 
+    // The built-in face is always offered.
+    const rasterizer = @import("rasterizer");
+    if (self.fmtmsg(.{ "fontface", rasterizer.builtin_fontface })) |msg|
+        dispatch(self.handler_ctx, msg)
+    else |_| {}
+
     // Enumerate all available monospace fonts and report each one.
     const names = font_finder.listFonts(self.allocator) catch {
         // If enumeration fails, still close the palette with "done".
@@ -702,6 +708,7 @@ pub fn get_fontfaces(self: *Self) void {
     }
 
     for (names) |name| {
+        if (std.mem.eql(u8, name, rasterizer.builtin_fontface)) continue;
         if (self.fmtmsg(.{ "fontface", name })) |msg|
             dispatch(self.handler_ctx, msg)
         else |_| {}
