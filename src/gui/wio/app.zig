@@ -1019,6 +1019,13 @@ fn wioLoop() void {
                     }
                 },
                 .scroll_vertical => |dy| {
+                    if (input_translate.fromWioModifiers(wio_modifiers).ctrl) {
+                        if (dy < 0)
+                            adjustFontSize(1) // scrolling up zooms in
+                        else
+                            adjustFontSize(-1);
+                        continue;
+                    }
                     const btn_id: u8 = if (dy < 0) 64 else 65; // up / down scroll
                     sendMouse(.press, @enumFromInt(btn_id), mouse_pos, .{});
                 },
