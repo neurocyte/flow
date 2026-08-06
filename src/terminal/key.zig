@@ -443,7 +443,7 @@ fn expectEncoded(
 }
 
 // A layout that moves the key reports the base layout key, with the shifted
-// slot left empty. German ö on the physical `o` key, no modifiers held.
+// slot left empty. ö on the physical `o` key, no modifiers held.
 test "alternates: base layout key without shift" {
     try expectEncoded("\x1b[246::111u", .{
         .codepoint = 246,
@@ -517,7 +517,10 @@ test "alternates: shifted key requires shift" {
     });
 }
 
-// Both slots populated: shifted and base layout together.
+// Both slots populated. Not what a shifted keystroke looks like coming from
+// the GUI input path (see the shift+Ö cases below); this is the shape vaxis
+// parses out of an upstream terminal that reports all three, which the
+// terminal renderer then re-encodes.
 test "alternates: shifted and base layout together" {
     try expectEncoded("\x1b[246:214:111;2u", .{
         .codepoint = 246,
@@ -529,6 +532,28 @@ test "alternates: shifted and base layout together" {
         .report_all_as_ctl_seqs = false,
         .report_text = false,
     });
+}
+
+// Verified byte-for-byte against kitty for shift+Ö on a custom layout under
+// `kitten show-key --key-mode=kitty`. The composed codepoint lands in the key
+// field and the shifted slot stays empty, so only the base layout key is
+// reported alongside it.
+test "alternates: shift+O-umlaut press matches kitty" {
+    try expectEncoded("\x1b[214::111;2;214u", .{
+        .codepoint = 214,
+        .base_layout_codepoint = 111,
+        .mods = .{ .shift = true },
+        .text = "Ö",
+    }, .press, .{ .report_events = true });
+}
+
+test "alternates: shift+O-umlaut release matches kitty" {
+    try expectEncoded("\x1b[214::111;2:3u", .{
+        .codepoint = 214,
+        .base_layout_codepoint = 111,
+        .mods = .{ .shift = true },
+        .text = "Ö",
+    }, .release, .{ .report_events = true });
 }
 
 // Functional keys never carry alternates.
