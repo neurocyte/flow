@@ -152,6 +152,8 @@ fn inject_output_end(self: *@This(), code: u8) void {
 }
 
 pub fn get_title(self: *@This()) []const u8 {
+    if (self.title.items.len > 0) return self.title.items;
+    if (self.profile) |p| if (p.name.len > 0) return p.name;
     return self.title.items;
 }
 
