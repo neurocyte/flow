@@ -47,13 +47,13 @@ pub fn free(allocator: std.mem.Allocator, profiles: []Profile) void {
     allocator.free(profiles);
 }
 
-pub const default_command = if (builtin.os.tag == .windows) "{{env:COMSPEC}}" else "{{env:SHELL}}";
-pub const default_id = "default";
-pub const default_profile: Profile = .{
+const default_command = if (builtin.os.tag == .windows) "{{env:COMSPEC}}" else "{{env:SHELL}}";
+const default_id = "default";
+const default_profile: Profile = .{
     .name = if (builtin.os.tag == .windows) "Command Prompt" else "Shell",
 };
 
-const profiles_dir_name = "profiles";
+const profiles_dir_name = "profile";
 const max_profile_bytes = 1024 * 1024;
 
 pub const WriteError = error{
@@ -88,13 +88,13 @@ pub fn list(allocator: std.mem.Allocator) std.mem.Allocator.Error![]Profile {
         }
     }.lt);
 
-    var result: std.ArrayList(Profile) = .initCapacity(allocator, ids.len);
-    errdefer free(result.toOwnedSlice(allocator));
+    var result: std.ArrayList(Profile) = try .initCapacity(allocator, ids.items.len);
+    errdefer free(allocator, result.toOwnedSlice(allocator) catch @panic("OOM Profile.list"));
 
     for (ids.items) |id| {
         const file_path = try std.fs.path.join(allocator, &.{ dir_path, id });
         defer allocator.free(file_path);
-        try result.appendAssumeCapacity(read_file(allocator, id, file_path) catch |e| {
+        result.appendAssumeCapacity(read_file(allocator, id, file_path) catch |e| {
             log.warn("skipping profile '{s}': {s}", .{ id, @errorName(e) });
             continue;
         });
@@ -152,6 +152,12 @@ pub fn write(profile: Profile, id: []const u8) WriteError!void {
 
 pub fn write_default() WriteError!void {
     return write(default_profile, default_id);
+}
+
+pub fn get_default(allocator: std.mem.Allocator) !Profile {
+    const profiles = try list(allocator);
+    defer free(allocator, profiles);
+    return try dupe(allocator, profiles[0]);
 }
 
 fn get_profiles_dir(allocator: std.mem.Allocator) ![]u8 {
