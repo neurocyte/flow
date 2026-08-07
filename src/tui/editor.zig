@@ -1952,8 +1952,12 @@ pub const Editor = struct {
 
         if (token_from(self.last.root) != token_from(root)) {
             try self.send_editor_update(self.last.root, root, eol_mode);
-            if (self.buffer) |buf|
+            if (self.buffer) |buf| {
+                buf.update_longest_line_length(self.metrics) catch |e| switch (e) {
+                    else => self.logger.err("update_longest_line_length", e),
+                };
                 buf.lsp_version += 1;
+            }
         }
 
         if (self.last.eol_mode != eol_mode or self.last.utf8_sanitized != utf8_sanitized or self.last.indent_mode != self.indent_mode)

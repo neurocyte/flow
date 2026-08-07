@@ -79,6 +79,7 @@ file_eol_mode: EolMode = .lf,
 last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
 detected_indent_size: ?usize = null,
+longest_line_len: usize = 0,
 hidden: bool = false,
 ephemeral: bool = false,
 auto_save: bool = false,
@@ -837,6 +838,25 @@ const Node = union(enum) {
         return if (!found) error.NotFound;
     }
 
+    fn get_longest_line_length(self: *const Node, metrics: Metrics) !usize {
+        const Ctx = struct {
+            accumulator: usize,
+            longest_line_len: usize,
+            fn walker(ctx_: *anyopaque, leaf: *const Leaf, metrics_: Metrics) Walker {
+                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+                ctx.accumulator += leaf.width(ctx.accumulator, metrics_);
+                if (leaf.eol) {
+                    ctx.longest_line_len = @max(ctx.longest_line_len, ctx.accumulator);
+                    ctx.accumulator = 0;
+                }
+                return Walker.keep_walking;
+            }
+        };
+        var ctx: Ctx = .{ .accumulator = 0, .longest_line_len = 0 };
+        _ = self.walk_from_line_begin_const(0, Ctx.walker, &ctx, metrics) catch return error.NotFound;
+        return ctx.longest_line_len;
+    }
+
     pub fn line_width(self: *const Node, line: usize, metrics_: Metrics) !usize {
         const do = struct {
             result: usize = 0,
@@ -1370,6 +1390,10 @@ pub fn update_last_used_time(self: *Self, now: std.Io.Timestamp) void {
     self.utime = now.toMilliseconds();
 }
 
+pub fn update_longest_line_length(self: *Self, metrics: Metrics) !void {
+    self.longest_line_len = try self.root.get_longest_line_length(metrics);
+}
+
 fn new_file(self: *const Self, file_exists: *bool) error{OutOfMemory}!Root {
     file_exists.* = false;
     return Leaf.new(self.allocator, "", true, false);
@@ -1417,10 +1441,12 @@ pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_
     self_.leaves_buf = leaves;
     var cur_leaf: usize = 0;
     var b: usize = 0;
+    var longest_line_len: usize = 0;
     for (0..buf.len) |i| {
         if (buf[i] == lf) {
             const line_end = if (i > 0 and buf[i - 1] == cr) i - 1 else i;
             const line = buf[b..line_end];
+            longest_line_len = @max(line.len, longest_line_len);
             leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = true } };
             cur_leaf += 1;
             b = i + 1;
@@ -1432,6 +1458,7 @@ pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_
         return error.Unexpected;
 
     self_.detected_indent_size = detect_indent_size(leaves[0..@min(leaves.len, 1000)]);
+    self_.longest_line_len = longest_line_len;
 
     return Node.merge_in_place(leaves, self.allocator);
 }
