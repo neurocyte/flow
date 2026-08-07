@@ -17,6 +17,7 @@ const Winsize = vaxis.Winsize;
 pub const Screen = @import("Screen.zig");
 pub const WtProfiles = @import("WtProfiles.zig");
 pub const Profile = @import("Profile.zig");
+pub const command_line = @import("command_line");
 const Key = vaxis.Key;
 const key = @import("key.zig");
 const mouse = @import("mouse.zig");

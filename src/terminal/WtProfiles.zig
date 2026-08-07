@@ -1,24 +1,12 @@
 //! Windows Terminal profile discovery.
-//!
-//! Reads the profile list out of Windows Terminal's settings.json so flow can
-//! offer the same shells the user already has configured, and default to the
-//! one they picked there instead of falling back to cmd.exe.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const root = @import("soft_root").root;
-const command_line = @import("command_line");
+
+const Profile = @import("Profile.zig");
 
 const log = std.log.scoped(.wt_profiles);
-
-pub const Profile = struct {
-    name: []const u8,
-    /// Command line to run. Profiles without one are skipped, so this is
-    /// always something that can actually be spawned.
-    command: []const u8,
-    /// Set on the profile named by "defaultProfile", which is also sorted first.
-    is_default: bool,
-};
 
 pub const Error = error{
     SettingsNotFound,
@@ -27,22 +15,14 @@ pub const Error = error{
 
 const max_settings_bytes = 8 * 1024 * 1024;
 
-/// Profiles from Windows Terminal's settings.json, default first, then file
-/// order. Free with `free`.
 pub fn read(allocator: std.mem.Allocator) Error![]Profile {
     if (builtin.os.tag != .windows) return error.SettingsNotFound;
-
     const data = try readSettings(allocator);
     defer allocator.free(data);
-
-    return parse(allocator, data, root.get_init().environ_map);
+    return parse(allocator, data);
 }
 
-/// Parse the contents of a settings.json. `env` supplies %VAR% expansion and
-/// only needs a `get(name) ?[]const u8`.
-pub fn parse(allocator: std.mem.Allocator, data: []const u8, env: anytype) Error![]Profile {
-    // Windows Terminal writes settings.json with comments, which std.json
-    // does not accept, so strip them first.
+pub fn parse(allocator: std.mem.Allocator, data: []const u8) Error![]Profile {
     const json = try stripComments(allocator, data);
     defer allocator.free(json);
 
@@ -75,50 +55,24 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8, env: anytype) Error
 
     if (default_guid) |guid| for (list.items) |item| {
         if (!guidEql(item, guid)) continue;
-        try append(allocator, &result, item, true, env);
+        try append(allocator, &result, item);
         break;
     };
 
     for (list.items) |item| {
         if (default_guid) |guid| if (guidEql(item, guid)) continue;
-        try append(allocator, &result, item, false, env);
+        try append(allocator, &result, item);
     }
 
     return result.toOwnedSlice(allocator);
 }
 
-pub fn free(allocator: std.mem.Allocator, profiles: []const Profile) void {
-    for (profiles) |profile| {
-        allocator.free(profile.name);
-        allocator.free(profile.command);
-    }
-    allocator.free(profiles);
-}
-
-/// Argv of the default profile, or null if it cannot be determined. Caller owns
-/// the result; free with `freeArgv`.
-pub fn defaultArgv(allocator: std.mem.Allocator) ?[][]const u8 {
-    const profiles = read(allocator) catch |e| {
-        log.info("no Windows Terminal default profile ({s}), falling back", .{@errorName(e)});
-        return null;
-    };
-    defer free(allocator, profiles);
-    for (profiles) |profile| if (profile.is_default) {
-        log.info("using Windows Terminal profile '{s}': {s}", .{ profile.name, profile.command });
-        return command_line.splitWindows(allocator, profile.command) catch null;
-    };
-    log.info("Windows Terminal has no usable default profile, falling back", .{});
-    return null;
-}
-
-pub const freeArgv = command_line.free;
+pub const free = Profile.free;
 
 fn append(
     allocator: std.mem.Allocator,
     list: *std.ArrayList(Profile),
     item: std.json.Value,
-    is_default: bool,
-    env: anytype,
 ) std.mem.Allocator.Error!void {
     if (item != .object) return;
     const obj = item.object;
@@ -130,17 +84,21 @@ fn append(
     // commandline, so those have to be mapped back to something spawnable.
     const raw_command = if (obj.get("commandline")) |v| asString(v) orelse "" else "";
     const command = if (raw_command.len > 0)
-        try expandEnvVars(allocator, raw_command, env)
+        try expandEnvVars(allocator, raw_command)
     else if (obj.get("source")) |v|
-        try commandFromSource(allocator, asString(v) orelse "", name_str, env) orelse return
+        try commandFromSource(allocator, asString(v) orelse "", name_str) orelse return
     else
         return;
-    errdefer allocator.free(command);
+    defer allocator.free(command);
 
-    const name = try allocator.dupe(u8, if (name_str.len > 0) name_str else command);
-    errdefer allocator.free(name);
-
-    try list.append(allocator, .{ .name = name, .command = command, .is_default = is_default });
+    // The command is a spawnable Windows command line (unexpanded); the
+    // remaining Profile fields fall back to their defaults for now.
+    var profile = try Profile.dupe(allocator, .{
+        .name = if (name_str.len > 0) name_str else command,
+        .command = command,
+    });
+    errdefer profile.deinit(allocator);
+    try list.append(allocator, profile);
 }
 
 /// Map a generated profile's "source" back to a command line. Sources that
@@ -149,8 +107,8 @@ fn commandFromSource(
     allocator: std.mem.Allocator,
     source: []const u8,
     name: []const u8,
-    env: anytype,
 ) std.mem.Allocator.Error!?[]u8 {
+    const env = root.get_init().environ_map;
     if (std.mem.eql(u8, source, "Windows.Terminal.PowershellCore"))
         return try resolvePowerShellCore(allocator, env);
 
@@ -169,7 +127,7 @@ fn commandFromSource(
 }
 
 /// Locate PowerShell Core the way Windows Terminal does. (yes, this is crazy)
-fn resolvePowerShellCore(allocator: std.mem.Allocator, env: anytype) std.mem.Allocator.Error![]u8 {
+fn resolvePowerShellCore(allocator: std.mem.Allocator, env: *std.process.Environ.Map) std.mem.Allocator.Error![]u8 {
     if (builtin.os.tag != .windows) return allocator.dupe(u8, "pwsh.exe");
 
     const io = root.get_io();
@@ -238,10 +196,9 @@ fn dirHasEntry(io: std.Io, dir_path: []const u8, name: []const u8) bool {
     return false;
 }
 
-/// Expand %VAR% references, which Windows Terminal writes into the static
-/// profiles (\"%SystemRoot%\\System32\\cmd.exe\"). An undefined variable is left
-/// as written, matching what cmd.exe does.
-fn expandEnvVars(allocator: std.mem.Allocator, str: []const u8, env: anytype) std.mem.Allocator.Error![]u8 {
+/// Replace %VAR% references, which Windows Terminal writes into the static
+/// profiles (\"%SystemRoot%\\System32\\cmd.exe\"), with flow expansions.
+fn expandEnvVars(allocator: std.mem.Allocator, str: []const u8) std.mem.Allocator.Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
 
@@ -258,11 +215,13 @@ fn expandEnvVars(allocator: std.mem.Allocator, str: []const u8, env: anytype) st
             continue;
         };
         const name = str[i + 1 .. end];
-        if (name.len > 0) if (env.get(name)) |value| {
-            try out.appendSlice(allocator, value);
+        if (name.len > 0) {
+            try out.appendSlice(allocator, "{{env:");
+            try out.appendSlice(allocator, name);
+            try out.appendSlice(allocator, "}}");
             i = end + 1;
             continue;
-        };
+        }
         // Unknown or empty: keep the text verbatim.
         try out.appendSlice(allocator, str[i .. end + 1]);
         i = end + 1;
@@ -272,10 +231,7 @@ fn expandEnvVars(allocator: std.mem.Allocator, str: []const u8, env: anytype) st
 }
 
 fn freeList(allocator: std.mem.Allocator, list: *std.ArrayList(Profile)) void {
-    for (list.items) |profile| {
-        allocator.free(profile.name);
-        allocator.free(profile.command);
-    }
+    for (list.items) |*profile| profile.deinit(allocator);
     list.deinit(allocator);
 }
 
@@ -481,7 +437,7 @@ test "parse: dynamic default profile resolves and sorts first" {
     defer free(std.testing.allocator, profiles);
 
     try std.testing.expect(profiles.len > 0);
-    try std.testing.expect(profiles[0].is_default);
+    // The default profile sorts first.
     try std.testing.expectEqualStrings("PowerShell", profiles[0].name);
     try std.testing.expectEqualStrings("pwsh.exe", profiles[0].command);
 }

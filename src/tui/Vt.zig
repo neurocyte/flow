@@ -435,26 +435,39 @@ pub fn has_active_application(self: *Vt) bool {
 /// Argv of the shell to spawn when no command was given.
 fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map) ![][]const u8 {
     if (builtin.os.tag == .windows) {
-        if (Terminal.WtProfiles.defaultArgv(allocator)) |args| {
-            if (args.len > 0) return args;
-            Terminal.WtProfiles.freeArgv(allocator, args);
-        }
-
-        // Prefer a real PowerShell over cmd.exe. Searched without the
-        // extension because find_binary_in_path appends PATHEXT itself.
-        for ([_][]const u8{ "pwsh", "powershell" }) |candidate| {
-            const found = (bin_path.find_binary_in_path(allocator, candidate) catch null) orelse continue;
-            defer allocator.free(found);
-            std.log.info("terminal: using {s} as the default shell", .{found});
-            return singleArgv(allocator, found);
-        }
+        if (Terminal.WtProfiles.read(allocator)) |profiles| {
+            defer Terminal.Profile.free(allocator, profiles);
+            if (profiles.len > 0) { // the default profile sorts first
+                if (profileArgv(allocator, profiles[0])) |args| {
+                    if (args.len > 0) return args;
+                    Terminal.command_line.free(allocator, args);
+                } else |e| std.log.warn("terminal: cannot use Windows Terminal default profile: {t}", .{e});
+            }
+        } else |_| {}
     }
 
+    var profile = try Terminal.Profile.get_default(allocator);
+    defer profile.deinit(allocator);
+
+    if (profileArgv(allocator, profile)) |args| {
+        if (args.len > 0) return args;
+        Terminal.command_line.free(allocator, args);
+    } else |e| std.log.warn("terminal: cannot expand default profile command: {t}", .{e});
+
+    // Last resort if the profile command expands to nothing.
     const shell_path = if (builtin.os.tag == .windows)
         env.get("COMSPEC") orelse "cmd.exe"
     else
         env.get("SHELL") orelse "/bin/sh";
     return singleArgv(allocator, shell_path);
+}
+
+/// Expand a profile's command line and split it into an owned argv. Free with
+/// `Terminal.command_line.free`.
+fn profileArgv(allocator: std.mem.Allocator, profile: Terminal.Profile) ![][]const u8 {
+    const expanded = try @import("expansion.zig").expand(allocator, profile.command);
+    defer allocator.free(expanded);
+    return Terminal.command_line.split(allocator, expanded);
 }
 
 fn singleArgv(allocator: std.mem.Allocator, arg0: []const u8) ![][]const u8 {
@@ -471,7 +484,7 @@ pub fn get_running_cmd(self: *const Vt, writer: *std.Io.Writer) std.Io.Writer.Er
 
 pub fn restart_shell(self: *Vt) !void {
     const shell_argv = try defaultShellArgv(self.vt.allocator, self.env);
-    defer Terminal.WtProfiles.freeArgv(self.vt.allocator, shell_argv);
+    defer Terminal.command_line.free(self.vt.allocator, shell_argv);
     try self.respawn(shell_argv);
     self.synthesize_marks = false;
     self.on_exit = tui.config().terminal_on_exit;
