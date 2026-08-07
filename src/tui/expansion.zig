@@ -12,6 +12,7 @@
 /// {{indent_size}} - The current indent size (in columns)
 /// {{reflow_width}} - The current reflow width (in columns)
 /// {{blame_commit}} - The blame commit ID at the line number of the primary cursor
+/// {{env:VAR}} - The value of the environment variable VAR (empty if unset)
 pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
@@ -31,6 +32,16 @@ pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
         };
         const var_name = iter[0..pos_end];
         iter = iter[pos_end + var_end_mark.len ..];
+
+        if (std.mem.startsWith(u8, var_name, env_prefix)) {
+            if (root.get_init().environ_map.get(var_name[env_prefix.len..])) |value|
+                try result.writer.writeAll(value)
+            else {
+                std.log.info("expansion of variable '{s}' failed: env var not found", .{var_name});
+                try result.writer.writeAll(arg);
+            }
+            continue;
+        }
 
         const func = variables.get(var_name) orelse {
             std.log.err("unknown variable '{s}'", .{arg});
@@ -69,6 +80,7 @@ pub fn expand_cbor(allocator: Allocator, args_cbor: cbor.Raw) !cbor.Raw {
 
 const var_begin_mark = "{{";
 const var_end_mark = "}}";
+const env_prefix = "env:";
 
 pub const Error = error{
     OutOfMemory,
@@ -220,3 +232,4 @@ const Allocator = @import("std").mem.Allocator;
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const tui = @import("tui.zig");
+const root = @import("soft_root").root;
