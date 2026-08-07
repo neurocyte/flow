@@ -62,6 +62,8 @@ find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
 panel_maximized: bool = false,
+panel_maximized_by_snap: bool = false,
+panel_snap_height: usize = 0,
 symbols: std.ArrayListUnmanaged(u8) = .empty,
 symbols_complete: bool = true,
 closing_project: bool = false,
@@ -290,12 +292,27 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 pub fn handle_resize(self: *Self, pos: Box) void {
     self.update_panes_layout() catch {};
     self.plane = tui.plane();
-    if (self.panel_height) |h| if (h >= self.box().h) {
-        self.panel_height = null;
-    };
-    if (self.panel_maximized) {
-        if (self.panels) |panels|
-            panels.layout_ = .{ .static = self.box().h -| 1 };
+    if (self.panels) |panels| {
+        const max_h = self.box().h -| 1;
+        if (self.panel_maximized) {
+            panels.layout_ = .{ .static = max_h };
+            if (self.panel_maximized_by_snap and self.panel_snap_height < max_h) {
+                self.panel_maximized = false;
+                self.panel_maximized_by_snap = false;
+                panels.layout_ = .{ .static = self.panel_snap_height };
+            }
+        } else {
+            const cur_h = switch (panels.layout_) {
+                .static => |s| s,
+                .dynamic => self.get_panel_height(),
+            };
+            if (cur_h >= max_h) {
+                self.panel_maximized = true;
+                self.panel_maximized_by_snap = true;
+                self.panel_snap_height = cur_h;
+                panels.layout_ = .{ .static = max_h };
+            }
+        }
     }
     self.widgets.handle_resize(pos);
     self.floating_views.resize(pos);
@@ -326,6 +343,7 @@ fn set_panel_height_abs(self: *Self, y: usize) tp.result {
     const max_h = self.box().h -| 1;
     self.panel_height = @max(1, @min(max_h, y));
     self.panel_maximized = false;
+    self.panel_maximized_by_snap = false;
     panels.layout_ = .{ .static = self.panel_height.? };
     const panel_height = self.panel_height orelse return;
     if (panel_height == 1) {
@@ -1077,10 +1095,21 @@ const cmds = struct {
             break :blk self.panels.?;
         };
         const max_h = self.box().h -| 1;
-        if (self.panel_maximized) {
-            // Restore previous height
+        const was_snap = self.panel_maximized_by_snap;
+        self.panel_maximized_by_snap = false;
+        if (was_snap) {
+            // Convert snap-maximized to regular (sticky) maximized
+            self.panel_maximized = true;
+            panels.layout_ = .{ .static = max_h };
+        } else if (self.panel_maximized) {
+            // Restore previous height, shrinking if it would still fill the window
             self.panel_maximized = false;
-            panels.layout_ = .{ .static = self.get_panel_height() };
+            var h = self.get_panel_height();
+            if (h >= max_h) {
+                h = @max(1, max_h -| 1);
+                self.panel_height = h;
+            }
+            panels.layout_ = .{ .static = h };
         } else {
             // Maximize: fill screen minus status bar
             self.panel_maximized = true;
