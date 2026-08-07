@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 const root = @import("soft_root").root;
 
 const Profile = @import("Profile.zig");
+const icons = @import("icons.zig");
 
 const log = std.log.scoped(.wt_profiles);
 
@@ -92,64 +93,15 @@ fn append(
     defer allocator.free(command);
 
     // The command is a spawnable Windows command line (unexpanded).
+    const style = icons.guess(name_str, command);
     var profile = try Profile.dupe(allocator, .{
         .name = if (name_str.len > 0) name_str else command,
         .command = command,
-        .icon = iconFor(name_str, command),
+        .icon = style.icon,
+        .color = style.color,
     });
     errdefer profile.deinit(allocator);
     try list.append(allocator, profile);
-}
-
-/// Best-effort Nerd Font icon guessing.
-fn iconFor(name: []const u8, command: []const u8) []const u8 {
-    const Entry = struct { []const u8, []const u8 };
-    // Ordered most-specific first so e.g. a distro or Visual Studio prompt wins
-    // over the generic "linux"/"powershell" fallbacks.
-    const entries = [_]Entry{
-        // Linux distributions (usually WSL)
-        .{ "ubuntu", "\u{f31b}" },
-        .{ "debian", "\u{f306}" },
-        .{ "archlinux", "\u{f303}" },
-        .{ "arch", "\u{f303}" },
-        .{ "fedora", "\u{f30a}" },
-        .{ "opensuse", "\u{f314}" },
-        .{ "suse", "\u{f314}" },
-        .{ "alpine", "\u{f300}" },
-        .{ "kali", "\u{f327}" },
-        .{ "manjaro", "\u{f312}" },
-        .{ "linuxmint", "\u{f30e}" },
-        .{ "mint", "\u{f30e}" },
-        .{ "centos", "\u{f304}" },
-        .{ "gentoo", "\u{f30d}" },
-        .{ "devuan", "\u{f307}" },
-        .{ "nixos", "\u{f313}" },
-        .{ "almalinux", "\u{f31d}" },
-        .{ "rocky", "\u{f32b}" },
-        .{ "raspbian", "\u{f315}" },
-        .{ "raspberry", "\u{f315}" },
-        .{ "freebsd", "\u{f30c}" },
-        .{ "redhat", "\u{f316}" },
-        // Visual Studio developer prompts
-        .{ "visual studio", "\u{e70c}" },
-        .{ "vsdevshell", "\u{e70c}" },
-        .{ "developer", "\u{e70c}" },
-        // Shells and tools
-        .{ "git", "\u{e702}" },
-        .{ "powershell", "\u{f0a0a}" },
-        .{ "pwsh", "\u{f0a0a}" },
-        .{ "command prompt", "\u{ebc4}" },
-        .{ "cmd", "\u{ebc4}" },
-        .{ "bash", "\u{ebca}" },
-        // Generic fallbacks
-        .{ "wsl", "\u{f17c}" },
-        .{ "linux", "\u{f17c}" },
-    };
-    for (entries) |entry|
-        if (std.ascii.indexOfIgnoreCase(name, entry[0]) != null or
-            std.ascii.indexOfIgnoreCase(command, entry[0]) != null)
-            return entry[1];
-    return "";
 }
 
 /// Map a generated profile's "source" back to a command line. Sources that
@@ -533,15 +485,4 @@ test "expandEnvVars: unpaired and empty markers are left alone" {
         defer std.testing.allocator.free(out);
         try std.testing.expectEqualStrings(case, out);
     }
-}
-
-test "iconFor: matches known profiles and falls back to none" {
-    try std.testing.expectEqualStrings("\u{f0a0a}", iconFor("Windows PowerShell", "powershell.exe"));
-    try std.testing.expectEqualStrings("\u{ebc4}", iconFor("Command Prompt", "cmd.exe"));
-    try std.testing.expectEqualStrings("\u{f31b}", iconFor("Ubuntu", "wsl.exe -d Ubuntu"));
-    // A Visual Studio developer prompt wins over the "powershell" keyword.
-    try std.testing.expectEqualStrings("\u{e70c}", iconFor("Developer PowerShell for VS 2022", "pwsh.exe"));
-    // "git" wins over "bash" for Git Bash.
-    try std.testing.expectEqualStrings("\u{e702}", iconFor("Git Bash", "bash.exe"));
-    try std.testing.expectEqualStrings("", iconFor("Custom Thing", "myapp.exe"));
 }
