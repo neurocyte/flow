@@ -38,6 +38,7 @@ process_exited: bool = false,
 on_exit: TerminalOnExit,
 synthesize_marks: bool = false,
 started_at: i64 = 0,
+profile: ?Terminal.Profile = null,
 
 fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !*@This() {
     const home = env.get("HOME") orelse "/tmp";
@@ -104,6 +105,7 @@ pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
     }
     self.vt.deinit();
     self.env.deinit();
+    if (self.profile) |*p| p.deinit(allocator);
     std.log.debug("terminal: vt destroyed", .{});
     Manager.destroyed(self);
 }
@@ -271,12 +273,14 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
 
     env_owned: bool = true,
     expanded_cmd_arg: []const u8,
+    profile: ?Terminal.Profile = null,
 
     fn deinit(self: *@This(), a: std.mem.Allocator) void {
         if (self.env_owned) self.env.deinit();
         a.free(self.expanded_cmd_arg);
         for (self.argv_list.items) |arg| a.free(arg);
         self.argv_list.deinit(a);
+        if (self.profile) |*p| p.deinit(a);
     }
 } {
     var env = try root.get_init().environ_map.clone(allocator);
@@ -313,6 +317,8 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
         for (argv_list.items) |arg| allocator.free(arg);
         argv_list.deinit(allocator);
     }
+    var profile: ?Terminal.Profile = null;
+    errdefer if (profile) |*p| p.deinit(allocator);
     var have_cmd = false;
     if (argv_msg) |msg| {
         var iter = msg.buf;
@@ -324,7 +330,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
             have_cmd = true;
         }
     } else {
-        const shell_argv = try defaultShellArgv(allocator, env);
+        const shell_argv = try defaultShellArgv(allocator, env, &profile);
         defer allocator.free(shell_argv); // elements are moved into argv_list
         for (shell_argv) |arg| try argv_list.append(allocator, arg);
     }
@@ -351,6 +357,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
         .have_arg = have_arg,
         .argv_list = argv_list,
         .on_exit = on_exit,
+        .profile = profile,
     };
 }
 
@@ -359,6 +366,8 @@ pub fn run_new_cmd(io: std.Io, allocator: std.mem.Allocator, ctx: command.Contex
     defer cmd.deinit(allocator);
     cmd.env_owned = false;
     const self = try Vt.init(io, allocator, cmd.argv_list.items, cmd.env, rows, cols, cmd.on_exit);
+    self.profile = cmd.profile; // move ownership out of cmd
+    cmd.profile = null;
     self.synthesize_marks = cmd.have_cmd;
     if (cmd.have_cmd) self.inject_prompt(cmd.display_cmd);
     try self.start_reader(allocator);
@@ -422,6 +431,10 @@ pub fn is_vt_running(self: *const Vt) bool {
     return !self.process_exited;
 }
 
+pub fn get_profile(self: *const Vt) ?*const Terminal.Profile {
+    return if (self.profile) |*p| p else null;
+}
+
 /// True when this vt is running an application rather than sitting idle at
 /// a shell prompt (or having exited).
 pub fn has_active_application(self: *Vt) bool {
@@ -432,14 +445,18 @@ pub fn has_active_application(self: *Vt) bool {
     };
 }
 
-/// Argv of the shell to spawn when no command was given.
-fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map) ![][]const u8 {
+/// Argv of the shell to spawn when no command was given..
+fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map, profile_out: *?Terminal.Profile) ![][]const u8 {
+    profile_out.* = null;
     if (builtin.os.tag == .windows) {
         if (Terminal.WtProfiles.read(allocator)) |profiles| {
             defer Terminal.Profile.free(allocator, profiles);
             if (profiles.len > 0) { // the default profile sorts first
                 if (profileArgv(allocator, profiles[0])) |args| {
-                    if (args.len > 0) return args;
+                    if (args.len > 0) {
+                        profile_out.* = Terminal.Profile.dupe(allocator, profiles[0]) catch null;
+                        return args;
+                    }
                     Terminal.command_line.free(allocator, args);
                 } else |e| std.log.warn("terminal: cannot use Windows Terminal default profile: {t}", .{e});
             }
@@ -447,12 +464,14 @@ fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map) 
     }
 
     var profile = try Terminal.Profile.get_default(allocator);
-    defer profile.deinit(allocator);
-
     if (profileArgv(allocator, profile)) |args| {
-        if (args.len > 0) return args;
+        if (args.len > 0) {
+            profile_out.* = profile; // transfer ownership to the caller
+            return args;
+        }
         Terminal.command_line.free(allocator, args);
     } else |e| std.log.warn("terminal: cannot expand default profile command: {t}", .{e});
+    profile.deinit(allocator);
 
     // Last resort if the profile command expands to nothing.
     const shell_path = if (builtin.os.tag == .windows)
@@ -483,9 +502,13 @@ pub fn get_running_cmd(self: *const Vt, writer: *std.Io.Writer) std.Io.Writer.Er
 }
 
 pub fn restart_shell(self: *Vt) !void {
-    const shell_argv = try defaultShellArgv(self.vt.allocator, self.env);
+    var profile: ?Terminal.Profile = null;
+    errdefer if (profile) |*p| p.deinit(self.vt.allocator);
+    const shell_argv = try defaultShellArgv(self.vt.allocator, self.env, &profile);
     defer Terminal.command_line.free(self.vt.allocator, shell_argv);
     try self.respawn(shell_argv);
+    if (self.profile) |*p| p.deinit(self.vt.allocator);
+    self.profile = profile;
     self.synthesize_marks = false;
     self.on_exit = tui.config().terminal_on_exit;
     try self.start_reader(self.vt.allocator);
