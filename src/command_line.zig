@@ -31,7 +31,12 @@ pub fn splitWindows(allocator: std.mem.Allocator, cmd_line: []const u8) std.mem.
                 }
             },
             '"' => {
-                in_quotes = !in_quotes;
+                if (in_quotes and i + 1 < cmd_line.len and cmd_line[i + 1] == '"') {
+                    try current.append(allocator, '"');
+                    i += 1;
+                } else {
+                    in_quotes = !in_quotes;
+                }
                 have_arg = true;
             },
             '\\' => {
@@ -176,6 +181,15 @@ test "windows: empty input and quoted empty argument" {
     try expectSplit(splitWindows, "", &.{});
     try expectSplit(splitWindows, "   ", &.{});
     try expectSplit(splitWindows, "a \"\" b", &.{ "a", "", "b" });
+}
+
+test "windows: doubled quotes are a literal quote" {
+    try expectSplit(splitWindows,
+        \\Import-Module """C:\Program Files\x.dll"""
+    , &.{
+        "Import-Module",
+        \\"C:\Program Files\x.dll"
+    });
 }
 
 test "posix: bare program and arguments" {
