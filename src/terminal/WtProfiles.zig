@@ -159,9 +159,8 @@ fn commandFromSource(
     source: []const u8,
     name: []const u8,
 ) std.mem.Allocator.Error!?[]u8 {
-    const env = root.get_init().environ_map;
     if (std.mem.eql(u8, source, "Windows.Terminal.PowershellCore"))
-        return try resolvePowerShellCore(allocator, env);
+        return try resolvePowerShellCore(allocator);
 
     // WSL distributions are launched by name. The store-installed distros use
     // their own package as the source but launch the same way.
@@ -178,9 +177,10 @@ fn commandFromSource(
 }
 
 /// Locate PowerShell Core the way Windows Terminal does. (yes, this is crazy)
-fn resolvePowerShellCore(allocator: std.mem.Allocator, env: *std.process.Environ.Map) std.mem.Allocator.Error![]u8 {
+fn resolvePowerShellCore(allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
     if (builtin.os.tag != .windows) return allocator.dupe(u8, "pwsh.exe");
 
+    const env = root.get_init().environ_map;
     const io = root.get_io();
 
     if (env.get("LOCALAPPDATA")) |local_app_data| {
@@ -422,23 +422,14 @@ test "stripComments preserves line count" {
     );
 }
 
-const TestEnv = struct {
-    map: std.StaticStringMap([]const u8),
-    fn get(self: TestEnv, name: []const u8) ?[]const u8 {
-        return self.map.get(name);
-    }
-};
-
-const test_env: TestEnv = .{ .map = .initComptime(.{
-    .{ "SystemRoot", "C:\\Windows" },
-}) };
-
 // Shaped after a real settings.json: the default is a generated profile with no
-// commandline, and the static entries use %VAR%.
+// commandline, and the static entries use %VAR%. (A PowershellCore source is
+// intentionally not the default here; resolving it is Windows-runtime behavior
+// covered by a separate, non-Windows test.)
 const test_settings =
     \\{
     \\    "$help": "https://aka.ms/terminal-documentation",
-    \\    "defaultProfile": "{574e775e-4f2a-5b96-ac1e-a2962a402336}",
+    \\    "defaultProfile": "{2c4de342-38b7-51cf-b940-2309a097f518}",
     \\    "profiles":
     \\    {
     \\        "list":
@@ -452,11 +443,6 @@ const test_settings =
     \\                "guid": "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}",
     \\                "name": "Command Prompt",
     \\                "commandline": "%SystemRoot%\\System32\\cmd.exe"
-    \\            },
-    \\            {
-    \\                "guid": "{574e775e-4f2a-5b96-ac1e-a2962a402336}",
-    \\                "name": "PowerShell",
-    \\                "source": "Windows.Terminal.PowershellCore"
     \\            },
     \\            {
     \\                "guid": "{b453ae62-4e3d-5e58-b989-0a998ec441b8}",
@@ -484,28 +470,28 @@ const test_settings =
 ;
 
 test "parse: dynamic default profile resolves and sorts first" {
-    const profiles = try parse(std.testing.allocator, test_settings, test_env);
+    const profiles = try parse(std.testing.allocator, test_settings);
     defer free(std.testing.allocator, profiles);
 
     try std.testing.expect(profiles.len > 0);
-    // The default profile sorts first.
-    try std.testing.expectEqualStrings("PowerShell", profiles[0].name);
-    try std.testing.expectEqualStrings("pwsh.exe", profiles[0].command);
+    // The default profile (a generated WSL source) resolves and sorts first.
+    try std.testing.expectEqualStrings("Ubuntu", profiles[0].name);
+    try std.testing.expectEqualStrings("wsl.exe -d \"Ubuntu\"", profiles[0].command);
 }
 
-test "parse: %VAR% is expanded" {
-    const profiles = try parse(std.testing.allocator, test_settings, test_env);
+test "parse: %VAR% becomes a flow env expansion" {
+    const profiles = try parse(std.testing.allocator, test_settings);
     defer free(std.testing.allocator, profiles);
 
     for (profiles) |profile| if (std.mem.eql(u8, profile.name, "Command Prompt")) {
-        try std.testing.expectEqualStrings("C:\\Windows\\System32\\cmd.exe", profile.command);
+        try std.testing.expectEqualStrings("{{env:SystemRoot}}\\System32\\cmd.exe", profile.command);
         return;
     };
     return error.ProfileNotFound;
 }
 
 test "parse: wsl profiles launch by distro name" {
-    const profiles = try parse(std.testing.allocator, test_settings, test_env);
+    const profiles = try parse(std.testing.allocator, test_settings);
     defer free(std.testing.allocator, profiles);
 
     var seen_ubuntu = false;
@@ -524,7 +510,7 @@ test "parse: wsl profiles launch by distro name" {
 }
 
 test "parse: unlaunchable sources are skipped" {
-    const profiles = try parse(std.testing.allocator, test_settings, test_env);
+    const profiles = try parse(std.testing.allocator, test_settings);
     defer free(std.testing.allocator, profiles);
 
     for (profiles) |profile| {
@@ -533,10 +519,17 @@ test "parse: unlaunchable sources are skipped" {
     }
 }
 
-test "expandEnvVars: unknown and malformed are left alone" {
-    const cases = [_][]const u8{ "%NOPE%\\x", "100%", "a %% b", "%" };
+test "expandEnvVars: %VAR% converts to a flow env expansion" {
+    const a = std.testing.allocator;
+    const out = try expandEnvVars(a, "%SystemRoot%\\System32\\cmd.exe");
+    defer a.free(out);
+    try std.testing.expectEqualStrings("{{env:SystemRoot}}\\System32\\cmd.exe", out);
+}
+
+test "expandEnvVars: unpaired and empty markers are left alone" {
+    const cases = [_][]const u8{ "100%", "a %% b", "%", "no vars here" };
     for (cases) |case| {
-        const out = try expandEnvVars(std.testing.allocator, case, test_env);
+        const out = try expandEnvVars(std.testing.allocator, case);
         defer std.testing.allocator.free(out);
         try std.testing.expectEqualStrings(case, out);
     }
