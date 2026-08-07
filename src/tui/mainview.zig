@@ -453,6 +453,8 @@ pub const TerminalStatus = struct {
     title: []const u8,
     index: usize,
     count: usize,
+    icon: []const u8 = "",
+    color: u24 = 0,
 };
 
 pub fn active_terminal_title(self: *Self) ?TerminalStatus {
@@ -460,10 +462,13 @@ pub fn active_terminal_title(self: *Self) ?TerminalStatus {
     if (!tv.focused) return null;
     const pos = @import("Vt.zig").Manager.position(tv.vt) orelse return null;
     const title = tv.get_title();
+    const profile = tv.vt.get_profile();
     return .{
         .title = if (title.len > 0) title else "(none)",
         .index = pos.index,
         .count = pos.count,
+        .icon = if (profile) |p| p.icon else "",
+        .color = if (profile) |p| p.color else 0,
     };
 }
 

@@ -193,8 +193,14 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_
 fn render_vt_title(_: *Self, plane: *Plane, _: *const Widget.Theme, status: anytype) void {
     plane.on_styles(styles.italic);
     _ = plane.putstr(" ") catch {};
-    if (terminal_icon.len > 0 and tui.config().show_fileicons)
-        _ = plane.print("{s} ", .{terminal_icon}) catch {};
+    if (tui.config().show_fileicons) {
+        if (status.icon.len > 0) {
+            render_colored_icon(plane, status.icon, status.color);
+            _ = plane.print(" ", .{}) catch {};
+        } else if (terminal_icon.len > 0) {
+            _ = plane.print("{s} ", .{terminal_icon}) catch {};
+        }
+    }
     if (status.count > 1)
         _ = plane.print("({d}/{d}) ", .{ status.index, status.count }) catch {};
     _ = plane.print("{s}", .{status.title}) catch {};
@@ -295,12 +301,16 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
 }
 
 fn render_file_icon(self: *Self, plane: *Plane, _: *const Widget.Theme) void {
+    render_colored_icon(plane, self.file_icon, self.file_color);
+}
+
+fn render_colored_icon(plane: *Plane, icon: []const u8, icon_color: u24) void {
     var cell = plane.cell_init();
     _ = plane.at_cursor_cell(&cell) catch return;
-    if (!(self.file_color == 0xFFFFFF or self.file_color == 0x000000 or self.file_color == 0x000001)) {
-        cell.set_fg_rgb(self.file_color) catch {};
+    if (!(icon_color == 0xFFFFFF or icon_color == 0x000000 or icon_color == 0x000001)) {
+        cell.set_fg_rgb(icon_color) catch {};
     }
-    _ = plane.cell_load(&cell, self.file_icon) catch {};
+    _ = plane.cell_load(&cell, icon) catch {};
     _ = plane.putc(&cell) catch {};
     plane.cursor_move_rel(0, 1) catch {};
 }
