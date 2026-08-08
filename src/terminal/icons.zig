@@ -43,8 +43,8 @@ pub fn guess(name: []const u8, command: []const u8) Style {
         .{ "developer", "\u{e70c}", 0x5C2D91 },
         // Shells and tools (colors mirror flow-syntax file_type colors)
         .{ "git", "\u{e702}", 0xF34F29 },
+        .{ "pwsh", "", 0 },
         .{ "powershell", "\u{f0a0a}", 0x0873C5 },
-        .{ "pwsh", "\u{f0a0a}", 0x0873C5 },
         .{ "command prompt", "\u{ebc4}", 0 },
         .{ "cmd", "\u{ebc4}", 0 },
         .{ "bash", "\u{ebca}", 0x3E474A },
