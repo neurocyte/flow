@@ -466,10 +466,11 @@ pub fn available_profiles(allocator: std.mem.Allocator) ![]Terminal.Profile {
     defer allocator.free(user); // elements are moved into list
     for (user) |p| try list.append(allocator, p);
 
-    if (builtin.os.tag == .windows) if (Terminal.WtProfiles.read(allocator)) |wt| {
-        defer allocator.free(wt); // elements are moved into list
-        for (wt) |p| try list.append(allocator, p);
-    } else |_| {};
+    if (builtin.os.tag == .windows and tui.config().terminal_read_wt_profiles)
+        if (Terminal.WtProfiles.read(allocator)) |wt| {
+            defer allocator.free(wt); // elements are moved into list
+            for (wt) |p| try list.append(allocator, p);
+        } else |_| {};
 
     return list.toOwnedSlice(allocator);
 }
@@ -499,7 +500,7 @@ pub fn has_active_application(self: *Vt) bool {
 /// Argv of the shell to spawn when no command was given..
 fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map, profile_out: *?Terminal.Profile) ![][]const u8 {
     profile_out.* = null;
-    if (builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows and tui.config().terminal_read_wt_profiles)
         if (Terminal.WtProfiles.read(allocator)) |profiles| {
             defer Terminal.Profile.free(allocator, profiles);
             if (profiles.len > 0) { // the default profile sorts first
@@ -511,8 +512,7 @@ fn defaultShellArgv(allocator: std.mem.Allocator, env: std.process.Environ.Map, 
                     Terminal.command_line.free(allocator, args);
                 } else |e| std.log.warn("terminal: cannot use Windows Terminal default profile: {t}", .{e});
             }
-        } else |_| {}
-    }
+        } else |_| {};
 
     var profile = try Terminal.Profile.get_default(allocator);
     if (profileArgv(allocator, profile)) |args| {
