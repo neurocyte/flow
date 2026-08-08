@@ -171,6 +171,10 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
     switch (event) {
         .exited => |code| {
             self.process_exited = true;
+            if (self.pty_pid) |pid| {
+                pid.deinit();
+                self.pty_pid = null;
+            }
             if (self.synthesize_marks) self.inject_output_end(code);
             self.handle_child_exit(code);
             tui.need_render(@src());
