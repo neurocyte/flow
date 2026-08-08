@@ -159,7 +159,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         _ = button.plane.print("{s} ", .{entry.label}) catch {};
     }
 
-    const match_offset: usize = 2 + if (icon_width > 0) @as(usize, icon_width + 1) else 0;
+    const match_offset: usize = 2 + if (icon_width > 0) @as(usize, icon_width + 2) else 0;
     var index: usize = 0;
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
