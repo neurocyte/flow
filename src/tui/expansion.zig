@@ -13,6 +13,7 @@
 /// {{reflow_width}} - The current reflow width (in columns)
 /// {{blame_commit}} - The blame commit ID at the line number of the primary cursor
 /// {{env:VAR}} - The value of the environment variable VAR (empty if unset)
+/// {{shell}} - The default interactive shell (pwsh/powershell/%COMSPEC% on Windows, $SHELL otherwise)
 pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
@@ -208,6 +209,24 @@ const functions = struct {
         try stream.writer.print("{s}", .{id});
         return stream.toOwnedSlice();
     }
+
+    /// {{shell}} - The default interactive shell: on Windows the first of
+    /// pwsh.exe / powershell.exe found in PATH, else %COMSPEC%; otherwise $SHELL.
+    /// The Windows result is quoted so a path with spaces survives command line
+    /// splitting; the whole value is re-split before spawning.
+    pub fn shell(allocator: Allocator) Error![]const u8 {
+        if (builtin.os.tag == .windows) {
+            // find_binary_in_path appends PATHEXT, so search without the extension.
+            for ([_][]const u8{ "pwsh", "powershell" }) |candidate|
+                if (bin_path.find_binary_in_path(allocator, candidate) catch null) |found| {
+                    defer allocator.free(found);
+                    return std.fmt.allocPrint(allocator, "\"{s}\"", .{found});
+                };
+            const comspec = root.get_init().environ_map.get("COMSPEC") orelse "cmd.exe";
+            return std.fmt.allocPrint(allocator, "\"{s}\"", .{comspec});
+        }
+        return allocator.dupe(u8, root.get_init().environ_map.get("SHELL") orelse "/bin/sh");
+    }
 };
 
 fn get_functions() []struct { []const u8, Function } {
@@ -228,8 +247,10 @@ const Function = *const fn (allocator: Allocator) Error![]const u8;
 const FunctionDef = struct { []const u8, Function };
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = @import("std").mem.Allocator;
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const tui = @import("tui.zig");
+const bin_path = @import("bin_path");
 const root = @import("soft_root").root;
