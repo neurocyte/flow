@@ -27,6 +27,8 @@ csi_intermediate: ?u8 = null,
 csi_pm: ?u8 = null,
 /// Number of UTF-8 continuation bytes still needed to complete the current character
 utf8_remaining: u3 = 0,
+/// Same, but for a multi-byte character inside an OSC string.
+osc_utf8_remaining: u3 = 0,
 
 const State = enum {
     ground,
@@ -312,6 +314,7 @@ inline fn skipUntilST(reader: *Reader) !void {
 
 /// Parses an OSC sequence
 inline fn parseOsc(self: *Parser, reader: *Reader) !Event {
+    self.osc_utf8_remaining = 0;
     return self.resumeOsc(reader);
 }
 
@@ -324,6 +327,15 @@ inline fn resumeOsc(self: *Parser, reader: *Reader) !Event {
             },
             else => return e,
         };
+        // Consume UTF-8 continuation bytes as content.
+        if (self.osc_utf8_remaining > 0) {
+            if (b & 0xc0 == 0x80) { // 0x80..0xbf: a continuation byte
+                self.osc_utf8_remaining -= 1;
+                try self.buf.append(b);
+                continue;
+            }
+            self.osc_utf8_remaining = 0; // malformed sequence; handle b normally
+        }
         switch (b) {
             0x00...0x06,
             0x08...0x17,
@@ -336,8 +348,12 @@ inline fn resumeOsc(self: *Parser, reader: *Reader) !Event {
                 _ = reader.discard(std.Io.Limit.limited(1)) catch {};
                 return .{ .osc = self.buf.items };
             },
-            0x9c => return .{ .osc = self.buf.items },
-            0x07 => return .{ .osc = self.buf.items },
+            // BEL or a standalone 8-bit ST terminates.
+            0x07, 0x9c => return .{ .osc = self.buf.items },
+            0xc2...0xf4 => { // UTF-8 lead byte: following continuation bytes are content
+                self.osc_utf8_remaining = @intCast((std.unicode.utf8ByteSequenceLength(b) catch 1) - 1);
+                try self.buf.append(b);
+            },
             else => try self.buf.append(b),
         }
     }
