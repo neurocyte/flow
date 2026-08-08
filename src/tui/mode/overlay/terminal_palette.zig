@@ -13,6 +13,7 @@ pub const label = "Select terminal";
 pub const name = " terminal";
 pub const description = "terminal";
 pub const icon = "  ";
+const terminal_icon = "";
 
 const label_len = label.len + 3 + icon.len;
 
@@ -132,8 +133,9 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     button.plane.set_style(style_hint);
     tui.render_pointer(&button.plane, selected);
 
+    const profile_icon = if (entry.icon.len > 0) entry.icon else terminal_icon;
     const metrics = button.plane.metrics(1);
-    const icon_width = metrics.egc_chunk_width(metrics, entry.icon, 0);
+    const icon_width = metrics.egc_chunk_width(metrics, profile_icon, 0);
 
     button.plane.set_style(style_label);
     if (entry.command) |command_name| blk: {
@@ -152,10 +154,8 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         if (hints.get(command_name)) |hint|
             _ = button.plane.print_aligned_right(0, "{s} ", .{hint}) catch {};
     } else {
-        if (entry.icon.len > 0) {
-            render_colored_icon(&button.plane, entry.icon, entry.color, icon_width);
-            _ = button.plane.print(" ", .{}) catch {};
-        }
+        render_colored_icon(&button.plane, profile_icon, entry.color, icon_width);
+        _ = button.plane.print(" ", .{}) catch {};
         _ = button.plane.print("{s} ", .{entry.label}) catch {};
     }
 
