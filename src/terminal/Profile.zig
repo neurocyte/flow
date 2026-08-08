@@ -85,8 +85,12 @@ pub fn list(allocator: std.mem.Allocator) std.mem.Allocator.Error![]Profile {
         }
     }.lt);
 
-    var result: std.ArrayList(Profile) = try .initCapacity(allocator, ids.items.len);
+    const has_default = std.mem.eql(u8, ids.items[0], default_id);
+
+    var result: std.ArrayList(Profile) = try .initCapacity(allocator, ids.items.len + @intFromBool(!has_default));
     errdefer free(allocator, result.toOwnedSlice(allocator) catch @panic("OOM Profile.list"));
+
+    if (!has_default) result.appendAssumeCapacity(try dupe(allocator, default_profile));
 
     for (ids.items) |id| {
         const file_path = try std.fs.path.join(allocator, &.{ dir_path, id });
@@ -98,6 +102,19 @@ pub fn list(allocator: std.mem.Allocator) std.mem.Allocator.Error![]Profile {
     }
     if (result.items.len == 0) return default_list(allocator);
     return result.toOwnedSlice(allocator);
+}
+
+/// True when the user has configured a flow default profile, as opposed to
+/// relying on the built-in default.
+pub fn has_configured_default(allocator: std.mem.Allocator) bool {
+    const io = root.get_io();
+    const dir_path = get_profiles_dir(allocator) catch return false;
+    defer allocator.free(dir_path);
+    const file_path = std.fs.path.join(allocator, &.{ dir_path, default_id }) catch return false;
+    defer allocator.free(file_path);
+    var file = std.Io.Dir.openFileAbsolute(io, file_path, .{ .mode = .read_only }) catch return false;
+    file.close(io);
+    return true;
 }
 
 fn default_list(allocator: std.mem.Allocator) std.mem.Allocator.Error![]Profile {

@@ -462,15 +462,26 @@ pub fn available_profiles(allocator: std.mem.Allocator) ![]Terminal.Profile {
         list.deinit(allocator);
     }
 
+    var wt: ?[]Terminal.Profile = null;
+    defer if (wt) |w| allocator.free(w); // elements are moved into list
+    if (builtin.os.tag == .windows and tui.config().terminal_read_wt_profiles)
+        if (Terminal.WtProfiles.read(allocator)) |w| {
+            wt = w;
+        } else |_| {};
+    const have_wt = if (wt) |w| w.len > 0 else false;
+
     const user = try Terminal.Profile.list(allocator);
     defer allocator.free(user); // elements are moved into list
-    for (user) |p| try list.append(allocator, p);
+    const replace_builtin = have_wt and !Terminal.Profile.has_configured_default(allocator);
 
-    if (builtin.os.tag == .windows and tui.config().terminal_read_wt_profiles)
-        if (Terminal.WtProfiles.read(allocator)) |wt| {
-            defer allocator.free(wt); // elements are moved into list
-            for (wt) |p| try list.append(allocator, p);
-        } else |_| {};
+    if (replace_builtin) {
+        if (wt) |w| for (w) |p| try list.append(allocator, p);
+        user[0].deinit(allocator); // drop the built-in default
+        for (user[1..]) |p| try list.append(allocator, p);
+    } else {
+        for (user) |p| try list.append(allocator, p);
+        if (wt) |w| for (w) |p| try list.append(allocator, p);
+    }
 
     return list.toOwnedSlice(allocator);
 }
