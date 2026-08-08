@@ -78,6 +78,8 @@ fn append(
     if (item != .object) return;
     const obj = item.object;
 
+    if (obj.get("hidden")) |v| if (v == .bool and v.bool) return;
+
     const name_str = if (obj.get("name")) |v| asString(v) orelse "" else "";
 
     // Most profiles - including the one people usually default to - are
@@ -397,6 +399,12 @@ const test_settings =
     \\                "commandline": "%SystemRoot%\\System32\\cmd.exe"
     \\            },
     \\            {
+    \\                "guid": "{aaaaaaaa-0000-0000-0000-000000000000}",
+    \\                "name": "Hidden Shell",
+    \\                "commandline": "%SystemRoot%\\System32\\hidden.exe",
+    \\                "hidden": true
+    \\            },
+    \\            {
     \\                "guid": "{b453ae62-4e3d-5e58-b989-0a998ec441b8}",
     \\                "name": "Azure Cloud Shell",
     \\                "source": "Windows.Terminal.Azure"
@@ -469,6 +477,14 @@ test "parse: unlaunchable sources are skipped" {
         try std.testing.expect(!std.mem.eql(u8, profile.name, "Azure Cloud Shell"));
         try std.testing.expect(std.mem.indexOf(u8, profile.name, "Developer Command Prompt") == null);
     }
+}
+
+test "parse: hidden profiles are skipped" {
+    const profiles = try parse(std.testing.allocator, test_settings);
+    defer free(std.testing.allocator, profiles);
+
+    for (profiles) |profile|
+        try std.testing.expect(!std.mem.eql(u8, profile.name, "Hidden Shell"));
 }
 
 test "expandEnvVars: %VAR% converts to a flow env expansion" {
