@@ -17,7 +17,7 @@ name: []const u8 = "",
 /// Command line to run.
 command: []const u8 = default_command,
 /// Optional icon (glyph) for the profile picker.
-icon: []const u8 = "",
+icon: []const u8 = "",
 /// Accent color for the profile picker, as a 24 bit hex value.
 color: u24 = 0x000000,
 /// Working directory to start in.
