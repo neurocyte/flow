@@ -326,7 +326,7 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         const cell = coord.to_cell(self.plane.mouse_geometry());
-        return self.bottom_bar_primary_drag(@intCast(cell.row));
+        return self.bottom_bar_primary_drag(@intCast(std.math.clamp(cell.row, 0, std.math.maxInt(i32))));
     }
 }
 
