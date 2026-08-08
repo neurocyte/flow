@@ -463,22 +463,22 @@
     },
     "overlay/palette": {
         "press": [
-            ["<C-w>", "overlay_delete_word_left"]
+            ["ctrl+w", "overlay_delete_word_left"]
         ]
     },
     "mini/file_browser": {
         "press": [
-            ["<C-w>", "mini_mode_delete_to_previous_path_segment"]
+            ["ctrl+w", "mini_mode_delete_to_previous_path_segment"]
         ]
     },
     "mini/find": {
         "press": [
-            ["<C-w>", "mini_mode_delete_word_left"]
+            ["ctrl+w", "mini_mode_delete_word_left"]
         ]
     },
     "mini/find_in_files": {
         "press": [
-            ["<C-w>", "mini_mode_delete_word_left"]
+            ["ctrl+w", "mini_mode_delete_word_left"]
         ]
     },
     "home": {
