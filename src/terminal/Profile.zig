@@ -6,7 +6,6 @@
 //! written in flow's normal text config format.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const root = @import("soft_root").root;
 
 const log = std.log.scoped(.terminal_profiles);
@@ -47,11 +46,9 @@ pub fn free(allocator: std.mem.Allocator, profiles: []Profile) void {
     allocator.free(profiles);
 }
 
-const default_command = if (builtin.os.tag == .windows) "{{env:COMSPEC}}" else "{{env:SHELL}}";
+const default_command = "{{shell}}";
 const default_id = "default";
-const default_profile: Profile = .{
-    .name = if (builtin.os.tag == .windows) "Command Prompt" else "Shell",
-};
+const default_profile: Profile = .{ .name = "Default shell" };
 
 const profiles_dir_name = "profile";
 const max_profile_bytes = 1024 * 1024;
