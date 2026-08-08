@@ -1202,8 +1202,20 @@ const cmds = struct {
     }
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
 
-    pub fn terminal_new(self: *Self, _: Ctx) Result {
-        const vt = try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
+    pub fn terminal_new(self: *Self, ctx: Ctx) Result {
+        var profile_name: []const u8 = "";
+        const have_name = ctx.args.match(.{tp.extract(&profile_name)}) catch false;
+
+        const vt = if (have_name and profile_name.len > 0) blk: {
+            if (try Vt.find_profile(self.allocator, profile_name)) |found| {
+                var profile = found;
+                defer profile.deinit(self.allocator);
+                break :blk try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
+            }
+            std.log.err("terminal_new: unknown profile '{s}'", .{profile_name});
+            return error.Stop;
+        } else try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
+
         if (self.get_panel_view(terminal_view) == null)
             try self.toggle_panel_view_with_args(terminal_view, .enable, .empty());
         const tv = self.get_panel_view(terminal_view) orelse return;
@@ -1212,7 +1224,7 @@ const cmds = struct {
     }
     pub const terminal_new_meta: Meta = .{
         .description = "Open a new terminal",
-        .arguments = &.{},
+        .arguments = &.{.string},
         .icon = "",
     };
 

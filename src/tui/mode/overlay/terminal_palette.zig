@@ -20,15 +20,39 @@ pub const Entry = struct {
     label: []const u8,
     idx: usize,
     command: ?[]const u8 = null,
+    profile: ?[]const u8 = null,
+    icon: []const u8 = "",
+    color: u24 = 0,
 };
 
 fn add_entry(palette: *Type, vt: *Vt, idx: usize, longest: *usize) !void {
     const title = try palette.allocator.dupe(u8, vt.get_title());
+    var entry_icon: []const u8 = "";
+    var entry_color: u24 = 0;
+    if (vt.get_profile()) |profile| {
+        entry_icon = try palette.allocator.dupe(u8, profile.icon);
+        entry_color = profile.color;
+    }
     (try palette.entries.addOne(palette.allocator)).* = .{
         .label = title,
         .idx = idx,
+        .icon = entry_icon,
+        .color = entry_color,
     };
     longest.* = @max(longest.*, title.len);
+}
+
+fn add_profile_entry(palette: *Type, profile: anytype, longest: *usize) !void {
+    const profile_name = try palette.allocator.dupe(u8, profile.name);
+    const entry_icon = try palette.allocator.dupe(u8, profile.icon);
+    (try palette.entries.addOne(palette.allocator)).* = .{
+        .label = profile_name,
+        .idx = 0,
+        .profile = profile_name, // aliases label; serialized separately, freed once via label
+        .icon = entry_icon,
+        .color = profile.color,
+    };
+    longest.* = @max(longest.*, profile_name.len);
 }
 
 pub fn load_entries(palette: *Type) !usize {
@@ -45,11 +69,19 @@ pub fn load_entries(palette: *Type) !usize {
     const hints = palette.mode.keybind_hints;
     var longest_hint: usize = 0;
     longest_hint = @max(longest_hint, try add_palette_command(palette, "terminal_new", hints));
+
+    const profiles = try Vt.available_profiles(palette.allocator);
+    defer Vt.free_profiles(palette.allocator, profiles);
+    for (profiles) |profile| try add_profile_entry(palette, profile, &longest);
+
     return longest_hint - @min(longest_hint, longest) + 3;
 }
 
 pub fn deinit(palette: *Type) void {
-    for (palette.entries.items) |entry| palette.allocator.free(entry.label);
+    for (palette.entries.items) |entry| {
+        palette.allocator.free(entry.label);
+        palette.allocator.free(entry.icon);
+    }
 }
 
 fn add_palette_command(palette: *Type, command_name: []const u8, hints: *const tui.KeybindHints) !usize {
@@ -100,6 +132,9 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     button.plane.set_style(style_hint);
     tui.render_pointer(&button.plane, selected);
 
+    const metrics = button.plane.metrics(1);
+    const icon_width = metrics.egc_chunk_width(metrics, entry.icon, 0);
+
     button.plane.set_style(style_label);
     if (entry.command) |command_name| blk: {
         button.plane.set_style(style_hint);
@@ -117,17 +152,33 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         if (hints.get(command_name)) |hint|
             _ = button.plane.print_aligned_right(0, "{s} ", .{hint}) catch {};
     } else {
+        if (entry.icon.len > 0) {
+            render_colored_icon(&button.plane, entry.icon, entry.color, icon_width);
+            _ = button.plane.print(" ", .{}) catch {};
+        }
         _ = button.plane.print("{s} ", .{entry.label}) catch {};
     }
 
+    const match_offset: usize = 2 + if (icon_width > 0) @as(usize, icon_width + 1) else 0;
     var index: usize = 0;
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            tui.render_match_cell(&button.plane, 0, index + 2, theme) catch break;
+            tui.render_match_cell(&button.plane, 0, index + match_offset, theme) catch break;
         } else break;
     }
     return false;
+}
+
+fn render_colored_icon(plane: *@import("renderer").Plane, glyph: []const u8, glyph_color: u24, icon_width: usize) void {
+    var cell = plane.cell_init();
+    _ = plane.at_cursor_cell(&cell) catch return;
+    if (!(glyph_color == 0xFFFFFF or glyph_color == 0x000000 or glyph_color == 0x000001))
+        cell.set_fg_rgb(glyph_color) catch {};
+    _ = plane.cell_load(&cell, glyph) catch {};
+    _ = plane.putc(&cell) catch {};
+    if (icon_width == 1)
+        plane.cursor_move_rel(0, 1) catch {};
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
@@ -137,6 +188,8 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     if (entry.command) |command_name| {
         tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    } else if (entry.profile) |profile_name| {
+        tp.self_pid().send(.{ "cmd", "terminal_new", .{profile_name} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else {
         tp.self_pid().send(.{ "cmd", "terminal_select", .{entry.idx} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }

@@ -261,7 +261,7 @@ fn show_exit_message(self: *@This(), code: u8) void {
     _ = self.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
 }
 
-pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
+pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_override: ?Terminal.Profile) (error{
     OutOfMemory,
     Stop,
     WriteFailed,
@@ -322,7 +322,16 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
     var profile: ?Terminal.Profile = null;
     errdefer if (profile) |*p| p.deinit(allocator);
     var have_cmd = false;
-    if (argv_msg) |msg| {
+    if (profile_override) |po| {
+        // Launch a specific profile's shell (not a command).
+        const shell_argv = profileArgv(allocator, po) catch |e| switch (e) {
+            error.Unavailable, error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer allocator.free(shell_argv); // elements are moved into argv_list
+        for (shell_argv) |arg| try argv_list.append(allocator, arg);
+        profile = try Terminal.Profile.dupe(allocator, po);
+    } else if (argv_msg) |msg| {
         var iter = msg.buf;
         var len = try cbor.decodeArrayHeader(&iter);
         while (len > 0) : (len -= 1) {
@@ -364,7 +373,15 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context) (error{
 }
 
 pub fn run_new_cmd(io: std.Io, allocator: std.mem.Allocator, ctx: command.Context, rows: u16, cols: u16) !*@This() {
-    var cmd = try prepare_cmd(allocator, ctx);
+    return run_new_cmd_impl(io, allocator, ctx, rows, cols, null);
+}
+
+pub fn run_new_profile(io: std.Io, allocator: std.mem.Allocator, profile: Terminal.Profile, rows: u16, cols: u16) !*@This() {
+    return run_new_cmd_impl(io, allocator, .empty(), rows, cols, profile);
+}
+
+fn run_new_cmd_impl(io: std.Io, allocator: std.mem.Allocator, ctx: command.Context, rows: u16, cols: u16, profile_override: ?Terminal.Profile) !*@This() {
+    var cmd = try prepare_cmd(allocator, ctx, profile_override);
     defer cmd.deinit(allocator);
     cmd.env_owned = false;
     const self = try Vt.init(io, allocator, cmd.argv_list.items, cmd.env, rows, cols, cmd.on_exit);
@@ -382,7 +399,7 @@ pub fn run_new_cmd(io: std.Io, allocator: std.mem.Allocator, ctx: command.Contex
 }
 
 pub fn run_cmd(self: *@This(), ctx: command.Context) !enum { ok, busy } {
-    var cmd = try prepare_cmd(self.vt.allocator, ctx);
+    var cmd = try prepare_cmd(self.vt.allocator, ctx, null);
     defer cmd.deinit(self.vt.allocator);
     const vt = self.vt;
     const allocator = vt.allocator;
@@ -435,6 +452,38 @@ pub fn is_vt_running(self: *const Vt) bool {
 
 pub fn get_profile(self: *const Vt) ?*const Terminal.Profile {
     return if (self.profile) |*p| p else null;
+}
+
+/// All terminal profiles available to launch.
+pub fn available_profiles(allocator: std.mem.Allocator) ![]Terminal.Profile {
+    var list: std.ArrayListUnmanaged(Terminal.Profile) = .empty;
+    errdefer {
+        for (list.items) |*p| p.deinit(allocator);
+        list.deinit(allocator);
+    }
+
+    const user = try Terminal.Profile.list(allocator);
+    defer allocator.free(user); // elements are moved into list
+    for (user) |p| try list.append(allocator, p);
+
+    if (builtin.os.tag == .windows) if (Terminal.WtProfiles.read(allocator)) |wt| {
+        defer allocator.free(wt); // elements are moved into list
+        for (wt) |p| try list.append(allocator, p);
+    } else |_| {};
+
+    return list.toOwnedSlice(allocator);
+}
+
+pub fn free_profiles(allocator: std.mem.Allocator, profiles: []Terminal.Profile) void {
+    Terminal.Profile.free(allocator, profiles);
+}
+
+pub fn find_profile(allocator: std.mem.Allocator, name: []const u8) !?Terminal.Profile {
+    const profiles = try available_profiles(allocator);
+    defer free_profiles(allocator, profiles);
+    for (profiles) |p| if (std.mem.eql(u8, p.name, name))
+        return try Terminal.Profile.dupe(allocator, p);
+    return null;
 }
 
 /// True when this vt is running an application rather than sitting idle at
