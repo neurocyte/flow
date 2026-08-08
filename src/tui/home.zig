@@ -382,16 +382,25 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.set_style(theme.editor);
 
         self.position_menu(self.v_center(9, self.menu_len, 9), self.center(8, self.menu_w));
-    } else {
+    } else if (self.plane.dim_y() > 2) {
         self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(1, self.centerI(4, title.len));
         _ = self.plane.print("{s}", .{title}) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(3, self.centerI(6, subtext.len));
-        _ = self.plane.print("{s}", .{subtext}) catch {};
+        _ = self.plane.print(" {s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
 
+        const x = @min(self.plane.dim_x() -| 32, 8);
+        self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
+    } else {
+        self.plane.set_style_bg_transparent(style_title);
+        self.plane.cursor_move_yx(0, self.centerI(2, title.len));
+        _ = self.plane.print("{s}", .{title}) catch return false;
+        self.plane.set_style_bg_transparent(style_subtext);
+        _ = self.plane.print(" {s}", .{subtext}) catch {};
+        self.plane.set_style(theme.editor);
         const x = @min(self.plane.dim_x() -| 32, 8);
         self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
     }
