@@ -462,21 +462,25 @@
         ]
     },
     "overlay/palette": {
+        "syntax": "vim",
         "press": [
             ["<C-w>", "overlay_delete_word_left"]
         ]
     },
     "mini/file_browser": {
+        "syntax": "vim",
         "press": [
             ["<C-w>", "mini_mode_delete_to_previous_path_segment"]
         ]
     },
     "mini/find": {
+        "syntax": "vim",
         "press": [
             ["<C-w>", "mini_mode_delete_word_left"]
         ]
     },
     "mini/find_in_files": {
+        "syntax": "vim",
         "press": [
             ["<C-w>", "mini_mode_delete_word_left"]
         ]
