@@ -8,6 +8,7 @@ const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
+const tui = @import("../tui.zig");
 
 errors: usize = 0,
 warnings: usize = 0,
@@ -36,6 +37,7 @@ fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
 }
 
 pub fn layout(self: *Self, _: *ButtonType) Widget.Layout {
+    if (tui.screen().w < 80) return .{ .static = 0 };
     return .{ .static = self.rendered.len };
 }
 

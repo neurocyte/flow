@@ -120,6 +120,7 @@ fn format(self: *Self, buf: []u8) []const u8 {
 }
 
 pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {
+    if (tui.screen().w < 80) return .{ .static = 0 };
     var buf: [256]u8 = undefined;
     const text = self.format(&buf);
     const len = btn.plane.egc_chunk_width(text, 0, 1);

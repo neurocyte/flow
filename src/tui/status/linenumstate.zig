@@ -11,6 +11,7 @@ const EventHandler = @import("EventHandler");
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const fonts = @import("../fonts.zig");
+const tui = @import("../tui.zig");
 
 const DigitStyle = fonts.DigitStyle;
 
@@ -79,6 +80,7 @@ fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
 }
 
 pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {
+    if (tui.screen().w < 60) return .{ .static = 0 };
     const warn_len = if (self.utf8_sanitized) btn.plane.egc_chunk_width(utf8_sanitized_warning, 0, 1) else 0;
     const len = btn.plane.egc_chunk_width(self.rendered, 0, 1) + warn_len;
     return .{ .static = len };

@@ -6,6 +6,7 @@ const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 
+const tui = @import("../tui.zig");
 const Widget = @import("../Widget.zig");
 const ed = @import("../editor.zig");
 
@@ -35,7 +36,10 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
-    return .{ .static = self.rendered.len };
+    return if (tui.screen().w < 100)
+        .{ .static = 0 }
+    else
+        .{ .static = self.rendered.len };
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

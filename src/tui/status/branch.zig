@@ -133,7 +133,10 @@ pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {
     var buf: [256]u8 = undefined;
     const text = self.format(&buf);
     const len = btn.plane.egc_chunk_width(text, 0, 1);
-    return .{ .static = len };
+    return if (tui.screen().w < 130 -| len)
+        .{ .static = 0 }
+    else
+        .{ .static = len };
 }
 
 pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {

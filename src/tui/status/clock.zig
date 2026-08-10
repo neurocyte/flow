@@ -69,7 +69,10 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 pub fn layout(_: *Self) Widget.Layout {
-    return .{ .static = 5 };
+    return if (tui.screen().w < 80)
+        .{ .static = 0 }
+    else
+        .{ .static = 5 };
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

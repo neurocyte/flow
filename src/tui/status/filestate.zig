@@ -202,6 +202,21 @@ fn render_mini_mode_overlay(self: *Self, btn: *ButtonType, theme: *const Widget.
 // 󱣪 Content save check
 // 󱑛 Content save cog
 // 󰆔 Content save all
+
+fn print_clipped_left(plane: *Plane, text: []const u8) void {
+    const remaining_i: i32 = @as(i32, plane.dim_x()) - plane.cursor_x();
+    if (remaining_i <= 0) return;
+    const remaining: usize = @intCast(remaining_i);
+    const text_w = tui.egc_chunk_width(text, 0, 8);
+    if (text_w <= remaining) {
+        _ = plane.print("{s}", .{text}) catch {};
+        return;
+    }
+    const skip = text_w -| (remaining -| 2);
+    const off = tui.egc_chunk_col_pos(text, 0, 8, skip);
+    _ = plane.print("…{s}", .{text[off..]}) catch {};
+}
+
 fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_save: bool) void {
     plane.on_styles(styles.italic);
     _ = plane.putstr(" ") catch {};
@@ -210,7 +225,7 @@ fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_sa
         _ = plane.print(" ", .{}) catch {};
     }
     _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (auto_save) "󱑛 " else if (self.file_dirty) "󰆓 " else "") catch {};
-    _ = plane.print("{s}", .{self.name}) catch {};
+    print_clipped_left(plane, self.name);
     return;
 }
 
@@ -261,7 +276,7 @@ fn render_vt_title(_: *Self, plane: *Plane, _: *const Widget.Theme, status: anyt
     }
     if (status.count > 1)
         _ = plane.print("({d}/{d}) ", .{ status.index, status.count }) catch {};
-    _ = plane.print("{s}", .{status.title}) catch {};
+    print_clipped_left(plane, status.title);
     return;
 }
 
