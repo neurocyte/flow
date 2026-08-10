@@ -734,6 +734,12 @@ fn sendMouse(mouse_type: MouseEvent.Type, button: MouseEvent.Button, pos: wio.Po
     tui_pid.send(.{ "RDR", event }) catch {};
 }
 
+/// The currently held keyboard modifiers, as mouse-report modifiers
+fn currentMouseMods() MouseEvent.Modifiers {
+    const m = input_translate.fromWioModifiers(wio_modifiers);
+    return .{ .shift = m.shift, .alt = m.alt, .ctrl = m.ctrl };
+}
+
 /// The pointer position in window pixels
 fn scaledPixel(pos: wio.Position) Pixel {
     // win32 backend reports mouse coords in physical pixels
@@ -955,7 +961,7 @@ fn wioLoop() void {
                     applyModifierButton(btn, true);
                     const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        sendMouse(.press, @enumFromInt(mb_id), mouse_pos, .{});
+                        sendMouse(.press, @enumFromInt(mb_id), mouse_pos, currentMouseMods());
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             // Character keys are handled by .char unless modifiers are held.
@@ -991,7 +997,7 @@ fn wioLoop() void {
                     applyModifierButton(btn, false);
                     const mods = syncModifiers(btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        sendMouse(.release, @enumFromInt(mb_id), mouse_pos, .{});
+                        sendMouse(.release, @enumFromInt(mb_id), mouse_pos, currentMouseMods());
                     } else {
                         if (composed.release_key(btn)) |cp| {
                             // Report the codepoint .char composed on press, so
@@ -1013,9 +1019,9 @@ fn wioLoop() void {
                 .mouse => |pos| {
                     mouse_pos = pos;
                     if (input_translate.heldMouseButtonId(held_buttons)) |mb_id| {
-                        sendMouse(.drag, @enumFromInt(mb_id), pos, .{});
+                        sendMouse(.drag, @enumFromInt(mb_id), pos, currentMouseMods());
                     } else {
-                        sendMouse(.motion, .none, pos, .{});
+                        sendMouse(.motion, .none, pos, currentMouseMods());
                     }
                 },
                 .scroll_vertical => |dy| {
@@ -1027,11 +1033,11 @@ fn wioLoop() void {
                         continue;
                     }
                     const btn_id: u8 = if (dy < 0) 64 else 65; // up / down scroll
-                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, .{});
+                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, currentMouseMods());
                 },
                 .scroll_horizontal => |dx| {
                     const btn_id: u8 = if (dx < 0) 66 else 67; // left / right scroll
-                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, .{});
+                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, currentMouseMods());
                 },
                 .focused => {
                     _ = syncModifiers(null);
