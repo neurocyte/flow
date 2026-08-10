@@ -459,7 +459,7 @@ pub const TerminalStatus = struct {
 
 pub fn active_terminal_title(self: *Self) ?TerminalStatus {
     const tv = self.get_panel_view(terminal_view) orelse return null;
-    if (!tv.focused) return null;
+    if (!tv.focused and !tui.is_deferred_keyboard_focus(Widget.to(tv))) return null;
     const pos = @import("Vt.zig").Manager.position(tv.vt) orelse return null;
     const title = tv.get_title();
     const profile = tv.vt.get_profile();

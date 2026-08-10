@@ -1081,6 +1081,12 @@ pub fn clear_keyboard_focus() void {
     self.keyboard_focus = null;
 }
 
+pub fn is_deferred_keyboard_focus(w: Widget) bool {
+    const self = current();
+    if (self.input_mode_outer_ == null) return false;
+    return if (self.keyboard_focus_outer) |outer| outer.ptr == w.ptr else false;
+}
+
 fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const frame = tracy.initZone(@src(), .{ .name = "tui widgets" });
     defer frame.deinit();
