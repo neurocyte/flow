@@ -43,6 +43,8 @@ pub const Event = union(enum) {
     },
     /// OSC 133 prompt mark received. Carries the current shell state
     shell_state_change: Screen.ShellState,
+    /// OSC 22 set: app requested a mouse pointer (cursor) shape.
+    pointer_shape_change: vaxis.Mouse.Shape,
 
     pub const Handler = *const fn (ctx: *HandlerContext, event: @This()) error{TerminalHandlerFailed}!void;
     pub const HandlerContext = anyopaque;
@@ -197,6 +199,9 @@ last_printed_buf: [Screen.Grapheme.inline_capacity]u8 = undefined, // for REP (C
 last_printed_len: u8 = 0,
 /// Scratch buffer for decoding OSC 52 base64 clipboard data.
 osc52_buf: std.ArrayListUnmanaged(u8) = .empty,
+
+/// Mouse pointer shape last requested by the app via OSC 22.
+pointer_shape: vaxis.Mouse.Shape = .default,
 
 /// initialize a Terminal. This sets the size of the underlying pty and allocates the sizes of the
 /// screen
@@ -1368,6 +1373,16 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             } });
                         }
                     },
+                    // OSC 22 - set mouse pointer (cursor) shape.
+                    // Format: 22 ; <name>  (CSS/X11 cursor name, e.g. "pointer",
+                    // "text", "default"). An empty name resets to default.
+                    22 => {
+                        const shape = parsePointerShape(rest);
+                        if (shape != self.pointer_shape) {
+                            self.pointer_shape = shape;
+                            try handle_event(context, .{ .pointer_shape_change = shape });
+                        }
+                    },
                     // OSC 52 - clipboard access
                     // Format: 52;<targets>;<base64data|?>
                     52 => try self.handleOsc52(rest, context, handle_event),
@@ -1892,6 +1907,53 @@ fn parseOscRgb(spec: []const u8) ?[3]u8 {
         return .{ r, g, b };
     }
     return null;
+}
+
+/// Map an OSC 22 pointer-shape name (CSS/X11 cursor name) to one of the
+/// shapes the renderer can display. Unknown names fall back to `.default`.
+fn parsePointerShape(name: []const u8) vaxis.Mouse.Shape {
+    const map = std.StaticStringMap(vaxis.Mouse.Shape).initComptime(.{
+        // default arrow
+        .{ "default", .default },
+        .{ "arrow", .default },
+        .{ "left_ptr", .default },
+        // pointing hand (links, buttons)
+        .{ "pointer", .pointer },
+        .{ "hand", .pointer },
+        .{ "hand1", .pointer },
+        .{ "hand2", .pointer },
+        .{ "pointing_hand", .pointer },
+        // text / I-beam
+        .{ "text", .text },
+        .{ "xterm", .text },
+        .{ "ibeam", .text },
+        // help
+        .{ "help", .help },
+        .{ "question_arrow", .help },
+        .{ "whats_this", .help },
+        // busy
+        .{ "progress", .progress },
+        .{ "wait", .wait },
+        .{ "watch", .wait },
+        // horizontal resize
+        .{ "ew-resize", .@"ew-resize" },
+        .{ "col-resize", .@"ew-resize" },
+        .{ "e-resize", .@"ew-resize" },
+        .{ "w-resize", .@"ew-resize" },
+        .{ "sb_h_double_arrow", .@"ew-resize" },
+        // vertical resize
+        .{ "ns-resize", .@"ns-resize" },
+        .{ "row-resize", .@"ns-resize" },
+        .{ "n-resize", .@"ns-resize" },
+        .{ "s-resize", .@"ns-resize" },
+        .{ "sb_v_double_arrow", .@"ns-resize" },
+        // cell / crosshair
+        .{ "cell", .cell },
+        .{ "crosshair", .cell },
+        .{ "plus", .cell },
+        .{ "tcross", .cell },
+    });
+    return map.get(name) orelse .default;
 }
 
 /// Handle OSC 52 clipboard read/write from the terminal application.

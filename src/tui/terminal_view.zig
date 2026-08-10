@@ -82,7 +82,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-        tui.rdr().request_mouse_cursor_default(self.hover);
+        self.apply_mouse_cursor();
         if (!self.hover) self.reset_hover_pos();
         tui.need_render(@src());
         return true;
@@ -368,7 +368,13 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.update_file_link_highlight();
     self.render_file_link_highlight(theme);
 
+    if (self.hover) self.apply_mouse_cursor();
+
     return self.vt.vt.dirty;
+}
+
+fn apply_mouse_cursor(self: *Self) void {
+    tui.rdr().request_mouse_cursor(self.vt.pointer_shape, self.hover);
 }
 
 fn resolve_color(c: *vaxis.Cell.Color, palette: *const [256][3]u8) void {

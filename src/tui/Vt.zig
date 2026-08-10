@@ -34,6 +34,7 @@ last_cmd: ?cbor.Raw = null,
 app_fg: ?[3]u8 = null,
 app_bg: ?[3]u8 = null,
 app_cursor: ?[3]u8 = null,
+pointer_shape: vaxis.Mouse.Shape = .default,
 process_exited: bool = false,
 on_exit: TerminalOnExit,
 synthesize_marks: bool = false,
@@ -218,6 +219,10 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
             }
         },
         .shell_state_change => {},
+        .pointer_shape_change => |shape| {
+            self.pointer_shape = shape;
+            tui.need_render(@src());
+        },
     }
 }
 
