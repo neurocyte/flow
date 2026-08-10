@@ -40,17 +40,18 @@ pub const Button = enum(u8) {
     }
 };
 
-pub const Modifiers = packed struct(u3) {
+pub const Modifiers = packed struct(u4) {
     shift: bool = false,
     alt: bool = false,
     ctrl: bool = false,
+    super: bool = false,
 
     pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
-        try cbor.writeValue(writer, @as(u3, @bitCast(self)));
+        try cbor.writeValue(writer, @as(u4, @bitCast(self)));
     }
 
     pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
-        var value: u3 = 0;
+        var value: u4 = 0;
         if (try cbor.matchValue(iter, cbor.extract(&value))) {
             self.* = @bitCast(value);
             return true;
@@ -59,10 +60,10 @@ pub const Modifiers = packed struct(u3) {
     }
 
     pub fn to_vaxis(self: @This()) vaxis.Mouse.Modifiers {
-        return @bitCast(self);
+        return .{ .shift = self.shift, .alt = self.alt, .ctrl = self.ctrl };
     }
     pub fn from_vaxis(mods: vaxis.Mouse.Modifiers) Modifiers {
-        return @bitCast(mods);
+        return .{ .shift = mods.shift, .alt = mods.alt, .ctrl = mods.ctrl };
     }
 };
 

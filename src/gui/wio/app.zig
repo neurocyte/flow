@@ -737,7 +737,7 @@ fn sendMouse(mouse_type: MouseEvent.Type, button: MouseEvent.Button, pos: wio.Po
 /// The currently held keyboard modifiers, as mouse-report modifiers
 fn currentMouseMods() MouseEvent.Modifiers {
     const m = input_translate.fromWioModifiers(wio_modifiers);
-    return .{ .shift = m.shift, .alt = m.alt, .ctrl = m.ctrl };
+    return .{ .shift = m.shift, .alt = m.alt, .ctrl = m.ctrl, .super = m.super };
 }
 
 /// The pointer position in window pixels
