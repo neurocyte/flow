@@ -737,20 +737,17 @@ pub const request_windows_clipboard = @import("tuirenderer").request_windows_cli
 
 pub fn request_mouse_cursor(self: *Self, shape: MouseCursorShape, push_or_pop: bool) void {
     _ = self;
-    _ = push_or_pop;
-    app.setMouseCursor(shape);
+    app.setMouseCursor(if (push_or_pop) shape else .default);
 }
 
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
     _ = self;
-    _ = push_or_pop;
-    app.setMouseCursor(.text);
+    app.setMouseCursor(if (push_or_pop) .text else .default);
 }
 
 pub fn request_mouse_cursor_pointer(self: *Self, push_or_pop: bool) void {
     _ = self;
-    _ = push_or_pop;
-    app.setMouseCursor(.pointer);
+    app.setMouseCursor(if (push_or_pop) .pointer else .default);
 }
 
 pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
