@@ -39,6 +39,7 @@ utf8_sanitized: bool = false,
 indent_mode: config.IndentMode = .spaces,
 auto_save: bool = false,
 have_mini_mode_cursor: bool = false,
+mini_layer: ?*tui.WidgetLayerBox = null,
 
 const project_icon = "";
 const terminal_icon = " ";
@@ -66,6 +67,13 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
         .on_event = event_handler,
     });
     return Widget.to(btn);
+}
+
+pub fn ctx_deinit(self: *Self) void {
+    if (self.mini_layer) |layer| {
+        layer.deinit(self.allocator);
+        self.mini_layer = null;
+    }
 }
 
 fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
@@ -114,7 +122,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     const terminal_status = if (tui.mainview()) |mv| mv.active_terminal_title() else null;
 
     if (tui.mini_mode()) |_|
-        self.render_mini_mode(&btn.plane)
+        self.render_mini_mode(btn, theme)
     else if (terminal_status) |ts|
         self.render_vt_title(&btn.plane, theme, ts)
     else if (self.detailed)
@@ -131,17 +139,59 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     return false;
 }
 
-fn render_mini_mode(self: *Self, plane: *Plane) void {
-    plane.off_styles(styles.italic);
+fn render_mini_mode(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) void {
     const mini_mode = tui.mini_mode() orelse return;
+    const needed = 1 + tui.egc_chunk_width(mini_mode.text, 0, 8) + 1;
+    if (needed <= btn.plane.dim_x()) {
+        self.draw_mini_mode(&btn.plane, mini_mode.text, mini_mode.cursor);
+    } else {
+        self.render_mini_mode_overlay(btn, theme, mini_mode.text, mini_mode.cursor) catch
+            self.draw_mini_mode(&btn.plane, mini_mode.text, mini_mode.cursor);
+    }
+}
+
+fn draw_mini_mode(self: *Self, plane: *Plane, text: []const u8, cursor: ?usize) void {
+    plane.off_styles(styles.italic);
     _ = plane.putstr_unicode(" ") catch {};
-    _ = plane.putstr_unicode(mini_mode.text) catch {};
-    if (mini_mode.cursor) |cursor| {
-        const pos: c_int = @intCast(cursor);
+    _ = plane.putstr_unicode(text) catch {};
+    if (cursor) |c| {
+        const pos: c_int = @intCast(c);
         plane.cursor_enable(0, pos + 1, tui.get_cursor_shape());
         self.have_mini_mode_cursor = true;
     }
-    return;
+}
+
+// Render the mini mode buffer covering the neighbouring widgets.
+fn render_mini_mode_overlay(self: *Self, btn: *ButtonType, theme: *const Widget.Theme, text: []const u8, cursor: ?usize) !void {
+    const screen = tui.screen();
+    const cw: i32 = btn.plane.cell_x();
+    const ch: i32 = btn.plane.cell_y();
+    const px, const py = btn.plane.global_origin_px();
+    const screen_right_px: i32 = @as(i32, @intCast(screen.w)) * cw + screen.extra_x;
+    const width_px = screen_right_px - px;
+    if (width_px <= 0) return error.NoSpace;
+    const w_cells: usize = @intCast(@max(1, @divFloor(width_px + cw - 1, cw)));
+
+    const layer = self.mini_layer orelse blk: {
+        const new_layer = try tui.WidgetLayerBox.create(self.allocator, tui.plane(), .{ .name = "filestate_mini.layer" });
+        self.mini_layer = new_layer;
+        break :blk new_layer;
+    };
+    layer.handle_resize(.{
+        .w = w_cells,
+        .h = 1,
+        .frame = .{ .x = px, .y = py, .w = width_px, .h = ch },
+    });
+
+    var plane = layer.inner_plane();
+    plane.set_base_style(theme.statusbar);
+    plane.erase();
+    plane.home();
+    plane.set_style(theme.statusbar);
+    plane.fill(" ");
+    plane.home();
+    self.draw_mini_mode(&plane, text, cursor);
+    _ = layer.widget().render(theme);
 }
 
 // 󰆓 Content save
