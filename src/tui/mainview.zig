@@ -336,7 +336,7 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
 }
 
 fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
-    const h = @max(1, self.plane.dim_y() -| y);
+    const h = @max(1, self.plane.dim_y() -| y -| 1);
     return self.set_panel_height_abs(h);
 }
 
