@@ -322,6 +322,11 @@ pub fn box(self: *const Self) Box {
     return Box.from(self.plane);
 }
 
+pub fn active_panel_plane(self: *const Self) ?Plane {
+    const panels = self.panels orelse return null;
+    return panels.plane;
+}
+
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {

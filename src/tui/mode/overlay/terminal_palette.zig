@@ -15,7 +15,7 @@ pub const description = "terminal";
 pub const icon = "  ";
 const terminal_icon = "";
 pub const modal_dim = false;
-pub const placement = .top_right;
+pub const placement = .panel;
 
 const label_len = label.len + 3 + icon.len;
 

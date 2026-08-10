@@ -28,6 +28,7 @@ pub const Placement = enum {
     top_right,
     center,
     primary_cursor,
+    panel,
 
     fn from_config(conf: @import("config").PalettePlacement) Placement {
         return switch (conf) {
@@ -227,6 +228,7 @@ pub fn Create(options: type) type {
                 .top_right => self.prepare_resize_top_right(screen, w, padding),
                 .center => self.prepare_resize_center(screen, w),
                 .primary_cursor => self.prepare_resize_primary_cursor(screen, w, padding),
+                .panel => self.prepare_resize_panel(screen, w, padding),
             };
         }
 
@@ -265,6 +267,43 @@ pub fn Create(options: type) type {
                 return self.prepare_resize_at_x(screen, w, @min(x, right_edge));
             };
             return self.prepare_resize_at_x(screen, w, x);
+        }
+
+        fn prepare_resize_panel(self: *Self, screen: Widget.Box, w: usize, padding: Widget.Style.Margin) Widget.Box {
+            const mv = tui.mainview() orelse return self.prepare_resize_top_right(screen, w, padding);
+            const panel = mv.active_panel_plane() orelse return self.prepare_resize_top_right(screen, w, padding);
+            const pf = panel.frame(); // absolute pixel extent of the panel
+            const cw: i32 = panel.cell_x();
+            const ch: i32 = panel.cell_y();
+
+            // Start one row below the panel's title bar.
+            const content_top_px: i32 = pf.y + ch;
+
+            const content_top_row: usize = @intCast(@max(0, @divFloor(content_top_px, ch)));
+            const avail_rows = screen.h -| content_top_row;
+            self.view_rows = avail_rows -| self.menu.header_count;
+            const content_rows: usize = if (async_query)
+                avail_rows
+            else
+                @min(self.items + self.menu.header_count, avail_rows);
+
+            const pad_l: i32 = @intCast(padding.left);
+            const pad_r: i32 = @intCast(padding.right);
+            const pad_t: i32 = @intCast(padding.top);
+            const pad_b: i32 = @intCast(padding.bottom);
+            const content_w_px: i32 = @as(i32, @intCast(w)) * cw;
+            const content_h_px: i32 = @as(i32, @intCast(content_rows)) * ch;
+            const content_x: i32 = pf.x + pf.w - content_w_px - pad_r * cw;
+            return .{
+                .w = w,
+                .h = content_rows,
+                .frame = .{
+                    .x = @max(0, content_x - pad_l * cw),
+                    .y = @max(0, content_top_px - pad_t * ch),
+                    .w = content_w_px + (pad_l + pad_r) * cw,
+                    .h = content_h_px + (pad_t + pad_b) * ch,
+                },
+            };
         }
 
         fn prepare_resize_primary_cursor(self: *Self, screen: Widget.Box, w: usize, padding: Widget.Style.Margin) Widget.Box {
