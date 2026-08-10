@@ -17,6 +17,7 @@ msg_counter: usize = 0,
 clear_timer: ?tp.Cancellable = null,
 level: Level = .info,
 on_event: ?EventHandler,
+overlay: ?*tui.WidgetLayerBox = null,
 
 const message_display_time_seconds = 2;
 const error_display_time_seconds = 4;
@@ -42,6 +43,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    if (self.overlay) |layer| layer.deinit(allocator);
     if (self.clear_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -63,22 +65,86 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
-    return .{ .static = if (self.msg.written().len > 0) self.msg.written().len + 2 else 1 };
+    if (self.msg.written().len == 0) return .{ .static = 1 };
+    if (self.overlay_needed()) return .{ .static = 1 };
+    return .{ .static = self.msg.written().len + 2 };
+}
+
+fn overlay_needed(self: *Self) bool {
+    const msg = self.msg.written();
+    if (msg.len == 0) return false;
+    if (tui.mini_mode() != null) return true;
+    const width = tui.egc_chunk_width(msg, 0, 8);
+    return width > tui.screen().w / 3;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const style_normal = theme.statusbar;
     const style_info: Widget.Theme.Style = .{ .fg = theme.statusbar.fg, .fs = theme.editor_information.fs };
     const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs };
+    const msg_style = if (self.level == .err) style_error else style_info;
     self.plane.set_base_style(theme.editor);
     self.plane.erase();
     self.plane.home();
     self.plane.set_style(style_normal);
     self.plane.fill(" ");
     self.plane.home();
-    self.plane.set_style(if (self.level == .err) style_error else style_info);
-    _ = self.plane.print(" {s} ", .{self.msg.written()}) catch {};
+
+    const msg = self.msg.written();
+    if (!self.overlay_needed()) {
+        self.plane.set_style(msg_style);
+        _ = self.plane.print(" {s} ", .{msg}) catch {};
+    } else {
+        const needed = 1 + tui.egc_chunk_width(msg, 0, 8) + 1;
+        self.render_overlay(theme, msg, msg_style, needed) catch {
+            self.plane.set_style(msg_style);
+            _ = self.plane.print(" {s} ", .{msg}) catch {};
+        };
+    }
     return false;
+}
+
+fn render_overlay(self: *Self, theme: *const Widget.Theme, msg: []const u8, msg_style: Widget.Theme.Style, needed: usize) !void {
+    const screen = tui.screen();
+    const cw: i32 = self.plane.cell_x();
+    const ch: i32 = self.plane.cell_y();
+    _, const py = self.plane.global_origin_px(); // status bar top, in pixels
+    const overlay_y_px = py - ch; // one row above the status bar
+    if (overlay_y_px < 0) return error.NoSpace;
+
+    const screen_width_px: i32 = @as(i32, @intCast(screen.w)) * cw + screen.extra_x;
+    const text_width_px: i32 = @as(i32, @intCast(needed)) * cw;
+    const overlay_width_px = @min(text_width_px, screen_width_px);
+    if (overlay_width_px <= 0) return error.NoSpace;
+    const overlay_x_px = screen_width_px - overlay_width_px; // right aligned; 0 when clipped
+    const w_cells: usize = @intCast(@max(1, @divFloor(overlay_width_px + cw - 1, cw)));
+
+    const layer = self.overlay orelse blk: {
+        const new_layer = try tui.WidgetLayerBox.create(self.msg.allocator, tui.plane(), .{ .name = "minilog.layer" });
+        new_layer.shadow = .{ .edges = .{ .bottom = false, .right = false } };
+        self.overlay = new_layer;
+        break :blk new_layer;
+    };
+    layer.handle_resize(.{
+        .w = w_cells,
+        .h = 1,
+        .frame = .{ .x = overlay_x_px, .y = overlay_y_px, .w = overlay_width_px, .h = ch },
+    });
+
+    var plane = layer.inner_plane();
+    plane.set_base_style(theme.statusbar);
+    plane.erase();
+    plane.home();
+    plane.set_style(theme.statusbar);
+    plane.fill(" ");
+    plane.home();
+    plane.set_style(msg_style);
+    _ = plane.print(" {s} ", .{msg}) catch {};
+    if (text_width_px > overlay_width_px) {
+        plane.cursor_move_yx(0, @intCast(w_cells -| 2));
+        _ = plane.print("… ", .{}) catch {};
+    }
+    _ = layer.widget().render(theme);
 }
 
 fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
