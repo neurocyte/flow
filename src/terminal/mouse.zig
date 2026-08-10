@@ -28,8 +28,11 @@ pub fn encode(writer: *std.Io.Writer, m: vaxis.Mouse, sgr: bool, pixel: bool, ce
         .button_11 => 131,
     };
 
-    // For release events in X10/normal mode, button code is always 3 regardless of button
-    var cb: u8 = if (!sgr and m.type == .release) 3 else btn_base;
+    // In the legacy X10/normal encoding a release is always button code 3.
+    // SGR and SGR-Pixels framing instead preserve the button and signal the
+    // release with a trailing 'm', so the button must be kept there.
+    const x10 = !sgr and !pixel;
+    var cb: u8 = if (x10 and m.type == .release) 3 else btn_base;
 
     // Modifier bits
     if (m.mods.shift) cb |= 4;
