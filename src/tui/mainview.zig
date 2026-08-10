@@ -340,6 +340,8 @@ fn set_panel_height_abs(self: *Self, y: usize) tp.result {
         cmds.toggle_panel(self, .empty()) catch return;
         break :blk self.panels.?;
     };
+    if (tui.input_mode_outer() != null and tui.mini_mode() == null)
+        command.executeName("exit_overlay_mode", .empty()) catch {};
     const max_h = self.box().h -| 1;
     self.panel_height = @max(1, @min(max_h, y));
     self.panel_maximized = false;
