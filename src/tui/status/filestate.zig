@@ -203,7 +203,7 @@ fn render_mini_mode_overlay(self: *Self, btn: *ButtonType, theme: *const Widget.
 // 󱑛 Content save cog
 // 󰆔 Content save all
 
-fn print_clipped_left(plane: *Plane, text: []const u8) void {
+fn print_clipped(plane: *Plane, text: []const u8, clip: enum { left, right }) void {
     const remaining_i: i32 = @as(i32, plane.dim_x()) - plane.cursor_x();
     if (remaining_i <= 0) return;
     const remaining: usize = @intCast(remaining_i);
@@ -212,9 +212,17 @@ fn print_clipped_left(plane: *Plane, text: []const u8) void {
         _ = plane.print("{s}", .{text}) catch {};
         return;
     }
-    const skip = text_w -| (remaining -| 2);
-    const off = tui.egc_chunk_col_pos(text, 0, 8, skip);
-    _ = plane.print("…{s}", .{text[off..]}) catch {};
+    const keep = remaining -| 2; // reserve the ellipsis (and a trailing gap)
+    switch (clip) {
+        .left => {
+            const off = tui.egc_chunk_col_pos(text, 0, 8, text_w -| keep);
+            _ = plane.print("…{s}", .{text[off..]}) catch {};
+        },
+        .right => {
+            const off = tui.egc_chunk_col_pos(text, 0, 8, keep);
+            _ = plane.print("{s}…", .{text[0..off]}) catch {};
+        },
+    }
 }
 
 fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_save: bool) void {
@@ -225,7 +233,7 @@ fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_sa
         _ = plane.print(" ", .{}) catch {};
     }
     _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (auto_save) "󱑛 " else if (self.file_dirty) "󰆓 " else "") catch {};
-    print_clipped_left(plane, self.name);
+    print_clipped(plane, self.name, .left);
     return;
 }
 
@@ -276,7 +284,7 @@ fn render_vt_title(_: *Self, plane: *Plane, _: *const Widget.Theme, status: anyt
     }
     if (status.count > 1)
         _ = plane.print("({d}/{d}) ", .{ status.index, status.count }) catch {};
-    print_clipped_left(plane, status.title);
+    print_clipped(plane, status.title, .right);
     return;
 }
 
