@@ -187,6 +187,7 @@ fn init(allocator: Allocator) InitError!*Self {
     tp.env.get().set("enable_file_watcher", conf.enable_file_watcher);
     tp.env.get().set("log_ignored_links", conf.log_ignored_links);
     tp.env.get().num_set("maximum_symlink_depth", @intCast(conf.maximum_symlink_depth));
+    tp.env.get().proc_set("tui", tp.self_pid());
 
     var self = try allocator.create(Self);
     // don't destroy
@@ -2105,6 +2106,7 @@ pub const KeybindHints = keybind.KeybindHints;
 threadlocal var instance_: ?*Self = null;
 
 fn current() *Self {
+    if (builtin.mode == .Debug) context_check();
     return instance_ orelse @panic("tui call out of context");
 }
 
@@ -2194,6 +2196,15 @@ pub fn get_buffer_manager() ?*@import("Buffer").Manager {
 }
 
 fn context_check() void {
+    if (builtin.mode == .Debug) {
+        const tui_proc = tp.env.get().proc("tui");
+        if (tui_proc.expired())
+            @panic("tui call out of context (expired)");
+        const tui_proc_id = tui_proc.instance_id();
+        const self_proc_id = tp.self_pid().instance_id();
+        if (tui_proc_id != self_proc_id)
+            std.debug.panic("tui call out of context (piid wrong: tui {d} != {d})", .{ tui_proc_id, self_proc_id });
+    }
     if (instance_ == null) @panic("tui call out of context");
 }
 
