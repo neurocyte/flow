@@ -1064,6 +1064,12 @@ fn wioLoop() void {
                 .position => {
                     // TODO: save/restore window position
                 },
+                .mouse_leave => {
+                    // ignored
+                },
+                .size_logical => {
+                    // ignored
+                },
                 else => {
                     std.log.debug("wio unhandled event: {}", .{event});
                 },

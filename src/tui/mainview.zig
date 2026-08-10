@@ -1190,7 +1190,8 @@ const cmds = struct {
         };
 
         var buf: [tp.max_message_size]u8 = undefined;
-        std.log.debug("open_terminal: {s}", .{if (ctx.args.buf.len > 0) ctx.args.to_json(&buf) catch "(error)" else "(none)"});
+        if (ctx.args.buf.len > 0)
+            std.log.debug("open_terminal: {s}", .{ctx.args.to_json(&buf) catch "(error)"});
         if (self.get_panel_view(terminal_view)) |vt| {
             try vt.run_cmd(ctx);
             vt.focus();
