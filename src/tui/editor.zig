@@ -4919,7 +4919,7 @@ pub const Editor = struct {
     pub fn scroll_right(self: *Self, ctx: Context) Result {
         var count: usize = 1;
         _ = ctx.args.match(.{tp.extract(&count)}) catch false;
-        self.view.move_right(count) catch {};
+        if (self.buffer) |buffer| self.view.move_right(buffer, count) catch {};
     }
     pub const scroll_right_meta: Meta = .{ .description = "Scroll right", .arguments = &.{.integer} };
 
@@ -4935,10 +4935,12 @@ pub const Editor = struct {
     pub fn mouse_scroll_right(self: *Self) void {
         const scroll_step_horizontal = tui.config().scroll_step_horizontal;
         const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
-        self.view.move_right(if (tui.fast_scroll())
-            scroll_step_horizontal_fast
-        else
-            scroll_step_horizontal) catch {};
+        if (self.buffer) |buffer| {
+            self.view.move_right(buffer, if (tui.fast_scroll())
+                scroll_step_horizontal_fast
+            else
+                scroll_step_horizontal) catch {};
+        }
     }
 
     pub fn move_scroll_page_up(self: *Self, ctx: Context) Result {

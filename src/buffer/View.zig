@@ -37,8 +37,12 @@ pub fn move_left(self: *Self, n: usize) error{Stop}!void {
     } else return error.Stop;
 }
 
-pub fn move_right(self: *Self, n: usize) error{Stop}!void {
+pub fn move_right(self: *Self, buffer: *const Buffer, n: usize) error{Stop}!void {
     self.col += n;
+
+    if ((self.col + self.cols + 5) > buffer.longest_line_len) {
+        self.col = buffer.longest_line_len -| (self.cols + 5);
+    }
 }
 
 pub fn move_up(self: *Self) !void {
