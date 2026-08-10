@@ -69,11 +69,19 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
 }
 
 fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("open_recent", .empty()) catch {};
+    const terminal_active = if (tui.mainview()) |mv| mv.active_terminal_title() != null else false;
+    if (terminal_active)
+        command.executeName("switch_terminals", .empty()) catch {}
+    else
+        command.executeName("open_recent", .empty()) catch {};
 }
 
 fn on_click2(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("close_file", .empty()) catch {};
+    const terminal_active = if (tui.mainview()) |mv| mv.active_terminal_title() != null else false;
+    if (terminal_active)
+        command.executeName("switch_terminals", .empty()) catch {}
+    else
+        command.executeName("close_file", .empty()) catch {};
 }
 
 fn on_click3(self: *Self, _: *ButtonType, _: Widget.Pos) void {
