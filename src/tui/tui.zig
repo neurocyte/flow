@@ -734,8 +734,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
-    if (try m.match(.{ "CFG", "rename", tp.extract(&changed_path), tp.more })) {
+    var renamed_to: []const u8 = undefined;
+    if (try m.match(.{ "CFG", "rename", tp.extract(&changed_path), tp.extract(&renamed_to), tp.more })) {
         self.config_file_changed(changed_path);
+        self.config_file_changed(renamed_to);
         return;
     }
 
@@ -1176,8 +1178,6 @@ const config_watcher: file_watcher.Instance = .{ .name = "config_watcher", .tag 
 fn start_config_watcher(self: *Self) void {
     const config_dir = root.get_config_dir() catch |e| return self.logger.err("config_watcher", e);
     config_watcher.watch(config_dir) catch |e| self.logger.err("config_watcher", e);
-    // TODO: why is this extra watch needed?
-    config_watcher.watch(root.get_config_file_name(@import("config")) catch return) catch |e| self.logger.err("config_watcher", e);
 }
 
 fn config_file_changed(self: *Self, path: []const u8) void {
