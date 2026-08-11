@@ -485,6 +485,10 @@ pub fn build_exe(
         .root_source_file = b.path("src/match.zig"),
     });
 
+    const gitignore_mod = b.createModule(.{
+        .root_source_file = b.path("src/gitignore/gitignore.zig"),
+    });
+
     const syntax_validator_mod = b.createModule(.{
         .root_source_file = b.path("src/syntax_validator.zig"),
         .imports = &.{
@@ -940,6 +944,34 @@ pub fn build_exe(
             .name = "test-match",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/match.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
+    const gitignore_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-gitignore",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gitignore/gitignore.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
+    const gitignore_differential_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-gitignore-differential",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gitignore/differential_test.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -1414,6 +1446,8 @@ pub fn build_exe(
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
+    test_step.dependOn(&gitignore_test_run_cmd.step);
+    test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);
     test_step.dependOn(&terminal_screen_test_run_cmd.step);

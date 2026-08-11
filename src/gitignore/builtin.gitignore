@@ -1,0 +1,15 @@
+# Fallback pruning list, used only when no real ignore source governs a walk.
+#
+# These are unanchored directory patterns: "X/" matches a directory named X at
+# any depth.
+#
+# `.git` and `.jj` are skipped unconditionally by the walker, the way git
+# hardcodes skipping `.git` regardless of ignore rules.
+AppData/
+.cache/
+.cargo/
+node_modules/
+.npm/
+.rustup/
+.var/
+.zig-cache/
