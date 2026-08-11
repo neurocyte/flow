@@ -2540,7 +2540,6 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
 };
 
 fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
-    std.log.debug("set terminal style {s}", .{theme_.name});
     self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
     self.rdr_.set_terminal_secondary_cursor_color(theme_.editor_cursor_secondary.bg orelse theme_.editor_cursor.bg.?);
     if (build_options.gui or self.config_.enable_terminal_color_scheme)
