@@ -38,11 +38,9 @@ pub fn move_left(self: *Self, n: usize) error{Stop}!void {
 }
 
 pub fn move_right(self: *Self, buffer: *const Buffer, n: usize) error{Stop}!void {
-    self.col += n;
-
-    if ((self.col + self.cols + 5) > buffer.longest_line_len) {
-        self.col = buffer.longest_line_len -| (self.cols + 5);
-    }
+    const max_col = buffer.longest_line_len -| self.cols + 1; // +1 to show NL
+    const new_col = self.col + n;
+    self.col = @min(max_col, new_col);
 }
 
 pub fn move_up(self: *Self) !void {
