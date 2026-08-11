@@ -2151,7 +2151,8 @@ pub const Editor = struct {
             self.clear_info_box();
             return;
         };
-        const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+        const y = self.plane.abs_y() + @as(i32, @intCast(pos.row));
+        const x = self.plane.abs_x() + @as(i32, @intCast(pos.col));
 
         layer.handle_resize(.{
             .h = dim.rows + padding.top + padding.bottom,
@@ -8013,7 +8014,7 @@ pub const EditorWidget = struct {
                 self.update_hover_timer(.cancel);
                 tui.rdr().request_mouse_cursor_text(self.hover);
             }
-        } else if (try m.match(.{"HOVER"})) {
+        } else if (try m.match(.{ "HOVER", @intFromPtr(self) })) {
             self.update_hover_timer(.fired);
             if (self.hover_y >= 0 and self.hover_x >= 0 and self.hover_mouse_event)
                 try self.editor.hover_at_abs(@intCast(self.hover_y), @intCast(self.hover_x));
@@ -8052,7 +8053,7 @@ pub const EditorWidget = struct {
         if (event == .init) {
             self.hover_mouse_event = false;
             const delay_us: u64 = std.time.us_per_ms * tui.config().hover_time_ms;
-            self.hover_timer = tp.self_pid().delay_send_cancellable(self.editor.allocator, "editor.hover_timer", delay_us, .{"HOVER"}) catch null;
+            self.hover_timer = tp.self_pid().delay_send_cancellable(self.editor.allocator, "editor.hover_timer", delay_us, .{ "HOVER", @intFromPtr(self) }) catch null;
         }
     }
 
