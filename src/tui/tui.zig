@@ -1182,10 +1182,8 @@ fn start_config_watcher(self: *Self) void {
 
 fn config_file_changed(self: *Self, path: []const u8) void {
     const config_file = root.get_config_file_name(@import("config")) catch return;
-    if (std.mem.eql(u8, config_file, path)) {
-        std.log.debug("config_file_changed: {s}", .{path});
+    if (std.mem.eql(u8, config_file, path))
         self.reload_config();
-    }
 }
 
 pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
