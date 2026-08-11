@@ -25,42 +25,66 @@ pub const Error = error{
 };
 const SpawnError = error{ OutOfMemory, ThespianSpawnFailed };
 
+pub const Instance = struct {
+    name: [:0]const u8,
+    tag: [:0]const u8,
+
+    pub fn watch(self: Instance, path: []const u8) Error!void {
+        return self.send(.{ "watch", path });
+    }
+
+    pub fn unwatch(self: Instance, path: []const u8) Error!void {
+        return self.send(.{ "unwatch", path });
+    }
+
+    pub fn start(self: Instance) SpawnError!void {
+        _ = try self.get();
+    }
+
+    pub fn shutdown(self: Instance) void {
+        const pid = tp.env.get().proc(self.name);
+        if (pid.expired()) return;
+        pid.send(.{"shutdown"}) catch {};
+    }
+
+    fn get(self: Instance) SpawnError!Self {
+        const pid = tp.env.get().proc(self.name);
+        return if (pid.expired()) self.create() else .{ .pid = pid };
+    }
+
+    fn send(self: Instance, message: anytype) Error!void {
+        return (try self.get()).pid.send(message) catch error.FileWatcherSendFailed;
+    }
+
+    fn create(self: Instance) SpawnError!Self {
+        const pid = try Process.create(self);
+        defer pid.deinit();
+        tp.env.get().proc_set(self.name, pid.ref());
+        return .{ .pid = tp.env.get().proc(self.name) };
+    }
+};
+
+pub const default: Instance = .{ .name = module_name, .tag = "FW" };
+
 pub fn watch(path: []const u8) Error!void {
-    return send(.{ "watch", path });
+    return default.watch(path);
 }
 
 pub fn unwatch(path: []const u8) Error!void {
-    return send(.{ "unwatch", path });
+    return default.unwatch(path);
 }
 
 pub fn start() SpawnError!void {
-    _ = try get();
+    return default.start();
 }
 
 pub fn shutdown() void {
-    const pid = tp.env.get().proc(module_name);
-    if (pid.expired()) return;
-    pid.send(.{"shutdown"}) catch {};
-}
-
-fn get() SpawnError!Self {
-    const pid = tp.env.get().proc(module_name);
-    return if (pid.expired()) create() else .{ .pid = pid };
-}
-
-fn send(message: anytype) Error!void {
-    return (try get()).pid.send(message) catch error.FileWatcherSendFailed;
-}
-
-fn create() SpawnError!Self {
-    const pid = try Process.create();
-    defer pid.deinit();
-    tp.env.get().proc_set(module_name, pid.ref());
-    return .{ .pid = tp.env.get().proc(module_name) };
+    default.shutdown();
 }
 
 const Process = struct {
     allocator: std.mem.Allocator,
+    instance: Instance,
     parent: tp.pid,
     receiver: Receiver,
     nw: ?Watcher = null,
@@ -69,18 +93,19 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*@This());
 
-    fn create() SpawnError!tp.pid {
+    fn create(instance: Instance) SpawnError!tp.pid {
         const allocator = std.heap.c_allocator;
         const self = try allocator.create(@This());
         errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,
+            .instance = instance,
             .parent = tp.self_pid().clone(),
             .receiver = .init(receive, dtor, self),
             .fd_watcher = if (builtin.os.tag == .linux) null else {},
             .handler = .{ .vtable = &vtable },
         };
-        return tp.spawn_link(self.allocator, self, @This().start, module_name);
+        return tp.spawn_link(self.allocator, self, @This().start, instance.name);
     }
 
     fn dtor(self: *@This()) void {
@@ -104,7 +129,7 @@ const Process = struct {
         self.nw = Watcher.init(root.get_io(), self.allocator, &self.handler) catch |e|
             return tp.exit_error(e, @errorReturnTrace());
         if (builtin.os.tag == .linux) {
-            self.fd_watcher = tp.file_descriptor.init(module_name, self.nw.?.poll_fd()) catch |e| {
+            self.fd_watcher = tp.file_descriptor.init(self.instance.name, self.nw.?.poll_fd()) catch |e| {
                 std.log.err("file_watcher.start: {}", .{e});
                 return tp.exit_error(e, @errorReturnTrace());
             };
@@ -151,13 +176,13 @@ const Process = struct {
     fn handle_change(handler: *Watcher.Handler, path: []const u8, event_type: EventType, object_type: ObjectType) error{HandlerFailed}!void {
         const self: *@This() = @alignCast(@fieldParentPtr("handler", handler));
         if (event_type == .closed) return;
-        self.parent.send(.{ "FW", "change", path, event_type, object_type }) catch |e|
+        self.parent.send(.{ self.instance.tag, "change", path, event_type, object_type }) catch |e|
             std.log.err("file_watcher change: {s} -> {}", .{ path, e });
     }
 
     fn handle_rename(handler: *Watcher.Handler, src_path: []const u8, dst_path: []const u8, object_type: ObjectType) error{HandlerFailed}!void {
         const self: *@This() = @alignCast(@fieldParentPtr("handler", handler));
-        self.parent.send(.{ "FW", "rename", src_path, dst_path, object_type }) catch |e|
+        self.parent.send(.{ self.instance.tag, "rename", src_path, dst_path, object_type }) catch |e|
             std.log.err("file_watcher rename: {s} -> {}", .{ src_path, e });
     }
 

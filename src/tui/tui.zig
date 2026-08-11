@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
 const project_manager = @import("project_manager");
+const file_watcher = @import("file_watcher");
 const root = @import("soft_root").root;
 const tracy = @import("tracy");
 const builtin = @import("builtin");
@@ -235,6 +236,7 @@ fn init(allocator: Allocator) InitError!*Self {
     }
 
     try project_manager.start();
+    self.start_config_watcher();
 
     try frame_clock.start();
     try self.commands.init(self);
@@ -506,6 +508,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return command.execute(cmd_id, command.get_name(cmd_id) orelse "(unknown)", ctx) catch |e| self.logger.err("command", e);
     }
     if (try m.match(.{"quit"})) {
+        config_watcher.shutdown();
         project_manager.shutdown();
         return;
     }
@@ -515,6 +518,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{"restart"})) {
         if (mainview()) |mv| try mv.write_restore_info();
+        config_watcher.shutdown();
         project_manager.shutdown();
         self.final_exit = "restart";
         return;
@@ -718,11 +722,22 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
-    if (try m.match(.{ "FW", "change", tp.more })) // file watcher change events
+    if (try m.match(.{ "FW", "change", tp.more })) // project file watcher events
         return;
 
-    if (try m.match(.{ "FW", "rename", tp.more })) // file watcher rename events
+    if (try m.match(.{ "FW", "rename", tp.more })) // project file watcher events
         return;
+
+    var changed_path: []const u8 = undefined;
+    if (try m.match(.{ "CFG", "change", tp.extract(&changed_path), tp.more })) {
+        self.config_file_changed(changed_path);
+        return;
+    }
+
+    if (try m.match(.{ "CFG", "rename", tp.extract(&changed_path), tp.more })) {
+        self.config_file_changed(changed_path);
+        return;
+    }
 
     return tp.unexpected(m);
 }
@@ -1156,9 +1171,37 @@ pub fn reset_hover(src: std.builtin.SourceLocation) void {
     self.clear_hover_focus(src) catch {};
 }
 
+const config_watcher: file_watcher.Instance = .{ .name = "config_watcher", .tag = "CFG" };
+
+fn start_config_watcher(self: *Self) void {
+    const config_dir = root.get_config_dir() catch |e| return self.logger.err("config_watcher", e);
+    config_watcher.watch(config_dir) catch |e| self.logger.err("config_watcher", e);
+    // TODO: why is this extra watch needed?
+    config_watcher.watch(root.get_config_file_name(@import("config")) catch return) catch |e| self.logger.err("config_watcher", e);
+}
+
+fn config_file_changed(self: *Self, path: []const u8) void {
+    const config_file = root.get_config_file_name(@import("config")) catch return;
+    if (std.mem.eql(u8, config_file, path)) {
+        std.log.debug("config_file_changed: {s}", .{path});
+        self.reload_config();
+    }
+}
+
 pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
     const self = current();
     try root.write_config(self.config_, self.allocator);
+}
+
+fn reload_config(self: *Self) void {
+    const allocator = self.allocator;
+    const conf, const conf_bufs = root.read_config(@import("config"), allocator);
+    defer root.free_config(self.allocator, conf_bufs);
+
+    switch (self.color_scheme) {
+        .dark => self.set_theme_by_name(conf.theme, .none) catch {},
+        .light => self.set_theme_by_name(conf.light_theme, .none) catch {},
+    }
 }
 
 pub fn is_mainview_focused() bool {
