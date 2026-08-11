@@ -1197,9 +1197,9 @@ fn reload_config(self: *Self) void {
     defer root.free_config(self.allocator, conf_bufs);
 
     switch (self.color_scheme) {
-        .dark => if (!std.mem.eql(u8, conf.theme, self.config_.theme))
+        .dark => if (!std.mem.eql(u8, conf.theme, self.dark_theme.name))
             self.set_theme_by_name(conf.theme, .none) catch {},
-        .light => if (!std.mem.eql(u8, conf.light_theme, self.config_.light_theme))
+        .light => if (!std.mem.eql(u8, conf.light_theme, self.dark_theme.name))
             self.set_theme_by_name(conf.light_theme, .none) catch {},
     }
 }
