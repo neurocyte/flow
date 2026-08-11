@@ -607,23 +607,42 @@ const Process = struct {
 
     fn handle_file_watch_rename(self: *Process, abs_from: []const u8, abs_to: []const u8, object_type: file_watcher.ObjectType) void {
         std.log.debug("file_watch_event: rename {s} -> {s}", .{ abs_from, abs_to });
-        if (object_type == .dir) return; // the project file index tracks files only
         const src = self.project_for_path(abs_from);
         const dst = self.project_for_path(abs_to);
+
+        // the file index tracks files only, but the ignore ruleset is keyed by
+        // directory and has to drop what moved
+        if (object_type == .dir) {
+            if (src) |s| s.project.ignore_subtree_removed(s.rel_path);
+            if (dst) |d| d.project.ignore_subtree_removed(d.rel_path);
+            if (src == null and dst == null)
+                self.parent.send(.{ "FW", "rename", abs_from, abs_to, object_type }) catch {};
+            return;
+        }
+
+        // before any ignore test: an ignore file may itself be ignored
+        if (src) |s| if (s.project.is_ignore_file(s.rel_path)) s.project.ignore_changed(s.rel_path);
+        if (dst) |d| if (d.project.is_ignore_file(d.rel_path)) d.project.ignore_changed(d.rel_path);
 
         if (src) |s| {
             if (dst) |d| {
                 if (s.project == d.project) {
-                    s.project.file_renamed(s.rel_path, d.rel_path) catch |e| self.logger.err("file_watcher.file_renamed", e);
+                    if (d.project.is_ignored(d.rel_path, .file)) {
+                        s.project.file_deleted(s.rel_path);
+                    } else {
+                        s.project.file_renamed(s.rel_path, d.rel_path) catch |e| self.logger.err("file_watcher.file_renamed", e);
+                    }
                 } else {
                     s.project.file_deleted(s.rel_path);
-                    d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
+                    if (!d.project.is_ignored(d.rel_path, .file))
+                        d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
                 }
             } else {
                 s.project.file_deleted(s.rel_path);
             }
         } else if (dst) |d| {
-            d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
+            if (!d.project.is_ignored(d.rel_path, .file))
+                d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
         } else {
             self.parent.send(.{ "FW", "rename", abs_from, abs_to, object_type }) catch {};
         }
@@ -631,16 +650,30 @@ const Process = struct {
 
     fn handle_file_watch_event(self: *Process, abs_path: []const u8, event_type: file_watcher.EventType, object_type: file_watcher.ObjectType) void {
         std.log.debug("file_watch_event: {s} {s}", .{ @tagName(event_type), abs_path });
-        if (object_type == .dir) return; // nightwatch watches new directories itself; the file index tracks files only
-        if (self.project_for_path(abs_path)) |match| {
-            switch (event_type) {
-                .created => match.project.file_added(match.rel_path) catch |e| self.logger.err("file_watcher.file_added", e),
-                .modified => match.project.file_modified(match.rel_path),
-                .deleted => match.project.file_deleted(match.rel_path),
-                .closed => {}, // filtered by the file_watcher actor
-            }
-        } else {
+        const match = self.project_for_path(abs_path) orelse {
             self.parent.send(.{ "FW", "change", abs_path, event_type, object_type }) catch {};
+            return;
+        };
+
+        // nightwatch watches new directories itself, but a removed one must
+        // still drop the rules cached beneath it
+        if (object_type == .dir) {
+            if (event_type == .deleted) match.project.ignore_subtree_removed(match.rel_path);
+            return;
+        }
+
+        // an ignore file still invalidates the ruleset even when it is itself
+        // excluded, as .git/info/exclude always is
+        if (match.project.is_ignore_file(match.rel_path))
+            match.project.ignore_changed(match.rel_path);
+        if (event_type == .created and match.project.is_ignored(match.rel_path, .file))
+            return;
+
+        switch (event_type) {
+            .created => match.project.file_added(match.rel_path) catch |e| self.logger.err("file_watcher.file_added", e),
+            .modified => match.project.file_modified(match.rel_path),
+            .deleted => match.project.file_deleted(match.rel_path),
+            .closed => {}, // filtered by the file_watcher actor
         }
     }
 

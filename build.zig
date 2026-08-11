@@ -1218,6 +1218,7 @@ pub fn build_exe(
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "gitignore", .module = gitignore_mod },
         },
     });
 

@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const tracy = @import("tracy");
 const root = @import("soft_root").root;
+const gitignore = @import("gitignore");
 
 const module_name = @typeName(@This());
 
@@ -15,6 +16,20 @@ pub const Options = struct {
     follow_directory_symlinks: bool = false,
     maximum_symlink_depth: usize = 1,
     log_ignored_links: bool = false,
+
+    use_gitignore: bool = true,
+    /// Borrowed for the duration of `start`; the matcher copies them.
+    extra_sources: []const ExtraSource = &.{},
+    /// Set when no real ignore source governs this walk.
+    use_builtin_fallback: bool = false,
+};
+
+pub const ExtraSource = struct {
+    precedence: gitignore.Precedence,
+    /// Project-relative directory that anchored patterns resolve against.
+    base: []const u8 = "",
+    name: []const u8,
+    contents: []const u8,
 };
 
 pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: EntryCallBack, done_handler: DoneCallBack, options: Options) (SpawnError || std.Io.Dir.OpenError)!tp.pid {
@@ -99,31 +114,14 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
     }.spawn_link(a_, root_path_, entry_handler, done_handler, options);
 }
 
-const filtered_dirs = [_][]const u8{
-    "AppData",
-    ".cache",
-    ".cargo",
-    ".git",
-    ".jj",
-    "node_modules",
-    ".npm",
-    ".rustup",
-    ".var",
-    ".zig-cache",
-};
-
-fn is_filtered_dir(dirname: []const u8) bool {
-    for (filtered_dirs) |filter|
-        if (std.mem.eql(u8, filter, dirname))
-            return true;
-    return false;
-}
-
 const FilteredWalker = struct {
     allocator: std.mem.Allocator,
     stack: std.ArrayList(StackItem),
     name_buffer: std.ArrayList(u8),
     options: Options,
+    /// Heap allocated: `init` returns by value and the cursor points at it.
+    matcher: ?*gitignore.Matcher,
+    cursor: ?gitignore.Matcher.Cursor,
 
     const Path = []const u8;
 
@@ -144,13 +142,41 @@ const FilteredWalker = struct {
             .dirname_len = 0,
             .symlink_depth = options.maximum_symlink_depth,
         });
-        _ = io;
+
+        _ = io; // the matcher reads ignore files lazily during the walk
+
+        var matcher: ?*gitignore.Matcher = null;
+        var cursor: ?gitignore.Matcher.Cursor = null;
+        errdefer if (matcher) |m| {
+            if (cursor) |*c| c.deinit();
+            m.deinit();
+            allocator.destroy(m);
+        };
+        if (options.use_gitignore) {
+            const m = try allocator.create(gitignore.Matcher);
+            // ownership passes to the errdefer above only once matcher is set
+            m.* = gitignore.Matcher.init(allocator, dir, .{
+                // a one-shot walk gains nothing from a negative cache
+                .retain_empty_dirs = false,
+            }) catch |e| {
+                allocator.destroy(m);
+                return e;
+            };
+            matcher = m;
+            if (options.use_builtin_fallback)
+                try m.add_source(.global, "", "builtin", gitignore.builtin_patterns);
+            for (options.extra_sources) |src|
+                try m.add_source(src.precedence, src.base, src.name, src.contents);
+            cursor = try m.cursor();
+        }
 
         return .{
             .allocator = allocator,
             .stack = stack,
             .name_buffer = .empty,
             .options = options,
+            .matcher = matcher,
+            .cursor = cursor,
         };
     }
 
@@ -160,6 +186,11 @@ const FilteredWalker = struct {
             for (self.stack.items[1..]) |*item| {
                 item.dir.close(io);
             }
+        }
+        if (self.cursor) |*c| c.deinit();
+        if (self.matcher) |m| {
+            m.deinit();
+            self.allocator.destroy(m);
         }
         self.stack.deinit(self.allocator);
         self.name_buffer.deinit(self.allocator);
@@ -175,6 +206,7 @@ const FilteredWalker = struct {
                 if (item_) |*item|
                     if (self.stack.items.len != 0) {
                         item.dir.close(io);
+                        if (self.cursor) |*c| c.pop_dir();
                     };
                 continue;
             }) |base| {
@@ -189,17 +221,22 @@ const FilteredWalker = struct {
                         _ = try self.next_directory(io, &base, &top, &containing, top.symlink_depth);
                         continue;
                     },
-                    .file => return self.name_buffer.items,
+                    .file => {
+                        if (self.cursor) |*c|
+                            if (c.is_ignored_entry(io, base.name, .file) catch false) continue;
+                        return self.name_buffer.items;
+                    },
                     .sym_link => {
                         if (top.symlink_depth == 0) {
                             if (self.options.log_ignored_links)
                                 std.log.warn("TOO MANY LINKS! ignoring symlink: {s}", .{base.name});
                             continue;
                         }
-                        if (try self.next_sym_link(io, &base, &top, &containing, top.symlink_depth -| 1)) |file|
-                            return file
-                        else
-                            continue;
+                        if (try self.next_sym_link(io, &base, &top, &containing, top.symlink_depth -| 1)) |file| {
+                            if (self.cursor) |*c|
+                                if (c.is_ignored_entry(io, base.name, .file) catch false) continue;
+                            return file;
+                        } else continue;
                     },
                     else => continue,
                 }
@@ -208,6 +245,7 @@ const FilteredWalker = struct {
                 if (item_) |*item|
                     if (self.stack.items.len != 0) {
                         item.dir.close(io);
+                        if (self.cursor) |*c| c.pop_dir();
                     };
             }
         }
@@ -215,7 +253,10 @@ const FilteredWalker = struct {
     }
 
     fn next_directory(self: *FilteredWalker, io: std.Io, base: *const std.Io.Dir.Entry, top: **StackItem, containing: **StackItem, symlink_depth: usize) !void {
-        if (is_filtered_dir(base.name))
+        if (gitignore.is_vcs_metadata_dir(base.name))
+            return;
+        // no I/O, so an ignored subtree costs no syscalls
+        if (self.cursor) |*c| if (c.would_ignore_dir(io, base.name))
             return;
         var new_dir = top.*.dir.openDir(io, base.name, .{ .iterate = true }) catch |err| switch (err) {
             error.NameTooLong => @panic("unexpected error.NameTooLong"), // no path sep in base.name
@@ -223,6 +264,8 @@ const FilteredWalker = struct {
         };
         {
             errdefer new_dir.close(io);
+            if (self.cursor) |*c| try c.push_dir(io, base.name);
+            errdefer if (self.cursor) |*c| c.pop_dir();
             try self.stack.append(self.allocator, .{
                 .dir = new_dir,
                 .iter = new_dir.iterateAssumeFirstIteration(),

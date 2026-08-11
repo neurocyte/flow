@@ -16,6 +16,7 @@ const project_manager = @import("project_manager.zig");
 const LSP = @import("LSP.zig");
 const LSPClient = @import("LSPClient.zig");
 const walk_tree = @import("walk_tree.zig");
+const gitignore = @import("gitignore");
 const convert_path = LSPClient.convert_path;
 
 allocator: std.mem.Allocator,
@@ -42,6 +43,10 @@ parent: tp.pid,
 workspace: ?[]const u8 = null,
 
 walker: ?tp.pid = null,
+
+ignore: ?*gitignore.Matcher = null,
+ignore_dir: ?std.Io.Dir = null,
+ignore_failed: bool = false,
 
 // async task states
 state: struct {
@@ -129,6 +134,12 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref) 
 pub fn deinit(self: *Self) void {
     self.parent.deinit();
     if (self.walker) |pid| pid.send(.{"stop"}) catch {};
+    if (self.ignore) |m| {
+        m.deinit();
+        self.allocator.destroy(m);
+        self.ignore = null;
+    }
+    if (self.ignore_dir) |*d| d.close(root.get_io());
     if (self.workspace) |p| self.allocator.free(p);
     var i_ = self.file_language_server_name.iterator();
     while (i_.next()) |p| {
@@ -1383,14 +1394,151 @@ pub fn query_git(self: *Self) void {
 
 fn start_walker(self: *Self) void {
     self.state.walk_tree = .running;
+    const io = root.get_io();
+
+    var sources: IgnoreSources = .init(self.allocator);
+    defer sources.deinit();
+    sources.collect(io, self.name);
+
     self.walker = walk_tree.start(self.allocator, self.name, walk_tree_entry_callback, walk_tree_done_callback, .{
         .follow_directory_symlinks = tp.env.get().is("follow_directory_symlinks"),
         .maximum_symlink_depth = @intCast(tp.env.get().num("maximum_symlink_depth")),
         .log_ignored_links = tp.env.get().is("log_ignored_links"),
+        .use_gitignore = !tp.env.get().is("disable_gitignore"),
+        .extra_sources = sources.list.items,
+        .use_builtin_fallback = sources.use_builtin,
     }) catch blk: {
         self.state.walk_tree = .failed;
         break :blk null;
     };
+}
+
+const max_ignore_file_size = 1 << 20;
+
+const IgnoreSources = struct {
+    allocator: std.mem.Allocator,
+    list: std.ArrayList(walk_tree.ExtraSource) = .empty,
+    use_builtin: bool = false,
+
+    fn init(allocator: std.mem.Allocator) IgnoreSources {
+        return .{ .allocator = allocator };
+    }
+
+    fn deinit(self: *IgnoreSources) void {
+        for (self.list.items) |src| self.allocator.free(src.contents);
+        self.list.deinit(self.allocator);
+    }
+
+    fn add(self: *IgnoreSources, precedence: gitignore.Precedence, name: []const u8, contents: []const u8) void {
+        self.list.append(self.allocator, .{
+            .precedence = precedence,
+            .name = name,
+            .contents = contents,
+        }) catch self.allocator.free(contents);
+    }
+
+    fn collect(self: *IgnoreSources, io: std.Io, project_dir: []const u8) void {
+        var dir = std.Io.Dir.cwd().openDir(io, project_dir, .{}) catch null;
+        defer if (dir) |*d| d.close(io);
+
+        if (read_optional_file(io, self.allocator, dir, ".git/info/exclude")) |c|
+            self.add(.repository, ".git/info/exclude", c);
+        if (read_global_excludes(io, self.allocator)) |c|
+            self.add(.global, "git/ignore", c);
+
+        self.use_builtin = self.list.items.len == 0 and
+            !path_exists(io, dir, ".gitignore") and
+            !path_exists(io, dir, ".git");
+    }
+
+    fn register(self: *const IgnoreSources, m: *gitignore.Matcher) void {
+        if (self.use_builtin)
+            m.add_source(.global, "", "builtin", gitignore.builtin_patterns) catch {};
+        for (self.list.items) |src|
+            m.add_source(src.precedence, src.base, src.name, src.contents) catch {};
+    }
+};
+
+fn read_optional_file(io: std.Io, allocator: std.mem.Allocator, dir: ?std.Io.Dir, sub_path: []const u8) ?[]const u8 {
+    const d = dir orelse return null;
+    return d.readFileAlloc(io, sub_path, allocator, .limited(max_ignore_file_size)) catch null;
+}
+
+fn path_exists(io: std.Io, dir: ?std.Io.Dir, sub_path: []const u8) bool {
+    const d = dir orelse return false;
+    _ = d.statFile(io, sub_path, .{}) catch return false;
+    return true;
+}
+
+fn read_global_excludes(io: std.Io, allocator: std.mem.Allocator) ?[]const u8 {
+    const environ = root.get_init().environ_map;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    // git picks one of these, it does not fall back to the second
+    const path = if (environ.get("XDG_CONFIG_HOME")) |xdg| blk: {
+        if (xdg.len == 0) break :blk null;
+        break :blk std.fmt.bufPrint(&buf, "{s}/git/ignore", .{xdg}) catch null;
+    } else if (environ.get("HOME")) |home|
+        std.fmt.bufPrint(&buf, "{s}/.config/git/ignore", .{home}) catch null
+    else
+        null;
+    return std.Io.Dir.cwd().readFileAlloc(io, path orelse return null, allocator, .limited(max_ignore_file_size)) catch null;
+}
+
+fn get_ignore(self: *Self) ?*gitignore.Matcher {
+    if (self.ignore) |m| return m;
+    if (self.ignore_failed) return null;
+    const io = root.get_io();
+    const m = self.allocator.create(gitignore.Matcher) catch {
+        self.ignore_failed = true;
+        return null;
+    };
+    var dir = std.Io.Dir.cwd().openDir(io, self.name, .{}) catch {
+        self.allocator.destroy(m);
+        self.ignore_failed = true;
+        return null;
+    };
+    m.* = gitignore.Matcher.init(self.allocator, dir, .{}) catch {
+        dir.close(io);
+        self.allocator.destroy(m);
+        self.ignore_failed = true;
+        return null;
+    };
+    var sources: IgnoreSources = .init(self.allocator);
+    defer sources.deinit();
+    sources.collect(io, self.name);
+    sources.register(m);
+    self.ignore_dir = dir;
+    self.ignore = m;
+    return m;
+}
+
+/// Test before `is_ignored`: an ignore file may itself be ignored, and its
+/// change events are still needed.
+pub fn is_ignore_file(self: *Self, rel_path: []const u8) bool {
+    const m = self.get_ignore() orelse return false;
+    return m.is_ignore_file(rel_path);
+}
+
+/// Whether a new path should be dropped rather than indexed. An already
+/// indexed path is never ignored.
+pub fn is_ignored(self: *Self, rel_path: []const u8, dtype: gitignore.DType) bool {
+    if (gitignore.in_vcs_metadata_dir(rel_path)) return true;
+    for (self.files.items) |file|
+        if (std.mem.eql(u8, file.path, rel_path)) return false;
+    for (self.pending.items) |file|
+        if (std.mem.eql(u8, file.path, rel_path)) return false;
+    const m = self.get_ignore() orelse return false;
+    return m.is_ignored(root.get_io(), rel_path, dtype) catch false;
+}
+
+pub fn ignore_changed(self: *Self, rel_path: []const u8) void {
+    const m = self.ignore orelse return;
+    m.invalidate_dir(std.fs.path.dirname(rel_path) orelse "");
+}
+
+pub fn ignore_subtree_removed(self: *Self, rel_path: []const u8) void {
+    const m = self.ignore orelse return;
+    m.invalidate_subtree(rel_path);
 }
 
 pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || error{Exit})!void {

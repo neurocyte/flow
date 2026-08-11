@@ -406,6 +406,10 @@ fn get_git() ?[]const u8 {
     return path;
 }
 
+pub fn is_available() bool {
+    return get_git() != null;
+}
+
 pub fn blame(context_: usize, file_path: []const u8) !void {
     const tag = @src().fn_name;
     const dir_path = std.fs.path.dirname(file_path) orelse ".";
