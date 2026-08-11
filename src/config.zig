@@ -115,7 +115,7 @@ retain_symlinks: bool = true,
 follow_directory_symlinks: bool = false,
 log_ignored_links: bool = false,
 maximum_symlink_depth: usize = 3,
-enable_file_watcher: bool = false,
+enable_file_watcher: bool = true,
 
 include_files: []const u8 = "",
 
