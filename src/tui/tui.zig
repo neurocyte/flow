@@ -1481,20 +1481,24 @@ const cmds = struct {
     }
     pub const toggle_completion_insert_mode_meta: Meta = .{ .description = "Toggle completion insert mode" };
 
-    pub fn toggle_completion_info_mode(self: *Self, _: Ctx) Result {
+    pub fn toggle_completion_info(self: *Self, _: Ctx) Result {
         self.config_.completion_info_mode = switch (self.config_.completion_info_mode) {
             .none => .box,
-            .box => .panel,
+            .box => .none,
             .panel => blk: {
                 if (mainview()) |mv| mv.hide_info_view_panel();
-                break :blk .none;
+                break :blk .box;
             },
         };
-        defer self.logger.print("completion info mode {t}", .{self.config_.completion_info_mode});
+        defer self.logger.print("completion info {s}", .{switch (self.config_.completion_info_mode) {
+            .none => "disabled",
+            .box => "enabled",
+            .panel => "panel",
+        }});
         try save_config();
         resize();
     }
-    pub const toggle_completion_info_mode_meta: Meta = .{ .description = "Toggle completion item info display" };
+    pub const toggle_completion_info_meta: Meta = .{ .description = "Toggle completion item info display" };
 
     pub fn toggle_hover_info_mode(self: *Self, _: Ctx) Result {
         self.config_.hover_info_mode = switch (self.config_.hover_info_mode) {

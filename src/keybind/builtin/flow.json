@@ -426,7 +426,7 @@
     "overlay/dropdown-noninvasive": {
         "inherit": "normal",
         "press": [
-            ["ctrl+space", "toggle_completion_info_mode"],
+            ["ctrl+space", "toggle_completion_info"],
             ["alt+f9", "dropdown_next_widget_style"],
             ["shift+alt+f9", "info_box_next_widget_style"],
             ["ctrl+p", "palette_menu_up"],
@@ -441,7 +441,7 @@
     "overlay/dropdown": {
         "inherit": "normal",
         "press": [
-            ["ctrl+space", "toggle_completion_info_mode"],
+            ["ctrl+space", "toggle_completion_info"],
             ["alt+f9", "dropdown_next_widget_style"],
             ["shift+alt+f9", "info_box_next_widget_style"],
             ["ctrl+p", "palette_menu_up"],
