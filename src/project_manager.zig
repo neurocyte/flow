@@ -606,7 +606,6 @@ const Process = struct {
     }
 
     fn handle_file_watch_rename(self: *Process, abs_from: []const u8, abs_to: []const u8, object_type: file_watcher.ObjectType) void {
-        std.log.debug("file_watch_event: rename {s} -> {s}", .{ abs_from, abs_to });
         const src = self.project_for_path(abs_from);
         const dst = self.project_for_path(abs_to);
 
@@ -649,7 +648,6 @@ const Process = struct {
     }
 
     fn handle_file_watch_event(self: *Process, abs_path: []const u8, event_type: file_watcher.EventType, object_type: file_watcher.ObjectType) void {
-        std.log.debug("file_watch_event: {s} {s}", .{ @tagName(event_type), abs_path });
         const match = self.project_for_path(abs_path) orelse {
             self.parent.send(.{ "FW", "change", abs_path, event_type, object_type }) catch {};
             return;
