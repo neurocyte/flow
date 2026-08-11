@@ -203,6 +203,7 @@ pub fn Create(options: type) type {
             // self.start_query(0) catch {};
             if (@hasDecl(options, "after_resize"))
                 options.after_resize(self);
+            self.selection_updated();
         }
 
         fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
