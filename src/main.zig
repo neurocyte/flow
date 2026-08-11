@@ -678,13 +678,13 @@ pub fn write_config(data: anytype, allocator: std.mem.Allocator) (ConfigDirError
     defer config_mutex.unlock(global_init.io);
     _ = allocator;
     const file_name = try get_app_config_file_name(application_name, @typeName(T));
-    var file = std.Io.Dir.createFileAbsolute(global_init.io, file_name, .{}) catch |e| {
-        std.log.err("createFileAbsolute failed with {any} for: {s}", .{ e, file_name });
+    var atomic = create_config_file_atomic(file_name) catch |e| {
+        std.log.err("createFileAtomic failed with {any} for: {s}", .{ e, file_name });
         return error.CreateConfigFileFailed;
     };
-    defer file.close(global_init.io);
+    defer atomic.deinit(global_init.io);
     var buf: [4096]u8 = undefined;
-    var writer = file.writer(global_init.io, &buf);
+    var writer = atomic.file.writer(global_init.io, &buf);
 
     try writer.interface.print(
         \\# This file is written by flow when settings are changed interactively. You may
@@ -703,6 +703,21 @@ pub fn write_config(data: anytype, allocator: std.mem.Allocator) (ConfigDirError
         return error.WriteConfigFileFailed;
     };
     writer.flush() catch return error.WriteFailed;
+    atomic.replace(global_init.io) catch |e| {
+        std.log.err("replace failed with {any} for: {s}", .{ e, file_name });
+        return error.WriteConfigFileFailed;
+    };
+}
+
+fn create_config_file_atomic(file_name: []const u8) !std.Io.File.Atomic {
+    const io = global_init.io;
+    var atomic = try std.Io.Dir.cwd().createFileAtomic(io, file_name, .{ .replace = true });
+    errdefer atomic.deinit(io);
+    if (std.Io.Dir.openFileAbsolute(io, file_name, .{})) |existing| {
+        defer existing.close(io);
+        if (existing.stat(io)) |s| atomic.file.setPermissions(io, s.permissions) catch {} else |_| {}
+    } else |_| {}
+    return atomic;
 }
 
 pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -872,12 +887,7 @@ pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []co
 
 pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) !void {
     const file_name = try get_keybind_namespace_file_name(namespace_name);
-    var file = try std.Io.Dir.createFileAbsolute(global_init.io, file_name, .{});
-    defer file.close(global_init.io);
-    var buf: [4096]u8 = undefined;
-    var file_writer = file.writer(global_init.io, &buf);
-    defer file_writer.flush() catch {};
-    try file_writer.interface.writeAll(content);
+    return write_config_file_atomic(file_name, content);
 }
 
 pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
@@ -910,12 +920,17 @@ pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const
 
 pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
     const file_name = try get_theme_file_name(theme_name);
-    var file = try std.Io.Dir.createFileAbsolute(global_init.io, file_name, .{});
-    defer file.close(global_init.io);
+    return write_config_file_atomic(file_name, content);
+}
+
+fn write_config_file_atomic(file_name: []const u8, content: []const u8) !void {
+    var atomic = try create_config_file_atomic(file_name);
+    defer atomic.deinit(global_init.io);
     var buf: [4096]u8 = undefined;
-    var file_writer = file.writer(global_init.io, &buf);
-    defer file_writer.flush() catch {};
+    var file_writer = atomic.file.writer(global_init.io, &buf);
     try file_writer.interface.writeAll(content);
+    try file_writer.flush();
+    try atomic.replace(global_init.io);
 }
 
 pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
