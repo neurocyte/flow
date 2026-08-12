@@ -25,6 +25,8 @@ pub const Error = error{
 };
 const SpawnError = error{ OutOfMemory, ThespianSpawnFailed };
 
+var ulimit_bumped: std.atomic.Value(bool) = .init(false);
+
 pub const Instance = struct {
     name: [:0]const u8,
     tag: [:0]const u8,
@@ -125,6 +127,14 @@ const Process = struct {
     };
 
     fn start(self: *@This()) tp.result {
+        if (builtin.os.tag != .windows) if (!ulimit_bumped.swap(true, .acq_rel)) {
+            // Watches require one many fds. Bump the soft NOFILE limit to the hard limit.
+            if (std.posix.getrlimit(.NOFILE)) |rl| {
+                if (rl.cur < rl.max)
+                    std.posix.setrlimit(.NOFILE, .{ .cur = rl.max, .max = rl.max }) catch {};
+            } else |_| {}
+        };
+
         _ = tp.set_trap(true);
         self.nw = Watcher.init(root.get_io(), self.allocator, &self.handler) catch |e|
             return tp.exit_error(e, @errorReturnTrace());
