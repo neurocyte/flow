@@ -1479,6 +1479,8 @@ pub fn build_exe(
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
     if (stdio_capture_test_run_cmd) |cmd| test_step.dependOn(&cmd.step);
 
+    b.step("test-dbus", "Run D-Bus layer tests").dependOn(&dbus_test_run_cmd.step);
+
     const lints = b.addFmt(.{
         .paths = &.{ "src", "test", "build.zig" },
         .check = true,
