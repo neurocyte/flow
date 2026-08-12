@@ -967,6 +967,22 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const dbus_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-dbus",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/dbus/dbus.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("thespian", thespian_mod);
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const gitignore_differential_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-gitignore-differential",
@@ -1449,6 +1465,7 @@ pub fn build_exe(
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&gitignore_test_run_cmd.step);
+    test_step.dependOn(&dbus_test_run_cmd.step);
     test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);
