@@ -4,6 +4,7 @@ pub const wildmatch = @import("wildmatch.zig");
 pub const Pattern = @import("Pattern.zig");
 pub const PatternList = @import("PatternList.zig");
 pub const Matcher = @import("Matcher.zig");
+pub const Sources = @import("Sources.zig");
 
 pub const Precedence = Matcher.Precedence;
 pub const Decision = Matcher.Decision;
@@ -42,6 +43,7 @@ pub const builtin_patterns: []const u8 = @embedFile("builtin.gitignore");
 
 test {
     _ = wildmatch;
+    _ = Sources;
     _ = Pattern;
     _ = PatternList;
     _ = Matcher;

@@ -24,13 +24,7 @@ pub const Options = struct {
     use_builtin_fallback: bool = false,
 };
 
-pub const ExtraSource = struct {
-    precedence: gitignore.Precedence,
-    /// Project-relative directory that anchored patterns resolve against.
-    base: []const u8 = "",
-    name: []const u8,
-    contents: []const u8,
-};
+pub const ExtraSource = gitignore.Sources.Source;
 
 pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: EntryCallBack, done_handler: DoneCallBack, options: Options) (SpawnError || std.Io.Dir.OpenError)!tp.pid {
     return struct {
