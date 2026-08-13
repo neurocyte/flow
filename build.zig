@@ -1211,6 +1211,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "nightwatch", .module = nightwatch_mod },
+            .{ .name = "gitignore", .module = gitignore_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
         },

@@ -620,8 +620,8 @@ const Process = struct {
         }
 
         // before any ignore test: an ignore file may itself be ignored
-        if (src) |s| if (s.project.is_ignore_file(s.rel_path)) s.project.ignore_changed(s.rel_path);
-        if (dst) |d| if (d.project.is_ignore_file(d.rel_path)) d.project.ignore_changed(d.rel_path);
+        if (src) |s| if (s.project.is_ignore_file(s.rel_path)) ignore_changed(s);
+        if (dst) |d| if (d.project.is_ignore_file(d.rel_path)) ignore_changed(d);
 
         if (src) |s| {
             if (dst) |d| {
@@ -663,7 +663,7 @@ const Process = struct {
         // an ignore file still invalidates the ruleset even when it is itself
         // excluded, as .git/info/exclude always is
         if (match.project.is_ignore_file(match.rel_path))
-            match.project.ignore_changed(match.rel_path);
+            ignore_changed(match);
         if (event_type == .created and match.project.is_ignored(match.rel_path, .file))
             return;
 
@@ -673,6 +673,14 @@ const Process = struct {
             .deleted => match.project.file_deleted(match.rel_path),
             .closed => {}, // filtered by the file_watcher actor
         }
+    }
+
+    fn ignore_changed(match: anytype) void {
+        match.project.ignore_changed(match.rel_path);
+        file_watcher.default.ignore_changed(
+            match.project.name,
+            std.fs.path.dirname(match.rel_path) orelse "",
+        ) catch {};
     }
 
     fn open(self: *Process, project_directory: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {

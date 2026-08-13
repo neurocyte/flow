@@ -96,8 +96,8 @@
             .hash = "regex-0.1.0-V8KKSWICBACgjPoyQLIoPwMnQjKzCpEOjUMEzkf3ebOD",
         },
         .nightwatch = .{
-            .url = "git+https://github.com/neurocyte/nightwatch?ref=master#a345f02668c902985bacaa2b395987e66a44bbb5",
-            .hash = "nightwatch-1.0.0-uXzeH-XTAgBt0j4HeO9wIYSoJOoTGupLLR1TjCkIrj15",
+            .url = "git+https://github.com/neurocyte/nightwatch?ref=master#250f81ae911ee9b68c850b91c31a10053d0d0cf1",
+            .hash = "nightwatch-1.0.0-uXzeHyQAAwD6EEr_jt1ERfk-OsQ_xFsGsCPXPrTu_2IM",
         },
     },
     .paths = .{
