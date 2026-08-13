@@ -18,6 +18,11 @@ const Watcher = if (builtin.os.tag == .linux)
 else
     nightwatch.Default;
 
+const limit_hint = if (builtin.os.tag == .linux)
+    "; raise fs.inotify.max_user_watches"
+else
+    "; raise the open file limit";
+
 pub const Error = error{
     FileWatcherSendFailed,
     ThespianSpawnFailed,
@@ -171,7 +176,13 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "fd", tp.extract(&tag), "read_error", tp.extract(&err_code), tp.extract(&err_msg) })) {
             std.log.err("fd read error on {s}: ({d}) {s}", .{ tag, err_code, err_msg });
         } else if (try cbor.match(m.buf, .{ "watch", tp.extract(&path) })) {
-            self.nw.?.watch(path) catch |e| std.log.err("file_watcher watch: {s} -> {}", .{ path, e });
+            self.nw.?.watch(path) catch |e| switch (e) {
+                error.WatchLimitReached => std.log.err(
+                    "file_watcher watch: {s} -> watch limit reached after {d} watches{s}",
+                    .{ path, self.nw.?.watch_count(), limit_hint },
+                ),
+                else => std.log.err("file_watcher watch: {s} -> {}", .{ path, e }),
+            };
         } else if (try cbor.match(m.buf, .{ "unwatch", tp.extract(&path) })) {
             self.nw.?.unwatch(path) catch |e| std.log.err("file_watcher unwatch: {s} -> {}", .{ path, e });
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
