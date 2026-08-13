@@ -25,6 +25,7 @@ const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
 const IdleAction = @import("config").IdleAction;
+const DbusClient = @import("DbusClient.zig");
 
 // exports for unittesting
 pub const exports = struct {
@@ -106,6 +107,8 @@ jump_mode_: bool = false,
 
 auto_run_timer: ?tp.Cancellable = null,
 
+dbus_client: if (build_options.gui) DbusClient else void,
+
 const HintMode = enum { none, prefix, all };
 
 const LastPalette = struct {
@@ -159,7 +162,8 @@ const InitError = error{
 } || renderer.Error ||
     root.ConfigDirError ||
     root.ConfigWriteError ||
-    keybind.LoadError;
+    keybind.LoadError ||
+    DbusClient.Error;
 
 fn init(allocator: Allocator) InitError!*Self {
     if (!tp.env.get().is("log-stdout"))
@@ -215,6 +219,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .query_cache_ = try syntax.QueryCache.create(root.get_io(), allocator, .{}),
         .dark_theme = dark_theme,
         .light_theme = light_theme,
+        .dbus_client = if (@TypeOf(self.dbus_client) != void) try .init(self.allocator),
     };
     instance_ = self;
     defer instance_ = null;
@@ -332,6 +337,7 @@ fn deinit_stdio_capture(self: *Self) void {
 }
 
 fn deinit(self: *Self) void {
+    if (@TypeOf(self.dbus_client) != void) self.dbus_client.deinit();
     self.deinit_stdio_capture();
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
@@ -507,6 +513,11 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         ctx.args = .{ .buf = arg };
         return command.execute(cmd_id, command.get_name(cmd_id) orelse "(unknown)", ctx) catch |e| self.logger.err("command", e);
     }
+
+    if (try m.match(.{ "dbus", tp.more }))
+        return if (@TypeOf(self.dbus_client) != void)
+            self.dbus_client.receive(from, m);
+
     if (try m.match(.{"quit"})) {
         config_watcher.shutdown();
         project_manager.shutdown();
@@ -700,13 +711,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "color_scheme", "dark" })) {
         self.logger.print("system color scheme event: dark", .{});
-        self.set_color_scheme(.dark);
+        self.set_color_scheme_(.dark);
         return;
     }
 
     if (try m.match(.{ "color_scheme", "light" })) {
         self.logger.print("system color scheme event: light", .{});
-        self.set_color_scheme(.light);
+        self.set_color_scheme_(.light);
         return;
     }
 
@@ -1301,7 +1312,12 @@ fn force_color_scheme(self: *Self, color_scheme: Widget.Theme.Type) void {
     self.logger.print("color scheme: {t} ({s})", .{ self.color_scheme, self.current_theme().name });
 }
 
-fn set_color_scheme(self: *Self, color_scheme: Widget.Theme.Type) void {
+pub fn set_color_scheme(color_scheme: Widget.Theme.Type) void {
+    const self = current();
+    self.set_color_scheme_(color_scheme);
+}
+
+fn set_color_scheme_(self: *Self, color_scheme: Widget.Theme.Type) void {
     if (self.color_scheme_locked) return;
     self.color_scheme = color_scheme;
     self.set_terminal_style(self.current_theme());

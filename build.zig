@@ -489,6 +489,14 @@ pub fn build_exe(
         .root_source_file = b.path("src/gitignore/gitignore.zig"),
     });
 
+    const dbus_mod = b.createModule(.{
+        .root_source_file = b.path("src/dbus/dbus.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
     const syntax_validator_mod = b.createModule(.{
         .root_source_file = b.path("src/syntax_validator.zig"),
         .imports = &.{
@@ -967,6 +975,20 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const gitignore_differential_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-gitignore-differential",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gitignore/differential_test.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const dbus_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-dbus",
@@ -979,20 +1001,6 @@ pub fn build_exe(
         });
         tests.root_module.addImport("cbor", cbor_mod);
         tests.root_module.addImport("thespian", thespian_mod);
-        if (install_tests) b.installArtifact(tests);
-        break :blk b.addRunArtifact(tests);
-    };
-
-    const gitignore_differential_test_run_cmd = blk: {
-        const tests = b.addTest(.{
-            .name = "test-gitignore-differential",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/gitignore/differential_test.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-            .filters = test_filters,
-        });
         if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
@@ -1302,6 +1310,7 @@ pub fn build_exe(
             .{ .name = "lsp_types", .module = lsp_types_mod },
             .{ .name = "time_fmt", .module = time_fmt_mod },
             .{ .name = "Terminal", .module = Terminal_mod },
+            .{ .name = "dbus", .module = dbus_mod },
         },
     });
 
