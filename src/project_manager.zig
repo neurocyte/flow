@@ -609,11 +609,18 @@ const Process = struct {
         const src = self.project_for_path(abs_from);
         const dst = self.project_for_path(abs_to);
 
-        // the file index tracks files only, but the ignore ruleset is keyed by
-        // directory and has to drop what moved
         if (object_type == .dir) {
             if (src) |s| s.project.ignore_subtree_removed(s.rel_path);
             if (dst) |d| d.project.ignore_subtree_removed(d.rel_path);
+            if (src) |s| {
+                if (dst) |d| if (s.project == d.project) {
+                    s.project.subtree_renamed(s.rel_path, d.rel_path) catch |e|
+                        self.logger.err("file_watcher.subtree_renamed", e);
+                    return;
+                };
+                // moved out of project
+                s.project.subtree_deleted(s.rel_path);
+            }
             if (src == null and dst == null)
                 self.parent.send(.{ "FW", "rename", abs_from, abs_to, object_type }) catch {};
             return;
@@ -653,10 +660,11 @@ const Process = struct {
             return;
         };
 
-        // nightwatch watches new directories itself, but a removed one must
-        // still drop the rules cached beneath it
         if (object_type == .dir) {
-            if (event_type == .deleted) match.project.ignore_subtree_removed(match.rel_path);
+            if (event_type == .deleted) {
+                match.project.ignore_subtree_removed(match.rel_path);
+                match.project.subtree_deleted(match.rel_path);
+            }
             return;
         }
 

@@ -1001,6 +1001,37 @@ pub fn file_deleted(self: *Self, file_path: []const u8) void {
     }
 }
 
+fn is_in_subtree(file_path: []const u8, dir_path: []const u8) bool {
+    if (!std.mem.startsWith(u8, file_path, dir_path)) return false;
+    if (file_path.len <= dir_path.len) return false;
+    return file_path[dir_path.len] == '/' or file_path[dir_path.len] == '\\';
+}
+
+pub fn subtree_deleted(self: *Self, dir_path: []const u8) void {
+    var i: usize = 0;
+    var removed = false;
+    while (i < self.files.items.len) {
+        if (!is_in_subtree(self.files.items[i].path, dir_path)) {
+            i += 1;
+            continue;
+        }
+        self.allocator.free(self.files.items[i].path);
+        _ = self.files.swapRemove(i); // fills i with the last entry, so don't advance
+        removed = true;
+    }
+    if (removed) self.sort_files_by_mtime();
+}
+
+pub fn subtree_renamed(self: *Self, from_path: []const u8, to_path: []const u8) OutOfMemoryError!void {
+    for (self.files.items) |*file| {
+        if (!is_in_subtree(file.path, from_path)) continue;
+        const new_path = try std.mem.concat(self.allocator, u8, &.{ to_path, file.path[from_path.len..] });
+        self.allocator.free(file.path);
+        file.path = new_path;
+        self.longest_file_path = @max(self.longest_file_path, new_path.len);
+    }
+}
+
 pub fn update_mru(self: *Self, source_location: *const SourceLocation) OutOfMemoryError!void {
     defer self.sort_files_by_mtime();
     try self.update_mru_internal(source_location, @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()));
