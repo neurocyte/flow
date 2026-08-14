@@ -77,23 +77,36 @@ pub const Instance = struct {
     }
 };
 
-pub const default: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
+pub const Owned = struct {
+    pid: tp.pid,
 
-pub fn watch(path: []const u8) Error!void {
-    return default.watch(path);
-}
+    const instance: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
 
-pub fn unwatch(path: []const u8) Error!void {
-    return default.unwatch(path);
-}
+    pub fn init() SpawnError!@This() {
+        return .{ .pid = try Process.create(instance) };
+    }
 
-pub fn start() SpawnError!void {
-    return default.start();
-}
+    pub fn deinit(self: *@This()) void {
+        self.pid.send(.{"shutdown"}) catch {};
+        self.pid.deinit();
+    }
 
-pub fn shutdown() void {
-    default.shutdown();
-}
+    pub fn watch(self: @This(), path: []const u8) Error!void {
+        return self.send(.{ "watch", path });
+    }
+
+    pub fn unwatch(self: @This(), path: []const u8) Error!void {
+        return self.send(.{ "unwatch", path });
+    }
+
+    pub fn ignore_changed(self: @This(), root_path: []const u8, rel_dir: []const u8) Error!void {
+        return self.send(.{ "ignore_changed", root_path, rel_dir });
+    }
+
+    fn send(self: @This(), message: anytype) Error!void {
+        return self.pid.send(message) catch error.FileWatcherSendFailed;
+    }
+};
 
 const Root = struct {
     path: []const u8,
