@@ -70,6 +70,7 @@ fn init(args: Args) !void {
     };
     errdefer self.deinit();
     try self.connector.connect(args.path, args.mode);
+    _ = tp.set_trap(true);
     tp.receive(&self.receiver);
 }
 
@@ -107,6 +108,8 @@ fn receive(self: *Bus, _: tp.pid_ref, m: tp.message) !void {
         return self.disconnected(reason);
     } else if (try m.match(.{ "connector", tag, "error", tp.extract(&reason), tp.more })) {
         return self.disconnected(reason);
+    } else if (try m.match(.{ "exit", tp.more })) {
+        return tp.exit_normal();
     } else if (try self.on_message(m)) {
         // handled
     } else {
