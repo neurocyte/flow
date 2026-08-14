@@ -107,7 +107,7 @@ pub fn expired(self: *const Self) bool {
     return self.lsp.pid.expired();
 }
 
-pub fn process_instance_id(self: *const Self) usize {
+pub fn process_instance_id(self: *const Self) tp.piid {
     return self.lsp.pid.instance_id();
 }
 
