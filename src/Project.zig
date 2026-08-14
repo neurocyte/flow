@@ -31,7 +31,7 @@ language_servers: std.StringHashMap(*LSPClient),
 file_language_server_name: std.StringHashMap([]const u8),
 lsp_unavailable: std.StringHashMapUnmanaged(void) = .empty,
 lsp_commands: std.StringHashMapUnmanaged(LspCommand) = .empty,
-lsp_status_subscribers: std.AutoHashMapUnmanaged(tp.piid, tp.pid) = .empty,
+lsp_status_subscribers: std.AutoHashMapUnmanaged(tp.piid, void) = .empty,
 tasks: std.ArrayList(Task),
 persistent: bool = false,
 logger: log.Logger,
@@ -158,8 +158,6 @@ pub fn deinit(self: *Self) void {
         self.allocator.free(p.value_ptr.language_server_options);
     }
     self.lsp_commands.deinit(self.allocator);
-    var i_subs = self.lsp_status_subscribers.valueIterator();
-    while (i_subs.next()) |sub| sub.deinit();
     self.lsp_status_subscribers.deinit(self.allocator);
     for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
     self.new_or_modified_files.deinit(self.allocator);
@@ -360,7 +358,7 @@ pub fn evict_lsp_client(self: *Self, lsp_name: []const u8) void {
 pub fn handle_lsp_terminated(self: *Self, from: tp.pid_ref, lsp_name: []const u8) StartLspError!void {
     // ignore the termination of a client that has already been superseded
     if (self.language_servers.get(lsp_name)) |client|
-        if (!client.expired() and client.process_instance_id() != from.instance_id())
+        if (client.process_instance_id() != from.instance_id())
             return;
     self.notify_lsp_status(lsp_name, .crashed);
     if (self.is_lsp_unavailable(lsp_name)) return;
@@ -379,20 +377,26 @@ pub const LspStatus = enum { starting, running, not_found, crashed, unavailable 
 pub fn add_lsp_status_subscriber(self: *Self, subscriber: tp.pid_ref) void {
     const gop = self.lsp_status_subscribers.getOrPut(self.allocator, subscriber.instance_id()) catch return;
     if (gop.found_existing) return;
-    gop.value_ptr.* = subscriber.clone();
     self.replay_lsp_status(subscriber);
 }
 
 pub fn remove_lsp_status_subscriber(self: *Self, subscriber: tp.pid_ref) void {
-    if (self.lsp_status_subscribers.fetchRemove(subscriber.instance_id())) |kv| {
-        var pid = kv.value;
-        pid.deinit();
-    }
+    _ = self.lsp_status_subscribers.remove(subscriber.instance_id());
 }
 
 fn notify_lsp_status(self: *Self, lsp_name: []const u8, status: LspStatus) void {
-    var i = self.lsp_status_subscribers.valueIterator();
-    while (i.next()) |sub| sub.send(.{ "lsp_status", self.name, lsp_name, status }) catch {};
+    var expired: std.ArrayList(tp.piid) = .empty;
+    defer expired.deinit(self.allocator);
+    var i = self.lsp_status_subscribers.keyIterator();
+    while (i.next()) |piid| {
+        const sub = tp.pid.from_id(piid.*) orelse {
+            expired.append(self.allocator, piid.*) catch {};
+            continue;
+        };
+        defer sub.deinit();
+        sub.send(.{ "lsp_status", self.name, lsp_name, status }) catch {};
+    }
+    for (expired.items) |piid| _ = self.lsp_status_subscribers.remove(piid);
 }
 
 fn replay_lsp_status(self: *Self, subscriber: tp.pid_ref) void {

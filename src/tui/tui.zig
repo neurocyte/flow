@@ -2315,7 +2315,7 @@ fn context_check() void {
         const tui_proc_id = tui_proc.instance_id();
         const self_proc_id = tp.self_pid().instance_id();
         if (tui_proc_id != self_proc_id)
-            std.debug.panic("tui call out of context (piid wrong: tui {d} != {d})", .{ tui_proc_id, self_proc_id });
+            std.debug.panic("tui call out of context (piid wrong: tui {f} != {f})", .{ tui_proc_id, self_proc_id });
     }
     if (instance_ == null) @panic("tui call out of context");
 }
