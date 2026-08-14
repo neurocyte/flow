@@ -16,6 +16,7 @@ const project_manager = @import("project_manager.zig");
 const LSP = @import("LSP.zig");
 const LSPClient = @import("LSPClient.zig");
 const walk_tree = @import("walk_tree.zig");
+const file_watcher = @import("file_watcher");
 const gitignore = @import("gitignore");
 const convert_path = LSPClient.convert_path;
 
@@ -43,6 +44,7 @@ parent: tp.pid,
 workspace: ?[]const u8 = null,
 
 walker: ?tp.pid = null,
+watcher: ?file_watcher.Owned = null,
 
 ignore: ?*gitignore.Matcher = null,
 ignore_failed: bool = false,
@@ -127,10 +129,23 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref) 
         .logger_git = log.logger("git"),
         .last_used = @as(i128, now.toNanoseconds()),
         .parent = parent.clone(),
+        .watcher = start_watcher(name),
     };
 }
 
+fn start_watcher(name: []const u8) ?file_watcher.Owned {
+    if (!tp.env.get().is("enable_file_watcher")) return null;
+    const watcher = file_watcher.Owned.init() catch |e| {
+        std.log.err("file_watcher.init: {s} -> {}", .{ name, e });
+        return null;
+    };
+    watcher.watch(name) catch |e|
+        std.log.err("file_watcher.watch: {s} -> {}", .{ name, e });
+    return watcher;
+}
+
 pub fn deinit(self: *Self) void {
+    if (self.watcher) |*watcher| watcher.deinit();
     self.parent.deinit();
     if (self.walker) |pid| pid.send(.{"stop"}) catch {};
     if (self.ignore) |m| {

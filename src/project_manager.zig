@@ -558,7 +558,6 @@ const Process = struct {
             self.logger.print("{s} error: {s}", .{ tag, message });
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
             self.persist_projects();
-            file_watcher.shutdown();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
             return error.ExitNormal;
         } else if (try cbor.match(m.buf, .{ "exit", "normal" })) {
@@ -612,15 +611,10 @@ const Process = struct {
         if (object_type == .dir) {
             if (src) |s| s.project.ignore_subtree_removed(s.rel_path);
             if (dst) |d| d.project.ignore_subtree_removed(d.rel_path);
-            if (src) |s| {
-                if (dst) |d| if (s.project == d.project) {
-                    s.project.subtree_renamed(s.rel_path, d.rel_path) catch |e|
-                        self.logger.err("file_watcher.subtree_renamed", e);
-                    return;
-                };
-                // moved out of project
-                s.project.subtree_deleted(s.rel_path);
-            }
+            if (src) |s| if (dst) |d| if (s.project == d.project) {
+                s.project.subtree_renamed(s.rel_path, d.rel_path) catch |e|
+                    self.logger.err("file_watcher.subtree_renamed", e);
+            };
             if (src == null and dst == null)
                 self.parent.send(.{ "FW", "rename", abs_from, abs_to, object_type }) catch {};
             return;
@@ -685,7 +679,7 @@ const Process = struct {
 
     fn ignore_changed(match: anytype) void {
         match.project.ignore_changed(match.rel_path);
-        file_watcher.default.ignore_changed(
+        if (match.project.watcher) |watcher| watcher.ignore_changed(
             match.project.name,
             std.fs.path.dirname(match.rel_path) orelse "",
         ) catch {};
@@ -702,8 +696,6 @@ const Process = struct {
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.query_git();
-            if (tp.env.get().is("enable_file_watcher"))
-                file_watcher.watch(project_directory) catch |e| self.logger.err("file_watcher.watch", e);
         }
     }
 
@@ -714,7 +706,6 @@ const Process = struct {
             kv.value.deinit();
             self.allocator.destroy(kv.value);
             self.logger.print("closed: {s}", .{project_directory});
-            file_watcher.unwatch(project_directory) catch |e| self.logger.err("file_watcher.unwatch", e);
         }
     }
 
