@@ -1238,7 +1238,7 @@ fn read_desktop_theme_file(self: *Self) !void {
     const theme_name = try self.allocator.alloc(u8, @intCast(stat.size));
     defer self.allocator.free(theme_name);
     _ = try file.readPositionalAll(io, theme_name, 0);
-    self.set_desktop_theme_by_name(std.mem.trimEnd(u8, theme_name, "\r\n "), .none);
+    self.set_desktop_theme_by_name(std.mem.trimEnd(u8, theme_name, "\r\n "), .store);
 }
 
 pub fn is_mainview_focused() bool {
