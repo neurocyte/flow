@@ -117,6 +117,8 @@ log_ignored_links: bool = false,
 maximum_symlink_depth: usize = 3,
 enable_file_watcher: bool = true,
 
+desktop_theme_file: []const u8 = &.{},
+
 include_files: []const u8 = "",
 
 const default_actions = [_]IdleAction{.highlight_references};

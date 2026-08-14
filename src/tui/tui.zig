@@ -241,7 +241,6 @@ fn init(allocator: Allocator) InitError!*Self {
     }
 
     try project_manager.start();
-    self.start_config_watcher();
 
     try frame_clock.start();
     try self.commands.init(self);
@@ -263,6 +262,7 @@ fn init(allocator: Allocator) InitError!*Self {
         command.executeName("restore_session", .empty()) catch |e| self.logger.err("restore_session", e);
         self.logger.print("session restored", .{});
     }
+    self.start_config_watcher();
     return self;
 }
 
@@ -1189,12 +1189,15 @@ const config_watcher: file_watcher.Instance = .{ .name = "config_watcher", .tag 
 fn start_config_watcher(self: *Self) void {
     const config_dir = root.get_config_dir() catch |e| return self.logger.err("config_watcher", e);
     config_watcher.watch(config_dir) catch |e| self.logger.err("config_watcher", e);
+    self.maybe_watch_desktop_theme_file();
 }
 
 fn config_file_changed(self: *Self, path: []const u8) void {
     const config_file = root.get_config_file_name(@import("config")) catch return;
     if (std.mem.eql(u8, config_file, path))
         self.reload_config();
+    if (self.config_.desktop_theme_file.len > 0 and std.mem.eql(u8, self.config_.desktop_theme_file, path))
+        self.read_desktop_theme_file() catch {};
 }
 
 pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
@@ -1213,6 +1216,29 @@ fn reload_config(self: *Self) void {
         .light => if (!std.mem.eql(u8, conf.light_theme, self.dark_theme.name))
             self.set_theme_by_name(conf.light_theme, .none) catch {},
     }
+}
+
+fn maybe_watch_desktop_theme_file(self: *Self) void {
+    if (self.config_.desktop_theme_file.len == 0) return;
+    self.read_desktop_theme_file() catch |e| {
+        self.logger.print_err("tui", "read desktop theme file failed: {t}", .{e});
+        return;
+    };
+    config_watcher.watch(self.config_.desktop_theme_file) catch |e| {
+        self.logger.print_err("config_watcher", "watch of desktop theme file failed: {t}", .{e});
+    };
+}
+
+fn read_desktop_theme_file(self: *Self) !void {
+    if (self.config_.desktop_theme_file.len == 0) return;
+    const io = root.get_io();
+    var file = try std.Io.Dir.openFileAbsolute(io, self.config_.desktop_theme_file, .{ .mode = .read_only });
+    defer file.close(io);
+    const stat = try file.stat(io);
+    const theme_name = try self.allocator.alloc(u8, @intCast(stat.size));
+    defer self.allocator.free(theme_name);
+    _ = try file.readPositionalAll(io, theme_name, 0);
+    self.set_desktop_theme_by_name(std.mem.trimEnd(u8, theme_name, "\r\n "), .none);
 }
 
 pub fn is_mainview_focused() bool {
@@ -1282,7 +1308,9 @@ fn refresh_input_mode(self: *Self) command.Result {
     if (self.input_mode_) |*m| m.run_init();
 }
 
-fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }) !void {
+const SetThemeAction = enum { none, store };
+
+fn set_theme_by_name(self: *Self, name: []const u8, action: SetThemeAction) !void {
     const theme_ = Widget.get_theme_by_name(self.allocator, name) orelse {
         self.logger.print("theme not found: {s}", .{name});
         return;
@@ -1303,6 +1331,21 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }
             try save_config();
         },
     }
+}
+
+fn set_desktop_theme_by_name(self: *Self, name: []const u8, action: SetThemeAction) void {
+    self.logger.print("desktop theme: {s}", .{name});
+    const desktop_theme = @import("DesktopTheme.zig").themes.get(name) orelse {
+        self.set_theme_by_name(name, action) catch {
+            std.log.err("unknown desktop theme '{s}'", .{name});
+        };
+        return;
+    };
+    self.set_color_scheme_(desktop_theme.color_scheme);
+    self.set_theme_by_name(desktop_theme.theme, action) catch {
+        return std.log.err("failed to set '{s}' theme from desktop theme", .{desktop_theme.theme});
+    };
+    if (@hasDecl(renderer, "set_background_opacity")) self.rdr_.set_background_opacity(desktop_theme.opacity);
 }
 
 fn force_color_scheme(self: *Self, color_scheme: Widget.Theme.Type) void {
