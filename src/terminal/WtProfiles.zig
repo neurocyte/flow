@@ -257,7 +257,7 @@ fn guidEql(item: std.json.Value, guid: []const u8) bool {
 fn readSettings(allocator: std.mem.Allocator) Error![]u8 {
     const io = root.get_io();
     const local_app_data = root.get_init().environ_map.get("LOCALAPPDATA") orelse {
-        log.info("no LOCALAPPDATA in environment, cannot locate Windows Terminal settings", .{});
+        log.debug("no LOCALAPPDATA in environment, cannot locate Windows Terminal settings", .{});
         return error.SettingsNotFound;
     };
 
@@ -294,13 +294,13 @@ fn readSettings(allocator: std.mem.Allocator) Error![]u8 {
             return error.BadSettings;
         }
 
-        log.info("using Windows Terminal settings: {s}", .{path});
+        log.debug("using Windows Terminal settings: {s}", .{path});
         var reader_buf: [4096]u8 = undefined;
         var reader = file.reader(io, &reader_buf);
         return reader.interface.readAlloc(allocator, @intCast(stat.size));
     }
 
-    log.info("no Windows Terminal settings found under {s}", .{local_app_data});
+    log.debug("no Windows Terminal settings found under {s}", .{local_app_data});
     return error.SettingsNotFound;
 }
 
