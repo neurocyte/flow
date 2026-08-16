@@ -67,7 +67,10 @@ pub fn list(allocator: std.mem.Allocator) std.mem.Allocator.Error![]Profile {
     defer allocator.free(dir_path);
 
     var ids = collect_ids(allocator, dir_path) catch |e| {
-        log.info("cannot read profiles directory {s}: {s}", .{ dir_path, @errorName(e) });
+        switch (e) {
+            error.FileNotFound => {},
+            else => log.info("cannot read profiles directory {s}: {s}", .{ dir_path, @errorName(e) }),
+        }
         return default_list(allocator);
     };
     defer {
