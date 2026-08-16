@@ -107,7 +107,10 @@ jump_mode_: bool = false,
 
 auto_run_timer: ?tp.Cancellable = null,
 
-dbus_client: if (build_options.gui) ?DbusClient else void,
+dbus_client: if (build_options.gui and builtin.os.tag != .windows and builtin.os.tag != .macos)
+    ?DbusClient
+else
+    void,
 
 const HintMode = enum { none, prefix, all };
 
@@ -219,10 +222,11 @@ fn init(allocator: Allocator) InitError!*Self {
         .query_cache_ = try syntax.QueryCache.create(root.get_io(), allocator, .{}),
         .dark_theme = dark_theme,
         .light_theme = light_theme,
-        .dbus_client = if (@TypeOf(self.dbus_client) != void) DbusClient.init(self.allocator) catch |e| blk: {
-            std.log.info("dbus init failed: {t}", .{e});
-            break :blk null;
-        },
+        .dbus_client = if (@TypeOf(self.dbus_client) != void)
+            DbusClient.init(self.allocator) catch |e| blk: {
+                std.log.info("dbus init failed: {t}", .{e});
+                break :blk null;
+            },
     };
     instance_ = self;
     defer instance_ = null;
