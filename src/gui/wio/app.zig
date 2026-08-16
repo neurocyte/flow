@@ -36,14 +36,16 @@ const Layer = @import("tuirenderer").Layer;
 const D3D11Swapchain = if (builtin.os.tag == .windows) @import("d3d11_swapchain") else void;
 const win32 = if (builtin.os.tag == .windows) @import("win32").everything else void;
 
-const default_rasterizer: gpu.RasterizerBackend = if (builtin.os.tag == .windows)
-    .dwrite
-else
-    .freetype;
-const rasterizer_font: gpu.RasterizerFont = if (builtin.os.tag == .windows)
-    .{ .dwrite = .{} }
-else
-    .{ .freetype = .{} };
+const default_rasterizer: gpu.RasterizerBackend = switch (builtin.os.tag) {
+    .windows => .dwrite,
+    .macos => .truetype,
+    else => .freetype,
+};
+const rasterizer_font: gpu.RasterizerFont = switch (builtin.os.tag) {
+    .windows => .{ .dwrite = .{} },
+    .macos => .{ .truetype = .{ .cell_size = .{ .x = 8, .y = 16 } } },
+    else => .{ .freetype = .{} },
+};
 
 const uucode = uucode_utils.uucode;
 const log = std.log.scoped(.wio_app);
@@ -1120,9 +1122,11 @@ fn wioLoop() void {
 }
 
 fn gl_options() wio.GlOptions {
+    // macOS honours the requested version strictly
+    const macos = builtin.os.tag == .macos;
     return .{
-        .major_version = 3,
-        .minor_version = 3,
+        .major_version = if (macos) 4 else 3,
+        .minor_version = if (macos) 1 else 3,
         .profile = .core,
         .forward_compatible = true,
     };

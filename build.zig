@@ -607,6 +607,7 @@ pub fn build_exe(
                         else => true,
                     },
                     .dont_link_system_libs = true,
+                    .libs = "log,gfx",
                 });
 
                 const wio_dep = wio_dep_lazy orelse break :blk tui_renderer_mod;
@@ -625,6 +626,16 @@ pub fn build_exe(
                     if (b.lazyDependency("wio_unix_headers", .{})) |unix_headers|
                         sokol_clib.root_module.addSystemIncludePath(unix_headers.path("."));
                     sokol_clib.root_module.addSystemIncludePath(flow_gui_headers_dep.?.path("include"));
+                }
+
+                const cross_macos = target.result.os.tag == .macos and !is_native;
+                if (cross_macos) {
+                    const sokol_clib = sokol_dep.artifact("sokol_clib");
+                    if (wio_dep.builder.lazyDependency("wio_macos_sdk", .{})) |macos_sdk| {
+                        sokol_clib.root_module.addSystemFrameworkPath(macos_sdk.path("System/Library/Frameworks"));
+                        sokol_clib.root_module.addSystemIncludePath(macos_sdk.path("usr/include"));
+                        sokol_clib.root_module.addLibraryPath(macos_sdk.path("usr/lib"));
+                    }
                 }
 
                 const shdc = if (b.lazyImport(@This(), "sokol")) |sokol| sokol.shdc else break :blk tui_renderer_mod;
@@ -750,6 +761,8 @@ pub fn build_exe(
                     add_iosevka(dwrite_rasterizer_mod, iosevka_mods);
                     combined_rasterizer_mod.addImport("dw_rasterizer", dwrite_rasterizer_mod);
                 } else {
+                    const have_freetype = target.result.os.tag != .macos;
+
                     const tt_dep = b.lazyDependency("TrueType", .{
                         .target = target,
                         .optimize = optimize_deps,
@@ -798,36 +811,39 @@ pub fn build_exe(
                     if (nerd_font_mod) |m| truetype_rasterizer_mod.addImport("nerd_font", m);
                     add_iosevka(truetype_rasterizer_mod, iosevka_mods);
 
-                    const freetype_rasterizer_mod = b.createModule(.{
-                        .root_source_file = b.path("src/gui/rasterizer/freetype.zig"),
-                        .target = target,
-                        .imports = &.{
-                            .{ .name = "xy", .module = gui_xy_mod },
-                            .{ .name = "flow_sprite", .module = flow_sprite_mod },
-                            .{ .name = "font_finder", .module = font_finder_mod },
-                            .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
-                            .{ .name = "gui_config", .module = gui_config_mod },
-                            .{ .name = "uucode_utils", .module = uucode_utils_mod },
-                            .{ .name = "build_options", .module = gui_embed_options_mod },
-                            .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
-                            .{ .name = "blit", .module = gui_blit_mod },
-                        },
-                    });
-                    if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
-                    if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
-                    add_iosevka(freetype_rasterizer_mod, iosevka_mods);
-                    if (cross_linux) {
-                        const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
-                        freetype_rasterizer_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols).getEmittedBin());
-                    } else {
-                        freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
+                    if (have_freetype) {
+                        const freetype_rasterizer_mod = b.createModule(.{
+                            .root_source_file = b.path("src/gui/rasterizer/freetype.zig"),
+                            .target = target,
+                            .imports = &.{
+                                .{ .name = "xy", .module = gui_xy_mod },
+                                .{ .name = "flow_sprite", .module = flow_sprite_mod },
+                                .{ .name = "font_finder", .module = font_finder_mod },
+                                .{ .name = "fallback_resolver", .module = fallback_resolver_mod },
+                                .{ .name = "gui_config", .module = gui_config_mod },
+                                .{ .name = "uucode_utils", .module = uucode_utils_mod },
+                                .{ .name = "build_options", .module = gui_embed_options_mod },
+                                .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
+                                .{ .name = "blit", .module = gui_blit_mod },
+                            },
+                        });
+                        if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
+                        if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
+                        add_iosevka(freetype_rasterizer_mod, iosevka_mods);
+                        if (cross_linux) {
+                            const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
+                            freetype_rasterizer_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols).getEmittedBin());
+                        } else {
+                            freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
+                        }
+                        const freetype_dep = b.lazyDependency("freetype", .{}) orelse break :blk tui_renderer_mod;
+                        freetype_rasterizer_mod.addIncludePath(freetype_dep.path("include"));
+                        freetype_rasterizer_mod.link_libc = true;
+
+                        combined_rasterizer_mod.addImport("ft_rasterizer", freetype_rasterizer_mod);
                     }
-                    const freetype_dep = b.lazyDependency("freetype", .{}) orelse break :blk tui_renderer_mod;
-                    freetype_rasterizer_mod.addIncludePath(freetype_dep.path("include"));
-                    freetype_rasterizer_mod.link_libc = true;
 
                     combined_rasterizer_mod.addImport("tt_rasterizer", truetype_rasterizer_mod);
-                    combined_rasterizer_mod.addImport("ft_rasterizer", freetype_rasterizer_mod);
                 }
 
                 const gpu_mod = b.createModule(.{
@@ -1394,6 +1410,7 @@ pub fn build_exe(
             exe.root_module.linkSystemLibrary("d2d1", .{});
             exe.root_module.linkSystemLibrary("ole32", .{});
         },
+        .macos => exe.root_module.linkFramework("OpenGL", .{}),
         else => {},
     };
 
