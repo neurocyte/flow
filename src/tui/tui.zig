@@ -107,7 +107,7 @@ jump_mode_: bool = false,
 
 auto_run_timer: ?tp.Cancellable = null,
 
-dbus_client: if (build_options.gui) DbusClient else void,
+dbus_client: if (build_options.gui) ?DbusClient else void,
 
 const HintMode = enum { none, prefix, all };
 
@@ -219,7 +219,10 @@ fn init(allocator: Allocator) InitError!*Self {
         .query_cache_ = try syntax.QueryCache.create(root.get_io(), allocator, .{}),
         .dark_theme = dark_theme,
         .light_theme = light_theme,
-        .dbus_client = if (@TypeOf(self.dbus_client) != void) try .init(self.allocator),
+        .dbus_client = if (@TypeOf(self.dbus_client) != void) DbusClient.init(self.allocator) catch |e| blk: {
+            std.log.info("dbus init failed: {t}", .{e});
+            break :blk null;
+        },
     };
     instance_ = self;
     defer instance_ = null;
@@ -337,7 +340,10 @@ fn deinit_stdio_capture(self: *Self) void {
 }
 
 fn deinit(self: *Self) void {
-    if (@TypeOf(self.dbus_client) != void) self.dbus_client.deinit();
+    if (@TypeOf(self.dbus_client) != void) if (self.dbus_client) |*dbc| {
+        dbc.deinit();
+        self.dbus_client = null;
+    };
     self.deinit_stdio_capture();
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
@@ -515,8 +521,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{ "dbus", tp.more }))
-        return if (@TypeOf(self.dbus_client) != void)
-            self.dbus_client.receive(from, m);
+        return if (@TypeOf(self.dbus_client) != void) if (self.dbus_client) |*dbc|
+            dbc.receive(from, m);
 
     if (try m.match(.{"quit"})) {
         config_watcher.shutdown();
