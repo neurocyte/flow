@@ -1344,6 +1344,8 @@ pub fn build_exe(
     exe.use_llvm = use_llvm;
     exe.use_lld = use_lld;
 
+    if (target.result.os.tag == .windows) exe.stack_size = 8 * 1024 * 1024;
+
     if (pie) |value| exe.pie = value;
     exe.root_module.addImport("build_options", options_mod);
     exe.root_module.addImport("soft_root", soft_root_mod);
