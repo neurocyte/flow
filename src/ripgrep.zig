@@ -32,18 +32,18 @@ pub const BufferedWriter = struct {
     }
 };
 
-pub const FindF = fn (allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self;
+pub const FindF = fn (allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize) Error!Self;
 
-pub fn find_in_stdin(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self {
-    return create(allocator, query, tag, .pipe);
+pub fn find_in_stdin(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize) Error!Self {
+    return create(allocator, query, tag, id, .pipe);
 }
 
-pub fn find_in_files(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8) !Self {
-    return create(allocator, query, tag, .close);
+pub fn find_in_files(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize) Error!Self {
+    return create(allocator, query, tag, id, .close);
 }
 
-fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: tp.subprocess.StdIo) !Self {
-    return .{ .pid = try Process.create(allocator, query, tag, stdin_behavior), .stdin_behavior = stdin_behavior };
+fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize, stdin_behavior: tp.subprocess.StdIo) !Self {
+    return .{ .pid = try Process.create(allocator, query, tag, id, stdin_behavior), .stdin_behavior = stdin_behavior };
 }
 
 pub fn deinit(self: *Self) void {
@@ -91,13 +91,14 @@ const Process = struct {
     output: std.Io.Writer.Allocating,
     parent: tp.pid,
     tag: [:0]const u8,
+    id: usize,
     logger: log.Logger,
     stdin_behavior: tp.subprocess.StdIo,
     match_count: usize = 0,
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: tp.subprocess.StdIo) !tp.pid {
+    pub fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize, stdin_behavior: tp.subprocess.StdIo) !tp.pid {
         const self = try allocator.create(Process);
         errdefer allocator.destroy(self);
         self.* = .{
@@ -107,6 +108,7 @@ const Process = struct {
             .output = .init(allocator),
             .parent = tp.self_pid().clone(),
             .tag = try allocator.dupeZ(u8, tag),
+            .id = id,
             .logger = log.logger(@typeName(Self)),
             .stdin_behavior = stdin_behavior,
         };
@@ -190,7 +192,7 @@ const Process = struct {
             count += 1;
             if (count > 1000) break;
         }
-        try self.parent.send(.{ self.tag, "done" });
+        try self.parent.send(.{ self.tag, self.id, "done" });
         if (count > 1000) {
             self.logger.print("found more than {d} matches", .{self.match_count});
         } else {
@@ -270,9 +272,9 @@ const Process = struct {
                 if (l[l.len - 1] == '\n') l[0 .. l.len - 1] else l
             else
                 "";
-            try self.parent.send(.{ self.tag, p, line, begin, line, end, match_text });
+            try self.parent.send(.{ self.tag, self.id, p, line, begin, line, end, match_text });
         } else {
-            try self.parent.send(.{ self.tag, line, begin, line, end });
+            try self.parent.send(.{ self.tag, self.id, line, begin, line, end });
         }
         self.match_count += 1;
     }

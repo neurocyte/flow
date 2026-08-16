@@ -59,6 +59,7 @@ last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
 find_in_files_state: enum { init, adding, done } = .done,
+ripgrep_query_id: usize = 0,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
 panel_maximized: bool = false,
@@ -177,18 +178,21 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "REF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
         try self.add_find_in_files_result(.references, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
         return true;
-    } else if (try m.match(.{ "FIF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
+    } else if (try m.match(.{ "FIF", self.ripgrep_query_id, tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
         try self.add_find_in_files_result(.find_in_files, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
         return true;
     } else if (try m.match(.{ "REF", "done" })) {
         self.find_in_files_state = .done;
         return true;
-    } else if (try m.match(.{ "FIF", "done" })) {
+    } else if (try m.match(.{ "FIF", self.ripgrep_query_id, "done" })) {
         switch (self.find_in_files_state) {
             .init => self.clear_find_in_files_results(self.file_list_type),
             else => {},
         }
         self.find_in_files_state = .done;
+        return true;
+    } else if (try m.match(.{ "FIF", tp.more })) {
+        // drop late query results
         return true;
     } else if (try m.match(.{ "TFL", "begin" })) {
         self.find_in_files_state = .init;
@@ -1721,7 +1725,8 @@ const cmds = struct {
         logger.print("finding files...", .{});
         const find_f = ripgrep.find_in_files;
         if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
-        var rg = try find_f(self.allocator, query, "FIF");
+        self.ripgrep_query_id += 1;
+        var rg = try find_f(self.allocator, query, "FIF", self.ripgrep_query_id);
         defer rg.deinit();
         self.find_in_files_state = .init;
     }
