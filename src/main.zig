@@ -1194,7 +1194,11 @@ fn current_argv0() [:0]const u8 {
 fn flow_gui_executable(gpa: std.mem.Allocator) ?[:0]const u8 {
     const name = if (builtin.os.tag == .windows) "flow-gui.exe" else "flow-gui";
     // prefer flow-gui in the same path as flow, fall back to PATH
-    const self = resolve_executable(current_argv0());
+    var self_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const self: []const u8 = if (std.process.executablePath(get_io(), &self_buf)) |len|
+        self_buf[0..len]
+    else |_|
+        resolve_executable(current_argv0());
     if (std.fs.path.dirname(self)) |dir| {
         const candidate = std.fs.path.joinZ(gpa, &.{ dir, name }) catch @panic("OOM");
         if (bin_path.can_execute(gpa, candidate)) return candidate;
