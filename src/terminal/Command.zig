@@ -64,9 +64,9 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
         // Close all fds > 2 so the child cannot access the parent's
         // terminal or other inherited file descriptors.
-        const rlim = posix.getrlimit(.NOFILE) catch posix.rlimit{ .cur = 1024, .max = 1024 };
         var fd: posix.fd_t = 3;
-        while (fd < @as(posix.fd_t, @intCast(rlim.cur))) : (fd += 1) {
+        const max_fd: posix.fd_t = getdtablesize();
+        while (fd < max_fd) : (fd += 1) {
             safe_close(fd);
         }
 
@@ -84,6 +84,8 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
     // we are the parent
     self.pid = @intCast(pid);
 }
+
+extern fn getdtablesize() posix.fd_t;
 
 fn safe_close(fd: posix.fd_t) void {
     if (builtin.os.tag == .windows) {
