@@ -2,7 +2,9 @@
 //
 // Threading model:
 //   - start() is called from the tui/actor thread; it clones the caller's
-//     thespian PID and spawns the wio loop on a new thread.
+//     thespian PID and spawns the wio loop on a new thread. On macOS AppKit
+//     insists on owning the process main thread, so there the loop is handed
+//     to the main thread instead.
 //   - The wio thread owns the wio.Window, runs the OS message pump, and
 //     forwards events to either the tui (input) or the render actor (size,
 //     refresh_rate). It does NOT touch the GL context, sokol, gpu, or the
@@ -200,9 +202,46 @@ var wio_font_set: gpu.FontSet = .{
     .synth = .{ false, false, false, false },
 };
 
+/// On macOS the wio loop and thespian's ctx.run() trade places (because of
+/// AppKit semantics).
+pub const needs_main_thread = builtin.os.tag == .macos;
+
+const main_thread_loop = struct {
+    var ready: std.Io.Semaphore = .{};
+    var finished: std.Io.Semaphore = .{};
+    var cancelled: std.atomic.Value(bool) = .init(false);
+};
+
+pub fn run_main_thread() void {
+    if (!needs_main_thread) return;
+    const io = root.get_io();
+    main_thread_loop.ready.waitUncancelable(io);
+    if (main_thread_loop.cancelled.load(.acquire)) return;
+    wioLoop();
+    main_thread_loop.finished.post(io);
+}
+
+pub fn cancel_main_thread() void {
+    if (!needs_main_thread) return;
+    main_thread_loop.cancelled.store(true, .release);
+    main_thread_loop.ready.post(root.get_io());
+}
+
+pub const LoopHandle = union(enum) {
+    thread: std.Thread,
+    main_thread,
+
+    pub fn join(self: LoopHandle) void {
+        switch (self) {
+            .thread => |t| t.join(),
+            .main_thread => main_thread_loop.finished.waitUncancelable(root.get_io()),
+        }
+    }
+};
+
 // ── Public API (called from tui thread) ───────────────────────────────────
 
-pub fn start(render_pid_ref: ?thespian.pid_ref) !std.Thread {
+pub fn start(render_pid_ref: ?thespian.pid_ref) !LoopHandle {
     tui_pid = thespian.self_pid().clone();
     if (render_pid) |*p| {
         p.deinit();
@@ -221,7 +260,11 @@ pub fn start(render_pid_ref: ?thespian.pid_ref) !std.Thread {
     const copy_len = @min(class.len, window_class_buf.len);
     @memcpy(window_class_buf[0..copy_len], class[0..copy_len]);
     window_class_len = copy_len;
-    return std.Thread.spawn(.{}, wioLoop, .{});
+    if (needs_main_thread) {
+        main_thread_loop.ready.post(root.get_io());
+        return .main_thread;
+    }
+    return .{ .thread = try std.Thread.spawn(.{}, wioLoop, .{}) };
 }
 
 pub fn stop() void {

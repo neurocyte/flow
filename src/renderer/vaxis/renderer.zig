@@ -25,6 +25,10 @@ pub const GraphemeCache = @import("GraphemeCache.zig");
 const Self = @This();
 pub const log_name = "vaxis";
 
+pub const needs_main_thread = false;
+pub fn run_main_thread() void {}
+pub fn cancel_main_thread() void {}
+
 allocator: std.mem.Allocator,
 
 tty: vaxis.Tty,

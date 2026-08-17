@@ -34,6 +34,7 @@ pub const std_options: std.Options = .{
 };
 
 const crash = @import("crash");
+const renderer = @import("renderer");
 
 pub const panic = crash.panic;
 
@@ -391,10 +392,21 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
     }
 
-    ctx.run();
+    if (comptime renderer.needs_main_thread) {
+        const ctx_thread = try std.Thread.spawn(.{}, run_context, .{&ctx});
+        renderer.run_main_thread();
+        ctx_thread.join();
+    } else {
+        ctx.run();
+    }
 
     if (want_restart) if (want_restart_with_sudo) restart_with_sudo() else restart();
     exit(final_exit_status);
+}
+
+fn run_context(ctx: *thespian.context) void {
+    ctx.run();
+    renderer.cancel_main_thread();
 }
 
 var final_exit_status: u8 = 0;

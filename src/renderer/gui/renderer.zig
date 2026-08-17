@@ -20,6 +20,10 @@ const MouseEvent = @import("MouseEvent");
 const app = @import("app");
 const root = @import("soft_root").root;
 
+pub const needs_main_thread = app.needs_main_thread;
+pub const run_main_thread = app.run_main_thread;
+pub const cancel_main_thread = app.cancel_main_thread;
+
 pub const Cell = @import("tuirenderer").Cell;
 pub const StyleBits = @import("tuirenderer").style;
 pub const style = StyleBits;
@@ -62,7 +66,7 @@ dispatch_mouse: ?*const fn (ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: 
 dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void = null,
 dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
-thread: ?std.Thread = null,
+loop: ?app.LoopHandle = null,
 window_ready: bool = false,
 
 cursor_color: RGBA = .init(255, 255, 255, 255),
@@ -248,7 +252,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Self) void {
-    std.debug.assert(self.thread == null);
+    std.debug.assert(self.loop == null);
     var drop: std.Io.Writer.Discarding = .init(&.{});
     self.vx.deinit(self.allocator, &drop.writer);
     self.event_buffer.deinit();
@@ -280,7 +284,7 @@ fn resolve_layer_origin(std_plane: Plane, layer: *Layer, target: Layer.Target, p
 }
 
 pub fn run(self: *Self, render_pid: ?tp.pid_ref) Error!void {
-    if (self.thread) |_| return;
+    if (self.loop) |_| return;
     Layer.set_root_caps(&self.vx.caps);
     // Do a dummy resize to fully initialise vaxis internal state
     var drop: std.Io.Writer.Discarding = .init(&.{});
@@ -289,7 +293,7 @@ pub fn run(self: *Self, render_pid: ?tp.pid_ref) Error!void {
         &drop.writer,
         .{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     ) catch return error.VaxisResizeError;
-    self.thread = try app.start(render_pid);
+    self.loop = try app.start(render_pid);
 }
 
 fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
@@ -466,9 +470,9 @@ pub fn sigwinch(self: *Self) !void {
 
 pub fn stop(self: *Self) void {
     app.stop();
-    if (self.thread) |thread| {
-        thread.join();
-        self.thread = null;
+    if (self.loop) |loop| {
+        loop.join();
+        self.loop = null;
     }
 }
 
