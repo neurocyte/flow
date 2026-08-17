@@ -132,7 +132,9 @@ fn build_release(
         .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu }, .gui },
         .{ .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .musleabihf }, .terminal },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .macos }, .terminal },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .macos }, .gui },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .macos }, .terminal },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .macos }, .gui },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .windows }, .terminal },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .windows }, .gui },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .terminal },
@@ -156,6 +158,10 @@ fn build_release(
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .gui },
                 },
+                .macos => &.{
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .gui },
+                },
                 else => &.{
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
                 },
@@ -172,6 +178,10 @@ fn build_release(
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .gnu }, .gui },
             },
             .windows => &.{
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .gui },
+            },
+            .macos => &.{
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .gui },
             },
