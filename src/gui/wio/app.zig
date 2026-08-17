@@ -149,6 +149,23 @@ var dark_mode_dirty: std.atomic.Value(bool) = .init(true);
 
 // Set by the wio thread after createWindow; read by the render actor.
 var gui_window: ?*wio.Window = null;
+// Created on the wio thread and used on the render actor thread.
+var gl_context: ?wio.GlContext = null;
+
+fn glLock() void {
+    if (builtin.os.tag == .windows) return;
+    const window = gui_window orelse return;
+    const ctx = gl_context orelse return;
+    window.glLockContext(ctx);
+}
+
+fn glUnlock() void {
+    if (builtin.os.tag == .windows) return;
+    const window = gui_window orelse return;
+    const ctx = gl_context orelse return;
+    window.glUnlockContext(ctx);
+}
+
 // Set by the render actor's shutdown handler; awaited by stop().
 var render_shutdown_done: std.atomic.Value(bool) = .init(false);
 
@@ -963,6 +980,16 @@ fn wioLoop() void {
         }
     }
 
+    // The GL context is created here rather than on the render actor thread
+    // because on macOS creating has to happen the main thread.
+    if (builtin.os.tag != .windows) {
+        gl_context = window.glCreateContext(.{ .options = gl_options() }) catch |e| {
+            log.err("wio.glCreateContext failed: {s}", .{@errorName(e)});
+            tui_pid.send(.{"quit"}) catch {};
+            return;
+        };
+    }
+
     if (render_pid) |*rp| rp.send(.{
         "window_ready",
         @as(u32, @intCast(initial_size.width)),
@@ -1221,8 +1248,8 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32, focused: bool) voi
     };
 
     if (builtin.os.tag != .windows) {
-        const ctx = window.glCreateContext(.{ .options = gl_options() }) catch |e| {
-            log.err("wio.glCreateContext failed: {s}", .{@errorName(e)});
+        const ctx = gl_context orelse {
+            log.err("renderActorWindowReady: no gl context", .{});
             tui_pid.send(.{"quit"}) catch {};
             return;
         };
@@ -1296,6 +1323,9 @@ pub fn renderActorTick(focused: bool, visible: bool) void {
     const ctx = if (render_ctx) |*c| c else return;
     const allocator = root.get_init().gpa;
     const io = root.get_io();
+
+    glLock();
+    defer glUnlock();
 
     // On Windows the wio thread can be parked inside DefWindowProc's modal
     // resize/move loop, so the ("resize", w, h) message from the wio thread
