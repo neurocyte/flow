@@ -1,0 +1,57 @@
+#!/bin/bash
+set -e
+
+BASEDIR="$(cd "$(dirname "$0")/../.." && pwd)"
+SOURCE="${1:-$BASEDIR/contrib/icons/192x192/flow-control.png}"
+DEST="${2:-$BASEDIR/contrib/macos/Flow.icns}"
+
+if [ "$(uname -s)" != "Darwin" ]; then
+    echo "error: this script needs sips and iconutil, which are macOS only"
+    exit 1
+fi
+
+if [ ! -e "$SOURCE" ]; then
+    echo "error: source image \"$SOURCE\" not found"
+    exit 1
+fi
+
+width=$(sips -g pixelWidth "$SOURCE" | awk '/pixelWidth:/ { print $2 }')
+height=$(sips -g pixelHeight "$SOURCE" | awk '/pixelHeight:/ { print $2 }')
+
+if [ "$width" != "$height" ]; then
+    echo "warning: source is ${width}x${height}, not square; macOS will squash it"
+fi
+
+if [ "$width" -lt 1024 ]; then
+    echo "warning: source is only ${width}px wide and will be upscaled up to 1024px"
+fi
+
+# use fixed paths, sips and iconutil both record source file locations in output
+WORKDIR="/tmp/flow-icns"
+ICONSET="$WORKDIR/Flow.iconset"
+INPUT="$WORKDIR/source.png"
+rm -rf "$WORKDIR"
+mkdir -p "$ICONSET"
+cp "$SOURCE" "$INPUT"
+
+trap 'rm -rf "$WORKDIR"' EXIT
+
+while read -r pixels name; do
+    [ -z "$pixels" ] && continue
+    sips -z "$pixels" "$pixels" "$INPUT" --out "$ICONSET/$name.png" >/dev/null
+done <<EOF
+16 icon_16x16
+32 icon_16x16@2x
+32 icon_32x32
+64 icon_32x32@2x
+128 icon_128x128
+256 icon_128x128@2x
+256 icon_256x256
+512 icon_256x256@2x
+512 icon_512x512
+1024 icon_512x512@2x
+EOF
+
+iconutil --convert icns "$ICONSET" --output "$DEST"
+
+echo "wrote $DEST from $SOURCE (${width}x${height})"
