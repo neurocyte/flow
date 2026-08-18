@@ -1428,6 +1428,26 @@ pub fn build_exe(
     const exe_install = b.addInstallArtifact(exe, exe_install_options);
     b.getInstallStep().dependOn(&exe_install.step);
 
+    if (renderer == .gui) {
+        const resource_dir: std.Build.InstallDir = switch (exe_install_options.dest_dir) {
+            .override => |dir| dir,
+            .default, .disabled => .bin,
+        };
+        const resources: []const []const u8 = switch (target.result.os.tag) {
+            .macos => &.{
+                "contrib/bundle/Contents/Info.plist",
+                "contrib/bundle/Contents/Resources/Flow.icns",
+            },
+            .windows => &.{},
+            else => &.{
+                "contrib/share/applications/flow-control.desktop",
+                "contrib/share/icons/192x192/flow-control.png",
+            },
+        };
+        for (resources) |path|
+            b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(path), resource_dir, path).step);
+    }
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {

@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-BASEDIR="$(cd "$(dirname "$0")/../.." && pwd)"
-SOURCE="${1:-$BASEDIR/contrib/icons/192x192/flow-control.png}"
-DEST="${2:-$BASEDIR/contrib/macos/Flow.icns}"
+BASEDIR="$(cd "$(dirname "$0")/.." && pwd)"
+SOURCE="${1:-$BASEDIR/contrib/share/icons/192x192/flow-control.png}"
+DEST="${2:-$BASEDIR/contrib/bundle/Contents/Resources/Flow.icns}"
 
 if [ "$(uname -s)" != "Darwin" ]; then
     echo "error: this script needs sips and iconutil, which are macOS only"
