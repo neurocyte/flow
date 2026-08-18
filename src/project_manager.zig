@@ -377,7 +377,7 @@ fn expand_env(allocator: std.mem.Allocator, template: []const u8) error{OutOfMem
     return try out.toOwnedSlice(allocator);
 }
 
-fn same_directory(path: []const u8, dir: []const u8) bool {
+pub fn same_directory(path: []const u8, dir: []const u8) bool {
     const a = strip_trailing_separators(path);
     const b = strip_trailing_separators(dir);
     if (a.len != b.len) return false;
@@ -391,11 +391,9 @@ fn same_directory(path: []const u8, dir: []const u8) bool {
     return true;
 }
 
-fn strip_trailing_separators(path: []const u8) []const u8 {
+pub fn strip_trailing_separators(path: []const u8) []const u8 {
     var end = path.len;
-    while (end > 1 and std.fs.path.isSep(path[end - 1])) : (end -= 1) {
-        if (builtin.os.tag == .windows and end == 3 and path[1] == ':') break;
-    }
+    while (end > 1 and std.fs.path.isSep(path[end - 1])) : (end -= 1) {}
     return path[0..end];
 }
 

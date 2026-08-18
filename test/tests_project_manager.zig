@@ -55,3 +55,35 @@ fn fix_path(dest: []u8, src: []const u8) []const u8 {
         return dest[0..src.len];
     } else return src;
 }
+
+test "strip_trailing_separators" {
+    try std.testing.expectEqualStrings("/usr", pm.strip_trailing_separators("/usr"));
+    try std.testing.expectEqualStrings("/usr", pm.strip_trailing_separators("/usr/"));
+    try std.testing.expectEqualStrings("/usr", pm.strip_trailing_separators("/usr///"));
+    try std.testing.expectEqualStrings("/", pm.strip_trailing_separators("/"));
+    if (builtin.os.tag == .windows) {
+        // {{env:SystemDrive}} expands to "C:", the project directory is "C:\"
+        try std.testing.expectEqualStrings("C:", pm.strip_trailing_separators("C:\\"));
+        try std.testing.expectEqualStrings("C:", pm.strip_trailing_separators("C:"));
+        try std.testing.expectEqualStrings("\\", pm.strip_trailing_separators("\\"));
+    }
+}
+
+test "same_directory" {
+    try std.testing.expect(pm.same_directory("/usr", "/usr"));
+    try std.testing.expect(pm.same_directory("/usr/", "/usr"));
+    try std.testing.expect(pm.same_directory("/", "/"));
+    // exact directory matches only: nothing below a listed directory matches
+    try std.testing.expect(!pm.same_directory("/usr/share", "/usr"));
+    try std.testing.expect(!pm.same_directory("/usr", "/usr/share"));
+    try std.testing.expect(!pm.same_directory("/usrx", "/usr"));
+    if (builtin.os.tag == .windows) {
+        try std.testing.expect(pm.same_directory("C:\\", "C:"));
+        try std.testing.expect(pm.same_directory("C:\\", "c:\\"));
+        try std.testing.expect(pm.same_directory("C:/Users", "c:\\users"));
+        try std.testing.expect(!pm.same_directory("C:\\Users", "C:"));
+    } else {
+        // case is significant everywhere else
+        try std.testing.expect(!pm.same_directory("/Usr", "/usr"));
+    }
+}
