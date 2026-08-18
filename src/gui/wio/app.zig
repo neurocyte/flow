@@ -878,6 +878,11 @@ fn isCharacterKey(base_cp: u21, mods: input_translate.Mods) bool {
     return std.ascii.isPrint(ascii);
 }
 
+/// Forward the system light/dark preference to the tui.
+fn sendColorScheme(scheme: wio.ColorScheme) void {
+    tui_pid.send(.{ "color_scheme", scheme }) catch {};
+}
+
 // Correlates wio's layout-composed .char events with the physical button that
 // produced them. A .char carries no button of its own, but every backend pushes
 // the button event first, so the most recently deferred press/repeat is its
@@ -976,6 +981,7 @@ fn wioLoop() void {
             .scale => |s| dpi_scale = s,
             .size_physical => |sz| initial_size = sz,
             .refresh_rate => |r| if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {},
+            .color_scheme => |scheme| sendColorScheme(scheme),
             else => {},
         }
     }
@@ -1017,6 +1023,9 @@ fn wioLoop() void {
                 .scale => |s| {
                     dpi_scale = s;
                     font_dirty.store(true, .release);
+                },
+                .color_scheme => |scheme| {
+                    sendColorScheme(scheme);
                 },
                 .refresh_rate => |r| {
                     if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
