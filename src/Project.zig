@@ -44,6 +44,7 @@ parent: tp.pid,
 workspace: ?[]const u8 = null,
 
 walker: ?tp.pid = null,
+no_index: bool = false,
 watcher: ?file_watcher.Owned = null,
 
 ignore: ?*gitignore.Matcher = null,
@@ -115,11 +116,17 @@ const Task = struct {
 
 const State = enum { none, running, done, failed };
 
-pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref) OutOfMemoryError!Self {
+pub const Options = struct {
+    no_index: bool = false,
+    watch_non_indexed: bool = false,
+};
+
+pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref, options: Options) OutOfMemoryError!Self {
     const now = root.get_now();
     return .{
         .allocator = allocator,
         .name = try allocator.dupe(u8, name),
+        .no_index = options.no_index,
         .open_time = now.toMilliseconds(),
         .language_servers = std.StringHashMap(*LSPClient).init(allocator),
         .file_language_server_name = std.StringHashMap([]const u8).init(allocator),
@@ -129,12 +136,16 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref) 
         .logger_git = log.logger("git"),
         .last_used = @as(i128, now.toNanoseconds()),
         .parent = parent.clone(),
-        .watcher = start_watcher(name),
+        .watcher = start_watcher(name, options),
     };
 }
 
-fn start_watcher(name: []const u8) ?file_watcher.Owned {
+fn start_watcher(name: []const u8, options: Options) ?file_watcher.Owned {
     if (!tp.env.get().is("enable_file_watcher")) return null;
+    if (options.no_index and !options.watch_non_indexed) {
+        std.log.debug("not watching {s}", .{name});
+        return null;
+    }
     const watcher = file_watcher.Owned.init() catch |e| {
         std.log.err("file_watcher.init: {s} -> {}", .{ name, e });
         return null;
@@ -1440,6 +1451,10 @@ pub fn query_git(self: *Self) void {
 }
 
 fn start_walker(self: *Self) void {
+    if (self.no_index) {
+        self.logger.print("not indexing {s}", .{self.name});
+        return;
+    }
     self.state.walk_tree = .running;
     const io = root.get_io();
 

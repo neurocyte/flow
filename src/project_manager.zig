@@ -7,6 +7,7 @@ const file_watcher = @import("file_watcher");
 const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
 const root = @import("soft_root").root;
+const config = @import("config");
 const Buffer = @import("Buffer");
 const file_link = @import("file_link");
 const builtin = @import("builtin");
@@ -356,12 +357,56 @@ pub fn get_mru_position(allocator: std.mem.Allocator, file_path: []const u8, ctx
     return cp.send(allocator, (try get()).pid, .{ "get_mru_position", project, file_path }, ctx);
 }
 
+fn expand_env(allocator: std.mem.Allocator, template: []const u8) error{OutOfMemory}!?[]const u8 {
+    const open_tag = "{{env:";
+    const close_tag = "}}";
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    var rest = template;
+    while (std.mem.indexOf(u8, rest, open_tag)) |tag_start| {
+        const after = rest[tag_start + open_tag.len ..];
+        const tag_end = std.mem.indexOf(u8, after, close_tag) orelse break;
+        const value = root.get_init().environ_map.get(after[0..tag_end]) orelse return null;
+        try out.appendSlice(allocator, rest[0..tag_start]);
+        try out.appendSlice(allocator, value);
+        rest = after[tag_end + close_tag.len ..];
+    }
+    try out.appendSlice(allocator, rest);
+    return try out.toOwnedSlice(allocator);
+}
+
+fn same_directory(path: []const u8, dir: []const u8) bool {
+    const a = strip_trailing_separators(path);
+    const b = strip_trailing_separators(dir);
+    if (a.len != b.len) return false;
+    if (builtin.os.tag != .windows) return std.mem.eql(u8, a, b);
+    // windows paths are case insensitive and accept either separator
+    for (a, b) |ca, cb| {
+        const la = if (ca == '\\') '/' else std.ascii.toLower(ca);
+        const lb = if (cb == '\\') '/' else std.ascii.toLower(cb);
+        if (la != lb) return false;
+    }
+    return true;
+}
+
+fn strip_trailing_separators(path: []const u8) []const u8 {
+    var end = path.len;
+    while (end > 1 and std.fs.path.isSep(path[end - 1])) : (end -= 1) {
+        if (builtin.os.tag == .windows and end == 3 and path[1] == ':') break;
+    }
+    return path[0..end];
+}
+
 const Process = struct {
     allocator: std.mem.Allocator,
     parent: tp.pid,
     logger: log.Logger,
     receiver: Receiver,
     projects: ProjectsMap,
+    non_indexed: []const []const u8,
+    watch_non_indexed: bool,
 
     const InvalidArgumentError = error{InvalidArgument};
     const UnsupportedError = error{Unsupported};
@@ -383,7 +428,10 @@ const Process = struct {
             .logger = log.logger(module_name),
             .receiver = .init(receive, dtor, self),
             .projects = .empty,
+            .non_indexed = &.{},
+            .watch_non_indexed = false,
         };
+        self.load_settings();
         return tp.spawn_link(self.allocator, self, Process.start, module_name);
     }
 
@@ -395,6 +443,8 @@ const Process = struct {
             self.allocator.destroy(p.value_ptr.*);
         }
         self.projects.deinit(self.allocator);
+        for (self.non_indexed) |dir| self.allocator.free(dir);
+        self.allocator.free(self.non_indexed);
         self.parent.deinit();
         self.logger.deinit();
         self.allocator.destroy(self);
@@ -690,13 +740,47 @@ const Process = struct {
             project.last_used = @as(i128, root.get_now().toNanoseconds());
             self.logger.print("switched to: {s}", .{project_directory});
         } else {
-            self.logger.print("opening: {s}", .{project_directory});
+            const no_index = self.is_non_indexed(project_directory);
+            if (no_index)
+                self.logger.print("opening: {s} (no index)", .{project_directory})
+            else
+                self.logger.print("opening: {s}", .{project_directory});
             const project = try self.allocator.create(Project);
-            project.* = try Project.init(self.allocator, project_directory, self.parent.ref());
+            project.* = try Project.init(self.allocator, project_directory, self.parent.ref(), .{
+                .no_index = no_index,
+                .watch_non_indexed = self.watch_non_indexed,
+            });
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.query_git();
         }
+    }
+
+    fn load_settings(self: *Process) void {
+        const conf, const bufs = root.read_config(config, self.allocator);
+        defer root.free_config(self.allocator, bufs);
+
+        self.watch_non_indexed = conf.watch_non_indexed_projects;
+
+        var list: std.ArrayList([]const u8) = .empty;
+        errdefer {
+            for (list.items) |dir| self.allocator.free(dir);
+            list.deinit(self.allocator);
+        }
+        for (conf.non_indexed_projects) |entry| {
+            const expanded = expand_env(self.allocator, entry) catch continue orelse continue;
+            list.append(self.allocator, expanded) catch {
+                self.allocator.free(expanded);
+                break;
+            };
+        }
+        self.non_indexed = list.toOwnedSlice(self.allocator) catch &.{};
+    }
+
+    fn is_non_indexed(self: *Process, project_directory: []const u8) bool {
+        for (self.non_indexed) |dir|
+            if (same_directory(project_directory, dir)) return true;
+        return false;
     }
 
     fn close(self: *Process, project_directory: []const u8) error{}!void {

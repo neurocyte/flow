@@ -119,6 +119,26 @@ enable_file_watcher: bool = true,
 
 desktop_theme_file: []const u8 = &.{},
 
+non_indexed_projects: []const []const u8 = switch (builtin.os.tag) {
+    .windows => &.{
+        "{{env:SystemDrive}}",       "{{env:SystemRoot}}",  "{{env:ProgramFiles}}",
+        "{{env:ProgramFiles(x86)}}", "{{env:ProgramData}}", "{{env:USERPROFILE}}",
+        "{{env:TEMP}}",              "{{env:APPDATA}}",     "{{env:LOCALAPPDATA}}",
+    },
+    .macos => &.{
+        "{{env:HOME}}", "/",      "/Applications", "/Library",
+        "/System",      "/Users", "/Volumes",      "/bin",
+        "/dev",         "/etc",   "/home",         "/private",
+        "/sbin",        "/tmp",   "/usr",          "/var",
+    },
+    else => &.{
+        "/",      "/bin",   "/boot", "/dev", "/home", "/lib",
+        "/lib64", "/media", "/proc", "/run", "/sbin", "/sys",
+        "/usr",   "/var",
+    },
+},
+watch_non_indexed_projects: bool = false,
+
 include_files: []const u8 = "",
 
 const default_actions = [_]IdleAction{.highlight_references};

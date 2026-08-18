@@ -1255,6 +1255,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/project_manager.zig"),
         .imports = &.{
             .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "config", .module = config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
