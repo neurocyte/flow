@@ -2,7 +2,7 @@
 set -e
 
 BASEDIR="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="${1:-$BASEDIR/contrib/share/icons/192x192/flow-control.png}"
+SOURCE="${1:-$BASEDIR/contrib/share/icons/hicolor/192x192/apps/flow-control.png}"
 DEST="${2:-$BASEDIR/contrib/bundle/Contents/Resources/Flow.icns}"
 
 if [ "$(uname -s)" != "Darwin" ]; then

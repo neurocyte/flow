@@ -1441,7 +1441,7 @@ pub fn build_exe(
             .windows => &.{},
             else => &.{
                 "contrib/share/applications/flow-control.desktop",
-                "contrib/share/icons/192x192/flow-control.png",
+                "contrib/share/icons/hicolor/192x192/apps/flow-control.png",
             },
         };
         for (resources) |path|
