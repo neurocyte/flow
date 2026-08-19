@@ -32,6 +32,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
 
         cache: std.AutoHashMapUnmanaged(CacheKey, CacheEntry) = .empty,
         faces: std.ArrayList(Entry) = .empty,
+        failed: std.AutoHashMapUnmanaged(u64, void) = .empty,
         current_size_px: u16 = 0,
         embedded_loaded: bool = false,
 
@@ -39,6 +40,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
             for (self.faces.items) |*e| Backend.deinitFace(ctx, allocator, &e.face);
             self.faces.deinit(allocator);
             self.cache.deinit(allocator);
+            self.failed.deinit(allocator);
         }
 
         fn loadEmbedded(self: *Resolver, ctx: Context, allocator: std.mem.Allocator, size_px: u16) void {
@@ -104,11 +106,15 @@ pub fn FallbackResolver(comptime Backend: type) type {
                     }
                 }
                 if (seen) continue;
+                if (self.failed.contains(path_hash)) continue;
 
                 if (self.faces.items.len >= max_faces)
                     return self.cacheNegative(allocator, key);
 
-                var face = Backend.loadPath(ctx, allocator, cand, size_px) orelse continue;
+                var face = Backend.loadPath(ctx, allocator, cand, size_px) orelse {
+                    self.failed.put(allocator, path_hash, {}) catch {};
+                    continue;
+                };
                 const scale = faceScaleFactor(primary, Backend.faceMetrics(&face));
                 const adj = scaledSize(size_px, scale);
                 if (adj != size_px) Backend.setFaceSize(ctx, &face, adj);
