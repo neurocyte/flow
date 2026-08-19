@@ -68,8 +68,8 @@
             .lazy = true,
         },
         .flow_fonts = .{
-            .url = "git+https://github.com/neurocyte/flow-fonts?ref=master#bfe80cf4c0bef2141b9af34a6cf906dc7ec9ea11",
-            .hash = "flow_fonts-0.7.2-Y4vXsGcSlwD7cT9GfHe-9kTKDASS9JxgArW3nurQ5G4v",
+            .url = "git+https://github.com/neurocyte/flow-fonts?ref=master#49bf2d1039685ca94a088cf8194f7f8dfa17fc17",
+            .hash = "flow_fonts-0.7.2-Y4vXsL_D7QDKSySwSUFce7m6bIPmsyN5hmbI4HY_z-h9",
             .lazy = true,
         },
         .flow_gui_headers = .{

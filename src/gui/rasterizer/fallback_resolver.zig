@@ -84,6 +84,8 @@ pub fn FallbackResolver(comptime Backend: type) type {
             if (self.cache.get(key)) |entry|
                 return if (entry.found) &self.faces.items[entry.index].face else null;
 
+            if (self.matchEmbedded(allocator, key, codepoint)) |face| return face;
+
             const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color, Backend.glyf_only) catch
                 return self.cacheNegative(allocator, key);
             defer {
@@ -128,12 +130,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
                 return &self.faces.items[idx].face;
             }
 
-            for (self.faces.items, 0..) |*e, idx| {
-                if (e.embedded and Backend.hasGlyph(&e.face, codepoint)) {
-                    self.cache.put(allocator, key, .{ .found = true, .index = @intCast(idx) }) catch {};
-                    return &self.faces.items[idx].face;
-                }
-            }
+            if (self.matchEmbedded(allocator, key, codepoint)) |face| return face;
 
             return self.cacheNegative(allocator, key);
         }
@@ -141,6 +138,22 @@ pub fn FallbackResolver(comptime Backend: type) type {
         pub fn resolveExisting(self: *Resolver, codepoint: u21, prefer_color: bool) ?*const Backend.Face {
             const entry = self.cache.get(.{ .cp = codepoint, .color = prefer_color }) orelse return null;
             return if (entry.found) &self.faces.items[entry.index].face else null;
+        }
+
+        /// First built-in face that has the codepoint.
+        fn matchEmbedded(
+            self: *Resolver,
+            allocator: std.mem.Allocator,
+            key: CacheKey,
+            codepoint: u21,
+        ) ?*const Backend.Face {
+            for (self.faces.items, 0..) |*e, idx| {
+                if (!e.embedded) continue;
+                if (!Backend.hasGlyph(&e.face, codepoint)) continue;
+                self.cache.put(allocator, key, .{ .found = true, .index = @intCast(idx) }) catch {};
+                return &self.faces.items[idx].face;
+            }
+            return null;
         }
 
         fn scaledSize(size_px: u16, scale: f64) u16 {
