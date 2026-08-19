@@ -49,9 +49,10 @@ pub fn findFallbackFonts(
     allocator: std.mem.Allocator,
     codepoint: u21,
     prefer_color: bool,
+    glyf_only: bool,
 ) ![]FallbackCandidate {
     return switch (builtin.os.tag) {
-        .linux => linux.findFallbackFonts(allocator, codepoint, prefer_color),
+        .linux => linux.findFallbackFonts(allocator, codepoint, prefer_color, glyf_only),
         else => allocator.alloc(FallbackCandidate, 0),
     };
 }

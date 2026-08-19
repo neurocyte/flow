@@ -619,6 +619,9 @@ const FtBackend = struct {
         .{ .data = iosevka_medium, .is_color = false, .tag = "<embedded:iosevka>" },
     };
 
+    /// freetype rasterizes CFF and bitmap faces
+    pub const glyf_only = false;
+
     pub fn preferColor(codepoint: u21) bool {
         return uucode.get(.is_emoji_presentation, @intCast(codepoint));
     }

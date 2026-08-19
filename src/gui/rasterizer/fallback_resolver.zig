@@ -84,7 +84,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
             if (self.cache.get(key)) |entry|
                 return if (entry.found) &self.faces.items[entry.index].face else null;
 
-            const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color) catch
+            const candidates = font_finder.findFallbackFonts(allocator, codepoint, prefer_color, Backend.glyf_only) catch
                 return self.cacheNegative(allocator, key);
             defer {
                 for (candidates) |cand| allocator.free(cand.path);

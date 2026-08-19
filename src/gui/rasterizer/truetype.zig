@@ -140,6 +140,9 @@ const TtBackend = struct {
         .{ .data = iosevka_medium, .is_color = false, .tag = "<embedded:iosevka>" },
     };
 
+    /// truetype rasterizes only glyf
+    pub const glyf_only = true;
+
     pub fn preferColor(_: u21) bool {
         return false;
     }

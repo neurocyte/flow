@@ -130,6 +130,7 @@ pub fn findFallbackFonts(
     allocator: std.mem.Allocator,
     codepoint: u21,
     prefer_color: bool,
+    glyf_only: bool,
 ) ![]FallbackCandidate {
     const cfg = try config();
 
@@ -173,6 +174,14 @@ pub fn findFallbackFonts(
             continue;
         if (fc.FcCharSetHasChar(font_cs, codepoint) == fc.FcFalse)
             continue;
+
+        if (glyf_only) {
+            var format: [*c]fc.FcChar8 = undefined;
+            // keep unknown format in case we actually can load it
+            if (fc.FcPatternGetString(font_pat, fc.FC_FONTFORMAT, 0, &format) == fc.FcResultMatch and
+                !std.mem.eql(u8, std.mem.sliceTo(format, 0), "TrueType"))
+                continue;
+        }
 
         var file: [*c]fc.FcChar8 = undefined;
         if (fc.FcPatternGetString(font_pat, fc.FC_FILE, 0, &file) != fc.FcResultMatch)
