@@ -51,11 +51,8 @@ pub fn subpixel3(staging: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32
     }
 }
 
-/// Downscale-to-fit + bilinear blit of a color bitmap into the RGBA staging
-/// buffer, centered within a target_w x buf_h area. Internal: callers use the
-/// format-specific colorBGRA / colorRGBA wrappers below, which supply the
-/// sampler. `sample(ctx, gw, gh, fx, fy)` returns RGBA at a fractional source
-/// coordinate.
+/// Downscale-to-fit blit of a color bitmap into the RGBA staging buffer,
+/// centered within a target_w x buf_h area.
 fn colorDownscale(
     staging: []u8,
     buf_w: i32,
@@ -64,7 +61,7 @@ fn colorDownscale(
     gh: i32,
     target_w: i32,
     ctx: anytype,
-    comptime sample: fn (@TypeOf(ctx), i32, i32, f32, f32) [4]u8,
+    comptime tap: fn (@TypeOf(ctx), i32, i32, i32, i32) F4,
 ) void {
     if (gw <= 0 or gh <= 0) return;
     const s: f32 = @min(
@@ -76,15 +73,20 @@ fn colorDownscale(
     const dst_x0: i32 = @divTrunc(target_w - sw, 2);
     const dst_y0: i32 = @divTrunc(buf_h - sh, 2);
     const inv_s: f32 = 1.0 / s;
+    const reducing = s < 1.0;
     const r = clip(buf_w, buf_h, sw, sh, dst_x0, dst_y0);
     var dy = r.row0;
     while (dy < r.row1) : (dy += 1) {
         const dst_row: usize = @intCast((dst_y0 + dy) * buf_w);
-        const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
         var dx = r.col0;
         while (dx < r.col1) : (dx += 1) {
-            const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
-            const rgba = sample(ctx, gw, gh, fsx, fsy);
+            const rgba = if (reducing)
+                areaAverage(ctx, tap, gw, gh, @floatFromInt(dx), @floatFromInt(dy), inv_s)
+            else blk: {
+                const fsx = (@as(f32, @floatFromInt(dx)) + 0.5) * inv_s - 0.5;
+                const fsy = (@as(f32, @floatFromInt(dy)) + 0.5) * inv_s - 0.5;
+                break :blk bilinear(ctx, tap, gw, gh, fsx, fsy);
+            };
             const dst_idx = (dst_row + @as(usize, @intCast(dst_x0 + dx))) * 4;
             staging[dst_idx + 0] = rgba[0];
             staging[dst_idx + 1] = rgba[1];
@@ -92,6 +94,68 @@ fn colorDownscale(
             staging[dst_idx + 3] = rgba[3];
         }
     }
+}
+
+fn areaAverage(
+    ctx: anytype,
+    comptime tap: fn (@TypeOf(ctx), i32, i32, i32, i32) F4,
+    gw: i32,
+    gh: i32,
+    dx: f32,
+    dy: f32,
+    inv_s: f32,
+) @Vector(4, u8) {
+    const x0 = dx * inv_s;
+    const x1 = (dx + 1) * inv_s;
+    const y0 = dy * inv_s;
+    const y1 = (dy + 1) * inv_s;
+
+    const ix0: i32 = @intFromFloat(@floor(x0));
+    const ix1: i32 = @intFromFloat(@ceil(x1));
+    const iy0: i32 = @intFromFloat(@floor(y0));
+    const iy1: i32 = @intFromFloat(@ceil(y1));
+
+    var acc: F4 = @splat(0);
+    var weight: f32 = 0;
+    var y = iy0;
+    while (y < iy1) : (y += 1) {
+        const fy: f32 = @floatFromInt(y);
+        const wy = @min(y1, fy + 1) - @max(y0, fy);
+        if (wy <= 0) continue;
+        var x = ix0;
+        while (x < ix1) : (x += 1) {
+            const fx: f32 = @floatFromInt(x);
+            const wx = @min(x1, fx + 1) - @max(x0, fx);
+            if (wx <= 0) continue;
+            const w = wx * wy;
+            acc += tap(ctx, gw, gh, x, y) * @as(F4, @splat(w));
+            weight += w;
+        }
+    }
+    if (weight <= 0) return @splat(0);
+    const mean = acc / @as(F4, @splat(weight));
+    const clamped = @min(@max(mean, @as(F4, @splat(0))), @as(F4, @splat(255)));
+    return @intFromFloat(clamped);
+}
+
+fn bilinear(
+    ctx: anytype,
+    comptime tap: fn (@TypeOf(ctx), i32, i32, i32, i32) F4,
+    gw: i32,
+    gh: i32,
+    fx: f32,
+    fy: f32,
+) @Vector(4, u8) {
+    const x0: i32 = @intFromFloat(@floor(fx));
+    const y0: i32 = @intFromFloat(@floor(fy));
+    return lerp4(
+        tap(ctx, gw, gh, x0, y0),
+        tap(ctx, gw, gh, x0 + 1, y0),
+        tap(ctx, gw, gh, x0, y0 + 1),
+        tap(ctx, gw, gh, x0 + 1, y0 + 1),
+        fx - @floor(fx),
+        fy - @floor(fy),
+    );
 }
 
 /// Blit a tightly-packed alpha texture, choosing 1 byte/px (aliased) or 3
@@ -128,25 +192,25 @@ pub fn alphaPitched(staging: []u8, buf_w: i32, buf_h: i32, src: [*c]const u8, pi
     }
 }
 
-/// Downscale-to-fit + bilinear blit of a pitched BGRA source into the staging
-/// buffer (swizzling to RGBA), centered within a target_w x buf_h area.
+/// Downscale-to-fit blit of a pitched BGRA source into the staging buffer
+/// (swizzling to RGBA), centered within a target_w x buf_h area.
 pub fn colorBGRA(staging: []u8, buf_w: i32, buf_h: i32, src: [*c]const u8, pitch: u32, gw: i32, gh: i32, target_w: i32) void {
     const Ctx = struct { src: [*c]const u8, pitch: u32 };
     colorDownscale(staging, buf_w, buf_h, gw, gh, target_w, Ctx{ .src = src, .pitch = pitch }, struct {
-        fn sample(cx: Ctx, w: i32, h: i32, fx: f32, fy: f32) [4]u8 {
-            return sampleBGRA(cx.src, w, h, cx.pitch, fx, fy);
+        fn tap(cx: Ctx, w: i32, h: i32, x: i32, y: i32) F4 {
+            return bgraTap(cx.src, w, h, cx.pitch, x, y);
         }
-    }.sample);
+    }.tap);
 }
 
-/// Downscale-to-fit + bilinear blit of a tightly-packed RGBA source into the
-/// staging buffer, centered within a target_w x buf_h area.
+/// Downscale-to-fit blit of a tightly-packed RGBA source into the staging
+/// buffer, centered within a target_w x buf_h area.
 pub fn colorRGBA(staging: []u8, buf_w: i32, buf_h: i32, src: []const u8, gw: i32, gh: i32, target_w: i32) void {
     colorDownscale(staging, buf_w, buf_h, gw, gh, target_w, src, struct {
-        fn sample(s: []const u8, w: i32, h: i32, fx: f32, fy: f32) [4]u8 {
-            return sampleRGBA(s, w, h, fx, fy);
+        fn tap(sx: []const u8, w: i32, h: i32, x: i32, y: i32) F4 {
+            return rgbaTap(sx, w, h, x, y);
         }
-    }.sample);
+    }.tap);
 }
 
 const F4 = @Vector(4, f32);
@@ -172,44 +236,10 @@ fn rgbaTap(src: []const u8, gw: i32, gh: i32, x: i32, y: i32) F4 {
     return @floatFromInt(v);
 }
 
-fn sampleRGBA(src: []const u8, gw: i32, gh: i32, fx: f32, fy: f32) [4]u8 {
-    const x0: i32 = @intFromFloat(@floor(fx));
-    const y0: i32 = @intFromFloat(@floor(fy));
-    const tx: f32 = fx - @floor(fx);
-    const ty: f32 = fy - @floor(fy);
-    const out = lerp4(
-        rgbaTap(src, gw, gh, x0, y0),
-        rgbaTap(src, gw, gh, x0 + 1, y0),
-        rgbaTap(src, gw, gh, x0, y0 + 1),
-        rgbaTap(src, gw, gh, x0 + 1, y0 + 1),
-        tx,
-        ty,
-    );
-    return out;
-}
-
 fn bgraTap(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, x: i32, y: i32) F4 {
     const cx: u32 = @intCast(std.math.clamp(x, 0, gw - 1));
     const cy: u32 = @intCast(std.math.clamp(y, 0, gh - 1));
     const off = cy * pitch + cx * 4;
-    const v: @Vector(4, u8) = .{ src[off], src[off + 1], src[off + 2], src[off + 3] };
+    const v: @Vector(4, u8) = .{ src[off + 2], src[off + 1], src[off], src[off + 3] };
     return @floatFromInt(v);
-}
-
-fn sampleBGRA(src: [*c]const u8, gw: i32, gh: i32, pitch: u32, fx: f32, fy: f32) [4]u8 {
-    const x0: i32 = @intFromFloat(@floor(fx));
-    const y0: i32 = @intFromFloat(@floor(fy));
-    const tx: f32 = fx - @floor(fx);
-    const ty: f32 = fy - @floor(fy);
-    const bgra = lerp4(
-        bgraTap(src, gw, gh, pitch, x0, y0),
-        bgraTap(src, gw, gh, pitch, x0 + 1, y0),
-        bgraTap(src, gw, gh, pitch, x0, y0 + 1),
-        bgraTap(src, gw, gh, pitch, x0 + 1, y0 + 1),
-        tx,
-        ty,
-    );
-    // BGRA source order -> RGBA output order.
-    const out: @Vector(4, u8) = @shuffle(u8, bgra, undefined, @Vector(4, i32){ 2, 1, 0, 3 });
-    return out;
 }
