@@ -25,6 +25,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
             face: Backend.Face,
             path_hash: u64,
             embedded: bool,
+            scale: f64 = 1.0,
         };
         const CacheEntry = struct { found: bool, index: u8 };
         const CacheKey = struct { cp: u21, color: bool };
@@ -69,10 +70,8 @@ pub fn FallbackResolver(comptime Backend: type) type {
             primary: FaceMetrics,
         ) ?*const Backend.Face {
             if (self.current_size_px != 0 and self.current_size_px != size_px) {
-                for (self.faces.items) |*e| Backend.deinitFace(ctx, allocator, &e.face);
-                self.faces.clearRetainingCapacity();
-                self.cache.clearRetainingCapacity();
-                self.embedded_loaded = false;
+                for (self.faces.items) |*e|
+                    Backend.setFaceSize(ctx, &e.face, scaledSize(size_px, e.scale));
             }
             self.current_size_px = size_px;
             self.loadEmbedded(ctx, allocator, size_px);
@@ -106,23 +105,19 @@ pub fn FallbackResolver(comptime Backend: type) type {
                 }
                 if (seen) continue;
 
-                var face = Backend.loadPath(ctx, allocator, cand, size_px) orelse continue;
-                if (!Backend.hasGlyph(&face, codepoint)) {
-                    Backend.deinitFace(ctx, allocator, &face);
-                    continue;
-                }
-                const scale = faceScaleFactor(primary, Backend.faceMetrics(&face));
-                const adj: u16 = @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * scale)));
-                if (adj != size_px) Backend.setFaceSize(ctx, &face, adj);
-                if (self.faces.items.len >= max_faces) {
-                    Backend.deinitFace(ctx, allocator, &face);
+                if (self.faces.items.len >= max_faces)
                     return self.cacheNegative(allocator, key);
-                }
+
+                var face = Backend.loadPath(ctx, allocator, cand, size_px) orelse continue;
+                const scale = faceScaleFactor(primary, Backend.faceMetrics(&face));
+                const adj = scaledSize(size_px, scale);
+                if (adj != size_px) Backend.setFaceSize(ctx, &face, adj);
                 const idx: u8 = @intCast(self.faces.items.len);
-                self.faces.append(allocator, .{ .face = face, .path_hash = path_hash, .embedded = false }) catch {
+                self.faces.append(allocator, .{ .face = face, .path_hash = path_hash, .embedded = false, .scale = scale }) catch {
                     Backend.deinitFace(ctx, allocator, &face);
                     return self.cacheNegative(allocator, key);
                 };
+                if (!Backend.hasGlyph(&self.faces.items[idx].face, codepoint)) continue;
                 self.cache.put(allocator, key, .{ .found = true, .index = idx }) catch {};
                 return &self.faces.items[idx].face;
             }
@@ -140,6 +135,10 @@ pub fn FallbackResolver(comptime Backend: type) type {
         pub fn resolveExisting(self: *Resolver, codepoint: u21, prefer_color: bool) ?*const Backend.Face {
             const entry = self.cache.get(.{ .cp = codepoint, .color = prefer_color }) orelse return null;
             return if (entry.found) &self.faces.items[entry.index].face else null;
+        }
+
+        fn scaledSize(size_px: u16, scale: f64) u16 {
+            return @intFromFloat(@max(1.0, @round(@as(f64, @floatFromInt(size_px)) * scale)));
         }
 
         fn cacheNegative(self: *Resolver, allocator: std.mem.Allocator, key: CacheKey) ?*const Backend.Face {

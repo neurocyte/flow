@@ -3,11 +3,22 @@ const fc = @cImport({
     @cInclude("fontconfig/fontconfig.h");
 });
 
+var cached_config: std.atomic.Value(?*fc.FcConfig) = .init(null);
+
+fn config() !*fc.FcConfig {
+    if (cached_config.load(.acquire)) |c| return c;
+    const c = fc.FcInitLoadConfigAndFonts() orelse return error.FontconfigInit;
+    if (cached_config.cmpxchgStrong(null, c, .release, .acquire)) |won| {
+        fc.FcConfigDestroy(c);
+        return won.?;
+    }
+    return c;
+}
+
 /// Returns a sorted, deduplicated list of monospace font family names.
 /// Caller owns the returned slice and each string within it.
 pub fn list(allocator: std.mem.Allocator) ![][]u8 {
-    const config = fc.FcInitLoadConfigAndFonts() orelse return error.FontconfigInit;
-    defer fc.FcConfigDestroy(config);
+    const cfg = try config();
 
     const pat = fc.FcPatternCreate() orelse return error.OutOfMemory;
     defer fc.FcPatternDestroy(pat);
@@ -20,7 +31,7 @@ pub fn list(allocator: std.mem.Allocator) ![][]u8 {
     defer fc.FcObjectSetDestroy(os);
     _ = fc.FcObjectSetAdd(os, fc.FC_FAMILY);
 
-    const font_set = fc.FcFontList(config, pat, os) orelse return error.OutOfMemory;
+    const font_set = fc.FcFontList(cfg, pat, os) orelse return error.OutOfMemory;
     defer fc.FcFontSetDestroy(font_set);
 
     var names: std.ArrayList([]u8) = .empty;
@@ -64,8 +75,7 @@ pub const FontMatch = struct {
 };
 
 pub fn find(allocator: std.mem.Allocator, name: []const u8) !FontMatch {
-    const config = fc.FcInitLoadConfigAndFonts() orelse return error.FontconfigInit;
-    defer fc.FcConfigDestroy(config);
+    const cfg = try config();
 
     const name_z = try allocator.dupeZ(u8, name);
     defer allocator.free(name_z);
@@ -73,11 +83,11 @@ pub fn find(allocator: std.mem.Allocator, name: []const u8) !FontMatch {
     const pat = fc.FcNameParse(name_z.ptr) orelse return error.FontPatternParse;
     defer fc.FcPatternDestroy(pat);
 
-    _ = fc.FcConfigSubstitute(config, pat, fc.FcMatchPattern);
+    _ = fc.FcConfigSubstitute(cfg, pat, fc.FcMatchPattern);
     fc.FcDefaultSubstitute(pat);
 
     var result: fc.FcResult = undefined;
-    const font = fc.FcFontMatch(config, pat, &result) orelse return error.FontNotFound;
+    const font = fc.FcFontMatch(cfg, pat, &result) orelse return error.FontNotFound;
     defer fc.FcPatternDestroy(font);
 
     var file: [*c]fc.FcChar8 = undefined;
@@ -121,8 +131,7 @@ pub fn findFallbackFonts(
     codepoint: u21,
     prefer_color: bool,
 ) ![]FallbackCandidate {
-    const config = fc.FcInitLoadConfigAndFonts() orelse return error.FontconfigInit;
-    defer fc.FcConfigDestroy(config);
+    const cfg = try config();
 
     const pat = fc.FcPatternCreate() orelse return error.OutOfMemory;
     defer fc.FcPatternDestroy(pat);
@@ -139,11 +148,11 @@ pub fn findFallbackFonts(
         _ = fc.FcPatternAddString(pat, fc.FC_FAMILY, "monospace");
     }
 
-    _ = fc.FcConfigSubstitute(config, pat, fc.FcMatchPattern);
+    _ = fc.FcConfigSubstitute(cfg, pat, fc.FcMatchPattern);
     fc.FcDefaultSubstitute(pat);
 
     var result: fc.FcResult = undefined;
-    const font_set = fc.FcFontSort(config, pat, 0, null, &result);
+    const font_set = fc.FcFontSort(cfg, pat, 0, null, &result);
     if (font_set == null) return allocator.alloc(FallbackCandidate, 0);
     defer fc.FcFontSetDestroy(font_set);
 
@@ -155,8 +164,15 @@ pub fn findFallbackFonts(
     }
 
     const nfont: usize = @intCast(font_set.*.nfont);
-    for (0..@min(nfont, max_candidates)) |i| {
+    for (0..nfont) |i| {
+        if (candidates.items.len >= max_candidates) break;
         const font_pat = font_set.*.fonts[i];
+
+        var font_cs: ?*fc.FcCharSet = null;
+        if (fc.FcPatternGetCharSet(font_pat, fc.FC_CHARSET, 0, &font_cs) != fc.FcResultMatch)
+            continue;
+        if (fc.FcCharSetHasChar(font_cs, codepoint) == fc.FcFalse)
+            continue;
 
         var file: [*c]fc.FcChar8 = undefined;
         if (fc.FcPatternGetString(font_pat, fc.FC_FILE, 0, &file) != fc.FcResultMatch)
