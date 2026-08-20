@@ -159,6 +159,12 @@ pub fn count_dirty_buffers(self: *const Self) usize {
     return count;
 }
 
+pub fn has_any_buffers(self: *const Self) bool {
+    var i = self.buffers.iterator();
+    if (i.next()) |_| return true;
+    return false;
+}
+
 pub fn is_buffer_dirty(self: *const Self, file_path: []const u8) bool {
     return if (self.get_buffer(file_path)) |buffer| buffer.is_dirty() else false;
 }
