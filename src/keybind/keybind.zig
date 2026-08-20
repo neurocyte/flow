@@ -752,6 +752,10 @@ const BindingSet = struct {
     fn copy(allocator: std.mem.Allocator, config_section: []const u8, fallback: *const BindingSet) error{OutOfMemory}!@This() {
         var self: @This() = .{ .name = fallback.name, .config_section = config_section, .selection_style = fallback.selection_style };
         self.on_match_failure = fallback.on_match_failure;
+        self.line_numbers = fallback.line_numbers;
+        self.cursor_shape = fallback.cursor_shape;
+        self.init_command = fallback.init_command;
+        self.deinit_command = fallback.deinit_command;
         for (fallback.press.items) |binding| try self.press.append(allocator, binding);
         for (fallback.release.items) |binding| try self.release.append(allocator, binding);
         self.build_hints(allocator) catch {};
@@ -1357,6 +1361,32 @@ test "keybind custom namespace inheritance chain" {
     // project mode active: ctrl+x resolves to the project binding, not normal's override
     const project = custom.get_mode("project").?;
     try std.testing.expectEqualStrings("cmd_projX", (try test_command_for(project, "ctrl+x")).?);
+}
+
+test "keybind omitted mode inherits keybinds and settings" {
+    reset_namespaces_for_test();
+    _ = try load_test_namespace("tbase2",
+        \\{
+        \\  "settings": { "no_defaults": true },
+        \\  "normal": { "syntax": "flow", "press": [ ["ctrl+n", "cmd_n"] ] },
+        \\  "insert": { "syntax": "flow", "name": "INS", "cursor": "beam", "line_numbers": "absolute",
+        \\    "init_command": ["pause_undo_history"], "deinit_command": ["resume_undo_history"],
+        \\    "press": [ ["ctrl+w", "cmd_delword"] ] }
+        \\}
+    );
+    // custom omits "insert" entirely
+    const custom = try load_test_namespace("tcustom2",
+        \\{ "settings": { "inherit": "tbase2" }, "normal": { "press": [] } }
+    );
+    const insert = custom.get_mode("insert").?;
+    // keybinds inherited
+    try std.testing.expectEqualStrings("cmd_delword", (try test_command_for(insert, "ctrl+w")).?);
+    // settings inherited (everything except syntax)
+    try std.testing.expectEqualStrings("INS", insert.name);
+    try std.testing.expect(insert.cursor_shape.? == .beam);
+    try std.testing.expect(insert.line_numbers == .absolute);
+    try std.testing.expect(insert.init_command != null);
+    try std.testing.expect(insert.deinit_command != null);
 }
 
 test "keybind <<builtin>> resolution and remove-to-inherit" {
