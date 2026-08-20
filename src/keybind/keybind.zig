@@ -1106,6 +1106,10 @@ pub const LineNumbers = enum {
     relative,
 };
 
+pub fn get_builtin_namespace(namespace_name: []const u8) ?[]const u8 {
+    return builtin_keybinds.get(namespace_name);
+}
+
 pub fn namespace_config_exists(allocator: std.mem.Allocator, namespace_name: []const u8) bool {
     if (root.read_keybind_namespace(allocator, namespace_name)) |content| {
         allocator.free(content);

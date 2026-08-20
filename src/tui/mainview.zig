@@ -19,6 +19,7 @@ const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const Buffer = @import("Buffer");
+const keybind = @import("keybind");
 
 const tui = @import("tui.zig");
 const Box = @import("Box.zig");
@@ -1352,6 +1353,21 @@ const cmds = struct {
         return self.create_home_split();
     }
     pub const add_split_meta: Meta = .{ .description = "Add split view" };
+
+    pub fn open_keybind_reference(self: *Self, ctx: Ctx) Result {
+        var base: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&base)}))
+            return error.InvalidKeybindReferenceArgument;
+        const content = keybind.get_builtin_namespace(base) orelse return;
+        const first = self.active_view;
+        var name_buf: [256]u8 = undefined;
+        const name = std.fmt.bufPrint(&name_buf, "{s} (builtin keybindings)", .{base}) catch base;
+        try self.create_home_split();
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", command.fmt(.{ name, content, "json" }));
+        try self.focus_view(first);
+    }
+    pub const open_keybind_reference_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn close_split(self: *Self, ctx: Ctx) Result {
         if (self.views.widgets.items.len == 1 and self.views.widgets.items[0].widget.dynamic_cast(home) != null)

@@ -2044,6 +2044,7 @@ const cmds = struct {
             try keybind.create_inherit_namespace(self.allocator, base);
         const file_name = try keybind.namespace_config_file_name(base);
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+        try tp.self_pid().send(.{ "cmd", "open_keybind_reference", .{base} });
         self.logger.print("restart flow to use changed key bindings", .{});
     }
     pub const open_keybind_config_meta: Meta = .{ .description = "Edit key bindings" };
