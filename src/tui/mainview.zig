@@ -1343,8 +1343,8 @@ const cmds = struct {
     pub const jump_forward_meta: Meta = .{ .description = "Navigate forward to next history location" };
 
     pub fn show_home(self: *Self, _: Ctx) Result {
-        if (self.quit_on_document_close and !self.quit_if_idle())
-            try self.create_home();
+        if (self.quit_on_document_close and self.quit_if_idle()) return;
+        try self.create_home();
     }
     pub const show_home_meta: Meta = .{};
 
