@@ -392,6 +392,7 @@ pub const TabBar = struct {
     }
 
     fn update_tab_buffers(self: *Self) !bool {
+        const mv = tui.mainview() orelse @panic("tabs no main view");
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffers = try buffer_manager.list_unordered(self.allocator);
         defer self.allocator.free(buffers);
@@ -408,7 +409,7 @@ pub const TabBar = struct {
                 if (!buffer.hidden) {
                     const tab = try result.addOne(self.allocator);
                     tab.* = existing_tab.*;
-                    tab.view = buffer.get_last_view();
+                    tab.view = buffer.get_last_view() orelse mv.find_view_for_buffer(buffer.to_ref());
                 }
                 continue :outer;
             };
@@ -448,7 +449,8 @@ pub const TabBar = struct {
             else
                 try result.addOne(self.allocator),
         };
-        pos.* = .{ .buffer_ref = buffer_ref, .widget = tab, .view = buffer.get_last_view() };
+        const mv = tui.mainview() orelse @panic("tabs no main view");
+        pos.* = .{ .buffer_ref = buffer_ref, .widget = tab, .view = buffer.get_last_view() orelse mv.find_view_for_buffer(buffer_ref) };
         self.place_next = .atend;
     }
 

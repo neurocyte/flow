@@ -2268,6 +2268,14 @@ pub fn get_active_buffer(self: *Self) ?*Buffer {
     return if (self.get_active_editor()) |editor| editor.buffer orelse null else null;
 }
 
+pub fn find_view_for_buffer(self: *Self, buffer_ref: Buffer.Ref) ?usize {
+    for (0..self.get_view_count()) |view|
+        if (self.get_editor_for_view(view)) |editor|
+            if (editor.buffer) |buffer|
+                if (buffer.to_ref() == buffer_ref) return view;
+    return null;
+}
+
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(ctx, Widget.to(self), .begin)) return true;
     return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self), .end);
