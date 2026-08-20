@@ -249,12 +249,6 @@ fn process_focus_out(self: *Self) error{OutOfMemory}!void {
 }
 
 fn quit_if_idle(self: *Self) bool {
-    const ret = self.quit_if_idle_();
-    std.log.debug("mainview: quit_if_idle {any}", .{ret});
-    return ret;
-}
-
-fn quit_if_idle_(self: *Self) bool {
     if (self.buffer_manager.has_any_non_hidden_buffers()) return false;
     if (Vt.Manager.any_terminals()) return false;
     command.executeName("quit", .empty()) catch {};
@@ -646,6 +640,8 @@ const cmds = struct {
         const project_state = try project_manager.open(project_dir);
 
         {
+            self.quit_on_document_close = false;
+            self.quit_on_terminal_exit = false;
             self.closing_project = true;
             defer self.closing_project = false;
             if (self.is_panel_view_showing(terminal_view))
