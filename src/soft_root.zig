@@ -94,9 +94,13 @@ const dummy = struct {
         @panic("dummy parse_text_config_file call");
     }
     pub fn list_keybind_namespaces(_: std.mem.Allocator) ![]const []const u8 {
+        if (@import("builtin").is_test)
+            return &.{};
         @panic("dummy list_keybind_namespaces call");
     }
     pub fn read_keybind_namespace(_: std.mem.Allocator, _: []const u8) ?[]const u8 {
+        if (@import("builtin").is_test)
+            return null;
         @panic("dummy read_keybind_namespace call");
     }
     pub fn write_keybind_namespace(_: []const u8, _: []const u8) !void {

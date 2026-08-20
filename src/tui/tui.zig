@@ -2039,8 +2039,10 @@ const cmds = struct {
 
     pub fn open_keybind_config(self: *Self, _: Ctx) Result {
         var mode_parts = std.mem.splitScalar(u8, self.config_.input_mode, '/');
-        const namespace_name = mode_parts.first();
-        const file_name = try keybind.get_or_create_namespace_config_file(self.allocator, namespace_name);
+        const base = mode_parts.first();
+        if (!keybind.namespace_config_exists(self.allocator, base))
+            try keybind.create_inherit_namespace(self.allocator, base);
+        const file_name = try keybind.namespace_config_file_name(base);
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
         self.logger.print("restart flow to use changed key bindings", .{});
     }

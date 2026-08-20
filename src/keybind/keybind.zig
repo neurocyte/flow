@@ -234,6 +234,17 @@ fn get_or_load_namespace(namespace_name: []const u8) LoadError!*const Namespace 
     };
 }
 
+fn get_or_load_builtin_namespace(namespace_name: []const u8) LoadError!*const Namespace {
+    const allocator = globals_allocator;
+    return globals.builtin_namespaces.getPtr(namespace_name) orelse blk: {
+        const namespace = try Namespace.load_builtin(allocator, namespace_name);
+        const result = try globals.builtin_namespaces.getOrPut(allocator, try allocator.dupe(u8, namespace_name));
+        std.debug.assert(result.found_existing == false);
+        result.value_ptr.* = namespace;
+        break :blk result.value_ptr;
+    };
+}
+
 pub fn set_namespace(namespace_name: []const u8) LoadError!void {
     const new_namespace = try get_or_load_namespace(namespace_name);
     if (globals.current_namespace) |old_namespace|
@@ -263,6 +274,7 @@ const Namespace = struct {
     name: []const u8,
     fallback: ?*const Namespace = null,
     no_defaults: bool = false,
+    inherit_settings: bool = false,
     modes: std.StringHashMapUnmanaged(BindingSet),
 
     init_command: ?Command = null,
@@ -271,6 +283,8 @@ const Namespace = struct {
     toggle_hints_text: []const u8 = "toggle_keybind_hints command",
     scroll_hints_text: []const u8 = "scroll_keybind_hints command",
 
+    const builtin_inherit_marker = "<<builtin>>";
+
     fn load(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
         var free_json_string = true;
         const json_string = root.read_keybind_namespace(allocator, namespace_name) orelse blk: {
@@ -278,7 +292,15 @@ const Namespace = struct {
             break :blk builtin_keybinds.get(namespace_name) orelse return error.NotFound;
         };
         defer if (free_json_string) allocator.free(json_string);
+        return load_parsed(allocator, namespace_name, json_string, false);
+    }
 
+    fn load_builtin(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
+        const json_string = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
+        return load_parsed(allocator, namespace_name, json_string, true);
+    }
+
+    fn load_parsed(allocator: std.mem.Allocator, namespace_name: []const u8, json_string: []const u8, is_builtin: bool) LoadError!Namespace {
         const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_string, .{});
         defer parsed.deinit();
         if (parsed.value != .object) return error.NotAnObject;
@@ -295,7 +317,10 @@ const Namespace = struct {
         }
 
         if (!self.no_defaults and !std.mem.eql(u8, self.name, default_namespace) and self.fallback == null)
-            self.fallback = try get_or_load_namespace(default_namespace);
+            self.fallback = if (is_builtin)
+                try get_or_load_builtin_namespace(default_namespace)
+            else
+                try get_or_load_namespace(default_namespace);
 
         var modes = parsed.value.object.iterator();
         while (modes.next()) |mode_entry| {
@@ -323,10 +348,25 @@ const Namespace = struct {
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
-        self.fallback = if (parsed.value.inherit) |fallback| try get_or_load_namespace(fallback) else null;
+        self.fallback = if (parsed.value.inherit) |inherit|
+            if (std.mem.eql(u8, inherit, builtin_inherit_marker))
+                try get_or_load_builtin_namespace(self.name)
+            else
+                try get_or_load_namespace(inherit)
+        else
+            null;
         self.no_defaults = parsed.value.no_defaults orelse false;
-        if (parsed.value.init_command) |cmd| self.init_command = try Command.load(allocator, cmd);
-        if (parsed.value.deinit_command) |cmd| self.deinit_command = try Command.load(allocator, cmd);
+        self.inherit_settings = parsed.value.inherit != null;
+        if (parsed.value.init_command) |cmd|
+            self.init_command = try Command.load(allocator, cmd)
+        else if (self.inherit_settings) if (self.fallback) |fb| {
+            self.init_command = fb.init_command;
+        };
+        if (parsed.value.deinit_command) |cmd|
+            self.deinit_command = try Command.load(allocator, cmd)
+        else if (self.inherit_settings) if (self.fallback) |fb| {
+            self.deinit_command = fb.deinit_command;
+        };
     }
 
     fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name_: []const u8, mode_value: std.json.Value) !void {
@@ -500,6 +540,7 @@ const max_input_buffer_size = 4096;
 
 var globals: struct {
     namespaces: NamespaceMap = .{},
+    builtin_namespaces: NamespaceMap = .{},
     current_namespace: ?*const Namespace = null,
     input_buffer: std.ArrayList(u8) = .empty,
     insert_command: []const u8 = "",
@@ -525,6 +566,8 @@ const BindingSet = struct {
     hints_map: KeybindHints = .{},
     init_command: ?Command = null,
     deinit_command: ?Command = null,
+    own_and_intra_press: []const Binding = &.{},
+    own_and_intra_release: []const Binding = &.{},
 
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore, nothing };
@@ -535,10 +578,10 @@ const BindingSet = struct {
         const JsonConfig = struct {
             press: []const []const std.json.Value = &[_][]std.json.Value{},
             release: []const []const std.json.Value = &[_][]std.json.Value{},
-            syntax: KeySyntax = .flow,
-            on_match_failure: OnMatchFailure = .insert,
+            syntax: ?KeySyntax = null,
+            on_match_failure: ?OnMatchFailure = null,
             name: ?[]const u8 = null,
-            line_numbers: LineNumbers = .inherit,
+            line_numbers: ?LineNumbers = null,
             cursor: ?CursorShape = null,
             inherit: ?[]const u8 = null,
             inherits: ?[][]const u8 = null,
@@ -552,17 +595,38 @@ const BindingSet = struct {
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
-        self.syntax = parsed.value.syntax;
-        self.on_match_failure = parsed.value.on_match_failure;
-        self.name = try allocator.dupe(u8, parsed.value.name orelse namespace_name);
-        self.line_numbers = parsed.value.line_numbers;
-        self.cursor_shape = parsed.value.cursor;
-        self.selection_style = parsed.value.selection orelse .normal;
-        if (parsed.value.init_command) |cmd| self.init_command = try Command.load(allocator, cmd);
-        if (parsed.value.deinit_command) |cmd| self.deinit_command = try Command.load(allocator, cmd);
+        const inh: ?*const BindingSet = if (namespace.inherit_settings) fallback else null;
+        self.syntax = parsed.value.syntax orelse if (inh) |f| f.syntax else .flow;
+        self.on_match_failure = parsed.value.on_match_failure orelse if (inh) |f| f.on_match_failure else .insert;
+        self.name = try allocator.dupe(u8, parsed.value.name orelse if (inh) |f| f.name else namespace_name);
+        self.line_numbers = parsed.value.line_numbers orelse if (inh) |f| f.line_numbers else .inherit;
+        self.cursor_shape = parsed.value.cursor orelse if (inh) |f| f.cursor_shape else null;
+        self.selection_style = parsed.value.selection orelse if (inh) |f| f.selection_style else .normal;
+        if (parsed.value.init_command) |cmd|
+            self.init_command = try Command.load(allocator, cmd)
+        else if (inh) |f| {
+            self.init_command = f.init_command;
+        }
+        if (parsed.value.deinit_command) |cmd|
+            self.deinit_command = try Command.load(allocator, cmd)
+        else if (inh) |f| {
+            self.deinit_command = f.deinit_command;
+        }
         try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
         try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
-        if (parsed.value.inherits) |sibling_fallbacks| {
+        if (namespace.inherit_settings) {
+            const intra: []const []const u8 = if (parsed.value.inherits) |s| s else if (parsed.value.inherit) |s| &.{s} else &.{};
+            for (intra) |parent_name| if (namespace.get_mode(parent_name)) |sib| {
+                for (sib.own_and_intra_press) |binding| try append_if_not_match(allocator, &self.press, binding);
+                for (sib.own_and_intra_release) |binding| try append_if_not_match(allocator, &self.release, binding);
+            };
+            self.own_and_intra_press = try allocator.dupe(Binding, self.press.items);
+            self.own_and_intra_release = try allocator.dupe(Binding, self.release.items);
+            if (fallback) |fallback_| {
+                for (fallback_.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
+                for (fallback_.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
+            }
+        } else if (parsed.value.inherits) |sibling_fallbacks| {
             for (sibling_fallbacks) |sibling_fallback| if (namespace.get_mode(sibling_fallback)) |sib| {
                 for (sib.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
                 for (sib.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
@@ -1038,16 +1102,56 @@ pub const LineNumbers = enum {
     relative,
 };
 
-pub fn get_or_create_namespace_config_file(allocator: std.mem.Allocator, namespace_name: []const u8) ![]const u8 {
+pub fn namespace_config_exists(allocator: std.mem.Allocator, namespace_name: []const u8) bool {
     if (root.read_keybind_namespace(allocator, namespace_name)) |content| {
         allocator.free(content);
-    } else {
-        try root.write_keybind_namespace(
-            namespace_name,
-            builtin_keybinds.get(namespace_name) orelse builtin_keybinds.get("flow").?,
-        );
+        return true;
     }
+    return false;
+}
+
+pub fn namespace_config_file_name(namespace_name: []const u8) ![]const u8 {
     return try root.get_keybind_namespace_file_name(namespace_name);
+}
+
+pub fn create_inherit_namespace(allocator: std.mem.Allocator, name: []const u8) !void {
+    const builtin_json = builtin_keybinds.get(name) orelse return error.NotFound;
+    const content = try build_inherit_namespace_content(allocator, builtin_json);
+    defer allocator.free(content);
+    try root.write_keybind_namespace(name, content);
+}
+
+fn build_inherit_namespace_content(allocator: std.mem.Allocator, builtin_json: []const u8) ![]const u8 {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, builtin_json, .{});
+    defer parsed.deinit();
+    var content: std.Io.Writer.Allocating = .init(allocator);
+    defer content.deinit();
+    const writer = &content.writer;
+    try writer.writeAll("{\n");
+    try writer.print("    \"settings\": {{ \"inherit\": \"{s}\" }}", .{Namespace.builtin_inherit_marker});
+    if (parsed.value == .object) {
+        var it = parsed.value.object.iterator();
+        while (it.next()) |entry| {
+            const mode_name = entry.key_ptr.*;
+            if (std.mem.eql(u8, mode_name, "settings")) continue;
+            try writer.print(",\n    \"{s}\": {{", .{mode_name});
+            var first = true;
+            if (entry.value_ptr.* == .object) {
+                var fields = entry.value_ptr.object.iterator();
+                while (fields.next()) |f| {
+                    const key = f.key_ptr.*;
+                    if (std.mem.eql(u8, key, "press") or std.mem.eql(u8, key, "release")) continue;
+                    const json = try std.json.Stringify.valueAlloc(allocator, f.value_ptr.*, .{});
+                    defer allocator.free(json);
+                    try writer.print("{s} \"{s}\": {s}", .{ if (first) "" else ",", key, json });
+                    first = false;
+                }
+            }
+            try writer.print("{s} \"press\": [] }}", .{if (first) "" else ","});
+        }
+    }
+    try writer.writeAll("\n}\n");
+    return content.toOwnedSlice();
 }
 
 const KeyEventSequenceFmt = struct {
@@ -1180,4 +1284,94 @@ test "json" {
     _ = try bindings.process_key_event(input.KeyEvent.from_key('g'));
     _ = try bindings.process_key_event(input.KeyEvent.from_key('i'));
     _ = try bindings.process_key_event(input.KeyEvent.from_key_mods('i', input.mod.ctrl));
+}
+
+fn reset_namespaces_for_test() void {
+    globals.namespaces.clearRetainingCapacity();
+    globals.builtin_namespaces.clearRetainingCapacity();
+    globals.current_namespace = null;
+}
+
+fn load_test_namespace(name: []const u8, json: []const u8) !*const Namespace {
+    const allocator = globals_allocator;
+    const namespace = try Namespace.load_parsed(allocator, name, json, false);
+    try globals.namespaces.put(allocator, try allocator.dupe(u8, name), namespace);
+    return globals.namespaces.getPtr(name).?;
+}
+
+fn test_command_for(bs: *const BindingSet, key_string: []const u8) !?[]const u8 {
+    const allocator = std.testing.allocator;
+    const want = try parse_flow.parse_key_events(allocator, key_string);
+    defer allocator.free(want);
+    for (bs.press.items) |b| {
+        if (b.key_events.len != want.len) continue;
+        var matched = true;
+        for (b.key_events, want) |a, e| if (!Binding.keyevents_eql(a, e)) {
+            matched = false;
+            break;
+        };
+        if (matched) return if (b.commands.len > 0) b.commands[0].command else null;
+    }
+    return null;
+}
+
+test "keybind custom namespace inheritance chain" {
+    reset_namespaces_for_test();
+    // synthetic base: project binds ctrl+x -> projX; normal inherits project and
+    // overrides ctrl+x -> normX. no_defaults keeps it from pulling in builtin flow.
+    _ = try load_test_namespace("tbase",
+        \\{
+        \\  "settings": { "no_defaults": true },
+        \\  "project": { "syntax": "flow", "on_match_failure": "ignore", "press": [
+        \\    ["ctrl+a", "cmd_pA"],
+        \\    ["ctrl+x", "cmd_projX"]
+        \\  ]},
+        \\  "normal": { "syntax": "flow", "on_match_failure": "ignore", "inherit": "project", "press": [
+        \\    ["ctrl+n", "cmd_nN"],
+        \\    ["ctrl+x", "cmd_normX"]
+        \\  ]}
+        \\}
+    );
+    const custom = try load_test_namespace("tcustom",
+        \\{
+        \\  "settings": { "inherit": "tbase" },
+        \\  "project": { "press": [ ["ctrl+y", "cmd_userY"] ] },
+        \\  "normal": { "inherit": "project", "press": [ ["ctrl+n", "cmd_userN"] ] }
+        \\}
+    );
+
+    const normal = custom.get_mode("normal").?;
+    // chain: custom.normal -> custom.project(own) -> base.normal(resolved) -> base.project
+    // base.normal beats base.project for ctrl+x:
+    try std.testing.expectEqualStrings("cmd_normX", (try test_command_for(normal, "ctrl+x")).?);
+    // user's project addition routes into normal:
+    try std.testing.expectEqualStrings("cmd_userY", (try test_command_for(normal, "ctrl+y")).?);
+    // base project binding reaches normal:
+    try std.testing.expectEqualStrings("cmd_pA", (try test_command_for(normal, "ctrl+a")).?);
+    // user override of a base normal binding wins:
+    try std.testing.expectEqualStrings("cmd_userN", (try test_command_for(normal, "ctrl+n")).?);
+    // settings inherited from base.normal:
+    try std.testing.expect(normal.syntax == .flow);
+    try std.testing.expect(normal.on_match_failure == .ignore);
+
+    // project mode active: ctrl+x resolves to the project binding, not normal's override
+    const project = custom.get_mode("project").?;
+    try std.testing.expectEqualStrings("cmd_projX", (try test_command_for(project, "ctrl+x")).?);
+}
+
+test "keybind <<builtin>> resolution and remove-to-inherit" {
+    reset_namespaces_for_test();
+    // a custom "flow" that shadows the builtin and inherits it; only declares "normal"
+    const custom = try load_test_namespace("flow",
+        \\{
+        \\  "settings": { "inherit": "<<builtin>>" },
+        \\  "normal": { "press": [] }
+        \\}
+    );
+    // empty normal still yields builtin flow.normal (which inherits project): ctrl+o -> open_file
+    const normal = custom.get_mode("normal").?;
+    try std.testing.expectEqualStrings("open_file", (try test_command_for(normal, "ctrl+o")).?);
+    // a mode absent from the custom file is inherited wholesale from the builtin
+    const project = custom.get_mode("project").?;
+    try std.testing.expectEqualStrings("open_file", (try test_command_for(project, "ctrl+o")).?);
 }
