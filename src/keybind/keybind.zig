@@ -470,6 +470,13 @@ pub const Binding = struct {
         }
         return false;
     }
+
+    fn has_prefix(self: *const @This(), prefix: []const KeyEvent) bool {
+        if (self.key_events.len <= prefix.len) return false; // must extend past the prefix
+        for (prefix, 0..) |p, i|
+            if (!keyevents_eql(p, self.key_events[i])) return false;
+        return true;
+    }
 };
 
 pub const KeybindHints = std.StringHashMapUnmanaged([]u8);
@@ -521,6 +528,7 @@ const BindingSet = struct {
             cursor: ?CursorShape = null,
             inherit: ?[]const u8 = null,
             inherits: ?[][]const u8 = null,
+            inherit_prefix: ?[]const []const []const u8 = null,
             selection: ?SelectionStyle = null,
             init_command: ?[]const std.json.Value = null,
             deinit_command: ?[]const std.json.Value = null,
@@ -552,6 +560,33 @@ const BindingSet = struct {
         } else if (fallback) |fallback_| {
             for (fallback_.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
             for (fallback_.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
+        }
+        if (parsed.value.inherit_prefix) |prefix_inherits| {
+            for (prefix_inherits) |entry| {
+                if (entry.len < 2) {
+                    log.err("ERROR: invalid inherit_prefix entry {any}", .{entry});
+                    continue;
+                }
+                const prefix = switch (self.syntax) {
+                    .flow => parse_flow.parse_key_events(allocator, entry[0]),
+                    .vim => parse_vim.parse_key_events(allocator, entry[0]),
+                } catch |e| {
+                    log.err("ERROR: invalid inherit_prefix key '{s}': {s}", .{ entry[0], @errorName(e) });
+                    continue;
+                };
+                defer allocator.free(prefix);
+                if (prefix.len == 0) continue;
+                for (entry[1..]) |parent_name| {
+                    const parent = namespace.get_mode(parent_name) orelse {
+                        log.err("ERROR: inherit_prefix unknown mode '{s}'", .{parent_name});
+                        continue;
+                    };
+                    for (parent.press.items) |b|
+                        if (b.has_prefix(prefix)) try append_if_not_match(allocator, &self.press, b);
+                    for (parent.release.items) |b|
+                        if (b.has_prefix(prefix)) try append_if_not_match(allocator, &self.release, b);
+                }
+            }
         }
         self.build_hints(allocator) catch {};
         return self;
