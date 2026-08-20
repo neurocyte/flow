@@ -13,6 +13,21 @@ pub const bash = .{
     .formatter = .{ "shfmt", "--indent", "4" },
 };
 
+pub const bibtex = .{
+    .language_server = .{"texlab"},
+    .formatter = .{
+        "bibtex-tidy",
+        "-",
+        "--curly",
+        "--drop-all-caps",
+        "--remove-empty-fields",
+        "--sort-fields",
+        "--sort=year,author,id",
+        "--strip-enclosing-braces",
+        "--trailing-commas",
+    },
+};
+
 pub const c = .{
     .language_server = .{"clangd"},
     .formatter = .{"clang-format"},
@@ -125,8 +140,17 @@ pub const julia = .{
     .formatter = .{ "julia", "-e", "using JuliaFormatter; print(format_text(read(stdin, String)))" },
 };
 
+pub const just = .{
+    .language_server = .{"just-lsp"},
+};
+
 pub const kdl = .{
     .formatter = .{ "kdlfmt", "format", "-" },
+};
+
+pub const latex = .{
+    .language_server = .{"texlab"},
+    .formatter = .{ "tex-fmt", "--stdin" },
 };
 
 pub const lua = .{
@@ -159,7 +183,7 @@ pub const ninja = .{};
 
 pub const nix = .{
     .language_server = .{"nixd"},
-    .formatter = .{"alejandra"},
+    .formatter = .{ "alejandra", "-q" },
 };
 
 pub const nu = .{
@@ -285,6 +309,12 @@ pub const zig = .{
     .formatter = .{ "zig", "fmt", "--stdin" },
 };
 
-pub const ziggy = .{};
+pub const ziggy = .{
+    .language_server = .{ "ziggy", "lsp" },
+    .formatter = .{ "ziggy", "fmt", "--stdin" },
+};
 
-pub const @"ziggy-schema" = .{};
+pub const @"ziggy-schema" = .{
+    .language_server = .{ "ziggy", "lsp", "--schema" },
+    .formatter = .{ "ziggy", "fmt", "--stdin-schema" },
+};
