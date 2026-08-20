@@ -1524,9 +1524,6 @@ pub fn build_exe(
 
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
-
-    const keybind_test_step = b.step("test-keybind", "Run keybind unit tests");
-    keybind_test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&gitignore_test_run_cmd.step);
     test_step.dependOn(&dbus_test_run_cmd.step);
