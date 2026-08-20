@@ -477,6 +477,20 @@ pub const Binding = struct {
             if (!keyevents_eql(p, self.key_events[i])) return false;
         return true;
     }
+
+    fn with_prefix(self: *const @This(), allocator: std.mem.Allocator, prefix: []const KeyEvent) error{OutOfMemory}!@This() {
+        const key_events = try allocator.alloc(KeyEvent, prefix.len + self.key_events.len);
+        @memcpy(key_events[0..prefix.len], prefix);
+        @memcpy(key_events[prefix.len..], self.key_events);
+        return .{ .key_events = key_events, .commands = self.commands };
+    }
+
+    fn is_prefix_of(seq: []const KeyEvent, of: []const KeyEvent) bool {
+        if (seq.len > of.len) return false;
+        for (seq, 0..) |e, i|
+            if (!keyevents_eql(e, of[i])) return false;
+        return true;
+    }
 };
 
 pub const KeybindHints = std.StringHashMapUnmanaged([]u8);
@@ -529,6 +543,7 @@ const BindingSet = struct {
             inherit: ?[]const u8 = null,
             inherits: ?[][]const u8 = null,
             inherit_prefix: ?[]const []const []const u8 = null,
+            inherit_breakout: ?[]const []const []const u8 = null,
             selection: ?SelectionStyle = null,
             init_command: ?[]const std.json.Value = null,
             deinit_command: ?[]const std.json.Value = null,
@@ -585,6 +600,36 @@ const BindingSet = struct {
                         if (b.has_prefix(prefix)) try append_if_not_match(allocator, &self.press, b);
                     for (parent.release.items) |b|
                         if (b.has_prefix(prefix)) try append_if_not_match(allocator, &self.release, b);
+                }
+            }
+        }
+        if (parsed.value.inherit_breakout) |breakouts| {
+            for (breakouts) |entry| {
+                if (entry.len < 2) {
+                    log.err("ERROR: invalid inherit_breakout entry {any}", .{entry});
+                    continue;
+                }
+                const prefix = switch (self.syntax) {
+                    .flow => parse_flow.parse_key_events(allocator, entry[0]),
+                    .vim => parse_vim.parse_key_events(allocator, entry[0]),
+                } catch |e| {
+                    log.err("ERROR: invalid inherit_breakout key '{s}': {s}", .{ entry[0], @errorName(e) });
+                    continue;
+                };
+                defer allocator.free(prefix);
+                if (prefix.len == 0) continue;
+                // claim breakout key
+                remove_prefixes_of(&self.press, prefix);
+                remove_prefixes_of(&self.release, prefix);
+                for (entry[1..]) |parent_name| {
+                    const parent = namespace.get_mode(parent_name) orelse {
+                        log.err("ERROR: inherit_breakout unknown mode '{s}'", .{parent_name});
+                        continue;
+                    };
+                    for (parent.press.items) |b|
+                        try append_if_not_match(allocator, &self.press, try b.with_prefix(allocator, prefix));
+                    for (parent.release.items) |b|
+                        try append_if_not_match(allocator, &self.release, try b.with_prefix(allocator, prefix));
                 }
             }
         }
@@ -659,6 +704,17 @@ const BindingSet = struct {
             .match_impossible => {},
         };
         try dest.append(allocator, new_binding);
+    }
+
+    fn remove_prefixes_of(dest: *std.ArrayList(Binding), prefix: []const KeyEvent) void {
+        var i: usize = 0;
+        while (i < dest.items.len) {
+            const key_events = dest.items[i].key_events;
+            if (Binding.is_prefix_of(key_events, prefix))
+                _ = dest.orderedRemove(i)
+            else
+                i += 1;
+        }
     }
 
     fn hints(self: *const @This()) *const KeybindHints {
