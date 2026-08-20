@@ -440,6 +440,7 @@
         "name": "INSERT",
         "line_numbers": "absolute",
         "cursor": "beam",
+        "inherit_breakout": [["<C-o>", "normal"]],
         "init_command": ["pause_undo_history"],
         "deinit_command": ["resume_undo_history"],
         "press": [
