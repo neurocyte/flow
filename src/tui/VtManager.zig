@@ -51,6 +51,7 @@ pub fn destroyed(gone: *Vt) void {
         break;
     };
     allocator.destroy(gone);
+    tp.self_pid().send(.{ "vt", "gone" }) catch {};
 }
 
 pub fn run(io: std.Io, allocator: std.mem.Allocator, ctx: command.Context, rows: u16, cols: u16) !*Vt {

@@ -69,6 +69,7 @@ symbols: std.ArrayListUnmanaged(u8) = .empty,
 symbols_complete: bool = true,
 closing_project: bool = false,
 lsp_info: LspInfo,
+quit_on_terminal_exit: bool = false,
 
 const FileListType = enum {
     diagnostics,
@@ -231,6 +232,9 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
         cmds.navigate_complete(self, null, path, goto_args, null, null, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
+    } else if (try m.match(.{ "vt", "gone" })) {
+        self.process_vt_gone();
+        return true;
     } else if (try m.match(.{"focus_out"})) {
         self.process_focus_out() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
@@ -241,6 +245,14 @@ fn process_focus_out(self: *Self) error{OutOfMemory}!void {
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
     for (buffers) |b| ed.auto_save_buffer(b, .on_focus_change);
+}
+
+fn process_vt_gone(self: *Self) void {
+    if (self.quit_on_terminal_exit) {
+        if (self.buffer_manager.has_any_buffers()) return;
+        if (Vt.Manager.any_terminals()) return;
+        command.executeName("quit", .empty()) catch {};
+    }
 }
 
 pub fn update(self: *Self) void {
@@ -2021,6 +2033,11 @@ const cmds = struct {
         } else return error.InvalidSwapTabsArgument;
     }
     pub const place_next_tab_meta: Meta = .{ .arguments = &.{ .string, .integer } };
+
+    pub fn enable_quit_on_terminal_exit(self: *Self, _: Ctx) Result {
+        self.quit_on_terminal_exit = true;
+    }
+    pub const enable_quit_on_terminal_exit_meta: Meta = .{};
 };
 
 fn no_lsp_error() void {
