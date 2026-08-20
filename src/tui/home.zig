@@ -480,6 +480,11 @@ const cmds = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
+    pub fn close_file(_: *Self, ctx: Ctx) Result {
+        try command.executeName("close_split", ctx);
+    }
+    pub const close_file_meta: Meta = .{};
+
     pub fn save_all(_: *Self, _: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
             bm.save_all(root.get_io()) catch |e| return tp.exit_error(e, @errorReturnTrace());
