@@ -67,13 +67,20 @@ normally only executed via a keybinding. Selecting a command in this view
 will insert the command name into the current document instead of executing
 it. This is very useful for editing keybinding definition files.
 
-Run the `Edit keybindings` command to save the current keybinding mode to a
-file in the configuration `keys` directory and open it for editing. Save
-your customized keybinds under a new name in the same directory to create
-an entirely new keybinding mode that can be selected with `f4`. Delete the
-keybinding file from the configuration `keys` directory to revert the mode
-to it's built-in definition (if there is one). Changes to keybinding files
-will take effect on restart.
+Run the `Edit keybindings` command to customize the current keybinding
+mode. It will write a customization file for the current mode into the
+`keys` directory, under the same name as the current mode, and open it for
+editing. This file inherits everything from the built-in mode of the same
+name. So keybindings that are added or changed by future updates of Flow
+Control are picked up automatically. Each sub-mode is an empty section you
+can fill in: add new keybindings or override one by binding the same key to
+another command. Delete the file from the `keys` directory to revert
+entirely to the built-in mode. Changes to keybinding files take effect on
+restart.
+
+You can also create additional, independently named keybinding modes by saving a
+file under a new name in the same directory. You can select the new mode
+with `f4`.
 
 Keybinding modes may inherit all non-conflicting keybindings from another
 mode by adding an `inherit` option to the `settings` section of the keybind
@@ -90,6 +97,22 @@ file like this:
 
 This allows you to make only minor additions/changes to an existing builtin
 mode without copying the whole mode and is easier to keep up-to-date.
+
+Use the special value `<<builtin>>` to inherit from the built-in mode with
+the same name as your file. This lets a file customize a built-in mode
+while still inheriting from it, and is what `Edit keybindings` writes:
+
+```json
+{
+    "settings": {
+        "inherit": "<<builtin>>",
+    },
+    ...
+```
+
+A sub-mode that is left out of your file entirely is inherited whole from the
+mode you inherit from, so you only need to include the sub-modes you actually
+want to change.
 
 Additionally, individual sub-modes may inherit all non-conflicting
 keybindings from another sub-mode of the same mode by adding an `inherit`

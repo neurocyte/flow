@@ -218,10 +218,11 @@ Press `F4` to switch the current keybinding mode. (flow, vim, emacs, etc.)
 Press `ctrl+shift+p` or `alt+x` to show the command palette.
 Press `ctrl+F2` to see a full list of all current keybindings and commands.
 
-Run the `Edit keybindings` command to save the current keybinding mode to a
-file and open it for editing. Save your customized keybinds under a new
-name in the same directory to create an entirely new keybinding mode.
-Keybinding changes will take effect on restart.
+Run the `Edit keybindings` command to customize the current keybinding
+mode. It opens a file in your `keys` directory (under the same name) that
+inherits from the built-in mode, so you can add or override individual
+keybindings. Keybindings added by future updates ar inherited
+automatically. Keybinding changes take effect on restart.
 
 
 # Terminal configuration
