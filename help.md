@@ -95,7 +95,7 @@ Additionally, individual sub-modes may inherit all non-conflicting
 keybindings from another sub-mode of the same mode by adding an `inherit`
 option to the sub-mode section like this:
 
-```
+```json
     "normal": {
         "inherit": "project",
         ...
@@ -103,11 +103,38 @@ option to the sub-mode section like this:
 
 Multiple inheritance is supported with the `inherits` options like this:
 
-```
+```json
     "normal": {
         "inherits": ["project", "tasks"],
         ...
 ```
+
+A sub-mode may inherit only the keybindings that begin with a particular
+prefix key by using the `inherit_prefix` option. Each entry is a prefix key
+followed by one or more parent sub-modes to copy the matching keybindings
+from. For example, this makes every keybinding that starts with `ctrl+alt+a`
+in the `project` mode also work in the `terminal` mode:
+
+```json
+    "terminal": {
+        "inherit_prefix": [["ctrl+alt+a", "project"]],
+        ...
+```
+
+The `inherit_breakout` option copies every keybinding from a parent sub-mode
+and prepends a "breakout" prefix key to each, claiming that key in this
+sub-mode. It is used to implement vim's insert-normal (`CTRL-O`) behaviour:
+pressing the breakout key in insert mode runs a single normal mode command
+and then returns to insert mode. For example:
+
+```json
+    "insert": {
+        "inherit_breakout": [["<C-o>", "normal"]],
+        ...
+```
+
+A numeric count typed before the command (e.g. `<C-o>3w`) is not currently
+supported.
 
 ### Flow mode
 
@@ -181,6 +208,9 @@ palette.
 
 - Alt + Scroll Wheel =>
   Fast scroll
+
+- Ctrl + Scroll Wheel =>
+  Zoom (GUI only)
 
 ## Configuration
 
