@@ -579,6 +579,7 @@
     },
     "terminal": {
         "on_match_failure": "nothing",
+        "inherit_prefix": [["ctrl+alt+a", "project"]],
         "press": [
             ["ctrl+shift+v", "system_paste"],
             ["alt+shift+v", "clipboard_history"],
