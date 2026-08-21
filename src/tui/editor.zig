@@ -1679,14 +1679,17 @@ pub const Editor = struct {
             cache: *StyleCache,
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
-            prio: []i32,
+            rank: []i64,
             last_scope_wins: bool = false,
-            fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, priority: i32, _: *const syntax.Node) error{Stop}!void {
+            fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, priority: i32, pattern_index: u32, _: *const syntax.Node) error{Stop}!void {
                 var sel = ctx.pos_cache.from_pos(range, ctx.root, ctx.self.metrics);
 
                 if (idx > 0) return;
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
+
+                // nvim style ranking
+                const rank: i64 = (@as(i64, priority) << 32) | @as(i64, pattern_index);
 
                 ctx.clamp_to_view(&sel.begin);
                 ctx.clamp_to_view(&sel.end);
@@ -1701,10 +1704,10 @@ pub const Editor = struct {
                     for (x..end_x) |x_| {
                         if (x_ >= ctx.self.view.cols) break;
                         const i = y * ctx.self.view.cols + x_;
-                        // higher priority wins, otherwise config.last_scope_wins
-                        const beats = if (ctx.last_scope_wins) priority >= ctx.prio[i] else priority > ctx.prio[i];
+                        // higher rank wins, otherwise config.last_scope_wins
+                        const beats = if (ctx.last_scope_wins) rank >= ctx.rank[i] else rank > ctx.rank[i];
                         if (!beats) continue;
-                        ctx.prio[i] = priority;
+                        ctx.rank[i] = rank;
                         try ctx.render_cell(y, x_, style);
                     }
                 }
@@ -1730,20 +1733,20 @@ pub const Editor = struct {
                 cursor.col = std.math.clamp(cursor.col, col_off, col_off + ctx.self.view.cols);
             }
         };
-        const prio = try self.allocator.alloc(i32, self.view.rows * self.view.cols);
-        @memset(prio, std.math.minInt(i32));
+        const rank = try self.allocator.alloc(i64, self.view.rows * self.view.cols);
+        @memset(rank, std.math.minInt(i64));
         var ctx: Ctx = .{
             .self = self,
             .theme = theme,
             .cache = cache,
             .root = root,
             .pos_cache = try PosToWidthCache.init(self.allocator),
-            .prio = prio,
+            .rank = rank,
             .last_scope_wins = tui.config().syntax_highlight_last_scope_wins,
         };
 
         defer ctx.pos_cache.deinit();
-        defer self.allocator.free(prio);
+        defer self.allocator.free(rank);
         const range: syntax.Range = .{
             .start_point = .{ .row = @intCast(self.view.row), .column = 0 },
             .end_point = .{ .row = @intCast(self.view.row + self.view.rows), .column = 0 },

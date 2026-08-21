@@ -94,7 +94,7 @@ fn ast_at_point(self: *Self, syn: anytype, row: usize, col_pos: usize, root: Buf
     self.dump_ast_node(sel, &node);
 }
 
-fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, priority: i32, ast_node: *const syntax.Node) error{Stop}!void {
+fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, priority: i32, index: u32, ast_node: *const syntax.Node) error{Stop}!void {
     const sel = Buffer.Selection.from_range(range, self.editor.get_current_root() orelse return, self.editor.metrics);
 
     self.dump_ast_node(sel, ast_node);
@@ -103,15 +103,17 @@ fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, 
     const text = self.get_buffer_text(&buf, sel) orelse "";
     if (self.editor.style_lookup(self.theme, scope, id)) |token| {
         if (text.len > 14) {
-            _ = self.plane.print("scope({d}): {s} -> \"{s}...\" matched: {s}", .{
+            _ = self.plane.print("scope {d}({d}): {s} -> \"{s}...\" matched: {s}", .{
                 priority,
+                index,
                 scope,
                 text[0..15],
                 Widget.scopes[token.id],
             }) catch {};
         } else {
-            _ = self.plane.print("scope({d}): {s} -> \"{s}\" matched: {s}", .{
+            _ = self.plane.print("scope {d}({d}): {s} -> \"{s}\" matched: {s}", .{
                 priority,
+                index,
                 scope,
                 text,
                 Widget.scopes[token.id],
@@ -123,8 +125,9 @@ fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, 
         _ = self.plane.print("\n", .{}) catch {};
         return;
     }
-    _ = self.plane.print("scope({d}): {s} -> \"{s}\"\n", .{
+    _ = self.plane.print("scope {d}({d}): {s} -> \"{s}\"\n", .{
         priority,
+        index,
         scope,
         text,
     }) catch return;
