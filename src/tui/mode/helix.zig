@@ -8,6 +8,7 @@ const cmd = command.executeName;
 
 const tui = @import("../tui.zig");
 const Editor = @import("../editor.zig").Editor;
+const bracket_search_radius = @import("../editor.zig").bracket_search_radius;
 const CurSel = @import("../editor.zig").CurSel;
 const Buffer = @import("Buffer");
 const Cursor = Buffer.Cursor;
@@ -423,8 +424,10 @@ const cmds_ = struct {
             try ed.with_cursels_const(root, select_inner_word, ed.metrics);
         } else if (std.mem.eql(u8, action, "W")) {
             try ed.with_cursels_const(root, select_inner_long_word, ed.metrics);
-        } else {
+        } else if (is_reserved_textobject(action)) {
             return;
+        } else {
+            try ed.with_cursels_const_once_arg(root, &select_scope_inner_cursel, ctx);
         }
         ed.clamp(ctx.now);
     }
@@ -453,8 +456,10 @@ const cmds_ = struct {
             try ed.with_cursels_const(root, select_around_word, ed.metrics);
         } else if (std.mem.eql(u8, action, "W")) {
             try ed.with_cursels_const(root, select_around_long_word, ed.metrics);
-        } else {
+        } else if (is_reserved_textobject(action)) {
             return;
+        } else {
+            try ed.with_cursels_const_once_arg(root, &select_scope_around_cursel, ctx);
         }
         ed.clamp(ctx.now);
     }
@@ -874,6 +879,132 @@ fn replace_cursel_with_character(ed: *Editor, root: Buffer.Root, cursel: *CurSel
     for (0..sel_length) |i|
         @memcpy(replacement[i * egc.len .. (i + 1) * egc.len], egc);
     return insert_replace_selection(ed, root, cursel, replacement, allocator) catch return error.Stop;
+}
+
+// Textobject keys helix resolves through tree-sitter queries (paragraph,
+// function, type, argument, comment, test, change, closest pair). Flow has no
+// query-based textobjects, so these stay no-ops instead of being misread as
+// same-character pairs.
+fn is_reserved_textobject(action: []const u8) bool {
+    return action.len == 1 and std.mem.indexOfScalar(u8, "pftacTgm", action[0]) != null;
+}
+
+const TextObjectScope = enum { inside, around };
+
+fn select_scope_cursel(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics, scope: TextObjectScope) error{Stop}!void {
+    var egc: []const u8 = undefined;
+    if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+        return error.Stop;
+    const pair = find_open_close_pair(egc);
+    try select_scope_textobject(root, cursel, metrics, pair.left, pair.right, scope);
+}
+
+fn select_scope_inner_cursel(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    return select_scope_cursel(root, cursel, ctx, metrics, .inside);
+}
+
+fn select_scope_around_cursel(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    return select_scope_cursel(root, cursel, ctx, metrics, .around);
+}
+
+// Select inside or around the pair enclosing the cursor. Same-character
+// pairs (quotes) resolve via Editor.find_quote_pair, which skips escaped
+// delimiters; distinct pairs resolve via Editor.match_bracket, searching
+// outward when the cursor is not on a delimiter itself. Leaves the cursor
+// at the end of the selection.
+fn select_scope_textobject(
+    root: Buffer.Root,
+    cursel: *CurSel,
+    metrics: Buffer.Metrics,
+    opening_char: []const u8,
+    closing_char: []const u8,
+    scope: TextObjectScope,
+) error{Stop}!void {
+    const current = cursel.cursor;
+    var prev = cursel.cursor;
+    var next = cursel.cursor;
+
+    if (std.mem.eql(u8, opening_char, closing_char)) {
+        const opening_pos, const closing_pos =
+            try Editor.find_quote_pair(root, current, metrics, opening_char);
+
+        prev.row = opening_pos[0];
+        prev.col = opening_pos[1];
+        next.row = closing_pos[0];
+        next.col = closing_pos[1];
+    } else {
+        const bracket_egc, _, _ = root.egc_at(current.row, current.col, metrics) catch {
+            return error.Stop;
+        };
+
+        if (std.mem.eql(u8, bracket_egc, opening_char)) {
+            const closing_row, const closing_col =
+                try Editor.match_bracket(root, current, metrics);
+
+            prev = current;
+            next.row = closing_row;
+            next.col = closing_col;
+        } else if (std.mem.eql(u8, bracket_egc, closing_char)) {
+            const opening_row, const opening_col =
+                try Editor.match_bracket(root, current, metrics);
+
+            prev.row = opening_row;
+            prev.col = opening_col;
+            next = current;
+        } else {
+            const pair = find_bracket_pair(root, cursel, metrics, .left, opening_char) catch blk: {
+                break :blk try find_bracket_pair(root, cursel, metrics, .right, opening_char);
+            };
+
+            prev.row = pair[0][0];
+            prev.col = pair[0][1];
+            next.row = pair[1][0];
+            next.col = pair[1][1];
+        }
+    }
+
+    prev.move_right(root, metrics) catch {};
+
+    if (scope == .around) {
+        prev.move_left(root, metrics) catch {};
+        next.move_right(root, metrics) catch {};
+    }
+
+    cursel.selection = Selection{ .begin = prev, .end = next };
+    cursel.*.cursor = next;
+}
+
+fn find_bracket_pair(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, direction: enum { left, right }, char: []const u8) error{Stop}!struct { struct { usize, usize }, struct { usize, usize } } {
+    const start = cursel.cursor;
+    var moving_cursor = cursel.cursor;
+
+    var i: usize = 0;
+    while (i < bracket_search_radius) : (i += 1) {
+        switch (direction) {
+            .left => try moving_cursor.move_left(root, metrics),
+            .right => try moving_cursor.move_right(root, metrics),
+        }
+
+        const curr_egc, _, _ = root.egc_at(moving_cursor.row, moving_cursor.col, metrics) catch {
+            return error.Stop;
+        };
+        if (std.mem.eql(u8, char, curr_egc)) {
+            const closing_row, const closing_col = try Editor.match_bracket(root, moving_cursor, metrics);
+
+            switch (direction) {
+                .left => if (closing_row > start.row or (closing_row == start.row and closing_col > start.col)) {
+                    return .{ .{ moving_cursor.row, moving_cursor.col }, .{ closing_row, closing_col } };
+                } else {
+                    continue;
+                },
+                .right => {
+                    return .{ .{ moving_cursor.row, moving_cursor.col }, .{ closing_row, closing_col } };
+                },
+            }
+        }
+    }
+
+    return error.Stop;
 }
 
 fn find_open_close_pair(bracket: []const u8) struct { left: []const u8, right: []const u8 } {
@@ -1322,4 +1453,6 @@ pub const test_internal = struct {
     pub const insert_before = private.insert_before;
     pub const insert_replace_selection = private.insert_replace_selection;
     pub const insert_after = private.insert_after;
+    pub const select_scope_textobject = private.select_scope_textobject;
+    pub const TextObjectScope = private.TextObjectScope;
 };

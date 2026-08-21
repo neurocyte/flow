@@ -245,3 +245,72 @@ test "to_char_right_beyond_eol" {
 // Related to that is the fact that when a selection
 // is made, then trying to move to the right, the
 // first movement is swallowed
+
+const CurSel = @import("tui").exports.editor.CurSel;
+
+//              1111111111222222222233333
+//    01234567890123456789012345678901234
+const scope_doc: []const u8 =
+    \\foo "bar baz" (qux (inner) end) 'q'
+    \\a "b \" c" d
+;
+
+fn expect_scope_selection(
+    root: Buffer.Root,
+    row: usize,
+    col: usize,
+    open: []const u8,
+    close: []const u8,
+    scope: helix.test_internal.TextObjectScope,
+    begin: struct { usize, usize },
+    end: struct { usize, usize },
+) !void {
+    var cursel: CurSel = .{ .cursor = Cursor{ .row = row, .col = col, .target = 0 } };
+    try helix.test_internal.select_scope_textobject(root, &cursel, metrics(), open, close, scope);
+    const sel = cursel.selection orelse return error.TestExpectedSelection;
+    try std.testing.expectEqual(begin[0], sel.begin.row);
+    try std.testing.expectEqual(begin[1], sel.begin.col);
+    try std.testing.expectEqual(end[0], sel.end.row);
+    try std.testing.expectEqual(end[1], sel.end.col);
+    try std.testing.expectEqual(sel.end.row, cursel.cursor.row);
+    try std.testing.expectEqual(sel.end.col, cursel.cursor.col);
+}
+
+test "scope_textobjects" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(scope_doc, &eol_mode, &sanitized), now);
+    const root: Buffer.Root = buffer.root;
+
+    // inside double quotes, cursor mid-string
+    try expect_scope_selection(root, 0, 7, "\"", "\"", .inside, .{ 0, 5 }, .{ 0, 12 });
+    // around double quotes includes the delimiters
+    try expect_scope_selection(root, 0, 7, "\"", "\"", .around, .{ 0, 4 }, .{ 0, 13 });
+    // cursor on the opening quote itself
+    try expect_scope_selection(root, 0, 4, "\"", "\"", .inside, .{ 0, 5 }, .{ 0, 12 });
+    // nested parens: innermost pair wins
+    try expect_scope_selection(root, 0, 21, "(", ")", .inside, .{ 0, 20 }, .{ 0, 25 });
+    // between the pairs: outer pair
+    try expect_scope_selection(root, 0, 16, "(", ")", .inside, .{ 0, 15 }, .{ 0, 30 });
+    try expect_scope_selection(root, 0, 16, "(", ")", .around, .{ 0, 14 }, .{ 0, 31 });
+    // cursor on a delimiter
+    try expect_scope_selection(root, 0, 14, "(", ")", .inside, .{ 0, 15 }, .{ 0, 30 });
+    try expect_scope_selection(root, 0, 30, "(", ")", .inside, .{ 0, 15 }, .{ 0, 30 });
+    // escaped quote inside the string is not a delimiter
+    try expect_scope_selection(root, 1, 8, "\"", "\"", .inside, .{ 1, 3 }, .{ 1, 9 });
+}
+
+test "scope_textobjects_no_pair" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(scope_doc, &eol_mode, &sanitized), now);
+    const root: Buffer.Root = buffer.root;
+
+    var cursel: CurSel = .{ .cursor = Cursor{ .row = 1, .col = 11, .target = 0 } };
+    try std.testing.expectError(
+        error.Stop,
+        helix.test_internal.select_scope_textobject(root, &cursel, metrics(), "{", "}", .inside),
+    );
+}
