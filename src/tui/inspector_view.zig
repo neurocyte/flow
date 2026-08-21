@@ -94,7 +94,7 @@ fn ast_at_point(self: *Self, syn: anytype, row: usize, col_pos: usize, root: Buf
     self.dump_ast_node(sel, &node);
 }
 
-fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, ast_node: *const syntax.Node) error{Stop}!void {
+fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, _: i32, ast_node: *const syntax.Node) error{Stop}!void {
     const sel = Buffer.Selection.from_range(range, self.editor.get_current_root() orelse return, self.editor.metrics);
 
     self.dump_ast_node(sel, ast_node);

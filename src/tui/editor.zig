@@ -1679,14 +1679,12 @@ pub const Editor = struct {
             cache: *StyleCache,
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
-            last_begin: Cursor = Cursor.invalid(),
+            prio: []i32,
             last_scope_wins: bool = false,
-            fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, _: *const syntax.Node) error{Stop}!void {
+            fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, priority: i32, _: *const syntax.Node) error{Stop}!void {
                 var sel = ctx.pos_cache.from_pos(range, ctx.root, ctx.self.metrics);
 
                 if (idx > 0) return;
-                if (!ctx.last_scope_wins and sel.begin.eql(ctx.last_begin)) return;
-                ctx.last_begin = sel.begin;
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
 
@@ -1699,8 +1697,16 @@ pub const Editor = struct {
                     const y = row - ctx.self.view.row;
                     const x = begin_col - ctx.self.view.col;
                     const end_x = end_col - ctx.self.view.col;
-                    for (x..end_x) |x_|
+                    if (y >= ctx.self.view.rows) continue;
+                    for (x..end_x) |x_| {
+                        if (x_ >= ctx.self.view.cols) break;
+                        const i = y * ctx.self.view.cols + x_;
+                        // higher priority wins, otherwise config.last_scope_wins
+                        const beats = if (ctx.last_scope_wins) priority >= ctx.prio[i] else priority > ctx.prio[i];
+                        if (!beats) continue;
+                        ctx.prio[i] = priority;
                         try ctx.render_cell(y, x_, style);
+                    }
                 }
             }
             fn render_cell(ctx: *@This(), y: usize, x: usize, style: Widget.Theme.Style) !void {
@@ -1724,16 +1730,20 @@ pub const Editor = struct {
                 cursor.col = std.math.clamp(cursor.col, col_off, col_off + ctx.self.view.cols);
             }
         };
+        const prio = try self.allocator.alloc(i32, self.view.rows * self.view.cols);
+        @memset(prio, std.math.minInt(i32));
         var ctx: Ctx = .{
             .self = self,
             .theme = theme,
             .cache = cache,
             .root = root,
             .pos_cache = try PosToWidthCache.init(self.allocator),
+            .prio = prio,
             .last_scope_wins = tui.config().syntax_highlight_last_scope_wins,
         };
 
         defer ctx.pos_cache.deinit();
+        defer self.allocator.free(prio);
         const range: syntax.Range = .{
             .start_point = .{ .row = @intCast(self.view.row), .column = 0 },
             .end_point = .{ .row = @intCast(self.view.row + self.view.rows), .column = 0 },
