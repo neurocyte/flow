@@ -452,7 +452,7 @@ const cmds_ = struct {
         if (std.mem.eql(u8, action, "w")) {
             try ed.with_cursels_const(root, select_around_word, ed.metrics);
         } else if (std.mem.eql(u8, action, "W")) {
-            try ed.with_cursels_const(root, select_inner_long_word, ed.metrics);
+            try ed.with_cursels_const(root, select_around_long_word, ed.metrics);
         } else {
             return;
         }
@@ -679,10 +679,10 @@ fn select_around_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metric
 }
 
 fn select_around_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-    if (!cursel.cursor.test_at(root, Editor.is_word_char, metrics)) return;
+    if (cursel.cursor.test_at(root, Editor.is_whitespace, metrics)) return;
     var expander = cursel.*;
     try select_inner_long_word(root, &expander, metrics);
-    const sel_e = try expander.enable_selection(root, metrics);
+    const sel_e = expander.enable_selection(root, metrics);
     var prev = sel_e.begin;
     var next = sel_e.end;
     if (next.test_at(root, is_tab_or_space, metrics)) {
@@ -697,7 +697,7 @@ fn select_around_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.M
             prev = sel_e.begin;
         }
     }
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = prev;
     sel.end = next;
     cursel.*.cursor = next;
