@@ -1680,7 +1680,6 @@ pub const Editor = struct {
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
             rank: []i64,
-            last_scope_wins: bool = false,
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, priority: i32, pattern_index: u32, _: *const syntax.Node) error{Stop}!void {
                 var sel = ctx.pos_cache.from_pos(range, ctx.root, ctx.self.metrics);
 
@@ -1704,9 +1703,7 @@ pub const Editor = struct {
                     for (x..end_x) |x_| {
                         if (x_ >= ctx.self.view.cols) break;
                         const i = y * ctx.self.view.cols + x_;
-                        // higher rank wins, otherwise config.last_scope_wins
-                        const beats = if (ctx.last_scope_wins) rank >= ctx.rank[i] else rank > ctx.rank[i];
-                        if (!beats) continue;
+                        if (rank < ctx.rank[i]) continue;
                         ctx.rank[i] = rank;
                         try ctx.render_cell(y, x_, style);
                     }
@@ -1742,7 +1739,6 @@ pub const Editor = struct {
             .root = root,
             .pos_cache = try PosToWidthCache.init(self.allocator),
             .rank = rank,
-            .last_scope_wins = tui.config().syntax_highlight_last_scope_wins,
         };
 
         defer ctx.pos_cache.deinit();
