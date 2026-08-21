@@ -1,4 +1,5 @@
 const std = @import("std");
+pub const annotation = @import("annotation.zig");
 pub const buffer = @import("tests_buffer.zig");
 pub const color = @import("tests_color.zig");
 pub const file_link = @import("tests_file_link.zig");
