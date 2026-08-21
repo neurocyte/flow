@@ -513,6 +513,8 @@ pub fn build_exe(
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "match", .module = match_mod },
+            .{ .name = "regex", .module = regex_mod },
+            .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
 
@@ -1181,6 +1183,8 @@ pub fn build_exe(
         tests.root_module.addImport("cbor", cbor_mod);
         tests.root_module.addImport("syntax", syntax_mod);
         tests.root_module.addImport("match", match_mod);
+        tests.root_module.addImport("regex", regex_mod);
+        tests.root_module.addImport("soft_root", soft_root_mod);
         if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };

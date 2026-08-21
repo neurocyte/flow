@@ -6,8 +6,15 @@ const std = @import("std");
 const cbor = @import("cbor");
 const syntax = @import("syntax");
 const match = @import("match");
+const regex = @import("regex");
+const root = @import("soft_root").root;
 
 const wrap_buffer_size = 4096;
+
+fn regex_allocator() std.mem.Allocator {
+    if (@import("builtin").is_test) return std.testing.allocator;
+    return root.get_init().gpa;
+}
 
 pub fn Validator(comptime T: type) fn (T, cbor.Raw) bool {
     const simple = syntax.SimpleNonRegex(void);
@@ -36,6 +43,10 @@ pub fn Validator(comptime T: type) fn (T, cbor.Raw) bool {
                 if (any) name = name["any-".len..];
                 if (std.mem.eql(u8, name, "lua-match?")) {
                     const result = try evalLuaMatch(capture, pattern, any);
+                    return if (negate) !result else result;
+                }
+                if (std.mem.eql(u8, name, "match?")) {
+                    const result = try evalRegexMatch(capture, pattern, any);
                     return if (negate) !result else result;
                 }
             }
@@ -67,6 +78,22 @@ pub fn Validator(comptime T: type) fn (T, cbor.Raw) bool {
         fn luaMatches(text: []const u8, pattern: []const u8) bool {
             const result = match.find(text, pattern, 0) catch return false;
             return result != null;
+        }
+
+        fn evalRegexMatch(capture: cbor.Raw, pattern: cbor.Raw, any: bool) cbor.Error!bool {
+            var pattern_text: []const u8 = undefined;
+            if (!(cbor.match(pattern.bytes, cbor.extract(&pattern_text)) catch false)) return true;
+
+            var re = regex.compile(regex_allocator(), pattern_text, .{}) catch return false;
+            defer re.deinit();
+
+            var nodes = NodeTexts.init(capture);
+            while (nodes.next()) |text| {
+                const is_match = re.match(text);
+                if (any and is_match) return true;
+                if (!any and !is_match) return false;
+            }
+            return !any;
         }
 
         const NodeTexts = struct {
@@ -121,8 +148,8 @@ test "wraps SimpleNonRegex: existing predicates still evaluated" {
     try std.testing.expect(eval(.{.{ "eq?", .{ "x", "x" }, "x" }}));
     try std.testing.expect(!eval(.{.{ "eq?", .{ "x", "y" }, "x" }}));
 
-    // unrecognized (including regex #match?) predicates still drop the match
-    try std.testing.expect(!eval(.{.{ "match?", "x", "[a-z]+" }}));
+    // genuinely unrecognized predicates still drop the match
+    try std.testing.expect(!eval(.{.{ "totally-unknown?", "x", "y" }}));
 
     // every predicate in a group must pass
     try std.testing.expect(eval(.{ .{ "eq?", "x", "x" }, .{ "any-of?", "y", "y", "z" } }));
@@ -173,6 +200,45 @@ test "lua-match predicates" {
     try std.testing.expect(!eval(.{.{ "lua-match?", "abc", "%" }}));
 }
 
+test "match predicates" {
+    const validator = Validator(void);
+    const eval = struct {
+        fn eval(value: anytype) bool {
+            var buf: [4096]u8 = undefined;
+            return validator({}, .{ .bytes = cbor.fmt(&buf, value) });
+        }
+    }.eval;
+
+    // #match?: unanchored regex search anywhere in the text
+    try std.testing.expect(eval(.{.{ "match?", "hello123", "[0-9]+" }}));
+    try std.testing.expect(!eval(.{.{ "match?", "hello", "[0-9]+" }}));
+    try std.testing.expect(eval(.{.{ "match?", "foobar", "^[a-z]+$" }})); // all letters, anchored
+    try std.testing.expect(!eval(.{.{ "match?", "foo bar", "^[a-z]+$" }})); // space breaks the anchor
+
+    // #not-match? negates #match?
+    try std.testing.expect(eval(.{.{ "not-match?", "hello", "[0-9]+" }}));
+    try std.testing.expect(!eval(.{.{ "not-match?", "hello123", "[0-9]+" }}));
+
+    // multi-node capture: #match? requires every node to match
+    try std.testing.expect(eval(.{.{ "match?", .{ "a1", "b2" }, "[0-9]" }}));
+    try std.testing.expect(!eval(.{.{ "match?", .{ "a1", "bb" }, "[0-9]" }}));
+
+    // #any-match? requires at least one node to match
+    try std.testing.expect(eval(.{.{ "any-match?", .{ "aa", "b2" }, "[0-9]" }}));
+    try std.testing.expect(!eval(.{.{ "any-match?", .{ "aa", "bb" }, "[0-9]" }}));
+
+    // #not-any-match? == no node matches
+    try std.testing.expect(eval(.{.{ "not-any-match?", .{ "aa", "bb" }, "[0-9]" }}));
+    try std.testing.expect(!eval(.{.{ "not-any-match?", .{ "aa", "b2" }, "[0-9]" }}));
+
+    // a missing capture (null) has no nodes: #match? vacuously holds, #any-match? fails
+    try std.testing.expect(eval(.{.{ "match?", null, "[0-9]" }}));
+    try std.testing.expect(!eval(.{.{ "any-match?", null, "[0-9]" }}));
+
+    // a malformed pattern counts as no match (drops a #match?)
+    try std.testing.expect(!eval(.{.{ "match?", "abc", "[" }}));
+}
+
 test "mixed lua-match and simple predicates" {
     const validator = Validator(void);
     const eval = struct {
@@ -203,7 +269,6 @@ test "directives (names ending in '!') are ignored and keep the match" {
     try std.testing.expect(eval(.{.{ "set!", "injection.language", "zig" }}));
     try std.testing.expect(eval(.{.{ "set!", "key" }}));
     try std.testing.expect(eval(.{.{ "select-adjacent!", "x", "y" }}));
-    try std.testing.expect(!eval(.{.{ "match?", "x", "[a-z]+" }}));
 
     // a directive does not override a real predicate in the same group
     try std.testing.expect(eval(.{ .{ "set!", "k", "v" }, .{ "eq?", "x", "x" } }));
