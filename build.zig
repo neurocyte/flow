@@ -801,6 +801,36 @@ pub fn build_exe(
                     combined_rasterizer_mod.addImport("dw_rasterizer", dwrite_rasterizer_mod);
                 } else {
                     const have_freetype = target.result.os.tag != .macos;
+                    const have_coretext = target.result.os.tag == .macos;
+
+                    if (have_coretext) {
+                        const coretext_rasterizer_mod = b.createModule(.{
+                            .root_source_file = b.path("src/gui/rasterizer/coretext.zig"),
+                            .target = target,
+                            .imports = &.{
+                                .{ .name = "xy", .module = gui_xy_mod },
+                                .{ .name = "gui_config", .module = gui_config_mod },
+                                .{ .name = "uucode_utils", .module = uucode_utils_mod },
+                                .{ .name = "flow_sprite", .module = flow_sprite_mod },
+                                .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
+                                .{ .name = "face_metrics", .module = gui_face_metrics_mod },
+                                .{ .name = "blit", .module = gui_blit_mod },
+                                .{ .name = "build_options", .module = gui_embed_options_mod },
+                            },
+                        });
+                        if (nerd_font_mod) |m| coretext_rasterizer_mod.addImport("nerd_font", m);
+                        if (noto_emoji_font_mod) |m| coretext_rasterizer_mod.addImport("noto_emoji_font", m);
+                        add_iosevka(coretext_rasterizer_mod, iosevka_mods);
+                        if (cross_macos) {
+                            if (wio_dep.builder.lazyDependency("wio_macos_sdk", .{})) |macos_sdk|
+                                coretext_rasterizer_mod.addSystemFrameworkPath(macos_sdk.path("System/Library/Frameworks"));
+                        }
+                        coretext_rasterizer_mod.linkFramework("CoreFoundation", .{});
+                        coretext_rasterizer_mod.linkFramework("CoreGraphics", .{});
+                        coretext_rasterizer_mod.linkFramework("CoreText", .{});
+                        coretext_rasterizer_mod.link_libc = true;
+                        combined_rasterizer_mod.addImport("ct_rasterizer", coretext_rasterizer_mod);
+                    }
 
                     const tt_dep = b.lazyDependency("TrueType", .{
                         .target = target,

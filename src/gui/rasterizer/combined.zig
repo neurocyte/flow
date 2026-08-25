@@ -6,13 +6,18 @@ const XY = @import("xy").XY;
 
 const is_windows = builtin.os.tag == .windows;
 const is_macos = builtin.os.tag == .macos;
+
+const have_dw = is_windows;
+const have_ct = is_macos;
+const have_tt = !is_windows;
 const have_ft = !is_windows and !is_macos;
 
-const TT = if (is_windows) void else @import("tt_rasterizer");
+const TT = if (have_tt) @import("tt_rasterizer") else void;
 const FT = if (have_ft) @import("ft_rasterizer") else void;
-const DW = if (is_windows) @import("dw_rasterizer") else void;
+const DW = if (have_dw) @import("dw_rasterizer") else void;
+const CT = if (have_ct) @import("ct_rasterizer") else void;
 
-const Primary = if (is_windows) DW else TT;
+const Primary = if (have_dw) DW else if (have_ct) CT else TT;
 
 const log = std.log.scoped(.rasterizer);
 
@@ -37,18 +42,19 @@ pub const Face = enum(u2) {
 };
 
 /// rasterizer specific font data
-pub const RasterizerFont = if (is_windows)
+pub const RasterizerFont = if (have_dw)
     union(Backend) {
         dwrite: DW.Font,
     }
-else if (have_ft)
+else if (have_ct)
     union(Backend) {
+        coretext: CT.Font,
         truetype: TT.Font,
-        freetype: FT.Font,
     }
 else
     union(Backend) {
         truetype: TT.Font,
+        freetype: FT.Font,
     };
 
 /// combined font handle
@@ -101,32 +107,32 @@ pub const LoadOpts = struct {
 
 const Self = @This();
 
-active: Backend = if (is_windows) .dwrite else .truetype,
-tt: if (is_windows) void else TT = if (is_windows) {} else undefined,
+active: Backend = @import("gui_config").default_backend,
+tt: if (have_tt) TT else void = if (have_tt) undefined else {},
 ft: if (have_ft) FT else void = if (have_ft) undefined else {},
-dw: if (is_windows) DW else void = if (is_windows) undefined else {},
+dw: if (have_dw) DW else void = if (have_dw) undefined else {},
+ct: if (have_ct) CT else void = if (have_ct) undefined else {},
 
 pub fn init(allocator: std.mem.Allocator) !Self {
-    if (is_windows) {
-        const dw = try DW.init(allocator);
-        return .{ .dw = dw };
-    } else if (have_ft) {
-        const tt = try TT.init(allocator);
-        const ft = try FT.init(allocator);
-        return .{ .tt = tt, .ft = ft };
-    } else {
-        const tt = try TT.init(allocator);
-        return .{ .tt = tt };
-    }
+    var self: Self = .{};
+    if (have_dw) self.dw = try DW.init(allocator);
+    if (have_ct) self.ct = try CT.init(allocator);
+    if (have_tt) self.tt = try TT.init(allocator);
+    if (have_ft) self.ft = try FT.init(allocator);
+    return self;
 }
 
 pub fn deinit(self: *Self) void {
-    if (is_windows) {
-        self.dw.deinit();
-    } else {
-        self.tt.deinit();
-        if (have_ft) self.ft.deinit();
-    }
+    if (have_dw) self.dw.deinit();
+    if (have_ct) self.ct.deinit();
+    if (have_tt) self.tt.deinit();
+    if (have_ft) self.ft.deinit();
+}
+
+fn gpaOf(self: *const Self) std.mem.Allocator {
+    if (have_dw) return self.dw.allocator;
+    if (have_ct) return self.ct.allocator;
+    return self.tt.allocator;
 }
 
 pub fn setBackend(self: *Self, backend: Backend) void {
@@ -134,66 +140,52 @@ pub fn setBackend(self: *Self, backend: Backend) void {
 }
 
 pub fn setHinting(self: *Self, h: Hinting) void {
-    if (is_windows) {
-        self.dw.hinting = h;
-    } else if (have_ft) {
-        self.ft.hinting = h;
-    }
     // self.tt is unhinted
+    if (have_dw) self.dw.hinting = h;
+    if (have_ct) self.ct.hinting = h;
+    if (have_ft) self.ft.hinting = h;
 }
 
 pub fn setSymbolRasterizer(self: *Self, sr: SymbolRasterizer) void {
-    if (is_windows) {
-        self.dw.block_and_line_symbols = sr;
-    } else {
-        self.tt.block_and_line_symbols = sr;
-        if (have_ft) self.ft.block_and_line_symbols = sr;
-    }
+    if (have_dw) self.dw.block_and_line_symbols = sr;
+    if (have_ct) self.ct.block_and_line_symbols = sr;
+    if (have_tt) self.tt.block_and_line_symbols = sr;
+    if (have_ft) self.ft.block_and_line_symbols = sr;
 }
 
 pub fn setAllowColorGlyphs(self: *Self, allow: bool) void {
-    if (is_windows) {
-        self.dw.allow_color_glyphs = allow;
-    } else if (have_ft) {
-        self.ft.allow_color_glyphs = allow;
-    }
     // self.tt does not support color glyphs
+    if (have_dw) self.dw.allow_color_glyphs = allow;
+    if (have_ct) self.ct.allow_color_glyphs = allow;
+    if (have_ft) self.ft.allow_color_glyphs = allow;
 }
 
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
-    const allocator = if (is_windows) self.dw.allocator else self.tt.allocator;
-    const match = try font_finder.findFont(allocator, name);
-    defer allocator.free(match.path);
+    const gpa = self.gpaOf();
+    const match = try font_finder.findFont(gpa, name);
+    defer gpa.free(match.path);
     return self.loadFontFromPath(match.path, match.face_index, size_px);
 }
 
 fn loadFontFromPath(self: *Self, path: []const u8, face_index: i32, size_px: u16) !Font {
-    if (is_windows) {
-        switch (self.active) {
-            .dwrite => {
-                const f = try self.dw.loadFontFromPath(path, size_px);
-                return .{
-                    .cell_size = f.cell_size,
-                    .underline_position = f.underline_position,
-                    .underline_thickness = f.underline_thickness,
-                    .backend = .{ .dwrite = f },
-                };
-            },
-        }
-    } else {
-        // tags and rasterizer field names are kept in sync so this dispatches
-        // over whichever backends this target actually has
-        switch (self.active) {
-            inline else => |tag| {
-                const f = try @field(self, backendField(tag)).loadFontFromPath(path, face_index, size_px);
-                return .{
-                    .cell_size = f.cell_size,
-                    .underline_position = f.underline_position,
-                    .underline_thickness = f.underline_thickness,
-                    .backend = @unionInit(RasterizerFont, @tagName(tag), f),
-                };
-            },
-        }
+    // tags and rasterizer field names are kept in sync so this dispatches
+    // over whichever backends this target actually has
+    switch (self.active) {
+        inline else => |tag| {
+            const field = comptime backendField(tag);
+            // dwrite and coretext have no path-based loader; their stubs take
+            // no face index
+            const f = if (comptime pathLoaderTakesIndex(field))
+                try @field(self, field).loadFontFromPath(path, face_index, size_px)
+            else
+                try @field(self, field).loadFontFromPath(path, size_px);
+            return .{
+                .cell_size = f.cell_size,
+                .underline_position = f.underline_position,
+                .underline_thickness = f.underline_thickness,
+                .backend = @unionInit(RasterizerFont, @tagName(tag), f),
+            };
+        },
     }
 }
 
@@ -202,7 +194,16 @@ fn backendField(comptime tag: Backend) []const u8 {
     if (comptime std.mem.eql(u8, name, "truetype")) return "tt";
     if (comptime std.mem.eql(u8, name, "freetype")) return "ft";
     if (comptime std.mem.eql(u8, name, "dwrite")) return "dw";
+    if (comptime std.mem.eql(u8, name, "coretext")) return "ct";
     @compileError("no rasterizer field for backend " ++ name);
+}
+
+fn pathLoaderTakesIndex(comptime field: []const u8) bool {
+    return !std.mem.eql(u8, field, "dw") and !std.mem.eql(u8, field, "ct");
+}
+
+fn xlat(comptime T: type, value: anytype) T {
+    return @enumFromInt(@intFromEnum(value));
 }
 
 fn boldCssWeight(css_regular: u16, offset: u16) u16 {
@@ -308,28 +309,21 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
         for (&set.faces) |*f| applyLineHeightToFace(f, top_pad, target_h);
     }
 
-    if (!is_windows) {
-        self.tt.releaseUnusedFaces();
-        if (have_ft) self.ft.releaseUnusedFaces();
-        // dwrite faces are refcounted
-    }
+    // dwrite and coretext faces are refcounted
+    if (have_tt) self.tt.releaseUnusedFaces();
+    if (have_ft) self.ft.releaseUnusedFaces();
 
     return set;
 }
 
 pub fn glyphAdvance(self: *const Self, font: Font, codepoint: u21) ?u16 {
-    if (is_windows) {
-        return switch (font.backend) {
-            .dwrite => |f| self.dw.glyphAdvance(f, codepoint),
-        };
-    } else if (have_ft) {
-        return switch (font.backend) {
-            .truetype => null,
-            .freetype => |f| self.ft.glyphAdvance(f, codepoint),
-        };
-    } else {
-        // truetype carries no advance data
-        return null;
+    switch (font.backend) {
+        inline else => |f, tag| {
+            const field = comptime backendField(tag);
+            // truetype carries no advance data
+            if (comptime std.mem.eql(u8, field, "tt")) return null;
+            return @field(self, field).glyphAdvance(f, codepoint);
+        },
     }
 }
 
@@ -343,30 +337,20 @@ pub fn render(
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
-    if (is_windows) {
-        return switch (font.backend) {
-            .dwrite => |f| blk: {
-                const r = self.dw.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
-            },
-        };
-    } else if (have_ft) {
-        return switch (font.backend) {
-            .truetype => |f| blk: {
-                const r = self.tt.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
-            },
-            .freetype => |f| blk: {
-                const r = self.ft.render(f, codepoint, emoji_presentation, constraint, constraint_width, @enumFromInt(@intFromEnum(split)), staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
-            },
-        };
-    } else {
-        return switch (font.backend) {
-            .truetype => |f| blk: {
-                const r = self.tt.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
-            },
-        };
+    switch (font.backend) {
+        inline else => |f, tag| {
+            const field = comptime backendField(tag);
+            const B = @TypeOf(@field(self, field));
+            const r = @field(self, field).render(
+                f,
+                codepoint,
+                emoji_presentation,
+                constraint,
+                constraint_width,
+                xlat(B.GlyphSplit, split),
+                staging_buf,
+            );
+            return .{ .format = xlat(RasterFormat, r.format) };
+        },
     }
 }
