@@ -131,9 +131,9 @@ non_indexed_projects: []const []const u8 = switch (builtin.os.tag) {
         "/sbin",        "/tmp",   "/usr",          "/var",
     },
     else => &.{
-        "/",      "/bin",   "/boot", "/dev", "/home", "/lib",
-        "/lib64", "/media", "/proc", "/run", "/sbin", "/sys",
-        "/usr",   "/var",
+        "{{env:HOME}}", "/",     "/bin",   "/boot",  "/dev",
+        "/home",        "/lib",  "/lib64", "/media", "/proc",
+        "/run",         "/sbin", "/sys",   "/usr",   "/var",
     },
 },
 watch_non_indexed_projects: bool = false,
