@@ -3094,7 +3094,7 @@ fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {
 }
 
 pub fn primary_send_to_system(text: []const u8) void {
-    if (!build_options.gui and !config().enable_csi52_primary_selection) return;
+    if (!build_options.gui and !config().enable_osc52_primary_selection) return;
     current().rdr_.copy_to_primary_selection(text);
 }
 
