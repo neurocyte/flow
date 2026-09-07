@@ -730,7 +730,7 @@ fn copy_selection_to_primary(self: *Self) void {
     const text = (self.selection_text(self.allocator) catch return) orelse return;
     defer self.allocator.free(text);
     if (text.len == 0) return;
-    tui.rdr().copy_to_primary_selection(text);
+    tui.primary_send_to_system(text);
 }
 
 fn paste_from_primary(_: *Self) void {
