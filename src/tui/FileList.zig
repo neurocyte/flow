@@ -133,7 +133,7 @@ pub fn restore_state(self: *Self, iter: *[]const u8) !void {
     var selected: ?usize = null;
     if (!try cbor.matchValue(iter, cbor.extract(&view_pos)) or
         !try cbor.matchValue(iter, cbor.extract(&selected)))
-        return error.InvalidFileListState;
+        return error.InvalidFileListViewState;
     var count = try cbor.decodeArrayHeader(iter);
     while (count > 0) : (count -= 1) {
         var path: []const u8 = undefined;
@@ -296,17 +296,24 @@ pub const Manager = struct {
 
     pub fn restore_state(self: *Manager, iter: *[]const u8) !void {
         if (iter.len == 0) return; // session with no file-list section
+        self.restore_state_checked(iter) catch |e| {
+            self.reset();
+            return e;
+        };
+    }
+
+    fn restore_state_checked(self: *Manager, iter: *[]const u8) !void {
         var active_: ?[]const u8 = null;
         var panel_open: bool = false;
 
         const header = try cbor.decodeArrayHeader(iter);
-        if (header != 3) return error.InvalidFileListState;
+        if (header != 3) return error.InvalidFileListManagerHeader;
         _ = try cbor.matchValue(iter, cbor.extract(&active_));
         _ = try cbor.matchValue(iter, cbor.extract(&panel_open));
         var count_ = try cbor.decodeArrayHeader(iter);
         while (count_ > 0) : (count_ -= 1) {
             const pair = try cbor.decodeArrayHeader(iter);
-            if (pair < 4) return error.InvalidFileListState;
+            if (pair < 4) return error.InvalidFileListEntryHeader;
             var name: []const u8 = undefined;
             if (!try cbor.matchValue(iter, cbor.extract(&name))) {
                 try cbor.skipValue(iter);

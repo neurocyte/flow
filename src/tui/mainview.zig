@@ -2595,8 +2595,7 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     tui.extract_state(iter) catch |e|
         logger.print_err("mainview", "failed to restore TUI : {}", .{e});
 
-    self.filelists.restore_state(iter) catch |e|
-        logger.print_err("mainview", "failed to restore file lists: {}", .{e});
+    self.filelists.restore_state(iter) catch {};
     if (self.filelists.panel_open and self.filelists.count() > 0)
         _ = self.show_filelist() catch |e|
             logger.print_err("mainview", "failed to reopen file list panel: {}", .{e});
