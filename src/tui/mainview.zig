@@ -33,6 +33,7 @@ const LspInfo = @import("lsp_info.zig");
 
 const logview = @import("logview.zig");
 const filelist_view = @import("filelist_view.zig");
+const FileList = @import("FileList.zig");
 const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
@@ -59,9 +60,8 @@ panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
-find_in_files_state: enum { init, adding, done } = .done,
 ripgrep_query_id: usize = 0,
-file_list_type: FileListType = .find_in_files,
+filelists: FileList.Manager = undefined,
 panel_height: ?usize = null,
 panel_maximized: bool = false,
 panel_maximized_by_snap: bool = false,
@@ -72,13 +72,6 @@ closing_project: bool = false,
 lsp_info: LspInfo,
 quit_on_terminal_exit: bool = false,
 quit_on_document_close: bool = false,
-
-const FileListType = enum {
-    diagnostics,
-    references,
-    find_in_files,
-    terminal_links,
-};
 
 pub const CreateError = error{ OutOfMemory, ThespianSpawnFailed };
 
@@ -98,6 +91,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .panes_widget = undefined,
         .buffer_manager = Buffer.Manager.init(allocator),
         .lsp_info = .init(allocator),
+        .filelists = FileList.Manager.init(allocator),
     };
     try self.commands.init(self);
     const w = Widget.to(self);
@@ -159,6 +153,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.floating_views.deinit();
     self.buffer_manager.deinit();
     self.lsp_info.deinit();
+    self.filelists.deinit();
     self.store_last_match_text(null);
     allocator.destroy(self);
 }
@@ -180,32 +175,28 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var column: i64 = undefined;
 
     if (try m.match(.{ "REF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-        try self.add_find_in_files_result(.references, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
+        try self.add_find_in_files_result(FileList.name_references, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "FIF", self.ripgrep_query_id, tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-        try self.add_find_in_files_result(.find_in_files, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
+        try self.add_find_in_files_result(FileList.name_find_in_files, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "REF", "done" })) {
-        self.find_in_files_state = .done;
+        self.end_filelist_ingest(FileList.name_references, false);
         return true;
     } else if (try m.match(.{ "FIF", self.ripgrep_query_id, "done" })) {
-        switch (self.find_in_files_state) {
-            .init => self.clear_find_in_files_results(self.file_list_type),
-            else => {},
-        }
-        self.find_in_files_state = .done;
+        self.end_filelist_ingest(FileList.name_find_in_files, true);
         return true;
     } else if (try m.match(.{ "FIF", tp.more })) {
         // drop late query results
         return true;
     } else if (try m.match(.{ "TFL", "begin" })) {
-        self.find_in_files_state = .init;
+        self.begin_filelist(FileList.name_terminal_links);
         return true;
     } else if (try m.match(.{ "TFL", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&lines) })) {
-        try self.add_find_in_files_result(.terminal_links, path, begin_line, begin_pos, begin_line, begin_pos, lines, .Information);
+        try self.add_find_in_files_result(FileList.name_terminal_links, path, begin_line, begin_pos, begin_line, begin_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "TFL", "done" })) {
-        self.find_in_files_state = .done;
+        self.end_filelist_ingest(FileList.name_terminal_links, false);
         // hide the terminal after showing the file list
         if (self.is_panel_view_showing(filelist_view) and self.is_panel_view_showing(terminal_view))
             self.toggle_panel_view(terminal_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -654,9 +645,8 @@ const cmds = struct {
             try close_splits(self, .empty_from(ctx));
             try self.close_all_editors(.empty_from(ctx));
             self.delete_all_buffers();
-            self.clear_find_in_files_results(.diagnostics);
-            if (self.file_list_type == .diagnostics)
-                try self.toggle_panel_view(filelist_view, .disable);
+            self.filelists.reset();
+            try self.hide_filelist();
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
         }
@@ -1209,9 +1199,15 @@ const cmds = struct {
     pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
 
     pub fn hide_filelist_view(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(filelist_view, .disable);
+        try self.hide_filelist();
     }
     pub const hide_filelist_view_meta: Meta = .{ .description = "Hide filelist" };
+
+    pub fn focus_filelist(self: *Self, _: Ctx) Result {
+        const fl = try self.show_filelist();
+        fl.focus();
+    }
+    pub const focus_filelist_meta: Meta = .{ .description = "Focus the file list" };
 
     pub fn open_terminal(self: *Self, ctx: Ctx) Result {
         const have_args = ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more });
@@ -1334,8 +1330,8 @@ const cmds = struct {
     pub const close_terminal_on_exit_meta: Meta = .{};
 
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
-        if (self.file_list_type == .find_in_files)
-            try self.toggle_panel_view(filelist_view, .disable);
+        if (self.active_filelist()) |fl| if (std.mem.eql(u8, fl.name, FileList.name_find_in_files))
+            try self.hide_filelist();
     }
     pub const close_find_in_files_results_meta: Meta = .{ .description = "Close find in files results view" };
 
@@ -1455,10 +1451,8 @@ const cmds = struct {
 
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
-            switch (self.file_list_type) {
-                .diagnostics => try command.executeName("goto_next_diagnostic", ctx),
-                else => try command.executeName("goto_next_file", ctx),
-            }
+            const cmd = if (self.active_filelist()) |fl| fl.next_command orelse "goto_next_file" else "goto_next_file";
+            try command.executeName(cmd, ctx);
         } else {
             try command.executeName("goto_next_diagnostic", ctx);
         }
@@ -1467,10 +1461,8 @@ const cmds = struct {
 
     pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
-            switch (self.file_list_type) {
-                .diagnostics => try command.executeName("goto_prev_diagnostic", ctx),
-                else => try command.executeName("goto_prev_file", ctx),
-            }
+            const cmd = if (self.active_filelist()) |fl| fl.prev_command orelse "goto_prev_file" else "goto_prev_file";
+            try command.executeName(cmd, ctx);
         } else {
             try command.executeName("goto_prev_diagnostic", ctx);
         }
@@ -1506,7 +1498,7 @@ const cmds = struct {
             return;
         }
         try self.add_find_in_files_result(
-            .diagnostics,
+            FileList.name_diagnostics,
             file_path,
             sel.begin.row + 1,
             sel.begin.col,
@@ -1514,6 +1506,7 @@ const cmds = struct {
             sel.end.col,
             message,
             ed.Diagnostic.to_severity(severity),
+            .background,
         );
     }
     pub const add_diagnostic_meta: Meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
@@ -1684,7 +1677,7 @@ const cmds = struct {
                 first = false;
             } else {
                 try self.add_find_in_files_result(
-                    .references,
+                    FileList.name_references,
                     file_path,
                     sel.begin.row + 1,
                     sel.begin.col,
@@ -1692,6 +1685,7 @@ const cmds = struct {
                     sel.end.col,
                     line_text,
                     .Information,
+                    .foreground,
                 );
             }
             try editor.set_primary_selection_from_cursor(primary_cursor);
@@ -1708,18 +1702,18 @@ const cmds = struct {
         if (self.get_editor_for_file(file_path)) |editor|
             editor.clear_diagnostics();
 
-        self.clear_find_in_files_results(.diagnostics);
-        if (self.file_list_type == .diagnostics)
-            try self.toggle_panel_view(filelist_view, .disable);
+        self.clear_find_in_files_results(FileList.name_diagnostics);
+        if (self.active_filelist()) |fl| if (std.mem.eql(u8, fl.name, FileList.name_diagnostics))
+            try self.hide_filelist();
     }
     pub const clear_diagnostics_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn show_diagnostics(self: *Self, _: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
-        self.clear_find_in_files_results(.diagnostics);
+        self.clear_find_in_files_results(FileList.name_diagnostics);
         for (editor.diagnostics.items) |diagnostic| {
             try self.add_find_in_files_result(
-                .diagnostics,
+                FileList.name_diagnostics,
                 editor.file_path orelse "",
                 diagnostic.sel.begin.row + 1,
                 diagnostic.sel.begin.col,
@@ -1727,6 +1721,7 @@ const cmds = struct {
                 diagnostic.sel.end.col,
                 diagnostic.message,
                 ed.Diagnostic.to_severity(diagnostic.severity),
+                .foreground,
             );
         }
     }
@@ -1775,7 +1770,7 @@ const cmds = struct {
         self.ripgrep_query_id += 1;
         var rg = try find_f(self.allocator, query, "FIF", self.ripgrep_query_id);
         defer rg.deinit();
-        self.find_in_files_state = .init;
+        self.begin_filelist(FileList.name_find_in_files);
     }
     pub const find_in_files_query_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -2500,6 +2495,9 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     self.lsp_info.write_state(writer) catch return error.WriteFailed;
 
     try tui.write_state(writer);
+
+    self.filelists.panel_open = self.is_panel_view_showing(filelist_view);
+    self.filelists.write_state(writer) catch return error.WriteFailed;
 }
 
 fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
@@ -2597,6 +2595,12 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     tui.extract_state(iter) catch |e|
         logger.print_err("mainview", "failed to restore TUI : {}", .{e});
 
+    self.filelists.restore_state(iter) catch |e|
+        logger.print_err("mainview", "failed to restore file lists: {}", .{e});
+    if (self.filelists.panel_open and self.filelists.count() > 0)
+        _ = self.show_filelist() catch |e|
+            logger.print_err("mainview", "failed to reopen file list panel: {}", .{e});
+
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
     for (buffers) |buffer| if (!buffer.is_ephemeral())
@@ -2682,9 +2686,36 @@ fn delete_all_buffers(self: *Self) void {
     self.buffer_manager.delete_all();
 }
 
+fn show_filelist(self: *Self) !*filelist_view {
+    _ = try self.toggle_panel_view(filelist_view, .enable);
+    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
+    if (fl.manager == null) fl.attach(&self.filelists);
+    self.filelists.panel_open = true;
+    return fl;
+}
+
+fn active_filelist(self: *Self) ?*FileList {
+    return self.filelists.active();
+}
+
+fn hide_filelist(self: *Self) !void {
+    self.filelists.panel_open = false;
+    if (self.is_panel_view_showing(filelist_view))
+        try self.toggle_panel_view(filelist_view, .disable);
+}
+
+fn begin_filelist(self: *Self, list_name: []const u8) void {
+    self.filelists.begin_ingest(list_name) catch {};
+}
+
+fn end_filelist_ingest(self: *Self, list_name: []const u8, clear_if_empty: bool) void {
+    self.filelists.end_ingest(list_name, clear_if_empty);
+    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_name);
+}
+
 fn add_find_in_files_result(
     self: *Self,
-    file_list_type: FileListType,
+    list_name: []const u8,
     path: []const u8,
     begin_line: usize,
     begin_pos: usize,
@@ -2692,22 +2723,17 @@ fn add_find_in_files_result(
     end_pos: usize,
     lines: []const u8,
     severity: ed.Diagnostic.Severity,
+    stream_type: enum { background, foreground },
 ) tp.result {
-    _ = self.toggle_panel_view(filelist_view, .enable) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
-    if (self.file_list_type != file_list_type) {
-        self.clear_find_in_files_results(self.file_list_type);
-        self.file_list_type = file_list_type;
-        self.find_in_files_state = .adding;
-    } else switch (self.find_in_files_state) {
-        .init, .done => {
-            self.clear_find_in_files_results(self.file_list_type);
-            self.file_list_type = file_list_type;
-            self.find_in_files_state = .adding;
-        },
-        .adding => {},
-    }
-    fl.add_item(.{
+    const panel_was_showing = self.is_panel_view_showing(filelist_view);
+    const take_focus = if (stream_type == .foreground) true else blk: {
+        if (!panel_was_showing) break :blk true;
+        const cur = self.filelists.active() orelse break :blk true;
+        if (std.mem.eql(u8, cur.name, list_name)) break :blk true;
+        break :blk cur.is_empty();
+    };
+    const flv = self.show_filelist() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const event = self.filelists.add_item(list_name, .{
         .path = path,
         .begin_line = @max(1, begin_line) - 1,
         .begin_pos = @max(1, begin_pos) - 1,
@@ -2716,16 +2742,13 @@ fn add_find_in_files_result(
         .lines = lines,
         .severity = severity,
         .pos_type = .byte,
-    }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }, take_focus) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    flv.handle_filelist_event(event);
 }
 
-fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
-    if (self.file_list_type != file_list_type) return;
-    if (!self.is_panel_view_showing(filelist_view)) return;
-    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
-    self.find_in_files_state = .done;
-    self.file_list_type = file_list_type;
-    fl.reset();
+fn clear_find_in_files_results(self: *Self, list_name: []const u8) void {
+    self.filelists.clear(list_name);
+    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_name);
 }
 
 pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {

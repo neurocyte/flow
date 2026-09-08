@@ -30,7 +30,10 @@
             ["ctrl+shift+`", "switch_terminals"],
             ["ctrl+alt+`", "switch_terminals"],
             ["ctrl+j", "toggle_panel"],
+            ["ctrl+shift+l", "toggle_panel"],
             ["ctrl+shift+j", "toggle_maximize_panel"],
+            ["alt+shift+l", "focus_filelist"],
+            ["ctrl+shift+m", "show_diagnostics"],
             ["ctrl+alt+home", "grow_panel"],
             ["ctrl+shift+alt+home", "grow_panel", 3],
             ["ctrl+alt+end", "shrink_panel"],
@@ -49,7 +52,6 @@
             ["ctrl+shift+p", "open_command_palette"],
             ["ctrl+shift+q", "quit_without_saving"],
             ["ctrl+shift+f", "find_in_files"],
-            ["ctrl+shift+l", "toggle_panel"],
             ["alt+shift+p", "open_command_palette"],
             ["alt+n", "goto_next_file_or_diagnostic"],
             ["alt+p", "goto_prev_file_or_diagnostic"],
@@ -160,7 +162,6 @@
             ["ctrl+shift+z", "redo"],
             ["ctrl+shift+w", "close_file_without_saving"],
             ["ctrl+shift+l", "add_cursor_all_matches"],
-            ["ctrl+shift+m", "show_diagnostics"],
             ["ctrl+shift+enter", "smart_insert_line_before"],
             ["ctrl+shift+end", "select_buffer_end"],
             ["ctrl+shift+home", "select_buffer_begin"],
@@ -575,6 +576,23 @@
             ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
             ["backspace", "mini_mode_delete_backwards"]
+        ]
+    },
+    "filelist": {
+        "on_match_failure": "nothing",
+        "inherit": "project",
+        "press": [
+            ["up", "select_prev_file"],
+            ["down", "select_next_file"],
+            ["ctrl+p", "select_prev_file"],
+            ["ctrl+n", "select_next_file"],
+            ["enter", "goto_selected_file"],
+            ["shift+enter", "goto_selected_file_alternate"],
+            ["tab", "filelist_next_dataset"],
+            ["shift+tab", "filelist_prev_dataset"],
+            ["alt+n", "goto_next_file"],
+            ["alt+p", "goto_prev_file"],
+            ["escape", "filelist_unfocus"]
         ]
     },
     "terminal": {
