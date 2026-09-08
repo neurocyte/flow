@@ -81,6 +81,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
     self.menu.ctx = self;
     self.menu.on_render = State(ctx_type).on_render_menu;
     container.ctx = self;
+    container.on_deinit = State(ctx_type).free_from_container;
     container.prepare_resize = State(ctx_type).prepare_resize;
     container.after_resize = State(ctx_type).after_resize;
     try container.add(self.menu.widget());
@@ -106,9 +107,17 @@ pub fn State(ctx_type: type) type {
         pub const OptionsType = Options(ctx_type);
         pub const ButtonType = Button.Options(*Self).ButtonType;
 
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            self.menu.deinit(allocator);
-            allocator.destroy(self);
+        pub fn deinit(_: *Self, _: std.mem.Allocator) void {
+            @compileError("do not deinit Menu.State directly; free it via menu.widget().deinit() or the widget tree");
+        }
+
+        pub fn widget(self: *Self) Widget {
+            return self.container_widget;
+        }
+
+        fn free_from_container(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
+            self.allocator.destroy(self);
         }
 
         pub fn add_header(self: *Self, w_: Widget) !*Widget {

@@ -36,6 +36,7 @@ direction: Direction,
 deco_box: Widget.Box,
 trailing_layer: ?*Layer = null,
 ctx: ?*anyopaque = null,
+on_deinit: ?*const fn (ctx: ?*anyopaque) void = null,
 on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 render_decoration: ?*const fn (self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void = render_decoration_default,
 after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
@@ -107,6 +108,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.widgets.deinit(self.allocator);
     if (self.trailing_layer) |layer| layer.deinit();
     self.plane.deinit();
+    if (self.on_deinit) |on_deinit| on_deinit(self.ctx);
     allocator.destroy(self);
 }
 

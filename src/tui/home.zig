@@ -177,7 +177,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     root.free_config(self.allocator, self.home_style_bufs);
-    self.menu.deinit(allocator);
+    self.menu.widget().deinit(allocator);
     if (self.focused) self.commands.deinit();
     self.info.deinit(allocator);
     self.plane.deinit();

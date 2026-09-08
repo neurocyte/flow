@@ -52,21 +52,33 @@ const widget_type: Widget.Type = .panel;
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    const plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
+
+    var plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
+    errdefer plane.deinit();
+
+    var input_mode = try keybind.mode("filelist", allocator, .{ .insert_command = "do_nothing" });
+    errdefer input_mode.deinit();
+
+    const tabs = try WidgetList.createH(allocator, plane, "filelist.tabs", .dynamic);
+    errdefer tabs.deinit(allocator);
+
+    const menu = try Menu.create(*Self, allocator, plane, .{
+        .ctx = self,
+        .style = widget_type,
+        .on_render = handle_render_menu,
+        .on_scroll = EventHandler.bind(self, Self.handle_scroll),
+        .on_click4 = mouse_click_button4,
+        .on_click5 = mouse_click_button5,
+    });
+    errdefer menu.widget().deinit(allocator);
+
     self.* = .{
         .allocator = allocator,
         .plane = plane,
         .logger = log.logger(@typeName(Self)),
-        .input_mode = try keybind.mode("filelist", allocator, .{ .insert_command = "do_nothing" }),
-        .tabs = try WidgetList.createH(allocator, plane, "filelist.tabs", .dynamic),
-        .menu = try Menu.create(*Self, allocator, plane, .{
-            .ctx = self,
-            .style = widget_type,
-            .on_render = handle_render_menu,
-            .on_scroll = EventHandler.bind(self, Self.handle_scroll),
-            .on_click4 = mouse_click_button4,
-            .on_click5 = mouse_click_button5,
-        }),
+        .input_mode = input_mode,
+        .tabs = tabs,
+        .menu = menu,
     };
     if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
     try self.commands.init(self);
@@ -75,7 +87,8 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
-    self.menu.reset_items();
+    self.input_mode.deinit();
+    self.menu.widget().deinit(allocator);
     self.tabs.deinit(allocator);
     self.plane.deinit();
     self.commands.deinit();
