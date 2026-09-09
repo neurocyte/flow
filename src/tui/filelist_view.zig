@@ -443,13 +443,18 @@ fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void
     } }) catch |e| self.logger.err("navigate", e);
 }
 
-fn select_next(self: *Self, dir: enum { up, down }) void {
+fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end }) void {
     const fl = self.active_list() orelse return;
     if (fl.entries.items.len == 0) return;
     fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
+    const sel_ = fl.selected orelse 0;
     const sel = switch (dir) {
-        .up => if (fl.selected) |sel_| if (sel_ > 0) sel_ - 1 else fl.entries.items.len - 1 else fl.entries.items.len - 1,
-        .down => if (fl.selected) |sel_| if (sel_ < fl.entries.items.len - 1) sel_ + 1 else 0 else 0,
+        .up => if (sel_ > 0) sel_ - 1 else fl.entries.items.len - 1,
+        .down => if (sel_ < fl.entries.items.len - 1) sel_ + 1 else 0,
+        .page_up => sel_ -| self.view_rows,
+        .page_down => @min(sel_ + self.view_rows, fl.entries.items.len - 1),
+        .home => 0,
+        .end => fl.entries.items.len - 1,
     };
     fl.selected = sel;
     if (sel < fl.view_pos) fl.view_pos = sel;
@@ -518,6 +523,26 @@ const cmds = struct {
         self.select_next(.down);
     }
     pub const select_next_file_meta: Meta = .{ .description = "Select next file in the file list" };
+
+    pub fn select_prev_page(self: *Self, _: Ctx) Result {
+        self.select_next(.page_up);
+    }
+    pub const select_prev_page_meta: Meta = .{ .description = "Select previous page in the file list" };
+
+    pub fn select_next_page(self: *Self, _: Ctx) Result {
+        self.select_next(.page_down);
+    }
+    pub const select_next_page_meta: Meta = .{ .description = "Select next page in the file list" };
+
+    pub fn select_home(self: *Self, _: Ctx) Result {
+        self.select_next(.home);
+    }
+    pub const select_home_meta: Meta = .{ .description = "Select top of the file list" };
+
+    pub fn select_end(self: *Self, _: Ctx) Result {
+        self.select_next(.end);
+    }
+    pub const select_end_meta: Meta = .{ .description = "Select end of the file list" };
 
     pub fn goto_selected_file(self: *Self, _: Ctx) Result {
         if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
