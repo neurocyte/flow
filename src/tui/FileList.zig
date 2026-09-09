@@ -216,6 +216,15 @@ pub const Manager = struct {
         if (self.lists.get(name)) |fl| self.active_ = fl.name;
     }
 
+    pub fn refresh_active(self: *Manager) bool {
+        if (self.active()) |fl| if (!fl.is_empty()) return true;
+        for (self.lists.values()) |fl| if (!fl.is_empty()) {
+            self.active_ = fl.name;
+            return true;
+        };
+        return false;
+    }
+
     pub fn clear(self: *Manager, name: []const u8) void {
         if (self.lists.get(name)) |fl| fl.reset();
     }

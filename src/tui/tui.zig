@@ -14,6 +14,7 @@ const Buffer = @import("Buffer");
 pub const renderer = @import("renderer");
 const crash = @import("crash");
 const stdio_capture = @import("stdio_capture.zig");
+const DelayedMessageQueue = @import("DelayedMessageQueue.zig");
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
@@ -57,6 +58,7 @@ frame_clock_running: bool = false,
 frame_last_time: i64 = 0,
 receiver: Receiver,
 mainview_: ?Widget = null,
+on_ui_ready: DelayedMessageQueue,
 message_filters_: MessageFilter.List,
 input_mode_: ?Mode = null,
 delayed_init_done: bool = false,
@@ -212,6 +214,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .frame_clock = frame_clock,
         .frame_clock_running = true,
         .receiver = .init(receive, dtor, self),
+        .on_ui_ready = DelayedMessageQueue.init(allocator),
         .message_filters_ = MessageFilter.List.init(allocator),
         .input_listeners_ = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
@@ -350,6 +353,7 @@ fn deinit(self: *Self) void {
         dbc.deinit();
         self.dbus_client = null;
     };
+    self.on_ui_ready.deinit();
     self.deinit_stdio_capture();
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
@@ -742,7 +746,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{"capability_detection_complete"})) {
         if (!self.rdr_.vx.caps.color_scheme_updates)
             self.set_terminal_style(self.current_theme());
-        return;
+        return self.on_ui_ready.set(.xon);
     }
 
     if (try m.match(.{ "filter", "term", "exited", tp.more })) // drop late filter errors
@@ -2407,6 +2411,10 @@ pub fn resize() void {
     mainview_widget().resize(scr);
     refresh_hover(@src());
     need_render(@src());
+}
+
+pub fn post_on_ui_ready(m: anytype) void {
+    current().on_ui_ready.post(m) catch {};
 }
 
 pub fn plane() renderer.Plane {

@@ -1708,8 +1708,13 @@ const cmds = struct {
             editor.clear_diagnostics();
 
         self.clear_find_in_files_results(FileList.name_diagnostics);
-        if (self.active_filelist()) |fl| if (std.mem.eql(u8, fl.name, FileList.name_diagnostics))
-            try self.hide_filelist();
+        if (self.active_filelist()) |fl| if (std.mem.eql(u8, fl.name, FileList.name_diagnostics)) {
+            if (self.filelists.refresh_active()) {
+                if (self.get_panel_view(filelist_view)) |flv| flv.refresh();
+            } else {
+                try self.hide_filelist();
+            }
+        };
     }
     pub const clear_diagnostics_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -2602,7 +2607,7 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
 
     self.filelists.restore_state(iter) catch {};
     if (self.filelists.panel_open and self.filelists.count() > 0)
-        tp.self_pid().send(.{ "cmd", "show_filelist" }) catch {};
+        tui.post_on_ui_ready(.{ "cmd", "show_filelist" });
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
@@ -2690,6 +2695,7 @@ fn delete_all_buffers(self: *Self) void {
 }
 
 fn show_filelist(self: *Self) !*filelist_view {
+    _ = self.filelists.refresh_active();
     _ = try self.toggle_panel_view(filelist_view, .enable);
     const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
     if (fl.manager == null) fl.attach(&self.filelists);

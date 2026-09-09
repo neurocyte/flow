@@ -133,6 +133,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.box = pos;
+    self.reparent_children();
     self.tabs.resize(self.tab_area());
     const menu_box = self.menu_area();
     self.menu.container.resize(menu_box);
@@ -140,6 +141,13 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.view_rows = client_box.h;
     self.view_cols = client_box.w;
     self.update_scrollbar();
+}
+
+fn reparent_children(self: *Self) void {
+    for ([_]*Plane{ &self.tabs.plane, &self.menu.container.plane }) |p| {
+        p.layer = self.plane.layer;
+        p.window.screen = self.plane.window.screen;
+    }
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
@@ -188,6 +196,10 @@ pub fn handle_filelist_event(self: *Self, event: FileList.Event) void {
 pub fn refresh_if_active(self: *Self, list_name: []const u8) void {
     if (self.manager) |m| if (m.active()) |active|
         if (std.mem.eql(u8, active.name, list_name)) self.rebuild_menu();
+}
+
+pub fn refresh(self: *Self) void {
+    self.rebuild_menu();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
