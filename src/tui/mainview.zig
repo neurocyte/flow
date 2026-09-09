@@ -1198,10 +1198,15 @@ const cmds = struct {
     }
     pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
 
-    pub fn hide_filelist_view(self: *Self, _: Ctx) Result {
+    pub fn show_filelist(self: *Self, _: Ctx) Result {
+        _ = try self.show_filelist();
+    }
+    pub const show_filelist_meta: Meta = .{ .description = "Show the file list" };
+
+    pub fn hide_filelist(self: *Self, _: Ctx) Result {
         try self.hide_filelist();
     }
-    pub const hide_filelist_view_meta: Meta = .{ .description = "Hide filelist" };
+    pub const hide_filelist_meta: Meta = .{ .description = "Hide the file list" };
 
     pub fn focus_filelist(self: *Self, _: Ctx) Result {
         const fl = try self.show_filelist();
@@ -2597,8 +2602,7 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
 
     self.filelists.restore_state(iter) catch {};
     if (self.filelists.panel_open and self.filelists.count() > 0)
-        _ = self.show_filelist() catch |e|
-            logger.print_err("mainview", "failed to reopen file list panel: {}", .{e});
+        tp.self_pid().send(.{ "cmd", "show_filelist" }) catch {};
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
