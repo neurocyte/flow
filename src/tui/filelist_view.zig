@@ -530,8 +530,8 @@ const cmds = struct {
     }
     pub const filelist_prev_meta: Meta = .{ .description = "Select previous file list" };
 
-    pub fn filelist_unfocus(self: *Self, _: Ctx) Result {
+    pub fn unfocus_filelist(self: *Self, _: Ctx) Result {
         self.unfocus();
     }
-    pub const filelist_unfocus_meta: Meta = .{ .description = "Return focus from the file list" };
+    pub const unfocus_filelist_meta: Meta = .{ .description = "Return focus from the file list" };
 };

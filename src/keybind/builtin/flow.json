@@ -592,7 +592,9 @@
             ["shift+tab", "filelist_prev_dataset"],
             ["alt+n", "goto_next_file"],
             ["alt+p", "goto_prev_file"],
-            ["escape", "filelist_unfocus"]
+            ["alt+shift+l", "hide_filelist"],
+            ["ctrl+`", "unfocus_filelist"],
+            ["escape", "unfocus_filelist"]
         ]
     },
     "terminal": {
