@@ -798,25 +798,25 @@ const cmds = struct {
     }
     pub const select_next_file_meta: Meta = .{ .description = "Select next file in the file list" };
 
-    pub fn select_prev_page(self: *Self, _: Ctx) Result {
+    pub fn select_prev_file_page(self: *Self, _: Ctx) Result {
         self.select_next(.page_up);
     }
-    pub const select_prev_page_meta: Meta = .{ .description = "Select previous page in the file list" };
+    pub const select_prev_file_page_meta: Meta = .{ .description = "Select previous page in the file list" };
 
-    pub fn select_next_page(self: *Self, _: Ctx) Result {
+    pub fn select_next_file_page(self: *Self, _: Ctx) Result {
         self.select_next(.page_down);
     }
-    pub const select_next_page_meta: Meta = .{ .description = "Select next page in the file list" };
+    pub const select_next_file_page_meta: Meta = .{ .description = "Select next page in the file list" };
 
-    pub fn select_home(self: *Self, _: Ctx) Result {
+    pub fn select_file_begin(self: *Self, _: Ctx) Result {
         self.select_next(.home);
     }
-    pub const select_home_meta: Meta = .{ .description = "Select top of the file list" };
+    pub const select_file_begin_meta: Meta = .{ .description = "Select top of the file list" };
 
-    pub fn select_end(self: *Self, _: Ctx) Result {
+    pub fn select_file_end(self: *Self, _: Ctx) Result {
         self.select_next(.end);
     }
-    pub const select_end_meta: Meta = .{ .description = "Select end of the file list" };
+    pub const select_file_end_meta: Meta = .{ .description = "Select end of the file list" };
 
     pub fn goto_selected_file(self: *Self, _: Ctx) Result {
         if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
