@@ -235,6 +235,13 @@ const FilelistTab = struct {
         return active.list_id == t.list_id;
     }
 
+    fn icon(t: *FilelistTab) []const u8 {
+        if (!tui.config().show_fileicons) return "";
+        const m = t.ctx.manager orelse return "";
+        const fl = m.get(t.list_id) orelse return "";
+        return FileList.icon_for(fl.kind);
+    }
+
     fn label(t: *FilelistTab) []const u8 {
         const m = t.ctx.manager orelse return "";
         const fl = m.get(t.list_id) orelse return "";
@@ -435,6 +442,11 @@ const FilelistTab = struct {
     fn render_content(t: *FilelistTab, plane: *Plane, hover: bool, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
         const s = &t.ctx.tab_style;
         t.render_padding(plane, .left);
+        const icon_ = t.icon();
+        if (icon_.len > 0) {
+            _ = plane.putstr(icon_) catch {};
+            _ = plane.putstr("  ") catch {};
+        }
         _ = plane.putstr(t.label()) catch {};
         _ = plane.putstr(" ") catch {};
         t.close_pos = null;
@@ -466,7 +478,9 @@ const FilelistTab = struct {
     fn layout(t: *FilelistTab, btn: *FilelistTabType) Widget.Layout {
         const s = &t.ctx.tab_style;
         const plane = btn.plane;
-        const len = plane.egc_chunk_width(t.label(), 0, 1);
+        const icon_ = t.icon();
+        const len_icon = if (icon_.len > 0) plane.egc_chunk_width(icon_, 0, 1) + 2 else 0;
+        const len = plane.egc_chunk_width(t.label(), 0, 1) + len_icon;
         const len_padding = plane.egc_chunk_width(s.padding, 0, 1) * (s.padding_left + s.padding_right) +
             @max(
                 plane.egc_chunk_width(s.close_icon, 0, 1),

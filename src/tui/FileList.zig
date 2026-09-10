@@ -33,6 +33,17 @@ state: State = .done,
 next_command: ?[]const u8 = null,
 prev_command: ?[]const u8 = null,
 
+const default_icon = "";
+
+pub fn icon_for(kind: Kind) []const u8 {
+    return switch (kind) {
+        .diagnostics => "",
+        .references => "",
+        .find_in_files => "󰥨",
+        .terminal_links => "",
+    };
+}
+
 fn label_for(kind: Kind) []const u8 {
     return switch (kind) {
         .diagnostics => "Diagnostics",
