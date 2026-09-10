@@ -11,6 +11,7 @@ const module_name = @typeName(@This());
 pub const label = "Clipboard history";
 pub const name = " clipboard";
 pub const description = "clipboard";
+pub const preserve_entry_order = true;
 pub const icon = "  ";
 
 pub const Entry = struct {

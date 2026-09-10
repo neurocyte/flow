@@ -75,6 +75,8 @@ pub fn Create(options: type) type {
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
         const widget_type: Widget.Type = if (@hasDecl(options, "widget_type")) options.widget_type else default_widget_type;
         const async_query = @hasDecl(options, "query");
+        const preserve_entry_order = @hasDecl(options, "preserve_entry_order") and options.preserve_entry_order;
+        const has_compare_entries = @hasDecl(options, "compare_entries");
 
         pub const MenuType = Menu.Options(*Self).MenuType;
         pub const ButtonType = MenuType.ButtonType;
@@ -476,10 +478,10 @@ pub fn Create(options: type) type {
 
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
-                    return if (lhs.score == rhs.score)
-                        lhs.entry.label.len < rhs.entry.label.len
-                    else
-                        lhs.score > rhs.score;
+                    if (lhs.score != rhs.score) return lhs.score > rhs.score;
+                    if (preserve_entry_order) return false;
+                    if (has_compare_entries) return options.compare_entries(lhs.entry, rhs.entry);
+                    return lhs.entry.label.len < rhs.entry.label.len;
                 }
             }.less_fn;
             std.mem.sort(Match, matches.items, {}, less_fn);

@@ -40,6 +40,11 @@ pub fn load_entries(palette: *Type) !usize {
     return longest_total - longest_description;
 }
 
+pub fn compare_entries(lhs: *const Entry, rhs: *const Entry) bool {
+    if (lhs.used_time != rhs.used_time) return lhs.used_time > rhs.used_time;
+    return lhs.label.len < rhs.label.len;
+}
+
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();

@@ -12,6 +12,7 @@ const module_name = @typeName(@This());
 pub const label = "Search projects";
 pub const name = " project";
 pub const description = "project";
+pub const preserve_entry_order = true;
 
 pub const Entry = struct {
     label: []const u8,

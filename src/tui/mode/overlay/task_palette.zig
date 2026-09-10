@@ -12,6 +12,7 @@ const module_name = @typeName(@This());
 pub const label = "Run a task";
 pub const name = " task";
 pub const description = "task";
+pub const preserve_entry_order = true;
 
 pub const Entry = struct {
     label: []const u8,

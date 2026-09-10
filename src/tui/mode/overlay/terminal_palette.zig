@@ -12,6 +12,7 @@ pub const Type = @import("palette.zig").Create(@This());
 pub const label = "Select terminal";
 pub const name = " terminal";
 pub const description = "terminal";
+pub const preserve_entry_order = true;
 pub const icon = "  ";
 const terminal_icon = "";
 pub const modal_dim = false;
