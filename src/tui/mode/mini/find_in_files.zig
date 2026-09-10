@@ -45,6 +45,8 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.list_id) |list_id|
+        if (tui.mainview()) |mv| mv.set_find_in_files_label(list_id, self.last_input);
     self.commands.deinit();
     self.allocator.destroy(self);
 }

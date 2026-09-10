@@ -1803,10 +1803,11 @@ const cmds = struct {
 
         const fl = if (have_list)
             self.filelists.get(list_id) orelse return
-        else
-            try self.filelists.create(.find_in_files);
-        var label_buf: [256]u8 = undefined;
-        fl.set_label(std.fmt.bufPrint(&label_buf, "Find: {s}", .{query}) catch "Find") catch {};
+        else blk: {
+            const new = try self.filelists.create(.find_in_files);
+            self.set_find_in_files_label(new.list_id, query);
+            break :blk new;
+        };
 
         const superseded = self.ripgrep_query_list;
         self.ripgrep_query_id += 1;
@@ -2750,6 +2751,13 @@ fn hide_filelist(self: *Self) !void {
     self.filelists.panel_open = false;
     if (self.is_panel_view_showing(filelist_view))
         try self.toggle_panel_view(filelist_view, .disable);
+}
+
+pub fn set_find_in_files_label(self: *Self, list_id: FileList.Id, query: []const u8) void {
+    const fl = self.filelists.get(list_id) orelse return;
+    var label_buf: [256]u8 = undefined;
+    fl.set_label(std.fmt.bufPrint(&label_buf, "Find: {s}", .{query}) catch "Find") catch {};
+    tui.need_render(@src());
 }
 
 pub fn new_filelist(self: *Self, kind: FileList.Kind) !FileList.Id {
