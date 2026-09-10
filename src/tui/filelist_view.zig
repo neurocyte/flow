@@ -12,6 +12,7 @@ const keybind = @import("keybind");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
+const Tabs = @import("status/tabs.zig");
 const WidgetList = @import("WidgetList.zig");
 const Menu = @import("Menu.zig");
 const Button = @import("Button.zig");
@@ -42,10 +43,12 @@ view_cols: usize = 0,
 box: Widget.Box = .{},
 tabs: *WidgetList,
 tabs_hash: u64 = 0,
+tab_style: Tabs.Style,
+tab_style_bufs: [][]const u8,
 
 const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
-const TabType = Button.Options(*Self).ButtonType;
+const FilelistTabType = Button.Options(FilelistTab).ButtonType;
 const path_column_ratio = 4;
 const widget_type: Widget.Type = .panel;
 
@@ -61,6 +64,8 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
 
     const tabs = try WidgetList.createH(allocator, plane, "filelist.tabs", .dynamic);
     errdefer tabs.deinit(allocator);
+
+    const tab_style, const tab_style_bufs = root.read_config(Tabs.Style, allocator);
 
     const menu = try Menu.create(*Self, allocator, plane, .{
         .ctx = self,
@@ -79,14 +84,20 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
         .input_mode = input_mode,
         .tabs = tabs,
         .menu = menu,
+        .tab_style = tab_style,
+        .tab_style_bufs = tab_style_bufs,
     };
     if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+    self.tabs.ctx = self;
+    self.tabs.on_render = render_tab_bar;
+    self.tabs.render_decoration = null;
     try self.commands.init(self);
     return Widget.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
+    root.free_config(self.allocator, self.tab_style_bufs);
     self.input_mode.deinit();
     self.menu.widget().deinit(allocator);
     self.tabs.deinit(allocator);
@@ -211,6 +222,280 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return self.menu.container_widget.render(theme);
 }
 
+const FilelistTab = struct {
+    ctx: *Self,
+    name: []const u8,
+    close_pos: ?i32 = null,
+
+    const Mode = enum { inactive, active, selected };
+
+    fn is_active(t: *FilelistTab) bool {
+        const m = t.ctx.manager orelse return false;
+        const active = m.active() orelse return false;
+        return std.mem.eql(u8, active.name, t.name);
+    }
+
+    fn label(t: *FilelistTab) []const u8 {
+        const m = t.ctx.manager orelse return t.name;
+        const fl = m.get(t.name) orelse return t.name;
+        return fl.label;
+    }
+
+    fn render(t: *FilelistTab, plane: *Plane, theme: *const Widget.Theme, hover: bool) void {
+        const active = t.is_active();
+        const mode: Mode = if (hover) .selected else if (active) .active else .inactive;
+        switch (mode) {
+            .selected => t.render_selected(plane, hover, theme, active),
+            .active => if (t.ctx.focused)
+                t.render_active(plane, hover, theme)
+            else
+                t.render_unfocused_active(plane, hover, theme),
+            .inactive => if (t.ctx.focused)
+                t.render_inactive(plane, hover, theme)
+            else
+                t.render_unfocused_inactive(plane, hover, theme),
+        }
+    }
+
+    fn render_selected(t: *FilelistTab, plane: *Plane, hover: bool, theme: *const Widget.Theme, active: bool) void {
+        const s = &t.ctx.tab_style;
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = s.inactive_fg.from_theme(theme),
+            .bg = s.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+        if (active) {
+            plane.set_style(.{
+                .fg = s.selected_fg.from_theme(theme),
+                .bg = s.selected_bg.from_theme(theme),
+            });
+            plane.fill(" ");
+            plane.home();
+        }
+
+        plane.set_style(.{
+            .fg = s.selected_left_fg.from_theme(theme),
+            .bg = s.selected_left_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.selected_left, s.selected_left_fg_transparent, .normal);
+
+        plane.set_style(.{
+            .fg = s.selected_fg.from_theme(theme),
+            .bg = s.selected_bg.from_theme(theme),
+        });
+        t.render_content(plane, hover, s.selected_fg.from_theme(theme), theme);
+
+        plane.set_style(.{
+            .fg = s.selected_right_fg.from_theme(theme),
+            .bg = s.selected_right_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.selected_right, s.selected_right_fg_transparent, .normal);
+    }
+
+    fn render_active(t: *FilelistTab, plane: *Plane, hover: bool, theme: *const Widget.Theme) void {
+        const s = &t.ctx.tab_style;
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = s.inactive_fg.from_theme(theme),
+            .bg = s.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+        plane.set_style(.{
+            .fg = s.active_fg.from_theme(theme),
+            .bg = s.active_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+
+        plane.set_style(.{
+            .fg = s.active_left_fg.from_theme(theme),
+            .bg = s.active_left_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.active_left, s.active_left_fg_transparent, .normal);
+
+        plane.set_style(.{
+            .fg = s.active_fg.from_theme(theme),
+            .bg = s.active_bg.from_theme(theme),
+        });
+        t.render_content(plane, hover, s.active_fg.from_theme(theme), theme);
+
+        plane.set_style(.{
+            .fg = s.active_right_fg.from_theme(theme),
+            .bg = s.active_right_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.active_right, s.active_right_fg_transparent, .normal);
+    }
+
+    fn render_inactive(t: *FilelistTab, plane: *Plane, hover: bool, theme: *const Widget.Theme) void {
+        const s = &t.ctx.tab_style;
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = s.inactive_fg.from_theme(theme),
+            .bg = s.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+
+        plane.set_style(.{
+            .fg = s.inactive_left_fg.from_theme(theme),
+            .bg = s.inactive_left_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.inactive_left, s.inactive_left_fg_transparent, .normal);
+
+        plane.set_style(.{
+            .fg = s.inactive_fg.from_theme(theme),
+            .bg = s.inactive_bg.from_theme(theme),
+        });
+        t.render_content(plane, hover, s.inactive_fg.from_theme(theme), theme);
+
+        plane.set_style(.{
+            .fg = s.inactive_right_fg.from_theme(theme),
+            .bg = s.inactive_right_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.inactive_right, s.inactive_right_fg_transparent, .normal);
+    }
+
+    fn render_unfocused_active(t: *FilelistTab, plane: *Plane, hover: bool, theme: *const Widget.Theme) void {
+        const s = &t.ctx.tab_style;
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = s.inactive_fg.from_theme(theme),
+            .bg = s.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+        plane.set_style(.{
+            .fg = s.active_fg.from_theme(theme),
+            .bg = s.active_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+
+        plane.set_style(.{
+            .fg = s.unfocused_active_left_fg.from_theme(theme),
+            .bg = s.unfocused_active_left_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.unfocused_active_left, s.unfocused_active_left_fg_transparent, .normal);
+
+        plane.set_style(.{
+            .fg = s.unfocused_active_fg.from_theme(theme),
+            .bg = s.unfocused_active_bg.from_theme(theme),
+        });
+        t.render_content(plane, hover, s.unfocused_active_fg.from_theme(theme), theme);
+
+        plane.set_style(.{
+            .fg = s.unfocused_active_right_fg.from_theme(theme),
+            .bg = s.unfocused_active_right_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.unfocused_active_right, s.unfocused_active_right_fg_transparent, .normal);
+    }
+
+    fn render_unfocused_inactive(t: *FilelistTab, plane: *Plane, hover: bool, theme: *const Widget.Theme) void {
+        const s = &t.ctx.tab_style;
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = s.inactive_fg.from_theme(theme),
+            .bg = s.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+
+        plane.set_style(.{
+            .fg = s.unfocused_inactive_left_fg.from_theme(theme),
+            .bg = s.unfocused_inactive_left_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.unfocused_inactive_left, s.unfocused_inactive_left_fg_transparent, .normal);
+
+        plane.set_style(.{
+            .fg = s.unfocused_inactive_fg.from_theme(theme),
+            .bg = s.unfocused_inactive_bg.from_theme(theme),
+        });
+        t.render_content(plane, hover, s.unfocused_inactive_fg.from_theme(theme), theme);
+
+        plane.set_style(.{
+            .fg = s.unfocused_inactive_right_fg.from_theme(theme),
+            .bg = s.unfocused_inactive_right_bg.from_theme(theme),
+        });
+        Tabs.put_glyph(plane, s.unfocused_inactive_right, s.unfocused_inactive_right_fg_transparent, .normal);
+    }
+
+    fn render_content(t: *FilelistTab, plane: *Plane, hover: bool, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
+        const s = &t.ctx.tab_style;
+        t.render_padding(plane, .left);
+        _ = plane.putstr(t.label()) catch {};
+        _ = plane.putstr(" ") catch {};
+        t.close_pos = null;
+        if (hover) {
+            plane.set_style(.{ .fg = s.close_icon_fg.from_theme(theme) });
+            t.close_pos = plane.cursor_x();
+            Tabs.put_glyph(plane, s.close_icon, s.close_icon_fg_transparent, .normal);
+        } else {
+            if (s.clean_indicator_fg) |color|
+                plane.set_style(.{ .fg = color.from_theme(theme) });
+            Tabs.put_glyph(plane, s.clean_indicator, s.clean_indicator_fg_transparent, .normal);
+        }
+        plane.set_style(.{ .fg = fg });
+        t.render_padding(plane, .right);
+    }
+
+    fn render_padding(t: *FilelistTab, plane: *Plane, side: enum { left, right }) void {
+        const s = &t.ctx.tab_style;
+        var padding: usize = switch (side) {
+            .left => s.padding_left,
+            .right => s.padding_right,
+        };
+        const old_fgt = plane.style.glyph_alpha_from_bg;
+        defer plane.style.glyph_alpha_from_bg = old_fgt;
+        plane.style.glyph_alpha_from_bg = s.padding_fg_transparent;
+        while (padding > 0) : (padding -= 1) _ = plane.putstr(s.padding) catch {};
+    }
+
+    fn layout(t: *FilelistTab, btn: *FilelistTabType) Widget.Layout {
+        const s = &t.ctx.tab_style;
+        const plane = btn.plane;
+        const len = plane.egc_chunk_width(t.label(), 0, 1);
+        const len_padding = plane.egc_chunk_width(s.padding, 0, 1) * (s.padding_left + s.padding_right) +
+            @max(
+                plane.egc_chunk_width(s.close_icon, 0, 1),
+                plane.egc_chunk_width(s.clean_indicator, 0, 1),
+            ) + 1 + // +1 for the leading space
+            if (t.is_active())
+                plane.egc_chunk_width(s.active_left, 0, 1) +
+                    plane.egc_chunk_width(s.active_right, 0, 1)
+            else
+                plane.egc_chunk_width(s.inactive_left, 0, 1) +
+                    plane.egc_chunk_width(s.inactive_right, 0, 1);
+        return .{ .static = len + len_padding };
+    }
+};
+
+fn render_tab_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
+    const self: *Self = @ptrCast(@alignCast(ctx orelse return));
+    const plane = &self.tabs.plane;
+    plane.set_base_style(theme.editor);
+    plane.erase();
+    plane.home();
+    plane.set_style(.{
+        .fg = self.tab_style.bar_fg.from_theme(theme),
+        .bg = self.tab_style.bar_bg.from_theme(theme),
+    });
+    plane.fill(" ");
+    plane.home();
+}
+
 fn hash_tabs(self: *Self) u64 {
     var h = std.hash.Wyhash.init(0);
     if (self.manager) |m| for (m.lists.values()) |fl| if (!fl.is_empty()) {
@@ -231,8 +516,8 @@ fn rebuild_tabs(self: *Self) void {
     self.tabs.remove_all();
     if (self.manager) |m| for (m.lists.values()) |fl| {
         if (fl.is_empty()) continue;
-        const w = Button.create_widget(*Self, self.allocator, self.plane, .{
-            .ctx = self,
+        const w = Button.create_widget(FilelistTab, self.allocator, self.plane, .{
+            .ctx = .{ .ctx = self, .name = fl.name },
             .label = fl.name,
             .on_click = handle_tab_click,
             .on_render = handle_tab_render,
@@ -246,36 +531,24 @@ fn rebuild_tabs(self: *Self) void {
     self.tabs.resize(self.tab_area());
 }
 
-fn handle_tab_layout(ctx: *(*Self), button: *TabType) Widget.Layout {
-    const self = ctx.*;
-    const m = self.manager orelse return .{ .static = 0 };
-    const fl = m.get(button.opts.label) orelse return .{ .static = 0 };
-    return .{ .static = fl.label.len + 2 };
+fn handle_tab_layout(ctx: *FilelistTab, btn: *FilelistTabType) Widget.Layout {
+    return ctx.layout(btn);
 }
 
-fn handle_tab_render(ctx: *(*Self), button: *TabType, theme: *const Widget.Theme) bool {
-    const self = ctx.*;
-    const m = self.manager orelse return false;
-    const fl = m.get(button.opts.label) orelse return false;
-    const is_active = if (m.active()) |active| std.mem.eql(u8, active.name, fl.name) else false;
-    const style: Widget.Theme.Style = if (is_active)
-        (if (self.focused) theme.editor_cursor else theme.editor_selection)
-    else if (button.hover)
-        theme.editor_selection
-    else
-        .{ .fg = theme.editor_hint.fg, .fs = theme.editor_hint.fs, .bg = theme.panel.bg };
-    button.plane.set_base_style(theme.panel);
-    button.plane.erase();
-    button.plane.home();
-    button.plane.set_style(style);
-    _ = button.plane.print(" {s} ", .{fl.label}) catch {};
+fn handle_tab_render(ctx: *FilelistTab, button: *FilelistTabType, theme: *const Widget.Theme) bool {
+    ctx.render(&button.plane, theme, button.hover);
     return false;
 }
 
-fn handle_tab_click(ctx: *(*Self), button: *TabType, _: Widget.Pos) void {
-    const self = ctx.*;
+fn handle_tab_click(ctx: *FilelistTab, _: *FilelistTabType, pos: Widget.Pos) void {
+    const t = ctx;
+    const self = t.ctx;
+    if (t.close_pos) |close_pos| if (pos.x == close_pos) {
+        tp.self_pid().send(.{ "cmd", "filelist_close", .{t.name} }) catch |e| self.logger.err(name, e);
+        return;
+    };
     if (self.manager) |m| {
-        m.set_active(button.opts.label);
+        m.set_active(t.name);
         self.rebuild_menu();
     }
     self.focus();

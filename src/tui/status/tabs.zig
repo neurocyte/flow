@@ -1196,7 +1196,7 @@ const spacer = struct {
     }
 };
 
-const colors = enum {
+pub const colors = enum {
     default_bg,
     default_fg,
     active_bg,
@@ -1215,7 +1215,7 @@ const colors = enum {
     Information,
     Hint,
 
-    fn from_theme(color: colors, theme: *const Widget.Theme) ?Widget.Theme.Color {
+    pub fn from_theme(color: colors, theme: *const Widget.Theme) ?Widget.Theme.Color {
         return switch (color) {
             .default_bg => theme.editor.bg,
             .default_fg => theme.editor.fg,
@@ -1237,9 +1237,9 @@ const colors = enum {
     }
 };
 
-const GlyphBackground = enum { normal, transparent };
+pub const GlyphBackground = enum { normal, transparent };
 
-fn put_glyph(plane: *Plane, glyph: []const u8, fg_transparent: bool, background: GlyphBackground) void {
+pub fn put_glyph(plane: *Plane, glyph: []const u8, fg_transparent: bool, background: GlyphBackground) void {
     const old_fgt = plane.style.glyph_alpha_from_bg;
     const old_bgt = plane.style.bg_transparent;
     defer plane.style.glyph_alpha_from_bg = old_fgt;
