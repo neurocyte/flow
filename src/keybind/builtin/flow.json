@@ -259,6 +259,7 @@
             ["page_down", "move_page_down"],
             ["tab", "indent"],
             ["ctrl+shift+a", "enter_mode", "select"],
+            ["ctrl+alt+o", "open_file_links"],
 
             ["\"", "smart_insert_pair", "\"", "\""],
             ["'", "smart_insert_pair", "'", "'"],

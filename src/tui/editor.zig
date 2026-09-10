@@ -3463,6 +3463,53 @@ pub const Editor = struct {
             self.copy_cursel_file_name_and_location(cursel) catch return error.OutOfMemory;
     }
 
+    pub fn open_file_links(self: *Self, _: Context) Result {
+        const root = self.buf_root() catch return;
+
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        defer {
+            var it = seen.keyIterator();
+            while (it.next()) |k| self.allocator.free(k.*);
+            seen.deinit(self.allocator);
+        }
+
+        var sent: usize = 0;
+        tp.self_pid().send(.{ "TFL", "begin", self.file_path orelse "" }) catch {};
+        const lines = root.lines();
+        var row: usize = 0;
+        while (row < lines) : (row += 1) {
+            var line: std.Io.Writer.Allocating = .init(self.allocator);
+            defer line.deinit();
+            root.get_line(row, &line.writer, self.metrics) catch continue;
+            const text = line.written();
+            var pos: usize = 0;
+            while (file_link.find_in_line(text[pos..])) |r| {
+                const slice = text[pos + r.start .. pos + r.end];
+                pos += r.end;
+                const link = file_link.parse(slice) catch continue;
+                const f = switch (link) {
+                    .file => |f| f,
+                    .dir => continue,
+                };
+                if (!f.exists) continue;
+                const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ f.path, f.line orelse 0 }) catch continue;
+                const gop = seen.getOrPut(self.allocator, key) catch {
+                    self.allocator.free(key);
+                    continue;
+                };
+                if (gop.found_existing) {
+                    self.allocator.free(key);
+                    continue;
+                }
+                tp.self_pid().send(.{ "TFL", f.path, f.line orelse 0, f.column orelse 0, text }) catch {};
+                sent += 1;
+            }
+        }
+        tp.self_pid().send(.{ "TFL", "done" }) catch {};
+        std.log.info("buffer: {d} file link{s} found", .{ sent, if (sent != 1) "s" else "" });
+    }
+    pub const open_file_links_meta: Meta = .{ .description = "Open file links in this buffer" };
+
     pub fn copy_file_name(self: *Self, ctx: Context) Result {
         var mode: enum { all, file_name_only } = .all;
         _ = ctx.args.match(.{tp.extract(&mode)}) catch false;

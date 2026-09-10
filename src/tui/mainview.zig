@@ -204,8 +204,12 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
             try self.add_find_in_files_result(list_id, path, begin_line, begin_pos, begin_line, begin_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "TFL", "done" })) {
-        if (self.terminal_links_list) |list_id|
+        if (self.terminal_links_list) |list_id| {
             self.end_filelist_ingest(list_id, false);
+            if (self.filelists.get(list_id)) |fl| if (fl.is_empty())
+                self.close_filelist_by_id(list_id);
+            self.terminal_links_list = null;
+        }
         // hide the terminal after showing the file list
         if (self.is_panel_view_showing(filelist_view) and self.is_panel_view_showing(terminal_view))
             self.toggle_panel_view(terminal_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
