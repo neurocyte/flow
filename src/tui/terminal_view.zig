@@ -21,6 +21,7 @@ pub const Mode = keybind.Mode;
 const color = @import("color");
 const RGB = color.RGB;
 const file_link = @import("file_link");
+const project_manager = @import("project_manager");
 
 pub const name = @typeName(Self);
 
@@ -955,7 +956,9 @@ const cmds = struct {
                     .dir => continue,
                 };
                 if (!f.exists) continue;
-                const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ f.path, f.line orelse 0 }) catch continue;
+                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const path = project_manager.normalize_file_path(f.path, &path_buf);
+                const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ path, f.line orelse 0 }) catch continue;
                 const gop = seen.getOrPut(self.allocator, key) catch {
                     self.allocator.free(key);
                     continue;
@@ -964,7 +967,7 @@ const cmds = struct {
                     self.allocator.free(key);
                     continue;
                 }
-                tp.self_pid().send(.{ "TFL", f.path, f.line orelse 0, f.column orelse 0, line.items }) catch {};
+                tp.self_pid().send(.{ "TFL", path, f.line orelse 0, f.column orelse 0, line.items }) catch {};
                 sent += 1;
             }
         }

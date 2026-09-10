@@ -3492,7 +3492,9 @@ pub const Editor = struct {
                     .dir => continue,
                 };
                 if (!f.exists) continue;
-                const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ f.path, f.line orelse 0 }) catch continue;
+                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const path = project_manager.normalize_file_path(f.path, &path_buf);
+                const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ path, f.line orelse 0 }) catch continue;
                 const gop = seen.getOrPut(self.allocator, key) catch {
                     self.allocator.free(key);
                     continue;
@@ -3501,7 +3503,7 @@ pub const Editor = struct {
                     self.allocator.free(key);
                     continue;
                 }
-                tp.self_pid().send(.{ "TFL", f.path, f.line orelse 0, f.column orelse 0, text }) catch {};
+                tp.self_pid().send(.{ "TFL", path, f.line orelse 0, f.column orelse 0, text }) catch {};
                 sent += 1;
             }
         }
