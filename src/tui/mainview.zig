@@ -61,6 +61,8 @@ last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
 ripgrep_query_id: usize = 0,
+ripgrep_query_list: ?FileList.Id = null,
+terminal_links_list: ?FileList.Id = null,
 filelists: FileList.Manager = undefined,
 panel_height: ?usize = null,
 panel_maximized: bool = false,
@@ -173,30 +175,37 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var goto_args: []const u8 = undefined;
     var line: i64 = undefined;
     var column: i64 = undefined;
+    var title: []const u8 = undefined;
 
     if (try m.match(.{ "REF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-        try self.add_find_in_files_result(FileList.name_references, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
+        const list = self.filelists.get_or_create_singleton(.references) catch return true;
+        try self.add_find_in_files_result(list.list_id, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "FIF", self.ripgrep_query_id, tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-        try self.add_find_in_files_result(FileList.name_find_in_files, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
+        if (self.ripgrep_query_list) |list_id|
+            try self.add_find_in_files_result(list_id, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "REF", "done" })) {
-        self.end_filelist_ingest(FileList.name_references, false);
+        if (self.filelists.find_by_kind(.references)) |list|
+            self.end_filelist_ingest(list.list_id, false);
         return true;
     } else if (try m.match(.{ "FIF", self.ripgrep_query_id, "done" })) {
-        self.end_filelist_ingest(FileList.name_find_in_files, true);
+        if (self.ripgrep_query_list) |list_id|
+            self.end_filelist_ingest(list_id, true);
         return true;
     } else if (try m.match(.{ "FIF", tp.more })) {
         // drop late query results
         return true;
-    } else if (try m.match(.{ "TFL", "begin" })) {
-        self.begin_filelist(FileList.name_terminal_links);
+    } else if (try m.match(.{ "TFL", "begin", tp.extract(&title) })) {
+        self.begin_terminal_links_filelist(title);
         return true;
     } else if (try m.match(.{ "TFL", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&lines) })) {
-        try self.add_find_in_files_result(FileList.name_terminal_links, path, begin_line, begin_pos, begin_line, begin_pos, lines, .Information, .foreground);
+        if (self.terminal_links_list) |list_id|
+            try self.add_find_in_files_result(list_id, path, begin_line, begin_pos, begin_line, begin_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "TFL", "done" })) {
-        self.end_filelist_ingest(FileList.name_terminal_links, false);
+        if (self.terminal_links_list) |list_id|
+            self.end_filelist_ingest(list_id, false);
         // hide the terminal after showing the file list
         if (self.is_panel_view_showing(filelist_view) and self.is_panel_view_showing(terminal_view))
             self.toggle_panel_view(terminal_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -1334,11 +1343,14 @@ const cmds = struct {
     }
     pub const close_terminal_on_exit_meta: Meta = .{};
 
-    pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
-        if (self.active_filelist()) |fl| if (std.mem.eql(u8, fl.name, FileList.name_find_in_files))
-            try self.hide_filelist();
+    pub fn filelist_close(self: *Self, ctx: Ctx) Result {
+        var list_id: FileList.Id = undefined;
+        if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&list_id)}))
+            return self.close_filelist_by_id(list_id);
+        const fl = self.active_filelist() orelse return;
+        self.close_filelist_by_id(fl.list_id);
     }
-    pub const close_find_in_files_results_meta: Meta = .{ .description = "Close find in files results view" };
+    pub const filelist_close_meta: Meta = .{ .description = "Close file list", .arguments = &.{.integer} };
 
     pub fn jump_back(self: *Self, ctx: Ctx) Result {
         var same_file: bool = false;
@@ -1502,8 +1514,9 @@ const cmds = struct {
         if (!self.is_panel_view_showing(filelist_view) and !tui.config().auto_open_panel_for_diagnostics) {
             return;
         }
+        const list = try self.filelists.get_or_create_singleton(.diagnostics);
         try self.add_find_in_files_result(
-            FileList.name_diagnostics,
+            list.list_id,
             file_path,
             sel.begin.row + 1,
             sel.begin.col,
@@ -1681,8 +1694,9 @@ const cmds = struct {
                 try editor.add_cursor_from_selection(sel, if (first) .cancel else .push);
                 first = false;
             } else {
+                const ref_list = try self.filelists.get_or_create_singleton(.references);
                 try self.add_find_in_files_result(
-                    FileList.name_references,
+                    ref_list.list_id,
                     file_path,
                     sel.begin.row + 1,
                     sel.begin.col,
@@ -1707,8 +1721,9 @@ const cmds = struct {
         if (self.get_editor_for_file(file_path)) |editor|
             editor.clear_diagnostics();
 
-        self.clear_find_in_files_results(FileList.name_diagnostics);
-        if (self.active_filelist()) |fl| if (std.mem.eql(u8, fl.name, FileList.name_diagnostics)) {
+        if (self.filelists.find_by_kind(.diagnostics)) |list|
+            self.clear_find_in_files_results(list.list_id);
+        if (self.active_filelist()) |fl| if (fl.kind == .diagnostics) {
             if (self.filelists.refresh_active()) {
                 if (self.get_panel_view(filelist_view)) |flv| flv.refresh();
             } else {
@@ -1720,10 +1735,11 @@ const cmds = struct {
 
     pub fn show_diagnostics(self: *Self, _: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
-        self.clear_find_in_files_results(FileList.name_diagnostics);
+        const list = try self.filelists.get_or_create_singleton(.diagnostics);
+        self.clear_find_in_files_results(list.list_id);
         for (editor.diagnostics.items) |diagnostic| {
             try self.add_find_in_files_result(
-                FileList.name_diagnostics,
+                list.list_id,
                 editor.file_path orelse "",
                 diagnostic.sel.begin.row + 1,
                 diagnostic.sel.begin.col,
@@ -1771,18 +1787,37 @@ const cmds = struct {
 
     pub fn find_in_files_query(self: *Self, ctx: Ctx) Result {
         var query: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&query)})) return error.InvalidFindInFilesQueryArgument;
+        var list_id: FileList.Id = undefined;
+        const have_list = try ctx.args.match(.{ tp.extract(&query), tp.extract(&list_id) });
+        if (!have_list and !try ctx.args.match(.{tp.extract(&query)}))
+            return error.InvalidFindInFilesQueryArgument;
         const logger = log.logger("find");
         defer logger.deinit();
         logger.print("finding files...", .{});
         const find_f = ripgrep.find_in_files;
         if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
+
+        const fl = if (have_list)
+            self.filelists.get(list_id) orelse return
+        else
+            try self.filelists.create(.find_in_files);
+        var label_buf: [256]u8 = undefined;
+        fl.set_label(std.fmt.bufPrint(&label_buf, "Find: {s}", .{query}) catch "Find") catch {};
+
+        const superseded = self.ripgrep_query_list;
         self.ripgrep_query_id += 1;
+        self.ripgrep_query_list = fl.list_id;
+        // a previous query's list never received results and is now abandoned
+        if (superseded) |prev| if (prev != fl.list_id) {
+            if (self.filelists.get(prev)) |prev_fl|
+                if (prev_fl.kind == .find_in_files and prev_fl.is_empty())
+                    self.close_filelist_by_id(prev);
+        };
         var rg = try find_f(self.allocator, query, "FIF", self.ripgrep_query_id);
         defer rg.deinit();
-        self.begin_filelist(FileList.name_find_in_files);
+        self.filelists.begin_ingest(fl.list_id);
     }
-    pub const find_in_files_query_meta: Meta = .{ .arguments = &.{.string} };
+    pub const find_in_files_query_meta: Meta = .{ .arguments = &.{ .string, .integer } };
 
     pub fn shell_execute_log(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
@@ -2713,18 +2748,43 @@ fn hide_filelist(self: *Self) !void {
         try self.toggle_panel_view(filelist_view, .disable);
 }
 
-fn begin_filelist(self: *Self, list_name: []const u8) void {
-    self.filelists.begin_ingest(list_name) catch {};
+pub fn new_filelist(self: *Self, kind: FileList.Kind) !FileList.Id {
+    const fl = try self.filelists.create(kind);
+    return fl.list_id;
 }
 
-fn end_filelist_ingest(self: *Self, list_name: []const u8, clear_if_empty: bool) void {
-    self.filelists.end_ingest(list_name, clear_if_empty);
-    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_name);
+fn begin_terminal_links_filelist(self: *Self, title: []const u8) void {
+    const fl = self.filelists.create(.terminal_links) catch return;
+    if (title.len > 0) {
+        var buf: [256]u8 = undefined;
+        const label = std.fmt.bufPrint(&buf, "Links: {s}", .{title}) catch "Links";
+        fl.set_label(label) catch {};
+    }
+    self.terminal_links_list = fl.list_id;
+    self.filelists.begin_ingest(fl.list_id);
+}
+
+fn end_filelist_ingest(self: *Self, list_id: FileList.Id, clear_if_empty: bool) void {
+    self.filelists.end_ingest(list_id, clear_if_empty);
+    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_id);
+}
+
+fn close_filelist_by_id(self: *Self, list_id: FileList.Id) void {
+    if (self.filelists.get(list_id) == null) return;
+    self.filelists.remove(list_id);
+    if (self.ripgrep_query_list == list_id) self.ripgrep_query_list = null;
+    if (self.terminal_links_list == list_id) self.terminal_links_list = null;
+    if (self.filelists.refresh_active()) {
+        if (self.get_panel_view(filelist_view)) |flv| flv.refresh();
+    } else {
+        self.hide_filelist() catch {};
+    }
+    tui.need_render(@src());
 }
 
 fn add_find_in_files_result(
     self: *Self,
-    list_name: []const u8,
+    list_id: FileList.Id,
     path: []const u8,
     begin_line: usize,
     begin_pos: usize,
@@ -2738,11 +2798,11 @@ fn add_find_in_files_result(
     const take_focus = if (stream_type == .foreground) true else blk: {
         if (!panel_was_showing) break :blk true;
         const cur = self.filelists.active() orelse break :blk true;
-        if (std.mem.eql(u8, cur.name, list_name)) break :blk true;
+        if (cur.list_id == list_id) break :blk true;
         break :blk cur.is_empty();
     };
     const flv = self.show_filelist() catch |e| return tp.exit_error(e, @errorReturnTrace());
-    const event = self.filelists.add_item(list_name, .{
+    const event = self.filelists.add_item(list_id, .{
         .path = path,
         .begin_line = @max(1, begin_line) - 1,
         .begin_pos = @max(1, begin_pos) - 1,
@@ -2755,9 +2815,9 @@ fn add_find_in_files_result(
     flv.handle_filelist_event(event);
 }
 
-fn clear_find_in_files_results(self: *Self, list_name: []const u8) void {
-    self.filelists.clear(list_name);
-    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_name);
+fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
+    self.filelists.clear(list_id);
+    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_id);
 }
 
 pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {

@@ -6,6 +6,7 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
+const FileList = @import("../../FileList.zig");
 
 const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;
@@ -23,6 +24,7 @@ buf: [max_query_size]u8 = undefined,
 input_: []u8 = "",
 last_buf: [max_query_size]u8 = undefined,
 last_input: []u8 = "",
+list_id: ?FileList.Id = null,
 commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
@@ -79,7 +81,14 @@ fn start_query(self: *Self) !void {
         return;
     @memcpy(self.last_buf[0..self.input_.len], self.input_);
     self.last_input = self.last_buf[0..self.input_.len];
-    try command.executeName("find_in_files_query", command.fmt(.{self.input_}));
+    if (self.list_id == null)
+        if (tui.mainview()) |mv| {
+            self.list_id = mv.new_filelist(.find_in_files) catch null;
+        };
+    if (self.list_id) |list_id|
+        try command.executeName("find_in_files_query", command.fmt(.{ self.input_, list_id }))
+    else
+        try command.executeName("find_in_files_query", command.fmt(.{self.input_}));
 }
 
 fn update_mini_mode_text(self: *Self) void {
@@ -101,8 +110,11 @@ const cmds = struct {
     }
     pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
-    pub fn mini_mode_cancel(_: *Self, ctx: Ctx) Result {
-        command.executeName("close_find_in_files_results", ctx) catch {};
+    pub fn mini_mode_cancel(self: *Self, ctx: Ctx) Result {
+        if (self.list_id) |list_id| {
+            command.executeName("filelist_close", command.fmt(.{list_id})) catch {};
+            self.list_id = null;
+        }
         command.executeName("exit_mini_mode", ctx) catch {};
     }
     pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };

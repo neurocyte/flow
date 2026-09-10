@@ -8,6 +8,9 @@ pub const ActivateMode = enum { normal, alternate };
 pub const State = enum { idle, adding, done };
 pub const Direction = enum { forwards, backwards };
 
+pub const Id = usize;
+pub const Kind = enum { diagnostics, references, find_in_files, terminal_links };
+
 pub const Entry = struct {
     path: []const u8,
     begin_line: usize,
@@ -19,13 +22,9 @@ pub const Entry = struct {
     pos_type: editor.PosType,
 };
 
-pub const name_diagnostics = "diagnostics";
-pub const name_references = "references";
-pub const name_find_in_files = "find_in_files";
-pub const name_terminal_links = "terminal_links";
-
 allocator: std.mem.Allocator,
-name: []const u8, // owned
+list_id: Id,
+kind: Kind,
 label: []const u8, // owned
 entries: std.ArrayList(Entry) = .empty,
 view_pos: usize = 0,
@@ -34,23 +33,25 @@ state: State = .done,
 next_command: ?[]const u8 = null,
 prev_command: ?[]const u8 = null,
 
-fn label_for(name: []const u8) []const u8 {
-    if (std.mem.eql(u8, name, name_diagnostics)) return "Diagnostics";
-    if (std.mem.eql(u8, name, name_references)) return "References";
-    if (std.mem.eql(u8, name, name_find_in_files)) return "Find";
-    if (std.mem.eql(u8, name, name_terminal_links)) return "Links";
-    return name;
+fn label_for(kind: Kind) []const u8 {
+    return switch (kind) {
+        .diagnostics => "Diagnostics",
+        .references => "References",
+        .find_in_files => "Find",
+        .terminal_links => "Links",
+    };
 }
 
-pub fn init(allocator: std.mem.Allocator, name: []const u8) !*Self {
+pub fn init(allocator: std.mem.Allocator, list_id: Id, kind: Kind) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
-        .name = try allocator.dupe(u8, name),
-        .label = try allocator.dupe(u8, label_for(name)),
+        .list_id = list_id,
+        .kind = kind,
+        .label = try allocator.dupe(u8, label_for(kind)),
     };
-    if (std.mem.eql(u8, name, name_diagnostics)) {
+    if (kind == .diagnostics) {
         self.next_command = "goto_next_diagnostic";
         self.prev_command = "goto_prev_diagnostic";
     }
@@ -60,9 +61,15 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) !*Self {
 pub fn deinit(self: *Self) void {
     self.free_entries();
     self.entries.deinit(self.allocator);
-    self.allocator.free(self.name);
     self.allocator.free(self.label);
     self.allocator.destroy(self);
+}
+
+pub fn set_label(self: *Self, label: []const u8) !void {
+    if (std.mem.eql(u8, self.label, label)) return;
+    const new_label = try self.allocator.dupe(u8, label);
+    self.allocator.free(self.label);
+    self.label = new_label;
 }
 
 fn free_entries(self: *Self) void {
@@ -108,8 +115,10 @@ pub fn is_empty(self: *const Self) bool {
 }
 
 pub fn write_state(self: *Self, writer: *std.Io.Writer) !void {
-    try cbor.writeArrayHeader(writer, 4);
-    try cbor.writeValue(writer, self.name);
+    try cbor.writeArrayHeader(writer, 6);
+    try cbor.writeValue(writer, self.list_id);
+    try cbor.writeValue(writer, @intFromEnum(self.kind));
+    try cbor.writeValue(writer, self.label);
     try cbor.writeValue(writer, self.view_pos);
     try cbor.writeValue(writer, self.selected);
     try cbor.writeArrayHeader(writer, self.entries.items.len);
@@ -183,8 +192,9 @@ pub const Event = enum { none, rebuild, append_one };
 
 pub const Manager = struct {
     allocator: std.mem.Allocator,
-    lists: std.StringArrayHashMapUnmanaged(*Self) = .empty,
-    active_: ?[]const u8 = null, // owned by list
+    lists: std.ArrayList(*Self) = .empty,
+    active_: ?Id = null,
+    next_id: Id = 1,
     panel_open: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) Manager {
@@ -192,49 +202,70 @@ pub const Manager = struct {
     }
 
     pub fn deinit(self: *Manager) void {
-        for (self.lists.values()) |fl| fl.deinit();
+        for (self.lists.items) |fl| fl.deinit();
         self.lists.deinit(self.allocator);
     }
 
-    pub fn get(self: *Manager, name: []const u8) ?*Self {
-        return self.lists.get(name);
+    pub fn get(self: *Manager, list_id: Id) ?*Self {
+        for (self.lists.items) |fl| if (fl.list_id == list_id) return fl;
+        return null;
     }
 
-    pub fn get_or_create(self: *Manager, name: []const u8) !*Self {
-        if (self.lists.get(name)) |fl| return fl;
-        const fl = try Self.init(self.allocator, name);
+    fn index_of(self: *Manager, list_id: Id) ?usize {
+        for (self.lists.items, 0..) |fl, i| if (fl.list_id == list_id) return i;
+        return null;
+    }
+
+    pub fn create(self: *Manager, kind: Kind) !*Self {
+        const fl = try Self.init(self.allocator, self.next_id, kind);
         errdefer fl.deinit();
-        try self.lists.put(self.allocator, fl.name, fl);
+        try self.lists.append(self.allocator, fl);
+        self.next_id += 1;
         return fl;
     }
 
-    pub fn active(self: *Manager) ?*Self {
-        return if (self.active_) |a| self.lists.get(a) else null;
+    pub fn find_by_kind(self: *Manager, kind: Kind) ?*Self {
+        for (self.lists.items) |fl| if (fl.kind == kind) return fl;
+        return null;
     }
 
-    pub fn set_active(self: *Manager, name: []const u8) void {
-        if (self.lists.get(name)) |fl| self.active_ = fl.name;
+    pub fn get_or_create_singleton(self: *Manager, kind: Kind) !*Self {
+        return self.find_by_kind(kind) orelse self.create(kind);
+    }
+
+    pub fn remove(self: *Manager, list_id: Id) void {
+        const idx = self.index_of(list_id) orelse return;
+        if (self.active_ == list_id) self.active_ = null;
+        self.lists.orderedRemove(idx).deinit();
+    }
+
+    pub fn active(self: *Manager) ?*Self {
+        return if (self.active_) |a| self.get(a) else null;
+    }
+
+    pub fn set_active(self: *Manager, list_id: Id) void {
+        if (self.get(list_id)) |fl| self.active_ = fl.list_id;
     }
 
     pub fn refresh_active(self: *Manager) bool {
         if (self.active()) |fl| if (!fl.is_empty()) return true;
-        for (self.lists.values()) |fl| if (!fl.is_empty()) {
-            self.active_ = fl.name;
+        for (self.lists.items) |fl| if (!fl.is_empty()) {
+            self.active_ = fl.list_id;
             return true;
         };
         return false;
     }
 
-    pub fn clear(self: *Manager, name: []const u8) void {
-        if (self.lists.get(name)) |fl| fl.reset();
+    pub fn clear(self: *Manager, list_id: Id) void {
+        if (self.get(list_id)) |fl| fl.reset();
     }
 
     pub fn clear_all(self: *Manager) void {
-        for (self.lists.values()) |fl| fl.reset();
+        for (self.lists.items) |fl| fl.reset();
     }
 
     pub fn reset(self: *Manager) void {
-        for (self.lists.values()) |fl| fl.deinit();
+        for (self.lists.items) |fl| fl.deinit();
         self.lists.clearRetainingCapacity();
         self.active_ = null;
         self.panel_open = false;
@@ -242,19 +273,19 @@ pub const Manager = struct {
 
     pub fn count(self: *Manager) usize {
         var n: usize = 0;
-        for (self.lists.values()) |fl| if (!fl.is_empty()) {
+        for (self.lists.items) |fl| if (!fl.is_empty()) {
             n += 1;
         };
         return n;
     }
 
-    pub fn begin_ingest(self: *Manager, name: []const u8) !void {
-        const fl = try self.get_or_create(name);
+    pub fn begin_ingest(self: *Manager, list_id: Id) void {
+        const fl = self.get(list_id) orelse return;
         fl.state = .idle;
     }
 
-    pub fn add_item(self: *Manager, name: []const u8, entry: Entry, take_focus: bool) !Event {
-        const fl = try self.get_or_create(name);
+    pub fn add_item(self: *Manager, list_id: Id, entry: Entry, take_focus: bool) !Event {
+        const fl = self.get(list_id) orelse return .none;
         const fresh = fl.state != .adding;
         if (fresh) {
             fl.reset();
@@ -263,41 +294,44 @@ pub const Manager = struct {
         var event: Event = .none;
         if (take_focus) {
             const was_active = self.active() == fl;
-            self.set_active(fl.name);
+            self.set_active(fl.list_id);
             event = if (fresh or !was_active) .rebuild else .append_one;
         }
         try fl.add(entry);
         return event;
     }
 
-    pub fn end_ingest(self: *Manager, name: []const u8, clear_if_empty: bool) void {
-        const fl = self.lists.get(name) orelse return;
+    pub fn end_ingest(self: *Manager, list_id: Id, clear_if_empty: bool) void {
+        const fl = self.get(list_id) orelse return;
         if (clear_if_empty and fl.state == .idle) fl.reset();
         fl.state = .done;
     }
 
     pub fn next(self: *Manager, from: ?*Self, dir: Direction) ?*Self {
-        const values = self.lists.values();
-        if (values.len == 0) return null;
-        const start: usize = if (from) |f| (self.lists.getIndex(f.name) orelse 0) else 0;
+        const items = self.lists.items;
+        if (items.len == 0) return null;
+        const start: usize = if (from) |f| (self.index_of(f.list_id) orelse 0) else 0;
         var i: usize = 0;
-        while (i < values.len) : (i += 1) {
+        while (i < items.len) : (i += 1) {
             const idx = switch (dir) {
-                .forwards => (start + 1 + i) % values.len,
-                .backwards => (start + values.len - 1 - i) % values.len,
+                .forwards => (start + 1 + i) % items.len,
+                .backwards => (start + items.len - 1 - i) % items.len,
             };
-            const fl = values[idx];
+            const fl = items[idx];
             if (!fl.is_empty()) return fl;
         }
         return null;
     }
 
+    const state_version: usize = 1;
+
     pub fn write_state(self: *Manager, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 3);
+        try cbor.writeArrayHeader(writer, 4);
+        try cbor.writeValue(writer, state_version);
         try cbor.writeValue(writer, self.active_);
         try cbor.writeValue(writer, self.panel_open);
         try cbor.writeArrayHeader(writer, self.count());
-        for (self.lists.values()) |fl| {
+        for (self.lists.items) |fl| {
             if (fl.is_empty()) continue;
             try fl.write_state(writer);
         }
@@ -312,23 +346,33 @@ pub const Manager = struct {
     }
 
     fn restore_state_checked(self: *Manager, iter: *[]const u8) !void {
-        var active_: ?[]const u8 = null;
+        var version: usize = 0;
+        var active_: ?Id = null;
         var panel_open: bool = false;
 
         const header = try cbor.decodeArrayHeader(iter);
-        if (header != 3) return error.InvalidFileListManagerHeader;
+        if (header != 4) return error.InvalidFileListManagerHeader;
+        if (!try cbor.matchValue(iter, cbor.extract(&version)) or version != state_version)
+            return error.InvalidFileListManagerVersion;
         _ = try cbor.matchValue(iter, cbor.extract(&active_));
         _ = try cbor.matchValue(iter, cbor.extract(&panel_open));
         var count_ = try cbor.decodeArrayHeader(iter);
         while (count_ > 0) : (count_ -= 1) {
-            const pair = try cbor.decodeArrayHeader(iter);
-            if (pair < 4) return error.InvalidFileListEntryHeader;
-            var name: []const u8 = undefined;
-            if (!try cbor.matchValue(iter, cbor.extract(&name))) {
-                try cbor.skipValue(iter);
-                continue;
-            }
-            const fl = try self.get_or_create(name);
+            const fields = try cbor.decodeArrayHeader(iter);
+            if (fields != 6) return error.InvalidFileListEntryHeader;
+            var list_id: Id = undefined;
+            var kind: usize = undefined;
+            var label: []const u8 = undefined;
+            if (!try cbor.matchValue(iter, cbor.extract(&list_id)) or
+                !try cbor.matchValue(iter, cbor.extract(&kind)) or
+                !try cbor.matchValue(iter, cbor.extract(&label)) or
+                kind > @intFromEnum(Kind.terminal_links))
+                return error.InvalidFileListEntry;
+            const fl = try Self.init(self.allocator, list_id, @enumFromInt(kind));
+            errdefer fl.deinit();
+            try fl.set_label(label);
+            try self.lists.append(self.allocator, fl);
+            self.next_id = @max(self.next_id, list_id + 1);
             try fl.restore_state(iter);
         }
         self.panel_open = panel_open;

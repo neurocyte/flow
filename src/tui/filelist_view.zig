@@ -204,9 +204,9 @@ pub fn handle_filelist_event(self: *Self, event: FileList.Event) void {
     }
 }
 
-pub fn refresh_if_active(self: *Self, list_name: []const u8) void {
+pub fn refresh_if_active(self: *Self, list_id: FileList.Id) void {
     if (self.manager) |m| if (m.active()) |active|
-        if (std.mem.eql(u8, active.name, list_name)) self.rebuild_menu();
+        if (active.list_id == list_id) self.rebuild_menu();
 }
 
 pub fn refresh(self: *Self) void {
@@ -224,7 +224,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 const FilelistTab = struct {
     ctx: *Self,
-    name: []const u8,
+    list_id: FileList.Id,
     close_pos: ?i32 = null,
 
     const Mode = enum { inactive, active, selected };
@@ -232,12 +232,12 @@ const FilelistTab = struct {
     fn is_active(t: *FilelistTab) bool {
         const m = t.ctx.manager orelse return false;
         const active = m.active() orelse return false;
-        return std.mem.eql(u8, active.name, t.name);
+        return active.list_id == t.list_id;
     }
 
     fn label(t: *FilelistTab) []const u8 {
-        const m = t.ctx.manager orelse return t.name;
-        const fl = m.get(t.name) orelse return t.name;
+        const m = t.ctx.manager orelse return "";
+        const fl = m.get(t.list_id) orelse return "";
         return fl.label;
     }
 
@@ -498,8 +498,9 @@ fn render_tab_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
 
 fn hash_tabs(self: *Self) u64 {
     var h = std.hash.Wyhash.init(0);
-    if (self.manager) |m| for (m.lists.values()) |fl| if (!fl.is_empty()) {
-        h.update(fl.name);
+    if (self.manager) |m| for (m.lists.items) |fl| if (!fl.is_empty()) {
+        h.update(std.mem.asBytes(&fl.list_id));
+        h.update(fl.label);
         h.update(&[_]u8{0});
     };
     return h.final();
@@ -514,11 +515,11 @@ fn sync_tabs(self: *Self) void {
 
 fn rebuild_tabs(self: *Self) void {
     self.tabs.remove_all();
-    if (self.manager) |m| for (m.lists.values()) |fl| {
+    if (self.manager) |m| for (m.lists.items) |fl| {
         if (fl.is_empty()) continue;
         const w = Button.create_widget(FilelistTab, self.allocator, self.plane, .{
-            .ctx = .{ .ctx = self, .name = fl.name },
-            .label = fl.name,
+            .ctx = .{ .ctx = self, .list_id = fl.list_id },
+            .label = fl.label,
             .on_click = handle_tab_click,
             .on_render = handle_tab_render,
             .on_layout = handle_tab_layout,
@@ -544,11 +545,11 @@ fn handle_tab_click(ctx: *FilelistTab, _: *FilelistTabType, pos: Widget.Pos) voi
     const t = ctx;
     const self = t.ctx;
     if (t.close_pos) |close_pos| if (pos.x == close_pos) {
-        tp.self_pid().send(.{ "cmd", "filelist_close", .{t.name} }) catch |e| self.logger.err(name, e);
+        tp.self_pid().send(.{ "cmd", "filelist_close", .{t.list_id} }) catch |e| self.logger.err(name, e);
         return;
     };
     if (self.manager) |m| {
-        m.set_active(t.name);
+        m.set_active(t.list_id);
         self.rebuild_menu();
     }
     self.focus();
@@ -739,20 +740,9 @@ fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end 
 fn switch_filelist(self: *Self, dir: FileList.Direction) void {
     const manager = self.manager orelse return;
     const next = manager.next(manager.active(), dir) orelse return;
-    manager.set_active(next.name);
+    manager.set_active(next.list_id);
     self.rebuild_menu();
     tui.need_render(@src());
-}
-
-fn close_list(self: *Self, list_name: []const u8) void {
-    const manager = self.manager orelse return;
-    manager.clear(list_name);
-    if (manager.refresh_active()) {
-        self.rebuild_menu();
-        tui.need_render(@src());
-    } else {
-        command.executeName("hide_filelist", .empty()) catch |e| self.logger.err(name, e);
-    }
 }
 
 pub fn focus(self: *Self) void {
@@ -855,14 +845,4 @@ const cmds = struct {
         self.unfocus();
     }
     pub const unfocus_filelist_meta: Meta = .{ .description = "Return focus from the file list" };
-
-    pub fn filelist_close(self: *Self, ctx: Ctx) Result {
-        var list_name: []const u8 = undefined;
-        if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&list_name)}))
-            return self.close_list(list_name);
-        const manager = self.manager orelse return;
-        const fl = manager.active() orelse return;
-        self.close_list(fl.name);
-    }
-    pub const filelist_close_meta: Meta = .{ .description = "Close file list" };
 };

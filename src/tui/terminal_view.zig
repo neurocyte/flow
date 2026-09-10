@@ -939,7 +939,7 @@ const cmds = struct {
         }
 
         var sent: usize = 0;
-        tp.self_pid().send(.{ "TFL", "begin" }) catch {};
+        tp.self_pid().send(.{ "TFL", "begin", self.vt.get_title() }) catch {};
         var row: usize = range.start;
         while (row < range.end) : (row += 1) {
             var line: std.ArrayList(u8) = .empty;
