@@ -940,7 +940,16 @@ const cmds = struct {
         }
 
         var sent: usize = 0;
-        tp.self_pid().send(.{ "TFL", "begin", self.vt.get_title() }) catch {};
+        const mv = tui.mainview() orelse return;
+        var title_buf: [256]u8 = undefined;
+        const title = self.vt.get_title();
+        const stream = mv.open_filelist_stream(.terminal_links, .{
+            .title = if (title.len > 0)
+                std.fmt.bufPrint(&title_buf, "Links: {s}", .{title}) catch "Links"
+            else
+                "Links",
+            .close_if_empty = true,
+        }) catch return;
         var row: usize = range.start;
         while (row < range.end) : (row += 1) {
             var line: std.ArrayList(u8) = .empty;
@@ -967,11 +976,13 @@ const cmds = struct {
                     self.allocator.free(key);
                     continue;
                 }
-                tp.self_pid().send(.{ "TFL", path, f.line orelse 0, f.column orelse 0, line.items }) catch {};
+                const l = f.line orelse 0;
+                const c = f.column orelse 0;
+                tp.self_pid().send(.{ "FLS", stream, path, l, c, l, c, line.items }) catch {};
                 sent += 1;
             }
         }
-        tp.self_pid().send(.{ "TFL", "done" }) catch {};
+        tp.self_pid().send(.{ "FLS", stream, "done" }) catch {};
         std.log.info("terminal: {d} file link{s} found", .{ sent, if (sent != 1) "s" else "" });
     }
     pub const terminal_open_file_links_meta: Meta = .{ .description = "Terminal: Open file links" };

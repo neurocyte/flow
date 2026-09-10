@@ -4,6 +4,8 @@ const cbor = @import("cbor");
 const log = @import("log");
 const root = @import("soft_root").root;
 const file_link = @import("file_link");
+
+const filelist_stream_references: usize = 1;
 const dizzy = @import("dizzy");
 const tracy = @import("tracy");
 const Buffer = @import("Buffer");
@@ -967,7 +969,7 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, args: *const SourceLocation,
                     var iter = locations;
                     if (try cbor.decodeArrayHeader(&iter) == 0)
                         return self_.goto_alternative_destination();
-                    _ = try send_reference_list("REF", self_.from.ref(), locations, self_.name);
+                    _ = try send_reference_list("FLS", filelist_stream_references, self_.from.ref(), locations, self_.name);
                 }
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return self_.goto_alternative_destination();
@@ -1059,7 +1061,7 @@ pub fn references(self: *Self, from: tp.pid_ref, source_location: *const SourceL
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return;
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
-                const count = try send_reference_list("REF", self_.from.ref(), locations, self_.name);
+                const count = try send_reference_list("FLS", filelist_stream_references, self_.from.ref(), locations, self_.name);
                 std.log.info("found {d} references", .{count});
             }
         }
@@ -1075,24 +1077,24 @@ pub fn references(self: *Self, from: tp.pid_ref, source_location: *const SourceL
     }, handler) catch return error.LspFailed;
 }
 
-fn send_reference_list(tag: []const u8, to: tp.pid_ref, locations: []const u8, name: []const u8) (error{
+fn send_reference_list(tag: []const u8, stream: usize, to: tp.pid_ref, locations: []const u8, name: []const u8) (error{
     InvalidTargetURI,
     InvalidReferenceList,
 } || LocationLinkError || GetLineOfFileError || cbor.Error)!usize {
-    defer to.send(.{ tag, "done" }) catch {};
+    defer to.send(.{ tag, stream, "done" }) catch {};
     var iter = locations;
     var len = try cbor.decodeArrayHeader(&iter);
     const count = len;
     while (len > 0) : (len -= 1) {
         var location: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract_cbor(&location))) {
-            try send_reference(tag, to, location, name);
+            try send_reference(tag, stream, to, location, name);
         } else return error.InvalidReferenceList;
     }
     return count;
 }
 
-fn send_reference(tag: []const u8, to: tp.pid_ref, location_: []const u8, name: []const u8) (error{InvalidTargetURI} || LocationLinkError || GetLineOfFileError || cbor.Error)!void {
+fn send_reference(tag: []const u8, stream: usize, to: tp.pid_ref, location_: []const u8, name: []const u8) (error{InvalidTargetURI} || LocationLinkError || GetLineOfFileError || cbor.Error)!void {
     const allocator = std.heap.c_allocator;
     const location: LocationLink = try read_locationlink(location_);
     if (location.targetUri == null or location.targetRange == null) return error.InvalidLocationLink;
@@ -1106,6 +1108,7 @@ fn send_reference(tag: []const u8, to: tp.pid_ref, location_: []const u8, name: 
         file_path;
     to.send(.{
         tag,
+        stream,
         file_path_,
         location.targetRange.?.start.line + 1,
         location.targetRange.?.start.character,

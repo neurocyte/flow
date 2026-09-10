@@ -11,6 +11,18 @@ pub const Direction = enum { forwards, backwards };
 pub const Id = usize;
 pub const Kind = enum { diagnostics, references, find_in_files, terminal_links };
 
+pub const Stream = usize;
+
+pub const stream_references: Stream = 1;
+pub const stream_first_dynamic: Stream = 16;
+
+pub fn kind_for_reserved_stream(stream: Stream) ?Kind {
+    return switch (stream) {
+        stream_references => .references,
+        else => null,
+    };
+}
+
 pub const Entry = struct {
     path: []const u8,
     begin_line: usize,

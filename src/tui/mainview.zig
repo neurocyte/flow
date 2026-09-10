@@ -60,9 +60,8 @@ panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
-ripgrep_query_id: usize = 0,
-ripgrep_query_list: ?FileList.Id = null,
-terminal_links_list: ?FileList.Id = null,
+filelist_streams: std.AutoArrayHashMapUnmanaged(FileList.Stream, StreamInfo) = .empty,
+next_filelist_stream: FileList.Stream = FileList.stream_first_dynamic,
 filelists: FileList.Manager = undefined,
 panel_height: ?usize = null,
 panel_maximized: bool = false,
@@ -175,44 +174,14 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var goto_args: []const u8 = undefined;
     var line: i64 = undefined;
     var column: i64 = undefined;
-    var title: []const u8 = undefined;
+    var stream: FileList.Stream = undefined;
 
-    if (try m.match(.{ "REF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-        const list = self.filelists.get_or_create_singleton(.references) catch return true;
-        try self.add_find_in_files_result(list.list_id, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
+    if (try m.match(.{ "FLS", tp.extract(&stream), "done" })) {
+        self.close_filelist_stream(stream);
         return true;
-    } else if (try m.match(.{ "FIF", self.ripgrep_query_id, tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-        if (self.ripgrep_query_list) |list_id|
-            try self.add_find_in_files_result(list_id, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
-        return true;
-    } else if (try m.match(.{ "REF", "done" })) {
-        if (self.filelists.find_by_kind(.references)) |list|
-            self.end_filelist_ingest(list.list_id, false);
-        return true;
-    } else if (try m.match(.{ "FIF", self.ripgrep_query_id, "done" })) {
-        if (self.ripgrep_query_list) |list_id|
-            self.end_filelist_ingest(list_id, true);
-        return true;
-    } else if (try m.match(.{ "FIF", tp.more })) {
-        // drop late query results
-        return true;
-    } else if (try m.match(.{ "TFL", "begin", tp.extract(&title) })) {
-        self.begin_terminal_links_filelist(title);
-        return true;
-    } else if (try m.match(.{ "TFL", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&lines) })) {
-        if (self.terminal_links_list) |list_id|
-            try self.add_find_in_files_result(list_id, path, begin_line, begin_pos, begin_line, begin_pos, lines, .Information, .foreground);
-        return true;
-    } else if (try m.match(.{ "TFL", "done" })) {
-        if (self.terminal_links_list) |list_id| {
-            self.end_filelist_ingest(list_id, false);
-            if (self.filelists.get(list_id)) |fl| if (fl.is_empty())
-                self.close_filelist_by_id(list_id);
-            self.terminal_links_list = null;
-        }
-        // hide the terminal after showing the file list
-        if (self.is_panel_view_showing(filelist_view) and self.is_panel_view_showing(terminal_view))
-            self.toggle_panel_view(terminal_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    } else if (try m.match(.{ "FLS", tp.extract(&stream), tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
+        if (self.filelist_stream_list(stream)) |list_id|
+            try self.add_filelist_entry(list_id, path, begin_line, begin_pos, end_line, end_pos, lines, .Information, .foreground);
         return true;
     } else if (try m.match(.{ "HREF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         if (self.get_editor_for_file(path)) |editor| editor.add_highlight_reference(.{
@@ -1519,7 +1488,7 @@ const cmds = struct {
             return;
         }
         const list = try self.filelists.get_or_create_singleton(.diagnostics);
-        try self.add_find_in_files_result(
+        try self.add_filelist_entry(
             list.list_id,
             file_path,
             sel.begin.row + 1,
@@ -1699,7 +1668,7 @@ const cmds = struct {
                 first = false;
             } else {
                 const ref_list = try self.filelists.get_or_create_singleton(.references);
-                try self.add_find_in_files_result(
+                try self.add_filelist_entry(
                     ref_list.list_id,
                     file_path,
                     sel.begin.row + 1,
@@ -1742,7 +1711,7 @@ const cmds = struct {
         const list = try self.filelists.get_or_create_singleton(.diagnostics);
         self.clear_find_in_files_results(list.list_id);
         for (editor.diagnostics.items) |diagnostic| {
-            try self.add_find_in_files_result(
+            try self.add_filelist_entry(
                 list.list_id,
                 editor.file_path orelse "",
                 diagnostic.sel.begin.row + 1,
@@ -1809,18 +1778,21 @@ const cmds = struct {
             break :blk new;
         };
 
-        const superseded = self.ripgrep_query_list;
-        self.ripgrep_query_id += 1;
-        self.ripgrep_query_list = fl.list_id;
         // a previous query's list never received results and is now abandoned
-        if (superseded) |prev| if (prev != fl.list_id) {
-            if (self.filelists.get(prev)) |prev_fl|
-                if (prev_fl.kind == .find_in_files and prev_fl.is_empty())
-                    self.close_filelist_by_id(prev);
-        };
-        var rg = try find_f(self.allocator, query, "FIF", self.ripgrep_query_id);
+        for (self.filelist_streams.values()) |info| {
+            if (info.list_id == fl.list_id) continue;
+            if (self.filelists.get(info.list_id)) |prev_fl|
+                if (prev_fl.kind == .find_in_files and prev_fl.is_empty()) {
+                    self.close_filelist_by_id(info.list_id);
+                    break;
+                };
+        }
+        const stream = try self.open_filelist_stream(.find_in_files, .{
+            .list_id = fl.list_id,
+            .clear_if_empty = true,
+        });
+        var rg = try find_f(self.allocator, query, "FLS", stream);
         defer rg.deinit();
-        self.filelists.begin_ingest(fl.list_id);
     }
     pub const find_in_files_query_meta: Meta = .{ .arguments = &.{ .string, .integer } };
 
@@ -2753,11 +2725,15 @@ fn hide_filelist(self: *Self) !void {
         try self.toggle_panel_view(filelist_view, .disable);
 }
 
-pub fn set_find_in_files_label(self: *Self, list_id: FileList.Id, query: []const u8) void {
+pub fn set_filelist_label(self: *Self, list_id: FileList.Id, label: []const u8) void {
     const fl = self.filelists.get(list_id) orelse return;
-    var label_buf: [256]u8 = undefined;
-    fl.set_label(std.fmt.bufPrint(&label_buf, "Find: {s}", .{query}) catch "Find") catch {};
+    fl.set_label(label) catch {};
     tui.need_render(@src());
+}
+
+pub fn set_find_in_files_label(self: *Self, list_id: FileList.Id, query: []const u8) void {
+    var label_buf: [256]u8 = undefined;
+    self.set_filelist_label(list_id, std.fmt.bufPrint(&label_buf, "Find: {s}", .{query}) catch "Find");
 }
 
 pub fn new_filelist(self: *Self, kind: FileList.Kind) !FileList.Id {
@@ -2765,15 +2741,81 @@ pub fn new_filelist(self: *Self, kind: FileList.Kind) !FileList.Id {
     return fl.list_id;
 }
 
-fn begin_terminal_links_filelist(self: *Self, title: []const u8) void {
-    const fl = self.filelists.create(.terminal_links) catch return;
-    if (title.len > 0) {
-        var buf: [256]u8 = undefined;
-        const label = std.fmt.bufPrint(&buf, "Links: {s}", .{title}) catch "Links";
-        fl.set_label(label) catch {};
-    }
-    self.terminal_links_list = fl.list_id;
+const StreamInfo = struct {
+    list_id: FileList.Id,
+    clear_if_empty: bool = false,
+    close_if_empty: bool = false,
+};
+
+pub const StreamOptions = struct {
+    list_id: ?FileList.Id = null,
+    title: ?[]const u8 = null,
+    clear_if_empty: bool = false,
+    close_if_empty: bool = false,
+};
+
+pub fn open_filelist_stream(self: *Self, kind: FileList.Kind, opts: StreamOptions) !FileList.Stream {
+    const fl = if (opts.list_id) |list_id|
+        self.filelists.get(list_id) orelse return error.NoFileList
+    else
+        try self.filelists.create(kind);
+
+    var superseded: ?FileList.Stream = null;
+    for (self.filelist_streams.keys(), self.filelist_streams.values()) |key, info|
+        if (info.list_id == fl.list_id) {
+            superseded = key;
+            break;
+        };
+    if (superseded) |key| _ = self.filelist_streams.orderedRemove(key);
+
+    if (opts.title) |title| self.set_filelist_label(fl.list_id, title);
+
+    const stream = self.next_filelist_stream;
+    self.next_filelist_stream += 1;
+    try self.filelist_streams.put(self.allocator, stream, .{
+        .list_id = fl.list_id,
+        .clear_if_empty = opts.clear_if_empty,
+        .close_if_empty = opts.close_if_empty,
+    });
     self.filelists.begin_ingest(fl.list_id);
+    return stream;
+}
+
+fn filelist_stream_list(self: *Self, stream: FileList.Stream) ?FileList.Id {
+    if (self.filelist_streams.get(stream)) |info| return info.list_id;
+    const kind = FileList.kind_for_reserved_stream(stream) orelse return null;
+    const fl = self.filelists.get_or_create_singleton(kind) catch return null;
+    self.filelist_streams.put(self.allocator, stream, .{ .list_id = fl.list_id }) catch return null;
+    return fl.list_id;
+}
+
+fn close_filelist_stream(self: *Self, stream: FileList.Stream) void {
+    const info: StreamInfo = if (self.filelist_streams.fetchOrderedRemove(stream)) |kv| kv.value else blk: {
+        const list_id = self.filelist_stream_list(stream) orelse return;
+        _ = self.filelist_streams.orderedRemove(stream);
+        break :blk .{ .list_id = list_id };
+    };
+    self.end_filelist_ingest(info.list_id, info.clear_if_empty);
+    const fl = self.filelists.get(info.list_id) orelse return;
+    if (fl.kind == .terminal_links) {
+        if (self.is_panel_view_showing(filelist_view) and self.is_panel_view_showing(terminal_view))
+            self.toggle_panel_view(terminal_view, .disable) catch {};
+    }
+    if (info.close_if_empty and fl.is_empty())
+        self.close_filelist_by_id(info.list_id);
+}
+
+fn forget_filelist_streams(self: *Self, list_id: FileList.Id) void {
+    while (true) {
+        var found: ?FileList.Stream = null;
+        for (self.filelist_streams.keys(), self.filelist_streams.values()) |key, info|
+            if (info.list_id == list_id) {
+                found = key;
+                break;
+            };
+        const key = found orelse return;
+        _ = self.filelist_streams.orderedRemove(key);
+    }
 }
 
 fn end_filelist_ingest(self: *Self, list_id: FileList.Id, clear_if_empty: bool) void {
@@ -2784,8 +2826,7 @@ fn end_filelist_ingest(self: *Self, list_id: FileList.Id, clear_if_empty: bool) 
 fn close_filelist_by_id(self: *Self, list_id: FileList.Id) void {
     if (self.filelists.get(list_id) == null) return;
     self.filelists.remove(list_id);
-    if (self.ripgrep_query_list == list_id) self.ripgrep_query_list = null;
-    if (self.terminal_links_list == list_id) self.terminal_links_list = null;
+    self.forget_filelist_streams(list_id);
     if (self.filelists.refresh_active()) {
         if (self.get_panel_view(filelist_view)) |flv| flv.refresh();
     } else {
@@ -2794,7 +2835,7 @@ fn close_filelist_by_id(self: *Self, list_id: FileList.Id) void {
     tui.need_render(@src());
 }
 
-fn add_find_in_files_result(
+fn add_filelist_entry(
     self: *Self,
     list_id: FileList.Id,
     path: []const u8,
