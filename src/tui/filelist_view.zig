@@ -535,6 +535,7 @@ fn rebuild_tabs(self: *Self) void {
             .ctx = .{ .ctx = self, .list_id = fl.list_id },
             .label = fl.label,
             .on_click = handle_tab_click,
+            .on_click2 = handle_tab_click2,
             .on_render = handle_tab_render,
             .on_layout = handle_tab_layout,
         }) catch continue;
@@ -553,6 +554,10 @@ fn handle_tab_layout(ctx: *FilelistTab, btn: *FilelistTabType) Widget.Layout {
 fn handle_tab_render(ctx: *FilelistTab, button: *FilelistTabType, theme: *const Widget.Theme) bool {
     ctx.render(&button.plane, theme, button.hover);
     return false;
+}
+
+fn handle_tab_click2(ctx: *FilelistTab, _: *FilelistTabType, _: Widget.Pos) void {
+    tp.self_pid().send(.{ "cmd", "filelist_close", .{ctx.list_id} }) catch |e| ctx.ctx.logger.err(name, e);
 }
 
 fn handle_tab_click(ctx: *FilelistTab, _: *FilelistTabType, pos: Widget.Pos) void {
