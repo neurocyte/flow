@@ -16,6 +16,7 @@ pub const description = "file tree";
 pub const icon = "  ";
 
 const max_path_entries = 1024;
+const max_tree_search_results: usize = 100;
 
 pub const NodeType = enum {
     file,
@@ -75,6 +76,11 @@ pub const ValueType = struct {
     root_node: ?*Node = null,
     pending_node: ?*Node = null,
     follow_path: ?[]const u8 = null,
+    is_searching: bool = false,
+    search_query_pending: bool = false,
+    search_need_reset: bool = false,
+    search_total: usize = 0,
+    search_project_total: usize = 0,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -126,17 +132,91 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         const pending = palette.value.pending_node;
         palette.value.pending_node = null;
         if (pending) |p| if (p.children) |*children| sort_children(children);
-        palette.entries.clearRetainingCapacity();
-        if (palette.value.root_node) |root| try build_visible_list(palette, root, 0);
-        palette.longest_hint = max_entry_overhead(palette);
-        try follow_path(palette, pending);
-        palette.start_query(0) catch {};
-        tui.need_render(@src());
+        if (!palette.value.is_searching) {
+            palette.entries.clearRetainingCapacity();
+            if (palette.value.root_node) |root| try build_visible_list(palette, root, 0);
+            palette.longest_hint = max_entry_overhead(palette);
+            try follow_path(palette, pending);
+            palette.start_query(0) catch {};
+            tui.need_render(@src());
+        }
     } else if (try cbor.match(m.buf, .{ "PRJ", "path_error", tp.any, tp.any, tp.any })) {
         palette.value.pending_node = null;
+    } else {
+        try receive_search_messages(palette, m);
     }
 
     return true;
+}
+
+fn receive_search_messages(palette: *Type, m: tp.message) MessageFilter.Error!void {
+    var file_path: []const u8 = undefined;
+    var file_type: []const u8 = undefined;
+    var file_icon: []const u8 = undefined;
+    var file_color: u24 = undefined;
+    var longest: usize = undefined;
+    var matches: []const u8 = undefined;
+    var query: []const u8 = undefined;
+
+    if (try cbor.match(m.buf, .{ // Accumulate results
+        "PRJ",
+        "tree_search",
+        tp.extract(&longest),
+        tp.extract(&file_path),
+        tp.extract(&file_type),
+        tp.extract(&file_icon),
+        tp.extract(&file_color),
+        tp.extract_cbor(&matches),
+    })) {
+        if (!palette.value.is_searching) return;
+        if (palette.value.search_need_reset) {
+            palette.menu.reset_items();
+            palette.items = 0;
+            palette.total_items = 0;
+            palette.value.search_need_reset = false;
+        }
+        palette.longest = @max(palette.longest, longest);
+        try add_search_item(palette, file_path, file_icon, file_color, matches);
+        palette.value.search_total += 1;
+        palette.total_items += 1;
+        palette.resize();
+        tui.need_render(@src());
+    } else if (try cbor.match(m.buf, .{ // Render results
+        "PRJ",
+        "tree_search_done",
+        tp.extract(&longest),
+        tp.extract(&query),
+        tp.extract(&palette.value.search_project_total),
+    })) {
+        palette.longest = @max(palette.longest, longest);
+        palette.value.search_query_pending = false;
+        update_search_count_hint(palette);
+        if (palette.value.is_searching and !std.mem.eql(u8, palette.inputbox.text.items, query))
+            try on_query_changed(palette, palette.inputbox.text.items);
+        palette.resize();
+        tui.need_render(@src());
+    }
+}
+
+fn add_search_item(palette: *Type, file_path: []const u8, file_icon: []const u8, file_color: u24, matches_cbor: []const u8) !void {
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer value.deinit();
+    const writer = &value.writer;
+    try cbor.writeValue(writer, file_path);
+    try cbor.writeValue(writer, file_icon);
+    try cbor.writeValue(writer, file_color);
+    try cbor.writeValue(writer, "");
+    _ = try writer.write(matches_cbor);
+    try palette.menu.add_item_with_handler(value.written(), select_search_result);
+    palette.items += 1;
+}
+
+fn update_search_count_hint(palette: *Type) void {
+    palette.inputbox.hint.clearRetainingCapacity();
+    palette.inputbox.hint.print(palette.inputbox.allocator, "{d}/{d}", .{
+        palette.value.search_total,
+        palette.value.search_project_total,
+    }) catch {};
 }
 
 fn sort_children(children: *std.ArrayList(Node)) void {
@@ -251,7 +331,47 @@ pub fn load_entries(palette: *Type) !usize {
     return max_entry_overhead(palette);
 }
 
+pub fn should_clear_on_query(palette: *Type) bool {
+    return !palette.value.is_searching;
+}
+
+pub fn on_query_changed(palette: *Type, query: []const u8) !void {
+    if (query.len > 0) {
+        palette.value.is_searching = true;
+        palette.value.search_need_reset = true;
+        palette.value.search_total = 0;
+        palette.total_items = 0;
+        if (palette.value.search_query_pending) return;
+        palette.value.search_query_pending = true;
+        try project_manager.query_tree_files(max_tree_search_results, query);
+    } else {
+        if (palette.value.is_searching) {
+            palette.value.is_searching = false;
+            palette.value.search_query_pending = false;
+            palette.value.search_total = 0;
+            palette.inputbox.hint.clearRetainingCapacity();
+            palette.entries.clearRetainingCapacity();
+            if (palette.value.root_node) |root| try build_visible_list(palette, root, 0);
+            palette.longest_hint = max_entry_overhead(palette);
+        }
+    }
+}
+
 pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+    var iter = button.opts.label;
+    var first_str: []const u8 = undefined;
+    if (!(cbor.matchString(&iter, &first_str) catch false)) return false;
+
+    var peek = iter;
+    var second_str: []const u8 = undefined;
+    if (cbor.matchString(&peek, &second_str) catch false) { // Search result: string - string - ...
+        return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
+    }
+
+    return render_tree_item(button, theme, selected, first_str, iter); // Tree item: string - int - ...
+}
+
+fn render_tree_item(button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool, label_str: []const u8, iter_after_label: []const u8) bool {
     const style_base = theme.editor_widget;
     const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
@@ -263,14 +383,12 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
         button.plane.fill(" ");
         button.plane.home();
     }
-    var label_str: []const u8 = undefined;
     var file_icon: []const u8 = undefined;
     var indent: usize = 0;
     var entry_index: usize = 0;
     var icon_color: u24 = 0;
 
-    var iter = button.opts.label;
-    if (!(cbor.matchString(&iter, &label_str) catch false)) return false;
+    var iter = iter_after_label;
     if (!(cbor.matchInt(usize, &iter, &entry_index) catch false)) return false;
     if (!(cbor.matchInt(usize, &iter, &indent) catch false)) return false;
     if (!(cbor.matchString(&iter, &file_icon) catch false)) return false;
@@ -339,6 +457,15 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
         tp.self_pid().send(.{ "cmd", "navigate", .{ .file = node.path } }) catch |e| palette.logger.err(module_name, e);
     }
+}
+
+fn select_search_result(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+    const palette = menu.*.opts.ctx;
+    var file_path: []const u8 = undefined;
+    var iter = button.opts.label;
+    if (!(cbor.matchString(&iter, &file_path) catch false)) return;
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| palette.logger.err(module_name, e);
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
