@@ -471,6 +471,17 @@ fn switch_filelist(self: *Self, dir: FileList.Direction) void {
     tui.need_render(@src());
 }
 
+fn close_list(self: *Self, list_name: []const u8) void {
+    const manager = self.manager orelse return;
+    manager.clear(list_name);
+    if (manager.refresh_active()) {
+        self.rebuild_menu();
+        tui.need_render(@src());
+    } else {
+        command.executeName("hide_filelist", .empty()) catch |e| self.logger.err(name, e);
+    }
+}
+
 pub fn focus(self: *Self) void {
     if (self.focused) return;
     self.focused = true;
@@ -571,4 +582,14 @@ const cmds = struct {
         self.unfocus();
     }
     pub const unfocus_filelist_meta: Meta = .{ .description = "Return focus from the file list" };
+
+    pub fn filelist_close(self: *Self, ctx: Ctx) Result {
+        var list_name: []const u8 = undefined;
+        if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&list_name)}))
+            return self.close_list(list_name);
+        const manager = self.manager orelse return;
+        const fl = manager.active() orelse return;
+        self.close_list(fl.name);
+    }
+    pub const filelist_close_meta: Meta = .{ .description = "Close file list" };
 };

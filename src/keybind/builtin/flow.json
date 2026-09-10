@@ -603,7 +603,7 @@
             ["alt+n", "goto_next_file"],
             ["alt+p", "goto_prev_file"],
             ["alt+shift+l", "hide_filelist"],
-            ["ctrl+`", "unfocus_filelist"],
+            ["ctrl+w", "filelist_close"],
             ["escape", "unfocus_filelist"]
         ]
     },
@@ -622,6 +622,7 @@
             ["ctrl+6", "focus_split", 5],
             ["ctrl+7", "focus_split", 6],
             ["ctrl+8", "focus_split", 7],
+            ["alt+shift+l", "focus_filelist"],
             ["ctrl+`", "unfocus_terminal"],
             ["ctrl+alt+t", "terminal_new"],
             ["ctrl+shift+`", "switch_terminals"],
