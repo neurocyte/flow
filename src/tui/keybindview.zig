@@ -15,7 +15,7 @@ const command = @import("command");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const WidgetList = @import("WidgetList.zig");
+const Panel = @import("Panel.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 pub const name = "keybindview";
@@ -26,7 +26,6 @@ plane: Plane,
 buffer: Buffer,
 
 const Self = @This();
-const widget_type: Widget.Type = .panel;
 
 const Entry = struct {
     time: i64,
@@ -35,10 +34,20 @@ const Entry = struct {
 };
 const Buffer = ArrayList(Entry);
 
-pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
+pub const panel_tag = "keybind";
+pub const panel_singleton = true;
+
+pub fn panel_title(_: *Self) []const u8 {
+    return "Keybinds";
+}
+
+pub fn panel_icon(_: *Self) []const u8 {
+    return "󰌆";
+}
+
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
     errdefer n.deinit();
-    const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
@@ -49,9 +58,7 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     };
     try tui.message_filters().add(MessageFilter.bind(self, keybind_match));
     tui.enable_match_events();
-    container.ctx = self;
-    try container.add(Widget.to(self));
-    return container.widget();
+    return Panel.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {

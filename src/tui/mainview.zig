@@ -38,6 +38,8 @@ const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
 const terminal_view = @import("terminal_view.zig");
+const PanelArea = @import("PanelArea.zig");
+const Panel = @import("Panel.zig");
 const Vt = @import("Vt.zig");
 
 const Self = @This();
@@ -56,17 +58,13 @@ views_widget: Widget,
 active_view: usize = 0,
 panes: *WidgetList,
 panes_widget: Widget,
-panels: ?*WidgetList = null,
+bottom_area: *PanelArea = undefined,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
 filelist_streams: std.AutoArrayHashMapUnmanaged(FileList.Stream, StreamInfo) = .empty,
 next_filelist_stream: FileList.Stream = FileList.stream_first_dynamic,
 filelists: FileList.Manager = undefined,
-panel_height: ?usize = null,
-panel_maximized: bool = false,
-panel_maximized_by_snap: bool = false,
-panel_snap_height: usize = 0,
 symbols: std.ArrayListUnmanaged(u8) = .empty,
 symbols_complete: bool = true,
 closing_project: bool = false,
@@ -136,6 +134,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         bar_layer.set(bar);
         self.bottom_bar = (try widgets.addP(bar_layer.widget())).*;
     }
+    self.bottom_area = try PanelArea.create(allocator, widgets, .bottom);
     if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
         self.toggle_keybindview_async();
@@ -146,7 +145,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-    self.close_all_panel_views();
+    self.bottom_area.deinit();
     terminal_view.shutdown_all();
     self.commands.deinit();
     self.widgets.deinit(allocator);
@@ -283,28 +282,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 pub fn handle_resize(self: *Self, pos: Box) void {
     self.update_panes_layout() catch {};
     self.plane = tui.plane();
-    if (self.panels) |panels| {
-        const max_h = self.box().h -| 1;
-        if (self.panel_maximized) {
-            panels.layout_ = .{ .static = max_h };
-            if (self.panel_maximized_by_snap and self.panel_snap_height < max_h) {
-                self.panel_maximized = false;
-                self.panel_maximized_by_snap = false;
-                panels.layout_ = .{ .static = self.panel_snap_height };
-            }
-        } else {
-            const cur_h = switch (panels.layout_) {
-                .static => |s| s,
-                .dynamic => self.get_panel_height(),
-            };
-            if (cur_h >= max_h) {
-                self.panel_maximized = true;
-                self.panel_maximized_by_snap = true;
-                self.panel_snap_height = cur_h;
-                panels.layout_ = .{ .static = max_h };
-            }
-        }
-    }
+    self.bottom_area.update_layout_for_resize();
     self.widgets.handle_resize(pos);
     self.floating_views.resize(pos);
 }
@@ -314,90 +292,46 @@ pub fn box(self: *const Self) Box {
 }
 
 pub fn active_panel_plane(self: *const Self) ?Plane {
-    const panels = self.panels orelse return null;
-    return panels.plane;
+    return self.bottom_area.active_plane();
 }
 
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         const cell = coord.to_cell(self.plane.mouse_geometry());
-        return self.bottom_bar_primary_drag(@intCast(std.math.clamp(cell.row, 0, std.math.maxInt(i32))));
+        self.bottom_bar_primary_drag(@intCast(std.math.clamp(cell.row, 0, std.math.maxInt(i32))));
     }
 }
 
-fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
+fn bottom_bar_primary_drag(self: *Self, y: usize) void {
     const h = @max(1, self.plane.dim_y() -| y -| 1);
-    return self.set_panel_height_abs(h);
-}
-
-fn set_panel_height_abs(self: *Self, y: usize) tp.result {
-    const panels = self.panels orelse blk: {
-        cmds.toggle_panel(self, .empty()) catch return;
-        break :blk self.panels.?;
-    };
-    if (tui.input_mode_outer() != null and tui.mini_mode() == null)
-        command.executeName("exit_overlay_mode", .empty()) catch {};
-    const max_h = self.box().h -| 1;
-    self.panel_height = @max(1, @min(max_h, y));
-    self.panel_maximized = false;
-    self.panel_maximized_by_snap = false;
-    panels.layout_ = .{ .static = self.panel_height.? };
-    const panel_height = self.panel_height orelse return;
-    if (panel_height == 1) {
-        self.panel_height = null;
-        command.executeName("toggle_panel", .empty()) catch {};
-    } else if (panel_height >= max_h) {
-        self.panel_maximized = true;
-        panels.layout_ = .{ .static = max_h };
-        self.panel_height = null;
-    } else {
-        self.save_panel_height_ratio(panel_height);
-    }
-}
-
-fn set_panel_height_rel(self: *Self, y: isize) tp.result {
-    if (self.panels == null and y < 0) return;
-    if (self.panel_maximized and y > 0) return;
-    const panel_h: isize = @intCast(self.get_panel_height());
-    const h = @max(1, panel_h +| y);
-    return self.set_panel_height_abs(h);
-}
-
-const panel_height_ratio_max: f32 = 0.75;
-const panel_height_min_rows: usize = 3;
-
-fn panel_rows_for_ratio(total: usize, ratio: f32) usize {
-    const h: usize = @intFromFloat(@as(f32, @floatFromInt(total)) * @min(panel_height_ratio_max, ratio));
-    const max_h = total -| 1;
-    return std.math.clamp(h, @min(panel_height_min_rows, max_h), max_h);
+    self.bottom_area.set_height_abs(h);
 }
 
 pub fn get_panel_height(self: *Self) usize {
-    if (self.panel_height) |h| return h;
-    return panel_rows_for_ratio(self.box().h, tui.config().panel_height_ratio);
+    return self.bottom_area.get_height();
 }
 
-fn save_panel_height_ratio(self: *Self, panel_height: usize) void {
-    const total = self.box().h;
-    if (total == 0) return;
-    if (panel_rows_for_ratio(total, tui.config().panel_height_ratio) == panel_height) return;
-    const total_f: f32 = @floatFromInt(total);
-    const floor = @as(f32, @floatFromInt(panel_height_min_rows)) / total_f;
-    tui.config_mut().panel_height_ratio = std.math.clamp(@as(f32, @floatFromInt(panel_height)) / total_f, floor, panel_height_ratio_max);
-    tui.save_config() catch {};
+pub fn is_panel_maximized(self: *const Self) bool {
+    return self.bottom_area.is_maximized();
 }
 
-pub const PanelToggleMode = enum { toggle, enable, disable };
+pub const PanelToggleMode = PanelArea.ToggleMode;
 
 fn toggle_panel_view(self: *Self, view: anytype, mode: PanelToggleMode) !void {
     return self.toggle_panel_view_with_args(view, mode, .empty());
 }
 
+fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode, ctx: command.Context) !void {
+    _ = try self.bottom_area.toggle(view, mode, ctx);
+}
+
+fn show_panel_view(self: *Self, comptime view: type, ctx: command.Context) !*view {
+    return (try self.bottom_area.toggle(view, .enable, ctx)) orelse error.PanelNotFound;
+}
+
 fn switch_terminal_vt(self: *Self, dir: enum { next, previous }) !void {
-    if (self.get_panel_view(terminal_view) == null)
-        try self.toggle_panel_view_with_args(terminal_view, .enable, .empty());
-    const tv = self.get_panel_view(terminal_view) orelse return;
+    const tv = try self.show_panel_view(terminal_view, .empty());
     const target = switch (dir) {
         .next => Vt.Manager.next(tv.vt),
         .previous => Vt.Manager.prev(tv.vt),
@@ -406,47 +340,16 @@ fn switch_terminal_vt(self: *Self, dir: enum { next, previous }) !void {
     tv.focus();
 }
 
-fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode, ctx: command.Context) !void {
-    if (self.panels) |panels| {
-        if (self.get_panel(@typeName(view))) |w| {
-            if (mode != .enable) {
-                panels.remove(w.*);
-                if (panels.empty()) {
-                    self.widgets.remove(panels.widget());
-                    self.panels = null;
-                }
-                tui.resize();
-            }
-        } else {
-            if (mode != .disable) {
-                try panels.add(try view.create(self.allocator, panels.plane, ctx));
-                tui.resize();
-            }
-        }
-    } else if (mode != .disable) {
-        const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
-        try self.widgets.add(panels.widget());
-        self.panels = panels;
-        tui.resize();
-        try self.panels.?.add(try view.create(self.allocator, panels.plane, ctx));
-        tui.resize();
-    }
-}
-
-fn get_panel(self: *Self, name_: []const u8) ?*Widget {
-    if (self.panels) |panels|
-        for (panels.widgets.items) |*w|
-            if (w.widget.get(name_)) |_|
-                return &w.widget;
-    return null;
-}
-
 fn get_panel_view(self: *Self, comptime view: type) ?*view {
-    return if (self.panels) |panels| if (panels.get(@typeName(view))) |w| w.dynamic_cast(view) else null else null;
+    return self.bottom_area.find_first(view);
+}
+
+fn has_panel_view(self: *Self, comptime view: type) bool {
+    return self.bottom_area.has(view);
 }
 
 fn is_panel_view_showing(self: *Self, comptime view: type) bool {
-    return self.get_panel_view(view) != null;
+    return self.bottom_area.is_showing(view);
 }
 
 pub const TerminalStatus = struct {
@@ -473,15 +376,7 @@ pub fn active_terminal_title(self: *Self) ?TerminalStatus {
 }
 
 pub fn is_any_panel_view_showing(self: *Self) bool {
-    return self.panels != null;
-}
-
-fn close_all_panel_views(self: *Self) void {
-    if (self.panels) |panels| {
-        self.widgets.remove(panels.widget());
-        self.panels = null;
-    }
-    tui.resize();
+    return self.bottom_area.visible();
 }
 
 pub fn hide_info_view_panel(self: *Self) void {
@@ -621,7 +516,7 @@ const cmds = struct {
             self.quit_on_terminal_exit = false;
             self.closing_project = true;
             defer self.closing_project = false;
-            if (self.is_panel_view_showing(terminal_view))
+            if (self.has_panel_view(terminal_view))
                 try self.toggle_panel_view(terminal_view, .disable);
             terminal_view.shutdown_all();
             try close_splits(self, .empty_from(ctx));
@@ -1081,59 +976,27 @@ const cmds = struct {
     pub const restore_session_meta: Meta = .{};
 
     pub fn toggle_panel(self: *Self, ctx: Ctx) Result {
-        if (self.is_panel_view_showing(logview))
-            try self.toggle_panel_view(logview, .toggle)
-        else if (self.is_panel_view_showing(info_view))
-            try self.toggle_panel_view(info_view, .toggle)
-        else if (self.is_panel_view_showing(filelist_view))
-            try self.toggle_panel_view(filelist_view, .toggle)
-        else if (self.is_panel_view_showing(keybind_view))
-            try self.toggle_panel_view(keybind_view, .toggle)
-        else if (self.is_panel_view_showing(input_view))
-            try self.toggle_panel_view(input_view, .toggle)
-        else if (self.is_panel_view_showing(terminal_view))
-            try self.toggle_panel_view(terminal_view, .toggle)
+        if (self.bottom_area.visible())
+            self.bottom_area.hide()
+        else if (!self.bottom_area.empty())
+            self.bottom_area.show()
         else
             try open_terminal(self, .empty_from(ctx));
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
-    pub fn toggle_maximize_panel(self: *Self, ctx: Ctx) Result {
-        const panels = self.panels orelse blk: {
-            cmds.toggle_panel(self, .empty_from(ctx)) catch return;
-            self.panel_maximized = false;
-            break :blk self.panels.?;
+    pub fn toggle_maximize_panel(self: *Self, _: Ctx) Result {
+        self.bottom_area.toggle_maximize();
+        if (self.bottom_area.visible()) if (self.get_panel_view(terminal_view)) |vt| if (self.is_panel_view_showing(terminal_view)) {
+            if (self.bottom_area.is_maximized()) vt.focus() else vt.unfocus();
         };
-        const max_h = self.box().h -| 1;
-        const was_snap = self.panel_maximized_by_snap;
-        self.panel_maximized_by_snap = false;
-        if (was_snap) {
-            // Convert snap-maximized to regular (sticky) maximized
-            self.panel_maximized = true;
-            panels.layout_ = .{ .static = max_h };
-        } else if (self.panel_maximized) {
-            // Restore previous height, shrinking if it would still fill the window
-            self.panel_maximized = false;
-            var h = self.get_panel_height();
-            if (h >= max_h) {
-                h = @max(1, max_h -| 1);
-                self.panel_height = h;
-            }
-            panels.layout_ = .{ .static = h };
-        } else {
-            // Maximize: fill screen minus status bar
-            self.panel_maximized = true;
-            panels.layout_ = .{ .static = max_h };
-        }
-        if (self.get_panel_view(terminal_view)) |vt| if (self.panel_maximized) vt.focus() else vt.unfocus();
-        tui.resize();
     }
     pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
 
     pub fn grow_panel(self: *Self, ctx: Ctx) Result {
         var n: usize = 1;
         _ = try ctx.args.match(.{tp.extract(&n)});
-        return self.set_panel_height_rel(@intCast(n));
+        self.bottom_area.set_height_rel(@intCast(n));
     }
     pub const grow_panel_meta: Meta = .{ .description = "Make the panel larger" };
 
@@ -1141,9 +1004,28 @@ const cmds = struct {
         var n: usize = 1;
         _ = try ctx.args.match(.{tp.extract(&n)});
         const neg_n = 0 - @as(isize, @intCast(n));
-        return self.set_panel_height_rel(neg_n);
+        self.bottom_area.set_height_rel(neg_n);
     }
     pub const shrink_panel_meta: Meta = .{ .description = "Make the panel smaller" };
+
+    pub fn panel_tab_next(self: *Self, _: Ctx) Result {
+        self.bottom_area.cycle_tab(.next);
+    }
+    pub const panel_tab_next_meta: Meta = .{ .description = "Switch to next panel tab" };
+
+    pub fn panel_tab_prev(self: *Self, _: Ctx) Result {
+        self.bottom_area.cycle_tab(.previous);
+    }
+    pub const panel_tab_prev_meta: Meta = .{ .description = "Switch to previous panel tab" };
+
+    pub fn panel_tab_close(self: *Self, ctx: Ctx) Result {
+        var id: Panel.Id = 0;
+        if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&id)}))
+            self.bottom_area.close(id)
+        else
+            self.bottom_area.close_active();
+    }
+    pub const panel_tab_close_meta: Meta = .{ .description = "Close panel tab", .arguments = &.{.integer} };
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, .toggle);
@@ -1201,7 +1083,12 @@ const cmds = struct {
 
         if (!have_args) if (self.get_panel_view(terminal_view)) |vt| {
             std.log.debug("open_terminal: toggle_focus", .{});
-            vt.toggle_focus();
+            if (self.is_panel_view_showing(terminal_view)) {
+                vt.toggle_focus();
+            } else {
+                _ = try self.show_panel_view(terminal_view, .empty());
+                vt.focus();
+            }
             return;
         };
 
@@ -1210,11 +1097,11 @@ const cmds = struct {
             std.log.debug("open_terminal: {s}", .{ctx.args.to_json(&buf) catch "(error)"});
         if (self.get_panel_view(terminal_view)) |vt| {
             try vt.run_cmd(ctx);
+            _ = try self.show_panel_view(terminal_view, .empty());
             vt.focus();
         } else {
-            try self.toggle_panel_view_with_args(terminal_view, .enable, ctx);
-            if (self.get_panel_view(terminal_view)) |vt|
-                vt.focus();
+            const vt = try self.show_panel_view(terminal_view, ctx);
+            vt.focus();
         }
     }
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
@@ -1233,9 +1120,7 @@ const cmds = struct {
             return error.Stop;
         } else try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
 
-        if (self.get_panel_view(terminal_view) == null)
-            try self.toggle_panel_view_with_args(terminal_view, .enable, .empty());
-        const tv = self.get_panel_view(terminal_view) orelse return;
+        const tv = try self.show_panel_view(terminal_view, .empty());
         tv.attach(vt);
         tv.focus();
     }
@@ -1259,9 +1144,7 @@ const cmds = struct {
         var idx: usize = undefined;
         if (!try ctx.args.match(.{tp.extract(&idx)})) return error.InvalidTerminalSelectArgument;
         const vt = Vt.Manager.by_index(idx) orelse return;
-        if (self.get_panel_view(terminal_view) == null)
-            try self.toggle_panel_view_with_args(terminal_view, .enable, .empty());
-        const tv = self.get_panel_view(terminal_view) orelse return;
+        const tv = try self.show_panel_view(terminal_view, .empty());
         tv.attach(vt);
         tv.focus();
     }
@@ -1272,10 +1155,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&text)}))
             return;
 
-        const vt = self.get_panel_view(terminal_view) orelse blk: {
-            try self.toggle_panel_view(terminal_view, .enable);
-            break :blk self.get_panel_view(terminal_view) orelse return;
-        };
+        const vt = try self.show_panel_view(terminal_view, .empty());
         if (tui.config().terminal_focus_after_send)
             vt.focus();
         vt.send_text(text);
@@ -1440,7 +1320,7 @@ const cmds = struct {
     pub const toggle_gutter_diffs_meta: Meta = .{ .description = "Toggle gutter diff markers" };
 
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
-        if (self.is_panel_view_showing(filelist_view)) {
+        if (self.has_panel_view(filelist_view)) {
             const cmd = if (self.active_filelist()) |fl| fl.next_command orelse "goto_next_file" else "goto_next_file";
             try command.executeName(cmd, ctx);
         } else {
@@ -1450,7 +1330,7 @@ const cmds = struct {
     pub const goto_next_file_or_diagnostic_meta: Meta = .{ .description = "Navigate to next file or diagnostic location" };
 
     pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
-        if (self.is_panel_view_showing(filelist_view)) {
+        if (self.has_panel_view(filelist_view)) {
             const cmd = if (self.active_filelist()) |fl| fl.prev_command orelse "goto_prev_file" else "goto_prev_file";
             try command.executeName(cmd, ctx);
         } else {
@@ -1484,7 +1364,7 @@ const cmds = struct {
             if (!tui.config().show_local_diagnostics_in_panel)
                 return;
         }
-        if (!self.is_panel_view_showing(filelist_view) and !tui.config().auto_open_panel_for_diagnostics) {
+        if (!self.has_panel_view(filelist_view) and !tui.config().auto_open_panel_for_diagnostics) {
             return;
         }
         const list = try self.filelists.get_or_create_singleton(.diagnostics);
@@ -2518,7 +2398,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
 
     try tui.write_state(writer);
 
-    self.filelists.panel_open = self.is_panel_view_showing(filelist_view);
+    self.filelists.panel_open = self.has_panel_view(filelist_view);
     self.filelists.write_state(writer) catch return error.WriteFailed;
 }
 
@@ -2708,8 +2588,7 @@ fn delete_all_buffers(self: *Self) void {
 
 fn show_filelist(self: *Self) !*filelist_view {
     _ = self.filelists.refresh_active();
-    _ = try self.toggle_panel_view(filelist_view, .enable);
-    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
+    const fl = try self.show_panel_view(filelist_view, .empty());
     if (fl.manager == null) fl.attach(&self.filelists);
     self.filelists.panel_open = true;
     return fl;
@@ -2721,7 +2600,7 @@ fn active_filelist(self: *Self) ?*FileList {
 
 fn hide_filelist(self: *Self) !void {
     self.filelists.panel_open = false;
-    if (self.is_panel_view_showing(filelist_view))
+    if (self.has_panel_view(filelist_view))
         try self.toggle_panel_view(filelist_view, .disable);
 }
 
@@ -2797,10 +2676,6 @@ fn close_filelist_stream(self: *Self, stream: FileList.Stream) void {
     };
     self.end_filelist_ingest(info.list_id, info.clear_if_empty);
     const fl = self.filelists.get(info.list_id) orelse return;
-    if (fl.kind == .terminal_links) {
-        if (self.is_panel_view_showing(filelist_view) and self.is_panel_view_showing(terminal_view))
-            self.toggle_panel_view(terminal_view, .disable) catch {};
-    }
     if (info.close_if_empty and fl.is_empty())
         self.close_filelist_by_id(info.list_id);
 }
@@ -2875,8 +2750,7 @@ fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
 
 pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {
     if (content.len == 0) return;
-    _ = self.toggle_panel_view(info_view, .enable) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    const info = self.get_panel_view(info_view) orelse @panic("info_view missing");
+    const info = self.show_panel_view(info_view, .empty()) catch |e| return tp.exit_error(e, @errorReturnTrace());
     switch (mode) {
         .replace => info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
         .append => info.append_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),

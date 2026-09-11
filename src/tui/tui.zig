@@ -1114,6 +1114,12 @@ pub fn is_keyboard_focused() bool {
     return self.keyboard_focus != null;
 }
 
+pub fn is_keyboard_focus(w: Widget) bool {
+    const self = current();
+    if (self.keyboard_focus) |f| if (f.ptr == w.ptr) return true;
+    return is_deferred_keyboard_focus(w);
+}
+
 pub fn set_keyboard_focus(w: Widget) void {
     const self = current();
     if (self.keyboard_focus) |prev| prev.unfocus();

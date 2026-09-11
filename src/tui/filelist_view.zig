@@ -20,6 +20,7 @@ const scrollbar_v = @import("scrollbar_v.zig");
 const editor = @import("editor.zig");
 const FileList = @import("FileList.zig");
 const tab_render = @import("tab_render.zig");
+const Panel = @import("Panel.zig");
 
 pub const name = @typeName(Self);
 
@@ -51,9 +52,11 @@ const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
 const FilelistTabType = Button.Options(FilelistTab).ButtonType;
 const path_column_ratio = 4;
-const widget_type: Widget.Type = .panel;
+const widget_type: Widget.Type = .none;
 
-pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
+pub const panel_tag = "filelist";
+
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
 
@@ -89,11 +92,20 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
         .tab_style_bufs = tab_style_bufs,
     };
     if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+    self.menu.container.render_decoration = null;
     self.tabs.ctx = self;
     self.tabs.on_render = render_tab_bar;
     self.tabs.render_decoration = null;
     try self.commands.init(self);
-    return Widget.to(self);
+    return Panel.to(self);
+}
+
+pub fn panel_title(self: *Self) []const u8 {
+    return if (self.active_list()) |fl| fl.label else "File list";
+}
+
+pub fn panel_icon(self: *Self) []const u8 {
+    return FileList.icon_for(if (self.active_list()) |fl| fl.kind else .find_in_files);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {

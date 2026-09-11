@@ -11,7 +11,7 @@ const root = @import("root");
 const Vt = @import("Vt.zig");
 const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
-const WidgetList = @import("WidgetList.zig");
+const Panel = @import("Panel.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const input = @import("input");
@@ -26,7 +26,6 @@ const project_manager = @import("project_manager");
 pub const name = @typeName(Self);
 
 const Self = @This();
-const widget_type: Widget.Type = .panel;
 
 allocator: Allocator,
 plane: Plane,
@@ -70,15 +69,9 @@ const Selection = struct {
     }
 };
 
-pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget {
-    const container = try WidgetList.createHStyled(
-        allocator,
-        parent,
-        "panel_frame",
-        .dynamic,
-        widget_type,
-    );
+pub const panel_tag = "terminal";
 
+pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Panel {
     var plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
     errdefer plane.deinit();
 
@@ -96,10 +89,21 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
     try self.commands.init(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
 
-    container.ctx = self;
-    try container.add(Widget.to(self));
+    return Panel.to(self);
+}
 
-    return container.widget();
+pub fn panel_title(self: *Self) []const u8 {
+    const title = self.get_title();
+    return if (title.len > 0) title else "Terminal";
+}
+
+pub fn panel_icon(self: *Self) []const u8 {
+    if (self.vt.get_profile()) |p| if (p.icon.len > 0) return p.icon;
+    return "";
+}
+
+pub fn panel_indicator(self: *Self) Panel.Indicator {
+    return if (self.vt.process_exited) .exited else .none;
 }
 
 pub fn run_cmd(self: *Self, ctx: command.Context) !void {
@@ -1026,7 +1030,7 @@ const cmds = struct {
             buffer_name.items, content.items, "text",
         }));
 
-        if (tui.mainview()) |mv| if (mv.panel_maximized)
+        if (tui.mainview()) |mv| if (mv.is_panel_maximized())
             try command.executeName("toggle_maximize_panel", .empty());
         self.unfocus();
     }
@@ -1056,7 +1060,7 @@ const cmds = struct {
             buffer_name.items, content.items, "text",
         }));
 
-        if (tui.mainview()) |mv| if (mv.panel_maximized)
+        if (tui.mainview()) |mv| if (mv.is_panel_maximized())
             try command.executeName("toggle_maximize_panel", .empty());
         self.unfocus();
     }

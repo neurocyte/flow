@@ -12,7 +12,7 @@ const command = @import("command");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("Widget.zig");
-const WidgetList = @import("WidgetList.zig");
+const Panel = @import("Panel.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 const escape = @import("std").ascii.hexEscape;
@@ -25,7 +25,6 @@ var persistent_buffer: ?Buffer = null;
 var last_count: u64 = 0;
 
 const Self = @This();
-const widget_type: Widget.Type = .panel;
 
 const Entry = struct {
     src: []u8,
@@ -41,14 +40,22 @@ const Level = enum {
     err,
 };
 
-pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
+pub const panel_tag = "log";
+pub const panel_singleton = true;
+
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
     self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts(name), parent) };
-    container.ctx = self;
-    try container.add(Widget.to(self));
-    return container.widget();
+    return Panel.to(self);
+}
+
+pub fn panel_title(_: *Self) []const u8 {
+    return "Log";
+}
+
+pub fn panel_icon(_: *Self) []const u8 {
+    return "";
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {

@@ -11,7 +11,7 @@ const command = @import("command");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const WidgetList = @import("WidgetList.zig");
+const Panel = @import("Panel.zig");
 const ed = @import("editor.zig");
 const syntax_validator = @import("syntax_validator");
 
@@ -23,20 +23,27 @@ theme: ?*const Widget.Theme = null,
 last_node: usize = 0,
 
 const Self = @This();
-const widget_type: Widget.Type = .panel;
 
-pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
+pub const panel_tag = "inspector";
+pub const panel_singleton = true;
+
+pub fn panel_title(_: *Self) []const u8 {
+    return "Inspector";
+}
+
+pub fn panel_icon(_: *Self) []const u8 {
+    return "";
+}
+
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     const editor = tui.get_active_editor() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
         .editor = editor,
     };
-    container.ctx = self;
-    try container.add(Widget.to(self));
-    return container.widget();
+    return Panel.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {

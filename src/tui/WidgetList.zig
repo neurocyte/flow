@@ -160,6 +160,12 @@ pub fn remove(self: *Self, w: Widget) void {
     };
 }
 
+pub fn detach(self: *Self, w: Widget) ?Widget {
+    for (self.widgets.items, 0..) |p, i| if (p.widget.ptr == w.ptr)
+        return self.widgets.orderedRemove(i).widget; // ownership passed to caller
+    return null;
+}
+
 pub fn remove_all(self: *Self) void {
     for (self.widgets.items) |*w|
         w.widget.deinit(self.allocator);

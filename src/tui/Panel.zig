@@ -1,0 +1,105 @@
+const std = @import("std");
+const Widget = @import("Widget.zig");
+
+pub const Indicator = enum { none, activity, bell, busy, exited };
+pub const CloseResult = enum { closed, vetoed };
+pub const Id = u32;
+
+id: Id = 0,
+widget: Widget,
+vtable: *const VTable,
+
+const Self = @This();
+
+pub const VTable = struct {
+    tag: []const u8,
+    singleton: bool,
+    title: *const fn (ctx: *anyopaque) []const u8,
+    icon: *const fn (ctx: *anyopaque) []const u8,
+    indicator: *const fn (ctx: *anyopaque) Indicator,
+    request_close: *const fn (ctx: *anyopaque) CloseResult,
+    set_current: *const fn (ctx: *anyopaque, current: bool) void,
+    write_state: ?*const fn (ctx: *anyopaque, writer: *std.Io.Writer) error{WriteFailed}!void,
+};
+
+pub fn to(pimpl: anytype) Self {
+    const child: type = @typeInfo(@TypeOf(pimpl)).pointer.child;
+    const self_of = struct {
+        inline fn f(ctx: *anyopaque) *child {
+            return @ptrCast(@alignCast(ctx));
+        }
+    }.f;
+    return .{
+        .widget = Widget.to(pimpl),
+        .vtable = comptime &.{
+            .tag = child.panel_tag,
+            .singleton = if (@hasDecl(child, "panel_singleton")) child.panel_singleton else false,
+            .title = struct {
+                fn f(ctx: *anyopaque) []const u8 {
+                    return self_of(ctx).panel_title();
+                }
+            }.f,
+            .icon = struct {
+                fn f(ctx: *anyopaque) []const u8 {
+                    return if (@hasDecl(child, "panel_icon")) self_of(ctx).panel_icon() else "";
+                }
+            }.f,
+            .indicator = struct {
+                fn f(ctx: *anyopaque) Indicator {
+                    return if (@hasDecl(child, "panel_indicator")) self_of(ctx).panel_indicator() else .none;
+                }
+            }.f,
+            .request_close = struct {
+                fn f(ctx: *anyopaque) CloseResult {
+                    return if (@hasDecl(child, "panel_close")) self_of(ctx).panel_close() else .closed;
+                }
+            }.f,
+            .set_current = struct {
+                fn f(ctx: *anyopaque, current: bool) void {
+                    if (@hasDecl(child, "panel_set_current")) self_of(ctx).panel_set_current(current);
+                }
+            }.f,
+            .write_state = if (@hasDecl(child, "panel_write_state")) struct {
+                fn f(ctx: *anyopaque, writer: *std.Io.Writer) error{WriteFailed}!void {
+                    return self_of(ctx).panel_write_state(writer);
+                }
+            }.f else null,
+        },
+    };
+}
+
+pub fn tag(self: Self) []const u8 {
+    return self.vtable.tag;
+}
+
+pub fn singleton(self: Self) bool {
+    return self.vtable.singleton;
+}
+
+pub fn title(self: Self) []const u8 {
+    return self.vtable.title(self.widget.ptr);
+}
+
+pub fn icon(self: Self) []const u8 {
+    return self.vtable.icon(self.widget.ptr);
+}
+
+pub fn indicator(self: Self) Indicator {
+    return self.vtable.indicator(self.widget.ptr);
+}
+
+pub fn request_close(self: Self) CloseResult {
+    return self.vtable.request_close(self.widget.ptr);
+}
+
+pub fn set_current(self: Self, current: bool) void {
+    self.vtable.set_current(self.widget.ptr, current);
+}
+
+pub fn is(self: Self, comptime T: type) bool {
+    return std.mem.eql(u8, self.vtable.tag, T.panel_tag);
+}
+
+pub fn cast(self: Self, comptime T: type) ?*T {
+    return self.widget.dynamic_cast(T);
+}

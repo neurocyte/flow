@@ -4,6 +4,7 @@ const Plane = @import("renderer").Plane;
 const command = @import("command");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
+const Panel = @import("Panel.zig");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
 
@@ -20,23 +21,40 @@ widget_type: Widget.Type,
 
 const default_widget_type: Widget.Type = .panel;
 
-pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
-    return create_widget_type(allocator, parent, default_widget_type);
+pub const panel_tag = "info";
+pub const panel_singleton = true;
+
+pub fn panel_title(_: *Self) []const u8 {
+    return "Info";
+}
+
+pub fn panel_icon(_: *Self) []const u8 {
+    return "\u{ea74}";
+}
+
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
+    return Panel.to(try init(allocator, parent, default_widget_type));
 }
 
 pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !Widget {
+    const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
+    errdefer container.deinit(allocator);
+    const self = try init(allocator, parent, widget_type);
+    container.ctx = self;
+    try container.add(Widget.to(self));
+    return container.widget();
+}
+
+fn init(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
         .lines = .empty,
         .widget_type = widget_type,
     };
-    container.ctx = self;
-    try container.add(Widget.to(self));
-    return container.widget();
+    return self;
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
