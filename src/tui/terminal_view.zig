@@ -34,6 +34,9 @@ input_mode: Mode,
 hover: bool = false,
 vt: *Vt,
 commands: Commands = undefined,
+current: bool = false,
+close_vt: bool = false,
+close_requested_ms: i64 = 0,
 
 hover_pos: ?Position = null,
 last_hover_pos: ?Position = null,
@@ -71,7 +74,9 @@ const Selection = struct {
 
 pub const panel_tag = "terminal";
 
-pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Panel {
+const close_confirm_ms = 3000;
+
+pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
     var plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
     errdefer plane.deinit();
 
@@ -82,14 +87,40 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Panel 
         .allocator = allocator,
         .plane = plane,
         .input_mode = try keybind.mode("terminal", allocator, .{ .insert_command = "do_nothing" }),
-        .vt = undefined,
+        .vt = vt,
     };
-    try self.run_cmd(ctx);
-
-    try self.commands.init(self);
+    self.commands.init_unregistered(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
 
     return Panel.to(self);
+}
+
+pub fn is_vt(self: *Self, vt: *const Vt) bool {
+    return self.vt == vt;
+}
+
+pub fn panel_set_current(self: *Self, current: bool) void {
+    if (current == self.current) return;
+    self.current = current;
+    if (current) {
+        Vt.Manager.set_most_recent(self.vt);
+        self.commands.register() catch |e| std.log.err("terminal_view: register commands failed: {}", .{e});
+    } else {
+        self.commands.unregister();
+    }
+}
+
+pub fn panel_close(self: *Self) Panel.CloseResult {
+    if (self.vt.has_active_application()) {
+        const now = root.get_now().toMilliseconds();
+        if (now - self.close_requested_ms > close_confirm_ms) {
+            self.close_requested_ms = now;
+            std.log.info("terminal application running (close again to terminate it)", .{});
+            return .vetoed;
+        }
+    }
+    self.close_vt = true;
+    return .closed;
 }
 
 pub fn panel_title(self: *Self) []const u8 {
@@ -104,12 +135,6 @@ pub fn panel_icon(self: *Self) []const u8 {
 
 pub fn panel_indicator(self: *Self) Panel.Indicator {
     return if (self.vt.process_exited) .exited else .none;
-}
-
-pub fn run_cmd(self: *Self, ctx: command.Context) !void {
-    const rows: u16 = @intCast(@max(24, self.plane.dim_y()));
-    const cols: u16 = @intCast(@max(80, self.plane.dim_x()));
-    self.vt = try Vt.Manager.run(root.get_io(), self.allocator, ctx, rows, cols);
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -305,7 +330,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 return true;
             }
             if (keypress == input.key.escape or (keypress == 'd' and key.mods.ctrl)) {
-                tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {};
+                tp.self_pid().send(.{ "cmd", "close_terminal", .{@intFromPtr(self.vt)} }) catch {};
                 return true;
             }
         }
@@ -328,16 +353,6 @@ pub fn toggle_focus(self: *Self) void {
 
 pub fn get_title(self: *Self) []const u8 {
     return self.vt.get_title();
-}
-
-pub fn attach(self: *Self, vt: *Vt) void {
-    self.vt = vt;
-    Vt.Manager.set_most_recent(vt);
-    self.vt.resize(.{
-        .h = @intCast(self.plane.dim_y()),
-        .w = @intCast(self.plane.dim_x()),
-    });
-    tui.need_render(@src());
 }
 
 pub fn focus(self: *Self) void {
@@ -381,9 +396,9 @@ fn reset_file_link(self: *Self) void {
 pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.message_filters().remove_ptr(self);
     self.reset_file_link();
-    if (self.vt.process_exited) self.vt.deinit(allocator);
+    if (self.vt.process_exited or self.close_vt) self.vt.deinit(allocator);
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
-    self.commands.unregister();
+    if (self.current) self.commands.unregister();
     self.plane.deinit();
     allocator.destroy(self);
 }

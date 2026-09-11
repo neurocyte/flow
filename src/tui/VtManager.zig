@@ -24,6 +24,10 @@ pub fn any_active_applications() bool {
     return false;
 }
 
+pub fn all() []const *Vt {
+    return vts.items;
+}
+
 pub fn most_recent_index() ?usize {
     return index_of(most_recent);
 }

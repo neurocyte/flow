@@ -330,14 +330,48 @@ fn show_panel_view(self: *Self, comptime view: type, ctx: command.Context) !*vie
     return (try self.bottom_area.toggle(view, .enable, ctx)) orelse error.PanelNotFound;
 }
 
+fn terminal_panel(self: *Self, vt: *const Vt) ?PanelArea.Found {
+    return self.bottom_area.find_panel_where(terminal_view, vt, terminal_view.is_vt);
+}
+
+fn current_terminal(self: *Self) ?*terminal_view {
+    return self.bottom_area.current_of(terminal_view);
+}
+
+fn open_terminal_panel(self: *Self, vt: *Vt, opts: PanelArea.OpenOptions) !*terminal_view {
+    if (self.terminal_panel(vt)) |f| {
+        if (opts.activate) self.bottom_area.activate(f.panel.id) else if (opts.show) self.bottom_area.show();
+        const tv = f.panel.cast(terminal_view) orelse return error.PanelNotFound;
+        if (opts.focus) tv.focus();
+        return tv;
+    }
+    return self.bottom_area.create_panel(terminal_view, .{vt}, opts);
+}
+
+fn run_in_terminal(self: *Self, ctx: command.Context) !*terminal_view {
+    const vt = try Vt.Manager.run(root.get_io(), self.allocator, ctx, 24, 80);
+    return self.open_terminal_panel(vt, .{ .focus = true });
+}
+
+fn show_current_terminal(self: *Self) !*terminal_view {
+    if (self.current_terminal()) |tv| return self.open_terminal_panel(tv.vt, .{});
+    return self.run_in_terminal(.empty());
+}
+
 fn switch_terminal_vt(self: *Self, dir: enum { next, previous }) !void {
-    const tv = try self.show_panel_view(terminal_view, .empty());
-    const target = switch (dir) {
-        .next => Vt.Manager.next(tv.vt),
-        .previous => Vt.Manager.prev(tv.vt),
+    const cur = self.current_terminal() orelse {
+        _ = try self.run_in_terminal(.empty());
+        return;
     };
-    if (target) |t| if (t != tv.vt) tv.attach(t);
-    tv.focus();
+    const target = switch (dir) {
+        .next => Vt.Manager.next(cur.vt),
+        .previous => Vt.Manager.prev(cur.vt),
+    } orelse cur.vt;
+    _ = try self.open_terminal_panel(target, .{ .focus = true });
+}
+
+fn close_terminal_panels(self: *Self) void {
+    while (self.bottom_area.find_panel(terminal_view)) |f| self.bottom_area.remove(f);
 }
 
 fn get_panel_view(self: *Self, comptime view: type) ?*view {
@@ -361,7 +395,7 @@ pub const TerminalStatus = struct {
 };
 
 pub fn active_terminal_title(self: *Self) ?TerminalStatus {
-    const tv = self.get_panel_view(terminal_view) orelse return null;
+    const tv = self.current_terminal() orelse return null;
     if (!tv.focused and !tui.is_deferred_keyboard_focus(Widget.to(tv))) return null;
     const pos = @import("Vt.zig").Manager.position(tv.vt) orelse return null;
     const title = tv.get_title();
@@ -516,8 +550,7 @@ const cmds = struct {
             self.quit_on_terminal_exit = false;
             self.closing_project = true;
             defer self.closing_project = false;
-            if (self.has_panel_view(terminal_view))
-                try self.toggle_panel_view(terminal_view, .disable);
+            self.close_terminal_panels();
             terminal_view.shutdown_all();
             try close_splits(self, .empty_from(ctx));
             try self.close_all_editors(.empty_from(ctx));
@@ -987,7 +1020,7 @@ const cmds = struct {
 
     pub fn toggle_maximize_panel(self: *Self, _: Ctx) Result {
         self.bottom_area.toggle_maximize();
-        if (self.bottom_area.visible()) if (self.get_panel_view(terminal_view)) |vt| if (self.is_panel_view_showing(terminal_view)) {
+        if (self.bottom_area.visible()) if (self.current_terminal()) |vt| if (self.is_panel_view_showing(terminal_view)) {
             if (self.bottom_area.is_maximized()) vt.focus() else vt.unfocus();
         };
     }
@@ -1058,7 +1091,10 @@ const cmds = struct {
     pub const show_inspector_view_meta: Meta = .{};
 
     pub fn toggle_terminal_view(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(terminal_view, .toggle);
+        if (self.is_panel_view_showing(terminal_view))
+            self.bottom_area.hide()
+        else
+            _ = try self.show_current_terminal();
     }
     pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
 
@@ -1088,28 +1124,23 @@ const cmds = struct {
     pub fn open_terminal(self: *Self, ctx: Ctx) Result {
         const have_args = ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more });
 
-        if (!have_args) if (self.get_panel_view(terminal_view)) |vt| {
+        if (!have_args) if (self.current_terminal()) |tv| {
             std.log.debug("open_terminal: toggle_focus", .{});
-            if (self.is_panel_view_showing(terminal_view)) {
-                vt.toggle_focus();
-            } else {
-                _ = try self.show_panel_view(terminal_view, .empty());
-                vt.focus();
+            if (self.is_panel_view_showing(terminal_view) and self.terminal_panel(tv.vt) != null) {
+                const f = self.terminal_panel(tv.vt).?;
+                if (f.group.is_active(f.panel.id)) {
+                    tv.toggle_focus();
+                    return;
+                }
             }
+            _ = try self.open_terminal_panel(tv.vt, .{ .focus = true });
             return;
         };
 
         var buf: [tp.max_message_size]u8 = undefined;
         if (ctx.args.buf.len > 0)
             std.log.debug("open_terminal: {s}", .{ctx.args.to_json(&buf) catch "(error)"});
-        if (self.get_panel_view(terminal_view)) |vt| {
-            try vt.run_cmd(ctx);
-            _ = try self.show_panel_view(terminal_view, .empty());
-            vt.focus();
-        } else {
-            const vt = try self.show_panel_view(terminal_view, ctx);
-            vt.focus();
-        }
+        _ = try self.run_in_terminal(ctx);
     }
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
 
@@ -1127,9 +1158,7 @@ const cmds = struct {
             return error.Stop;
         } else try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
 
-        const tv = try self.show_panel_view(terminal_view, .empty());
-        tv.attach(vt);
-        tv.focus();
+        _ = try self.open_terminal_panel(vt, .{ .focus = true });
     }
     pub const terminal_new_meta: Meta = .{
         .description = "Open a new terminal",
@@ -1151,9 +1180,7 @@ const cmds = struct {
         var idx: usize = undefined;
         if (!try ctx.args.match(.{tp.extract(&idx)})) return error.InvalidTerminalSelectArgument;
         const vt = Vt.Manager.by_index(idx) orelse return;
-        const tv = try self.show_panel_view(terminal_view, .empty());
-        tv.attach(vt);
-        tv.focus();
+        _ = try self.open_terminal_panel(vt, .{ .focus = true });
     }
     pub const terminal_select_meta: Meta = .{ .arguments = &.{.integer} };
 
@@ -1162,43 +1189,39 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&text)}))
             return;
 
-        const vt = try self.show_panel_view(terminal_view, .empty());
+        const tv = try self.show_current_terminal();
         if (tui.config().terminal_focus_after_send)
-            vt.focus();
-        vt.send_text(text);
+            tv.focus();
+        tv.send_text(text);
         tui.need_render(@src());
     }
     pub const send_to_terminal_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn unfocus_terminal(self: *Self, _: Ctx) Result {
-        if (self.get_panel_view(terminal_view)) |vt|
-            vt.toggle_focus();
+        if (self.current_terminal()) |tv|
+            tv.toggle_focus();
     }
     pub const unfocus_terminal_meta: Meta = .{};
 
-    pub fn close_terminal(self: *Self, _: Ctx) Result {
-        if (self.get_panel_view(terminal_view)) |_|
-            try self.toggle_panel_view(terminal_view, .disable);
+    pub fn close_terminal(self: *Self, ctx: Ctx) Result {
+        var ref: usize = 0;
+        const f = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&ref)}))
+            self.terminal_panel(@ptrFromInt(ref))
+        else if (self.current_terminal()) |tv|
+            self.terminal_panel(tv.vt)
+        else
+            null;
+        if (f) |f_| self.bottom_area.close(f_.panel.id);
     }
-    pub const close_terminal_meta: Meta = .{ .description = "Close terminal" };
+    pub const close_terminal_meta: Meta = .{ .description = "Close terminal", .arguments = &.{.integer} };
 
     pub fn close_terminal_on_exit(self: *Self, ctx: Ctx) Result {
         var ref: usize = 0;
         if (!(cbor.match(ctx.args.buf, .{tp.extract(&ref)}) catch false and ref != 0)) return;
-
-        const tv = self.get_panel_view(terminal_view) orelse {
-            Vt.Manager.reap_ref(ref);
-            return;
+        for (Vt.Manager.all()) |vt| if (@intFromPtr(vt) == ref) {
+            if (self.terminal_panel(vt)) |f| return self.bottom_area.remove(f);
+            break;
         };
-
-        if (@intFromPtr(tv.vt) == ref)
-            if (Vt.Manager.running_except(tv.vt)) |next| {
-                tv.attach(next);
-            } else {
-                try self.toggle_panel_view(terminal_view, .disable);
-                return;
-            };
-
         Vt.Manager.reap_ref(ref);
     }
     pub const close_terminal_on_exit_meta: Meta = .{};
