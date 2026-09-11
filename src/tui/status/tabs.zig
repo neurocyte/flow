@@ -14,6 +14,7 @@ const tui = @import("../tui.zig");
 const Widget = @import("../Widget.zig");
 const WidgetList = @import("../WidgetList.zig");
 const Button = @import("../Button.zig");
+const tab_render = @import("../tab_render.zig");
 
 const default_min_tabs = 2;
 
@@ -726,8 +727,6 @@ const Tab = struct {
     save_pos: ?i32 = null,
     on_event: ?EventHandler = null,
 
-    const Mode = enum { active, inactive, selected };
-
     const ButtonType = Button.Options(@This()).ButtonType;
 
     fn create(
@@ -791,134 +790,41 @@ const Tab = struct {
             const xoffset, const yoffset = if (btn.drag_pos_offset) |offset| .{ offset.x, offset.y } else .{ 0, 0 };
             if (tui.top_layer(box, xoffset, yoffset, .solid)) |top_layer_| {
                 var top_layer = top_layer_;
-                self.render_selected(&top_layer, btn.opts.label, false, theme, self.is_active(), .dragging);
+                const hit = self.render_tab(&top_layer, btn.opts.label, .{ .active = self.is_active(), .dragging = true }, theme);
+                self.close_pos = hit.close_pos;
+                self.save_pos = hit.save_pos;
                 tui.rdr().request_mouse_cursor_pointer(true);
             }
         } else {
-            const active = self.is_active();
-            const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
-            switch (mode) {
-                .selected => self.render_selected(&btn.plane, btn.opts.label, btn.hover, theme, active, .normal),
-                .active => if (self.is_focused())
-                    self.render_active(&btn.plane, btn.opts.label, btn.hover, theme)
-                else
-                    self.render_unfocused_active(&btn.plane, btn.opts.label, btn.hover, theme),
-                .inactive => if (self.is_focused())
-                    self.render_inactive(&btn.plane, btn.opts.label, btn.hover, theme)
-                else
-                    self.render_unfocused_inactive(&btn.plane, btn.opts.label, btn.hover, theme),
-            }
+            const hit = self.render_tab(&btn.plane, btn.opts.label, .{
+                .hover = btn.hover,
+                .active = self.is_active(),
+                .focused = self.is_focused(),
+            }, theme);
+            self.close_pos = hit.close_pos;
+            self.save_pos = hit.save_pos;
         }
         return false;
     }
 
-    const Rendering = enum { normal, dragging };
-
-    fn render_selected(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme, active: bool, rendering: Rendering) void {
-        const corner_bg: GlyphBackground = switch (rendering) {
-            .normal => .normal,
-            .dragging => .transparent,
+    fn render_tab(self: *@This(), plane: *Plane, label: []const u8, state: tab_render.State, theme: *const Widget.Theme) tab_render.Hit {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
+        const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
+        const auto_save = if (buffer_) |buffer| if (buffer.is_auto_save()) switch (tui.config().auto_save_mode) {
+            .on_input_idle, .on_document_change => true,
+            .on_focus_change => false,
+        } else false else false;
+        var content: tab_render.Content = .{
+            .label = label,
+            .indicator = if (is_dirty and !auto_save) .dirty else .clean,
+            .hover_action = if (is_dirty) .save else .close,
         };
-        plane.set_base_style(theme.editor);
-        plane.erase();
-        plane.home();
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_bg.from_theme(theme),
-        });
-        plane.fill(" ");
-        plane.home();
-        if (active) {
-            plane.set_style(.{
-                .fg = self.tab_style.selected_fg.from_theme(theme),
-                .bg = self.tab_style.selected_bg.from_theme(theme),
-            });
-            plane.fill(" ");
-            plane.home();
-        }
-
-        plane.set_style(.{
-            .fg = self.tab_style.selected_left_fg.from_theme(theme),
-            .bg = self.tab_style.selected_left_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.selected_left, self.tab_style.selected_left_fg_transparent, corner_bg);
-        plane.set_style(.{
-            .fg = self.tab_style.selected_fg.from_theme(theme),
-            .bg = self.tab_style.selected_bg.from_theme(theme),
-        });
-        self.render_content(plane, label, hover, self.tab_style.selected_fg.from_theme(theme), theme);
-
-        plane.set_style(.{
-            .fg = self.tab_style.selected_right_fg.from_theme(theme),
-            .bg = self.tab_style.selected_right_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.selected_right, self.tab_style.selected_right_fg_transparent, corner_bg);
-    }
-
-    fn render_active(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
-        plane.set_base_style(theme.editor);
-        plane.erase();
-        plane.home();
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_bg.from_theme(theme),
-        });
-        plane.fill(" ");
-        plane.home();
-        plane.set_style(.{
-            .fg = self.tab_style.active_fg.from_theme(theme),
-            .bg = self.tab_style.active_bg.from_theme(theme),
-        });
-        plane.fill(" ");
-        plane.home();
-
-        plane.set_style(.{
-            .fg = self.tab_style.active_left_fg.from_theme(theme),
-            .bg = self.tab_style.active_left_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.active_left, self.tab_style.active_left_fg_transparent, .normal);
-
-        plane.set_style(.{
-            .fg = self.tab_style.active_fg.from_theme(theme),
-            .bg = self.tab_style.active_bg.from_theme(theme),
-        });
-        self.render_content(plane, label, hover, self.tab_style.active_fg.from_theme(theme), theme);
-
-        plane.set_style(.{
-            .fg = self.tab_style.active_right_fg.from_theme(theme),
-            .bg = self.tab_style.active_right_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.active_right, self.tab_style.active_right_fg_transparent, .normal);
-    }
-
-    fn render_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
-        plane.set_base_style(theme.editor);
-        plane.erase();
-        plane.home();
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_bg.from_theme(theme),
-        });
-        plane.fill(" ");
-        plane.home();
-
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_left_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_left_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.inactive_left, self.tab_style.inactive_left_fg_transparent, .normal);
-
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_bg.from_theme(theme),
-        });
-        self.render_content(plane, label, hover, self.tab_style.inactive_fg.from_theme(theme), theme);
-
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_right_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_right_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.inactive_right, self.tab_style.inactive_right_fg_transparent, .normal);
+        if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
+            content.icon = icon;
+            content.icon_color = if (buffer.file_type_color) |color| if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) color else null else null;
+        };
+        return tab_render.render(plane, self.tab_style, theme, state, content);
     }
 
     fn render_dragging(self: *@This(), plane: *Plane, theme: *const Widget.Theme) void {
@@ -933,129 +839,6 @@ const Tab = struct {
         plane.home();
     }
 
-    fn render_unfocused_active(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
-        plane.set_base_style(theme.editor);
-        plane.erase();
-        plane.home();
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_bg.from_theme(theme),
-        });
-        plane.fill(" ");
-        plane.home();
-        plane.set_style(.{
-            .fg = self.tab_style.active_fg.from_theme(theme),
-            .bg = self.tab_style.active_bg.from_theme(theme),
-        });
-        plane.fill(" ");
-        plane.home();
-
-        plane.set_style(.{
-            .fg = self.tab_style.unfocused_active_left_fg.from_theme(theme),
-            .bg = self.tab_style.unfocused_active_left_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.unfocused_active_left, self.tab_style.unfocused_active_left_fg_transparent, .normal);
-
-        plane.set_style(.{
-            .fg = self.tab_style.unfocused_active_fg.from_theme(theme),
-            .bg = self.tab_style.unfocused_active_bg.from_theme(theme),
-        });
-        self.render_content(plane, label, hover, self.tab_style.unfocused_active_fg.from_theme(theme), theme);
-
-        plane.set_style(.{
-            .fg = self.tab_style.unfocused_active_right_fg.from_theme(theme),
-            .bg = self.tab_style.unfocused_active_right_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.unfocused_active_right, self.tab_style.unfocused_active_right_fg_transparent, .normal);
-    }
-
-    fn render_unfocused_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
-        plane.set_base_style(theme.editor);
-        plane.erase();
-        plane.home();
-        plane.set_style(.{
-            .fg = self.tab_style.inactive_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_bg.from_theme(theme),
-        });
-        plane.fill(" ");
-        plane.home();
-
-        plane.set_style(.{
-            .fg = self.tab_style.unfocused_inactive_left_fg.from_theme(theme),
-            .bg = self.tab_style.unfocused_inactive_left_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.unfocused_inactive_left, self.tab_style.unfocused_inactive_left_fg_transparent, .normal);
-
-        plane.set_style(.{
-            .fg = self.tab_style.unfocused_inactive_fg.from_theme(theme),
-            .bg = self.tab_style.unfocused_inactive_bg.from_theme(theme),
-        });
-        self.render_content(plane, label, hover, self.tab_style.unfocused_inactive_fg.from_theme(theme), theme);
-
-        plane.set_style(.{
-            .fg = self.tab_style.unfocused_inactive_right_fg.from_theme(theme),
-            .bg = self.tab_style.unfocused_inactive_right_bg.from_theme(theme),
-        });
-        put_glyph(plane, self.tab_style.unfocused_inactive_right, self.tab_style.unfocused_inactive_right_fg_transparent, .normal);
-    }
-
-    fn render_content(self: *@This(), plane: *Plane, label: []const u8, hover: bool, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
-        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
-        const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
-        const auto_save = if (buffer_) |buffer| if (buffer.is_auto_save()) switch (tui.config().auto_save_mode) {
-            .on_input_idle, .on_document_change => true,
-            .on_focus_change => false,
-        } else false else false;
-        self.render_padding(plane, .left);
-        if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
-            const color_: ?u24 = if (buffer.file_type_color) |color| if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) color else null else null;
-            if (color_) |color|
-                plane.set_style(.{ .fg = .{ .color = color } });
-            _ = plane.putstr(icon) catch {};
-            if (color_) |_|
-                plane.set_style(.{ .fg = fg });
-            _ = plane.putstr("  ") catch {};
-        };
-        _ = plane.putstr(label) catch {};
-        _ = plane.putstr(" ") catch {};
-        self.close_pos = null;
-        self.save_pos = null;
-        if (hover) {
-            if (is_dirty) {
-                if (self.tab_style.save_icon_fg) |color|
-                    plane.set_style(.{ .fg = color.from_theme(theme) });
-                self.save_pos = plane.cursor_x();
-                put_glyph(plane, self.tabbar.tab_style.save_icon, self.tabbar.tab_style.save_icon_fg_transparent, .normal);
-            } else {
-                plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
-                self.close_pos = plane.cursor_x();
-                put_glyph(plane, self.tabbar.tab_style.close_icon, self.tabbar.tab_style.close_icon_fg_transparent, .normal);
-            }
-        } else if (is_dirty and !auto_save) {
-            if (self.tab_style.dirty_indicator_fg) |color|
-                plane.set_style(.{ .fg = color.from_theme(theme) });
-            put_glyph(plane, self.tabbar.tab_style.dirty_indicator, self.tabbar.tab_style.dirty_indicator_fg_transparent, .normal);
-        } else {
-            if (self.tab_style.clean_indicator_fg) |color|
-                plane.set_style(.{ .fg = color.from_theme(theme) });
-            put_glyph(plane, self.tabbar.tab_style.clean_indicator, self.tabbar.tab_style.clean_indicator_fg_transparent, .normal);
-        }
-        plane.set_style(.{ .fg = fg });
-        self.render_padding(plane, .right);
-    }
-
-    fn render_padding(self: *@This(), plane: *Plane, side: enum { left, right }) void {
-        var padding: usize = switch (side) {
-            .left => self.tab_style.padding_left,
-            .right => self.tab_style.padding_right,
-        };
-        const old_fgt = plane.style.glyph_alpha_from_bg;
-        defer plane.style.glyph_alpha_from_bg = old_fgt;
-        plane.style.glyph_alpha_from_bg = self.tab_style.padding_fg_transparent;
-        while (padding > 0) : (padding -= 1) _ = plane.putstr(self.tab_style.padding) catch {};
-    }
-
     fn layout(self: *@This(), btn: *ButtonType) Widget.Layout {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const is_dirty = if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| buffer.is_dirty() else false;
@@ -1066,17 +849,10 @@ const Tab = struct {
     }
 
     fn padding_len(plane: Plane, tab_style: Style, active: bool, dirty: bool) usize {
-        const len_padding = plane.egc_chunk_width(tab_style.padding, 0, 1) * (tab_style.padding_left + tab_style.padding_right);
         const len_file_icon: usize = if (tab_style.file_type_icon) 3 else 0;
         const len_close_icon = plane.egc_chunk_width(tab_style.close_icon, 0, 1);
         const len_dirty_indicator = if (dirty) plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1) else 0;
-        const len_dirty_close = @max(len_close_icon, len_dirty_indicator) + 1; // +1 for the leading space
-        return len_padding + len_file_icon + len_dirty_close + if (active)
-            plane.egc_chunk_width(tab_style.active_left, 0, 1) +
-                plane.egc_chunk_width(tab_style.active_right, 0, 1)
-        else
-            plane.egc_chunk_width(tab_style.inactive_left, 0, 1) +
-                plane.egc_chunk_width(tab_style.inactive_right, 0, 1);
+        return len_file_icon + tab_render.chrome_width(plane, &tab_style, active, @max(len_close_icon, len_dirty_indicator));
     }
 
     fn name_from_buffer(buffer: *Buffer) []const u8 {
