@@ -522,8 +522,8 @@ const cmds = struct {
             try close_splits(self, .empty_from(ctx));
             try self.close_all_editors(.empty_from(ctx));
             self.delete_all_buffers();
+            self.hide_filelist();
             self.filelists.reset();
-            try self.hide_filelist();
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
         }
@@ -1068,15 +1068,22 @@ const cmds = struct {
     pub const show_filelist_meta: Meta = .{ .description = "Show the file list" };
 
     pub fn hide_filelist(self: *Self, _: Ctx) Result {
-        try self.hide_filelist();
+        self.hide_filelist();
     }
     pub const hide_filelist_meta: Meta = .{ .description = "Hide the file list" };
 
     pub fn focus_filelist(self: *Self, _: Ctx) Result {
-        const fl = try self.show_filelist();
+        const fl = try self.show_filelist() orelse return;
         fl.focus();
     }
     pub const focus_filelist_meta: Meta = .{ .description = "Focus the file list" };
+
+    pub fn restore_filelist_tabs(self: *Self, ctx: Ctx) Result {
+        var show: bool = false;
+        _ = try ctx.args.match(.{tp.extract(&show)});
+        _ = try self.open_filelist_panels(.{ .show = show });
+    }
+    pub const restore_filelist_tabs_meta: Meta = .{ .arguments = &.{.boolean} };
 
     pub fn open_terminal(self: *Self, ctx: Ctx) Result {
         const have_args = ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more });
@@ -1574,15 +1581,10 @@ const cmds = struct {
         if (self.get_editor_for_file(file_path)) |editor|
             editor.clear_diagnostics();
 
-        if (self.filelists.find_by_kind(.diagnostics)) |list|
+        if (self.filelists.find_by_kind(.diagnostics)) |list| {
             self.clear_find_in_files_results(list.list_id);
-        if (self.active_filelist()) |fl| if (fl.kind == .diagnostics) {
-            if (self.filelists.refresh_active()) {
-                if (self.get_panel_view(filelist_view)) |flv| flv.refresh();
-            } else {
-                try self.hide_filelist();
-            }
-        };
+            self.close_filelist_panel(list.list_id);
+        }
     }
     pub const clear_diagnostics_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -2398,7 +2400,6 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
 
     try tui.write_state(writer);
 
-    self.filelists.panel_open = self.has_panel_view(filelist_view);
     self.filelists.write_state(writer) catch return error.WriteFailed;
 }
 
@@ -2498,8 +2499,8 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
         logger.print_err("mainview", "failed to restore TUI : {}", .{e});
 
     self.filelists.restore_state(iter) catch {};
-    if (self.filelists.panel_open and self.filelists.count() > 0)
-        tui.post_on_ui_ready(.{ "cmd", "show_filelist" });
+    if (self.filelists.count() > 0)
+        tui.post_on_ui_ready(.{ "cmd", "restore_filelist_tabs", .{self.filelists.legacy_panel_open} });
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
@@ -2586,22 +2587,51 @@ fn delete_all_buffers(self: *Self) void {
     self.buffer_manager.delete_all();
 }
 
-fn show_filelist(self: *Self) !*filelist_view {
-    _ = self.filelists.refresh_active();
-    const fl = try self.show_panel_view(filelist_view, .empty());
-    if (fl.manager == null) fl.attach(&self.filelists);
-    self.filelists.panel_open = true;
-    return fl;
+fn filelist_panel(self: *Self, list_id: FileList.Id) ?PanelArea.Found {
+    return self.bottom_area.find_panel_where(filelist_view, list_id, filelist_view.is_list);
+}
+
+fn filelist_view_for(self: *Self, list_id: FileList.Id) ?*filelist_view {
+    const f = self.filelist_panel(list_id) orelse return null;
+    return f.panel.cast(filelist_view);
+}
+
+fn open_filelist_panel(self: *Self, list_id: FileList.Id, opts: PanelArea.OpenOptions) !*filelist_view {
+    if (self.filelist_panel(list_id)) |f| {
+        if (opts.activate) self.bottom_area.activate(f.panel.id) else if (opts.show) self.bottom_area.show();
+        return f.panel.cast(filelist_view) orelse error.PanelNotFound;
+    }
+    return self.bottom_area.create_panel(filelist_view, .{ &self.filelists, list_id }, opts);
+}
+
+fn close_filelist_panel(self: *Self, list_id: FileList.Id) void {
+    if (self.filelist_panel(list_id)) |f| self.bottom_area.remove(f);
 }
 
 fn active_filelist(self: *Self) ?*FileList {
-    return self.filelists.active();
+    const flv = self.bottom_area.current_of(filelist_view) orelse return null;
+    return flv.list();
 }
 
-fn hide_filelist(self: *Self) !void {
-    self.filelists.panel_open = false;
-    if (self.has_panel_view(filelist_view))
-        try self.toggle_panel_view(filelist_view, .disable);
+fn show_filelist(self: *Self) !?*filelist_view {
+    if (self.bottom_area.current_of(filelist_view)) |flv|
+        return try self.open_filelist_panel(flv.list_id, .{});
+    return self.open_filelist_panels(.{});
+}
+
+fn open_filelist_panels(self: *Self, opts: PanelArea.OpenOptions) !?*filelist_view {
+    var first: ?*filelist_view = null;
+    for (self.filelists.lists.items) |fl| if (!fl.is_empty()) {
+        var opts_ = opts;
+        opts_.activate = opts.activate and first == null;
+        const flv = try self.open_filelist_panel(fl.list_id, opts_);
+        if (first == null) first = flv;
+    };
+    return first;
+}
+
+fn hide_filelist(self: *Self) void {
+    while (self.bottom_area.find_panel(filelist_view)) |f| self.bottom_area.remove(f);
 }
 
 pub fn set_filelist_label(self: *Self, list_id: FileList.Id, label: []const u8) void {
@@ -2695,18 +2725,14 @@ fn forget_filelist_streams(self: *Self, list_id: FileList.Id) void {
 
 fn end_filelist_ingest(self: *Self, list_id: FileList.Id, clear_if_empty: bool) void {
     self.filelists.end_ingest(list_id, clear_if_empty);
-    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_id);
+    if (self.filelist_view_for(list_id)) |flv| flv.refresh();
 }
 
 fn close_filelist_by_id(self: *Self, list_id: FileList.Id) void {
+    self.close_filelist_panel(list_id);
     if (self.filelists.get(list_id) == null) return;
     self.filelists.remove(list_id);
     self.forget_filelist_streams(list_id);
-    if (self.filelists.refresh_active()) {
-        if (self.get_panel_view(filelist_view)) |flv| flv.refresh();
-    } else {
-        self.hide_filelist() catch {};
-    }
     tui.need_render(@src());
 }
 
@@ -2722,14 +2748,13 @@ fn add_filelist_entry(
     severity: ed.Diagnostic.Severity,
     stream_type: enum { background, foreground },
 ) tp.result {
-    const panel_was_showing = self.is_panel_view_showing(filelist_view);
     const take_focus = if (stream_type == .foreground) true else blk: {
-        if (!panel_was_showing) break :blk true;
-        const cur = self.filelists.active() orelse break :blk true;
+        if (!self.is_panel_view_showing(filelist_view)) break :blk true;
+        const cur = self.active_filelist() orelse break :blk true;
         if (cur.list_id == list_id) break :blk true;
         break :blk cur.is_empty();
     };
-    const flv = self.show_filelist() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const flv = self.open_filelist_panel(list_id, .{ .activate = take_focus }) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const event = self.filelists.add_item(list_id, .{
         .path = path,
         .begin_line = @max(1, begin_line) - 1,
@@ -2739,13 +2764,13 @@ fn add_filelist_entry(
         .lines = lines,
         .severity = severity,
         .pos_type = .byte,
-    }, take_focus) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }) catch |e| return tp.exit_error(e, @errorReturnTrace());
     flv.handle_filelist_event(event);
 }
 
 fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
     self.filelists.clear(list_id);
-    if (self.get_panel_view(filelist_view)) |fl| fl.refresh_if_active(list_id);
+    if (self.filelist_view_for(list_id)) |flv| flv.refresh();
 }
 
 pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {

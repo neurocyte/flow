@@ -12,14 +12,10 @@ const keybind = @import("keybind");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const Tabs = @import("status/tabs.zig");
-const WidgetList = @import("WidgetList.zig");
 const Menu = @import("Menu.zig");
-const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor = @import("editor.zig");
 const FileList = @import("FileList.zig");
-const tab_render = @import("tab_render.zig");
 const Panel = @import("Panel.zig");
 
 pub const name = @typeName(Self);
@@ -35,28 +31,25 @@ plane: Plane,
 menu: *MenuType,
 logger: log.Logger,
 commands: Commands = undefined,
+current: bool = false,
 input_mode: keybind.Mode,
 
-manager: ?*FileList.Manager = null,
+manager: *FileList.Manager,
+list_id: FileList.Id,
 focused: bool = false,
 activate: ActivateMode = .normal,
 view_rows: usize = 0,
 view_cols: usize = 0,
 box: Widget.Box = .{},
-tabs: *WidgetList,
-tabs_hash: u64 = 0,
-tab_style: Tabs.Style,
-tab_style_bufs: [][]const u8,
 
 const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
-const FilelistTabType = Button.Options(FilelistTab).ButtonType;
 const path_column_ratio = 4;
 const widget_type: Widget.Type = .none;
 
 pub const panel_tag = "filelist";
 
-pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
+pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, list_id: FileList.Id) !Panel {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
 
@@ -65,11 +58,6 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
 
     var input_mode = try keybind.mode("filelist", allocator, .{ .insert_command = "do_nothing" });
     errdefer input_mode.deinit();
-
-    const tabs = try WidgetList.createH(allocator, plane, "filelist.tabs", .dynamic);
-    errdefer tabs.deinit(allocator);
-
-    const tab_style, const tab_style_bufs = root.read_config(Tabs.Style, allocator);
 
     const menu = try Menu.create(*Self, allocator, plane, .{
         .ctx = self,
@@ -86,46 +74,55 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
         .plane = plane,
         .logger = log.logger(@typeName(Self)),
         .input_mode = input_mode,
-        .tabs = tabs,
         .menu = menu,
-        .tab_style = tab_style,
-        .tab_style_bufs = tab_style_bufs,
+        .manager = manager,
+        .list_id = list_id,
     };
     if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
     self.menu.container.render_decoration = null;
-    self.tabs.ctx = self;
-    self.tabs.on_render = render_tab_bar;
-    self.tabs.render_decoration = null;
-    try self.commands.init(self);
+    self.commands.init_unregistered(self);
+    self.rebuild_menu();
     return Panel.to(self);
-}
-
-pub fn panel_title(self: *Self) []const u8 {
-    return if (self.active_list()) |fl| fl.label else "File list";
-}
-
-pub fn panel_icon(self: *Self) []const u8 {
-    return FileList.icon_for(if (self.active_list()) |fl| fl.kind else .find_in_files);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
-    root.free_config(self.allocator, self.tab_style_bufs);
+    if (self.current) self.commands.unregister();
     self.input_mode.deinit();
     self.menu.widget().deinit(allocator);
-    self.tabs.deinit(allocator);
     self.plane.deinit();
-    self.commands.deinit();
     allocator.destroy(self);
 }
 
-pub fn attach(self: *Self, manager: *FileList.Manager) void {
-    self.manager = manager;
-    self.rebuild_menu();
+pub fn panel_title(self: *Self) []const u8 {
+    return if (self.list()) |fl| fl.label else "File list";
 }
 
-fn active_list(self: *Self) ?*FileList {
-    return if (self.manager) |m| m.active() else null;
+pub fn panel_icon(self: *Self) []const u8 {
+    return FileList.icon_for(if (self.list()) |fl| fl.kind else .find_in_files);
+}
+
+pub fn panel_close(self: *Self) Panel.CloseResult {
+    // closing the tab discards the list too
+    tp.self_pid().send(.{ "cmd", "filelist_close", .{self.list_id} }) catch {};
+    return .closed;
+}
+
+pub fn panel_set_current(self: *Self, current: bool) void {
+    if (current == self.current) return;
+    self.current = current;
+    if (current)
+        self.commands.register() catch |e| self.logger.err("register", e)
+    else
+        self.commands.unregister();
+}
+
+pub fn is_list(self: *Self, list_id: FileList.Id) bool {
+    return self.list_id == list_id;
+}
+
+pub fn list(self: *Self) ?*FileList {
+    return self.manager.get(self.list_id);
 }
 
 fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
@@ -137,75 +134,51 @@ fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.St
         .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
 }
 
-fn menu_area(self: *Self) Widget.Box {
-    var b = self.box;
-    if (b.h > 0) {
-        b.y += 1;
-        b.h -= 1;
-    }
-    return b;
-}
-
-fn tab_area(self: *Self) Widget.Box {
-    var b = self.box;
-    b.h = @min(b.h, 1);
-    return b;
-}
-
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     const padding = tui.get_widget_style(widget_type).padding;
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.box = pos;
-    self.reparent_children();
-    self.tabs.resize(self.tab_area());
-    const menu_box = self.menu_area();
-    self.menu.container.resize(menu_box);
-    const client_box = menu_box.to_client_box(padding);
+    self.menu.container.plane.layer = self.plane.layer;
+    self.menu.container.plane.window.screen = self.plane.window.screen;
+    self.menu.container.resize(self.box);
+    const client_box = self.box.to_client_box(padding);
     self.view_rows = client_box.h;
     self.view_cols = client_box.w;
     self.update_scrollbar();
 }
 
-fn reparent_children(self: *Self) void {
-    for ([_]*Plane{ &self.tabs.plane, &self.menu.container.plane }) |p| {
-        p.layer = self.plane.layer;
-        p.window.screen = self.plane.window.screen;
-    }
-}
-
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(walk_ctx, Widget.to(self), .begin)) return true;
-    return self.tabs.walk(walk_ctx, f) or
-        self.menu.container_widget.walk(walk_ctx, f) or
+    return self.menu.container_widget.walk(walk_ctx, f) or
         f(walk_ctx, Widget.to(self), .end);
 }
 
 fn rebuild_menu(self: *Self) void {
     self.menu.reset_items();
     self.menu.selected = null;
-    if (self.active_list()) |fl| {
+    if (self.list()) |fl| {
         for (0..fl.entries.items.len) |i| {
             var label: std.Io.Writer.Allocating = .init(self.allocator);
             defer label.deinit();
             cbor.writeValue(&label.writer, i) catch continue;
             self.menu.add_item_with_handler(label.written(), handle_menu_action) catch continue;
         }
-        self.menu.resize(self.menu_area());
+        self.menu.resize(self.box);
         self.update_selected();
     }
     self.update_scrollbar();
 }
 
 fn append_button(self: *Self) void {
-    const fl = self.active_list() orelse return;
+    const fl = self.list() orelse return;
     if (fl.entries.items.len == 0) return;
     const idx = fl.entries.items.len - 1;
     var label: std.Io.Writer.Allocating = .init(self.allocator);
     defer label.deinit();
     cbor.writeValue(&label.writer, idx) catch return;
     self.menu.add_item_with_handler(label.written(), handle_menu_action) catch return;
-    self.menu.resize(self.menu_area());
+    self.menu.resize(self.box);
     self.update_scrollbar();
 }
 
@@ -217,11 +190,6 @@ pub fn handle_filelist_event(self: *Self, event: FileList.Event) void {
     }
 }
 
-pub fn refresh_if_active(self: *Self, list_id: FileList.Id) void {
-    if (self.manager) |m| if (m.active()) |active|
-        if (active.list_id == list_id) self.rebuild_menu();
-}
-
 pub fn refresh(self: *Self) void {
     self.rebuild_menu();
 }
@@ -230,139 +198,11 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(theme.panel);
     self.plane.erase();
     self.plane.home();
-    self.sync_tabs();
-    _ = self.tabs.render(theme);
     return self.menu.container_widget.render(theme);
 }
 
-const FilelistTab = struct {
-    ctx: *Self,
-    list_id: FileList.Id,
-    close_pos: ?i32 = null,
-
-    fn is_active(t: *FilelistTab) bool {
-        const m = t.ctx.manager orelse return false;
-        const active = m.active() orelse return false;
-        return active.list_id == t.list_id;
-    }
-
-    fn icon(t: *FilelistTab) []const u8 {
-        if (!tui.config().show_fileicons) return "";
-        const m = t.ctx.manager orelse return "";
-        const fl = m.get(t.list_id) orelse return "";
-        return FileList.icon_for(fl.kind);
-    }
-
-    fn label(t: *FilelistTab) []const u8 {
-        const m = t.ctx.manager orelse return "";
-        const fl = m.get(t.list_id) orelse return "";
-        return fl.label;
-    }
-
-    fn render(t: *FilelistTab, plane: *Plane, theme: *const Widget.Theme, hover: bool) void {
-        const hit = tab_render.render(plane, &t.ctx.tab_style, theme, .{
-            .hover = hover,
-            .active = t.is_active(),
-            .focused = t.ctx.focused,
-        }, .{ .icon = t.icon(), .label = t.label() });
-        t.close_pos = hit.close_pos;
-    }
-
-    fn layout(t: *FilelistTab, btn: *FilelistTabType) Widget.Layout {
-        const s = &t.ctx.tab_style;
-        const plane = btn.plane;
-        const icon_ = t.icon();
-        const len_icon = if (icon_.len > 0) plane.egc_chunk_width(icon_, 0, 1) + 2 else 0;
-        const len = plane.egc_chunk_width(t.label(), 0, 1) + len_icon;
-        const len_indicator = @max(
-            plane.egc_chunk_width(s.close_icon, 0, 1),
-            plane.egc_chunk_width(s.clean_indicator, 0, 1),
-        );
-        return .{ .static = len + tab_render.chrome_width(plane, s, t.is_active(), len_indicator) };
-    }
-};
-
-fn render_tab_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
-    const self: *Self = @ptrCast(@alignCast(ctx orelse return));
-    const plane = &self.tabs.plane;
-    plane.set_base_style(theme.editor);
-    plane.erase();
-    plane.home();
-    plane.set_style(.{
-        .fg = self.tab_style.bar_fg.from_theme(theme),
-        .bg = self.tab_style.bar_bg.from_theme(theme),
-    });
-    plane.fill(" ");
-    plane.home();
-}
-
-fn hash_tabs(self: *Self) u64 {
-    var h = std.hash.Wyhash.init(0);
-    if (self.manager) |m| for (m.lists.items) |fl| if (!fl.is_empty()) {
-        h.update(std.mem.asBytes(&fl.list_id));
-        h.update(fl.label);
-        h.update(&[_]u8{0});
-    };
-    return h.final();
-}
-
-fn sync_tabs(self: *Self) void {
-    const hash = self.hash_tabs();
-    if (hash == self.tabs_hash) return;
-    self.tabs_hash = hash;
-    self.rebuild_tabs();
-}
-
-fn rebuild_tabs(self: *Self) void {
-    self.tabs.remove_all();
-    if (self.manager) |m| for (m.lists.items) |fl| {
-        if (fl.is_empty()) continue;
-        const w = Button.create_widget(FilelistTab, self.allocator, self.plane, .{
-            .ctx = .{ .ctx = self, .list_id = fl.list_id },
-            .label = fl.label,
-            .on_click = handle_tab_click,
-            .on_click2 = handle_tab_click2,
-            .on_render = handle_tab_render,
-            .on_layout = handle_tab_layout,
-        }) catch continue;
-        self.tabs.add(w) catch {
-            w.deinit(self.allocator);
-            continue;
-        };
-    };
-    self.tabs.resize(self.tab_area());
-}
-
-fn handle_tab_layout(ctx: *FilelistTab, btn: *FilelistTabType) Widget.Layout {
-    return ctx.layout(btn);
-}
-
-fn handle_tab_render(ctx: *FilelistTab, button: *FilelistTabType, theme: *const Widget.Theme) bool {
-    ctx.render(&button.plane, theme, button.hover);
-    return false;
-}
-
-fn handle_tab_click2(ctx: *FilelistTab, _: *FilelistTabType, _: Widget.Pos) void {
-    tp.self_pid().send(.{ "cmd", "filelist_close", .{ctx.list_id} }) catch |e| ctx.ctx.logger.err(name, e);
-}
-
-fn handle_tab_click(ctx: *FilelistTab, _: *FilelistTabType, pos: Widget.Pos) void {
-    const t = ctx;
-    const self = t.ctx;
-    if (t.close_pos) |close_pos| if (pos.x == close_pos) {
-        tp.self_pid().send(.{ "cmd", "filelist_close", .{t.list_id} }) catch |e| self.logger.err(name, e);
-        return;
-    };
-    if (self.manager) |m| {
-        m.set_active(t.list_id);
-        self.rebuild_menu();
-    }
-    self.focus();
-    tui.need_render(@src());
-}
-
 fn handle_render_menu(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
-    const fl = self.active_list() orelse return false;
+    const fl = self.list() orelse return false;
     const view_pos = fl.view_pos;
     const style_base = theme.panel;
     const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.panel;
@@ -439,14 +279,14 @@ fn handle_render_menu(self: *Self, button: *ButtonType, theme: *const Widget.The
 }
 
 fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
-    const fl = self.active_list() orelse return;
+    const fl = self.list() orelse return;
     _ = try m.match(.{ "scroll_to", tp.extract(&fl.view_pos) });
     self.update_selected();
 }
 
 fn update_scrollbar(self: *Self) void {
     const scrollbar = self.menu.scrollbar orelse return;
-    if (self.active_list()) |fl|
+    if (self.list()) |fl|
         scrollbar.set(@intCast(fl.entries.items.len), @intCast(self.view_rows), @intCast(fl.view_pos))
     else
         scrollbar.set(0, @intCast(self.view_rows), 0);
@@ -454,7 +294,7 @@ fn update_scrollbar(self: *Self) void {
 
 fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
     const self = &menu.*.opts.ctx.*;
-    const fl = self.active_list() orelse return;
+    const fl = self.list() orelse return;
     fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
     if (fl.view_pos < Menu.scroll_lines) {
         fl.view_pos = 0;
@@ -467,7 +307,7 @@ fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
 
 fn mouse_click_button5(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
     const self = &menu.*.opts.ctx.*;
-    const fl = self.active_list() orelse return;
+    const fl = self.list() orelse return;
     fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
     if (fl.view_pos < @max(fl.entries.items.len, self.view_rows) - self.view_rows)
         fl.view_pos += Menu.scroll_lines;
@@ -476,7 +316,7 @@ fn mouse_click_button5(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
 }
 
 fn update_selected(self: *Self) void {
-    const fl = self.active_list() orelse return;
+    const fl = self.list() orelse return;
     if (fl.selected) |sel| {
         if (sel >= fl.view_pos and sel < fl.view_pos + self.view_rows) {
             self.menu.selected = sel - fl.view_pos;
@@ -488,7 +328,7 @@ fn update_selected(self: *Self) void {
 
 fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {
     const self = menu.*.opts.ctx;
-    const fl = self.active_list() orelse return;
+    const fl = self.list() orelse return;
     var idx: usize = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&idx)) catch return)) {
@@ -523,7 +363,7 @@ fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void
 }
 
 fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end }) void {
-    const fl = self.active_list() orelse return;
+    const fl = self.list() orelse return;
     if (fl.entries.items.len == 0) return;
     fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
     const sel_ = fl.selected orelse 0;
@@ -540,14 +380,6 @@ fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end 
     if (sel > fl.view_pos + self.view_rows - 1) fl.view_pos = sel - @min(sel, self.view_rows - 1);
     self.update_selected();
     self.update_scrollbar();
-}
-
-fn switch_filelist(self: *Self, dir: FileList.Direction) void {
-    const manager = self.manager orelse return;
-    const next = manager.next(manager.active(), dir) orelse return;
-    manager.set_active(next.list_id);
-    self.rebuild_menu();
-    tui.need_render(@src());
 }
 
 pub fn focus(self: *Self) void {
@@ -635,16 +467,6 @@ const cmds = struct {
         self.menu.activate_selected();
     }
     pub const goto_selected_file_alternate_meta: Meta = .{};
-
-    pub fn filelist_next(self: *Self, _: Ctx) Result {
-        self.switch_filelist(.forwards);
-    }
-    pub const filelist_next_meta: Meta = .{ .description = "Select next file list" };
-
-    pub fn filelist_prev(self: *Self, _: Ctx) Result {
-        self.switch_filelist(.backwards);
-    }
-    pub const filelist_prev_meta: Meta = .{ .description = "Select previous file list" };
 
     pub fn unfocus_filelist(self: *Self, _: Ctx) Result {
         self.unfocus();

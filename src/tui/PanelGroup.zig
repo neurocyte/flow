@@ -23,6 +23,7 @@ deck: *WidgetDeck,
 panels: std.ArrayList(Panel) = .empty,
 previous: ?Panel.Id = null,
 on_focus: ?Callback = null,
+on_activate: ?Callback = null,
 
 pub const Callback = struct {
     ctx: *anyopaque,
@@ -142,6 +143,12 @@ fn set_active(self: *Self, n: usize) void {
         self.previous = cur.id;
     };
     self.deck.set_active(n);
+    self.notify_active();
+}
+
+fn notify_active(self: *Self) void {
+    if (self.active() == null) return;
+    if (self.on_activate) |cb| cb.f(cb.ctx, self);
 }
 
 pub fn detach(self: *Self, id: Panel.Id) ?Panel {
@@ -150,10 +157,13 @@ pub fn detach(self: *Self, id: Panel.Id) ?Panel {
     const panel = self.panels.orderedRemove(n);
     _ = self.deck.detach(n);
     if (self.previous == id) self.previous = null;
-    if (was_active) if (self.previous) |prev| if (self.index_of(prev)) |p| {
-        self.previous = null;
-        self.deck.set_active(p);
-    };
+    if (was_active) {
+        if (self.previous) |prev| if (self.index_of(prev)) |p| {
+            self.previous = null;
+            self.deck.set_active(p);
+        };
+        self.notify_active();
+    }
     return panel; // ownership passes to the caller
 }
 

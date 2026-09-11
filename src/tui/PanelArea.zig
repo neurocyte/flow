@@ -35,6 +35,8 @@ groups: std.ArrayList(*PanelGroup) = .empty,
 attached: bool = false,
 last_focused: ?*PanelGroup = null,
 next_id: Panel.Id = 1,
+mru: std.ArrayList(Panel.Id) = .empty, // least recently used first
+current: std.StringHashMapUnmanaged(Panel.Id) = .empty, // by panel tag
 tab_style: Tabs.Style,
 tab_style_bufs: [][]const u8,
 
@@ -66,6 +68,8 @@ pub fn deinit(self: *Self) void {
     if (self.attached) _ = self.host.detach(self.list.widget());
     self.list.deinit(self.allocator);
     self.groups.deinit(self.allocator);
+    self.mru.deinit(self.allocator);
+    self.current.deinit(self.allocator);
     root.free_config(self.allocator, self.tab_style_bufs);
     self.allocator.destroy(self);
 }
@@ -111,6 +115,7 @@ fn add_group(self: *Self) error{OutOfMemory}!*PanelGroup {
     const g = try PanelGroup.create(self.allocator, self.list.plane, .panel, &self.tab_style);
     errdefer g.widget().deinit(self.allocator);
     g.on_focus = .{ .ctx = self, .f = note_focused };
+    g.on_activate = .{ .ctx = self, .f = note_activated };
     try self.groups.append(self.allocator, g);
     errdefer _ = self.groups.pop();
     try self.list.add(g.widget());
@@ -130,6 +135,55 @@ fn remove_group(self: *Self, g: *PanelGroup) void {
 fn note_focused(ctx: *anyopaque, g: *PanelGroup) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     self.last_focused = g;
+    if (g.active()) |p| self.touch(p.id);
+}
+
+fn note_activated(ctx: *anyopaque, g: *PanelGroup) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    if (g.active()) |p| self.touch(p.id);
+}
+
+fn mru_remove(self: *Self, id: Panel.Id) void {
+    for (self.mru.items, 0..) |id_, i| if (id_ == id) {
+        _ = self.mru.orderedRemove(i);
+        return;
+    };
+}
+
+fn touch(self: *Self, id: Panel.Id) void {
+    if (self.mru.items.len > 0 and self.mru.items[self.mru.items.len - 1] == id) return;
+    const f = self.find_by_id(id) orelse return;
+    self.mru_remove(id);
+    self.mru.append(self.allocator, id) catch return;
+    self.update_current(f.panel.tag());
+}
+
+fn update_current(self: *Self, tag: []const u8) void {
+    const want: ?Found = blk: {
+        var i = self.mru.items.len;
+        while (i > 0) {
+            i -= 1;
+            const f = self.find_by_id(self.mru.items[i]) orelse continue;
+            if (std.mem.eql(u8, f.panel.tag(), tag)) break :blk f;
+        }
+        break :blk null;
+    };
+    const cur = self.current.get(tag);
+    if (want) |w| if (cur) |c| if (w.panel.id == c) return;
+    if (cur) |c| {
+        if (self.find_by_id(c)) |f| f.panel.set_current(false);
+        _ = self.current.remove(tag);
+    }
+    if (want) |w| {
+        self.current.put(self.allocator, tag, w.panel.id) catch return;
+        w.panel.set_current(true);
+    }
+}
+
+pub fn current_of(self: *Self, comptime V: type) ?*V {
+    const id = self.current.get(V.panel_tag) orelse return null;
+    const f = self.find_by_id(id) orelse return null;
+    return f.panel.cast(V);
 }
 
 fn is_group(self: *const Self, g: *PanelGroup) bool {
@@ -147,10 +201,10 @@ fn target_group(self: *Self) error{OutOfMemory}!*PanelGroup {
     return self.focused_group() orelse self.add_group();
 }
 
-pub fn create_panel(self: *Self, comptime V: type, ctx: command.Context, opts: OpenOptions) !*V {
+pub fn create_panel(self: *Self, comptime V: type, args: anytype, opts: OpenOptions) !*V {
     const group = opts.group orelse try self.target_group();
     errdefer if (group.empty()) self.remove_group(group);
-    const panel = try V.create(self.allocator, group.panel_parent(), ctx);
+    const panel = try @call(.auto, V.create, .{ self.allocator, group.panel_parent() } ++ args);
     errdefer panel.widget.deinit(self.allocator);
     try self.add(group, panel, opts);
     return panel.cast(V) orelse unreachable;
@@ -161,6 +215,10 @@ pub fn add(self: *Self, group: *PanelGroup, panel_: Panel, opts: OpenOptions) er
     panel.id = self.next_id;
     self.next_id += 1;
     try group.add(panel, opts.activate);
+    if (!group.is_active(panel.id)) {
+        self.mru.insert(self.allocator, 0, panel.id) catch {};
+        self.update_current(panel.tag());
+    }
     if (opts.show) self.show();
     tui.resize();
     if (opts.focus) panel.widget.focus();
@@ -182,10 +240,15 @@ pub fn find_first(self: *const Self, comptime V: type) ?*V {
     return f.panel.cast(V);
 }
 
-pub fn find(self: *const Self, comptime V: type, key: anytype, comptime pred: fn (*V, @TypeOf(key)) bool) ?*V {
+pub fn find_panel_where(self: *const Self, comptime V: type, key: anytype, comptime pred: fn (*V, @TypeOf(key)) bool) ?Found {
     for (self.groups.items) |g| for (g.panels.items) |p| if (p.is(V)) if (p.cast(V)) |v|
-        if (pred(v, key)) return v;
+        if (pred(v, key)) return .{ .group = g, .panel = p };
     return null;
+}
+
+pub fn find(self: *const Self, comptime V: type, key: anytype, comptime pred: fn (*V, @TypeOf(key)) bool) ?*V {
+    const f = self.find_panel_where(V, key, pred) orelse return null;
+    return f.panel.cast(V);
 }
 
 pub fn has(self: *const Self, comptime V: type) bool {
@@ -216,7 +279,7 @@ pub fn toggle(self: *Self, comptime V: type, mode: ToggleMode, ctx: command.Cont
         return f.panel.cast(V);
     }
     if (mode == .disable) return null;
-    return try self.create_panel(V, ctx, .{});
+    return try self.create_panel(V, .{ctx}, .{});
 }
 
 pub fn activate(self: *Self, id: Panel.Id) void {
@@ -232,7 +295,14 @@ pub fn close(self: *Self, id: Panel.Id) void {
 }
 
 pub fn remove(self: *Self, f: Found) void {
+    const tag = f.panel.tag();
+    self.mru_remove(f.panel.id);
+    if (self.current.get(tag)) |c| if (c == f.panel.id) {
+        f.panel.set_current(false);
+        _ = self.current.remove(tag);
+    };
     f.group.remove(f.panel.id);
+    self.update_current(tag);
     if (f.group.empty()) self.remove_group(f.group);
     tui.need_render(@src());
 }

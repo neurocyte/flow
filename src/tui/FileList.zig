@@ -6,7 +6,6 @@ const Self = @This();
 
 pub const ActivateMode = enum { normal, alternate };
 pub const State = enum { idle, adding, done };
-pub const Direction = enum { forwards, backwards };
 
 pub const Id = usize;
 pub const Kind = enum { diagnostics, references, find_in_files, terminal_links };
@@ -216,9 +215,8 @@ pub const Event = enum { none, rebuild, append_one };
 pub const Manager = struct {
     allocator: std.mem.Allocator,
     lists: std.ArrayList(*Self) = .empty,
-    active_: ?Id = null,
     next_id: Id = 1,
-    panel_open: bool = false,
+    legacy_panel_open: bool = false, // from a restored legacy (arity 4) state
 
     pub fn init(allocator: std.mem.Allocator) Manager {
         return .{ .allocator = allocator };
@@ -258,25 +256,7 @@ pub const Manager = struct {
 
     pub fn remove(self: *Manager, list_id: Id) void {
         const idx = self.index_of(list_id) orelse return;
-        if (self.active_ == list_id) self.active_ = null;
         self.lists.orderedRemove(idx).deinit();
-    }
-
-    pub fn active(self: *Manager) ?*Self {
-        return if (self.active_) |a| self.get(a) else null;
-    }
-
-    pub fn set_active(self: *Manager, list_id: Id) void {
-        if (self.get(list_id)) |fl| self.active_ = fl.list_id;
-    }
-
-    pub fn refresh_active(self: *Manager) bool {
-        if (self.active()) |fl| if (!fl.is_empty()) return true;
-        for (self.lists.items) |fl| if (!fl.is_empty()) {
-            self.active_ = fl.list_id;
-            return true;
-        };
-        return false;
     }
 
     pub fn clear(self: *Manager, list_id: Id) void {
@@ -290,8 +270,7 @@ pub const Manager = struct {
     pub fn reset(self: *Manager) void {
         for (self.lists.items) |fl| fl.deinit();
         self.lists.clearRetainingCapacity();
-        self.active_ = null;
-        self.panel_open = false;
+        self.legacy_panel_open = false;
     }
 
     pub fn count(self: *Manager) usize {
@@ -307,21 +286,15 @@ pub const Manager = struct {
         fl.state = .idle;
     }
 
-    pub fn add_item(self: *Manager, list_id: Id, entry: Entry, take_focus: bool) !Event {
+    pub fn add_item(self: *Manager, list_id: Id, entry: Entry) !Event {
         const fl = self.get(list_id) orelse return .none;
         const fresh = fl.state != .adding;
         if (fresh) {
             fl.reset();
             fl.state = .adding;
         }
-        var event: Event = .none;
-        if (take_focus) {
-            const was_active = self.active() == fl;
-            self.set_active(fl.list_id);
-            event = if (fresh or !was_active) .rebuild else .append_one;
-        }
         try fl.add(entry);
-        return event;
+        return if (fresh) .rebuild else .append_one;
     }
 
     pub fn end_ingest(self: *Manager, list_id: Id, clear_if_empty: bool) void {
@@ -330,29 +303,8 @@ pub const Manager = struct {
         fl.state = .done;
     }
 
-    pub fn next(self: *Manager, from: ?*Self, dir: Direction) ?*Self {
-        const items = self.lists.items;
-        if (items.len == 0) return null;
-        const start: usize = if (from) |f| (self.index_of(f.list_id) orelse 0) else 0;
-        var i: usize = 0;
-        while (i < items.len) : (i += 1) {
-            const idx = switch (dir) {
-                .forwards => (start + 1 + i) % items.len,
-                .backwards => (start + items.len - 1 - i) % items.len,
-            };
-            const fl = items[idx];
-            if (!fl.is_empty()) return fl;
-        }
-        return null;
-    }
-
-    const state_version: usize = 1;
-
     pub fn write_state(self: *Manager, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 4);
-        try cbor.writeValue(writer, state_version);
-        try cbor.writeValue(writer, self.active_);
-        try cbor.writeValue(writer, self.panel_open);
+        try cbor.writeArrayHeader(writer, 1);
         try cbor.writeArrayHeader(writer, self.count());
         for (self.lists.items) |fl| {
             if (fl.is_empty()) continue;
@@ -369,16 +321,16 @@ pub const Manager = struct {
     }
 
     fn restore_state_checked(self: *Manager, iter: *[]const u8) !void {
-        var version: usize = 0;
-        var active_: ?Id = null;
         var panel_open: bool = false;
-
-        const header = try cbor.decodeArrayHeader(iter);
-        if (header != 4) return error.InvalidFileListManagerHeader;
-        if (!try cbor.matchValue(iter, cbor.extract(&version)) or version != state_version)
-            return error.InvalidFileListManagerVersion;
-        _ = try cbor.matchValue(iter, cbor.extract(&active_));
-        _ = try cbor.matchValue(iter, cbor.extract(&panel_open));
+        switch (try cbor.decodeArrayHeader(iter)) {
+            1 => {},
+            4 => { // legacy: [version, active, panel_open, lists]
+                try cbor.skipValue(iter);
+                try cbor.skipValue(iter);
+                _ = try cbor.matchValue(iter, cbor.extract(&panel_open));
+            },
+            else => return error.InvalidFileListManagerHeader,
+        }
         var count_ = try cbor.decodeArrayHeader(iter);
         while (count_ > 0) : (count_ -= 1) {
             const fields = try cbor.decodeArrayHeader(iter);
@@ -398,7 +350,6 @@ pub const Manager = struct {
             self.next_id = @max(self.next_id, list_id + 1);
             try fl.restore_state(iter);
         }
-        self.panel_open = panel_open;
-        if (active_) |a| self.set_active(a);
+        self.legacy_panel_open = panel_open;
     }
 };
