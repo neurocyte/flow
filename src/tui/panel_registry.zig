@@ -4,6 +4,7 @@ const Panel = @import("Panel.zig");
 
 const modules = .{
     @import("filelist_view.zig"),
+    @import("terminal_view.zig"),
     @import("logview.zig"),
     @import("inspector_view.zig"),
     @import("inputview.zig"),

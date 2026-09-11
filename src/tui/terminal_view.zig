@@ -95,6 +95,16 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
     return Panel.to(self);
 }
 
+pub fn panel_write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {
+    return self.vt.write_state(writer, tui.config().terminal_persist_scrollback);
+}
+
+pub fn panel_restore(allocator: Allocator, parent: Plane, state: []const u8) !Panel {
+    const vt = try Vt.restore(root.get_io(), allocator, state);
+    errdefer vt.deinit(allocator);
+    return create(allocator, parent, vt);
+}
+
 pub fn is_vt(self: *Self, vt: *const Vt) bool {
     return self.vt == vt;
 }

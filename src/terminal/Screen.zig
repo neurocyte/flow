@@ -709,7 +709,133 @@ pub fn extractRowText(
     if (col_at_byte) |m| try m.append(allocator, col);
 }
 
-/// writes a cell to a location. 0 indexed
+pub fn contentRows(self: *const Screen) usize {
+    if (self.width == 0) return 0;
+    return @min(self.buf.len / self.width, self.visible_top + @as(usize, self.cursor.row) + 1);
+}
+
+pub fn encodeRows(self: *const Screen, writer: *std.Io.Writer, first: usize, last_: usize) std.Io.Writer.Error!void {
+    if (self.width == 0) return;
+    const last = @min(last_, self.buf.len / self.width);
+    var style: vaxis.Style = .{};
+    var uri: []const u8 = "";
+    var uri_id: []const u8 = "";
+    var mark_idx: usize = 0;
+    while (mark_idx < self.prompt_marks.items.len and self.prompt_marks.items[mark_idx].row < first) mark_idx += 1;
+
+    var row = first;
+    while (row < last) : (row += 1) {
+        const cells = self.buf[row * self.width ..][0..self.width];
+        const wrapped = cells[self.width - 1].wrapped;
+        var end: usize = self.width;
+        if (!wrapped) while (end > 0 and isBlankCell(&cells[end - 1])) {
+            end -= 1;
+        };
+        var col: usize = 0;
+        while (col < end) {
+            mark_idx = try self.writeMarks(writer, mark_idx, row, col);
+            const cell = &cells[col];
+            if (!std.meta.eql(style, cell.style)) {
+                try writeSgr(writer, cell.style);
+                style = cell.style;
+            }
+            if (!std.mem.eql(u8, uri, cell.uri.items) or !std.mem.eql(u8, uri_id, cell.uri_id.items)) {
+                try writeHyperlink(writer, cell.uri.items, cell.uri_id.items);
+                uri = cell.uri.items;
+                uri_id = cell.uri_id.items;
+            }
+            const bytes = cell.char.bytes();
+            try writer.writeAll(if (bytes.len == 0) " " else bytes);
+            col += @max(1, cell.width);
+        }
+        while (mark_idx < self.prompt_marks.items.len and self.prompt_marks.items[mark_idx].row == row) {
+            const mark = self.prompt_marks.items[mark_idx];
+            if (mark.col > col) {
+                if (!std.meta.eql(style, vaxis.Style{})) {
+                    try writer.writeAll("\x1b[0m");
+                    style = .{};
+                }
+                try writer.splatByteAll(' ', mark.col - col);
+                col = mark.col;
+            }
+            mark_idx = try self.writeMarks(writer, mark_idx, row, col);
+        }
+        if (!wrapped and row + 1 < last) {
+            if (!std.meta.eql(style, vaxis.Style{})) {
+                try writer.writeAll("\x1b[0m");
+                style = .{};
+            }
+            try writer.writeAll("\r\n");
+        }
+    }
+    if (!std.meta.eql(style, vaxis.Style{})) try writer.writeAll("\x1b[0m");
+    if (uri.len > 0) try writeHyperlink(writer, "", "");
+}
+
+fn isBlankCell(cell: *const Cell) bool {
+    const bytes = cell.char.bytes();
+    return (bytes.len == 0 or std.mem.eql(u8, bytes, " ")) and
+        std.meta.eql(cell.style, vaxis.Style{}) and
+        cell.uri.items.len == 0;
+}
+
+fn writeMarks(self: *const Screen, writer: *std.Io.Writer, mark_idx_: usize, row: usize, col: usize) std.Io.Writer.Error!usize {
+    var mark_idx = mark_idx_;
+    while (mark_idx < self.prompt_marks.items.len) : (mark_idx += 1) {
+        const mark = self.prompt_marks.items[mark_idx];
+        if (mark.row != row or mark.col > col) break;
+        switch (mark.kind) {
+            .prompt_start => try writer.writeAll(if (mark.click_events) "\x1b]133;A;click_events=1\x1b\\" else "\x1b]133;A\x1b\\"),
+            .input_start => try writer.writeAll("\x1b]133;B\x1b\\"),
+            .output_start => try writer.writeAll("\x1b]133;C\x1b\\"),
+            .output_end => if (mark.exit_code) |code|
+                try writer.print("\x1b]133;D;{d}\x1b\\", .{code})
+            else
+                try writer.writeAll("\x1b]133;D\x1b\\"),
+        }
+    }
+    return mark_idx;
+}
+
+fn writeSgr(writer: *std.Io.Writer, style: vaxis.Style) std.Io.Writer.Error!void {
+    try writer.writeAll("\x1b[0");
+    if (style.bold) try writer.writeAll(";1");
+    if (style.dim) try writer.writeAll(";2");
+    if (style.italic) try writer.writeAll(";3");
+    if (style.ul_style != .off) try writer.print(";4:{d}", .{@intFromEnum(style.ul_style)});
+    if (style.blink) try writer.writeAll(";5");
+    if (style.reverse) try writer.writeAll(";7");
+    if (style.invisible) try writer.writeAll(";8");
+    if (style.strikethrough) try writer.writeAll(";9");
+    try writeSgrColor(writer, style.fg, 30, 90, 38);
+    try writeSgrColor(writer, style.bg, 40, 100, 48);
+    switch (style.ul) {
+        .default => {},
+        .index => |i| try writer.print(";58;5;{d}", .{i}),
+        .rgb => |c| try writer.print(";58;2;{d};{d};{d}", .{ c[0], c[1], c[2] }),
+    }
+    try writer.writeByte('m');
+}
+
+fn writeSgrColor(writer: *std.Io.Writer, color: vaxis.Color, base: u8, bright: u8, extended: u8) std.Io.Writer.Error!void {
+    switch (color) {
+        .default => {},
+        .index => |i| if (i < 8)
+            try writer.print(";{d}", .{base + i})
+        else if (i < 16)
+            try writer.print(";{d}", .{bright + i - 8})
+        else
+            try writer.print(";{d};5;{d}", .{ extended, i }),
+        .rgb => |c| try writer.print(";{d};2;{d};{d};{d}", .{ extended, c[0], c[1], c[2] }),
+    }
+}
+
+fn writeHyperlink(writer: *std.Io.Writer, uri: []const u8, uri_id: []const u8) std.Io.Writer.Error!void {
+    try writer.writeAll("\x1b]8;");
+    if (uri_id.len > 0) try writer.print("id={s}", .{uri_id});
+    try writer.print(";{s}\x1b\\", .{uri});
+}
+
 pub fn print(
     self: *Screen,
     grapheme: []const u8,
@@ -718,6 +844,8 @@ pub fn print(
     insert: bool,
 ) !void {
     if (self.cursor.pending_wrap) {
+        const last = self.rowIndex(self.cursor.row, self.width - 1);
+        if (last < self.buf.len) self.buf[last].wrapped = true;
         self.cursor.col = self.scrolling_region.left;
         try self.index();
     }
@@ -742,6 +870,7 @@ pub fn print(
     }
     self.buf[i].style = self.cursor.style;
     self.buf[i].width = width;
+    self.buf[i].wrapped = false;
     self.buf[i].dirty = true;
 
     if (wrap and self.cursor.col >= self.width - 1) self.cursor.pending_wrap = true;
@@ -1219,4 +1348,79 @@ test "print in insert mode makes room instead of overwriting" {
 
     try expectRow(&screen, 0, "abcdXYefgh");
     try testing.expectEqual(@as(u16, 6), screen.cursor.col);
+}
+
+fn printAll(screen: *Screen, text: []const u8) !void {
+    for (text) |c| try screen.print(&[_]u8{c}, 1, true, false);
+}
+
+test "encodeRows writes styles, hyperlinks, prompt marks and joins soft wraps" {
+    const alloc = std.testing.allocator;
+    var screen = try Screen.init(alloc, 5, 3);
+    defer screen.deinit(alloc);
+    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try printAll(&screen, "$ ");
+    screen.cursor.style.bold = true;
+    screen.cursor.style.fg = .{ .index = 1 };
+    try printAll(&screen, "abcdef"); // soft wraps after "abc"
+    screen.cursor.style = .{};
+    try screen.cursor.uri.appendSlice(alloc, "file:///x");
+    try printAll(&screen, "g");
+    screen.cursor.uri.clearRetainingCapacity();
+
+    var out: std.Io.Writer.Allocating = .init(alloc);
+    defer out.deinit();
+    try screen.encodeRows(&out.writer, 0, screen.contentRows());
+    try std.testing.expectEqualStrings(
+        "\x1b]133;A\x1b\\$ \x1b[0;1;31mabcdef\x1b[0m\x1b]8;;file:///x\x1b\\g\x1b]8;;\x1b\\",
+        out.written(),
+    );
+}
+
+test "encodeRows output parses back into the same cells" {
+    const Parser = @import("Parser.zig");
+    const alloc = std.testing.allocator;
+    var src = try Screen.init(alloc, 8, 3);
+    defer src.deinit(alloc);
+    try printAll(&src, "ab");
+    src.cursor.style = .{ .italic = true, .ul_style = .curly, .ul = .{ .rgb = .{ 1, 2, 3 } }, .bg = .{ .index = 200 } };
+    try printAll(&src, "cd");
+    src.cursor.style = .{};
+    src.cursor.col = 0;
+    try src.index();
+    src.cursor.style = .{ .fg = .{ .rgb = .{ 10, 20, 30 } }, .reverse = true, .bg = .{ .index = 12 } };
+    try printAll(&src, "xyz");
+    src.cursor.style = .{};
+
+    var out: std.Io.Writer.Allocating = .init(alloc);
+    defer out.deinit();
+    try src.encodeRows(&out.writer, 0, src.contentRows());
+
+    var dst = try Screen.init(alloc, 8, 3);
+    defer dst.deinit(alloc);
+    var parser: Parser = .{ .buf = .init(alloc) };
+    defer parser.buf.deinit();
+    var reader: std.Io.Reader = .fixed(out.written());
+    while (true) {
+        const event = parser.parseReader(&reader) catch |e| switch (e) {
+            error.EndOfStream => break,
+            else => return e,
+        };
+        switch (event) {
+            .print => |text| try printAll(&dst, text),
+            .c0 => |c| switch (c) {
+                .CR => dst.cursor.col = 0,
+                .LF => try dst.index(),
+                else => {},
+            },
+            .csi => |seq| if (seq.final == 'm') dst.sgr(seq),
+            else => {},
+        }
+    }
+    for (0..2) |row| for (0..8) |col| {
+        const a = &src.buf[row * 8 + col];
+        const b = &dst.buf[row * 8 + col];
+        try std.testing.expectEqualStrings(a.char.bytes(), b.char.bytes());
+        try std.testing.expect(std.meta.eql(a.style, b.style));
+    };
 }

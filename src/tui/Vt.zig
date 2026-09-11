@@ -41,7 +41,7 @@ synthesize_marks: bool = false,
 started_at: i64 = 0,
 profile: ?Terminal.Profile = null,
 
-fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !*@This() {
+fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit, spawn: bool) !*@This() {
     const home = env.get("HOME") orelse "/tmp";
 
     const self = try Manager.create(env, on_exit);
@@ -71,7 +71,10 @@ fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, 
         .light => .light,
     };
 
-    try self.vt.spawn();
+    if (spawn)
+        try self.vt.spawn()
+    else
+        self.vt.back_screen = &self.vt.back_screen_pri;
     return self;
 }
 
@@ -267,7 +270,12 @@ fn show_exit_message(self: *@This(), code: u8) void {
             w.print(" in {d}s", .{secs}) catch {};
     }
     w.writeAll("]") catch {};
-    // Re-run prompt
+    self.write_exit_hint(w);
+    w.writeAll("\x1b[0m\r\n") catch {};
+    self.inject(msg.written());
+}
+
+fn write_exit_hint(self: *@This(), w: *std.Io.Writer) void {
     const cmd_argv = self.vt.cmd.argv;
     if (cmd_argv.len > 0) {
         w.writeAll(" Press enter to re-run '") catch {};
@@ -276,10 +284,16 @@ fn show_exit_message(self: *@This(), code: u8) void {
     } else {
         w.writeAll(" Press shift+enter for a shell, or escape/ctrl+d to close") catch {};
     }
+}
+
+fn show_restored_message(self: *@This()) void {
+    var msg: std.Io.Writer.Allocating = .init(self.vt.allocator);
+    defer msg.deinit();
+    const w = &msg.writer;
+    w.writeAll("\r\n\x1b[0m\x1b[2m[restored from previous session]") catch {};
+    self.write_exit_hint(w);
     w.writeAll("\x1b[0m\r\n") catch {};
-    var parser: Pty.Parser = .{ .buf = .init(self.vt.allocator) };
-    defer parser.buf.deinit();
-    _ = self.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
+    self.inject(msg.written());
 }
 
 pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_override: ?Terminal.Profile) (error{
@@ -405,7 +419,7 @@ fn run_new_cmd_impl(io: std.Io, allocator: std.mem.Allocator, ctx: command.Conte
     var cmd = try prepare_cmd(allocator, ctx, profile_override);
     defer cmd.deinit(allocator);
     cmd.env_owned = false;
-    const self = try Vt.init(io, allocator, cmd.argv_list.items, cmd.env, rows, cols, cmd.on_exit);
+    const self = try Vt.init(io, allocator, cmd.argv_list.items, cmd.env, rows, cols, cmd.on_exit, true);
     self.profile = cmd.profile; // move ownership out of cmd
     cmd.profile = null;
     self.synthesize_marks = cmd.have_cmd;
@@ -595,6 +609,77 @@ pub fn restart_shell(self: *Vt) !void {
     self.synthesize_marks = false;
     self.on_exit = tui.config().terminal_on_exit;
     try self.start_reader(self.vt.allocator);
+}
+
+// [title, profile_name, cwd, last_cmd, argv, cols, rows, history]
+pub fn write_state(self: *@This(), writer: *std.Io.Writer, include_history: bool) error{WriteFailed}!void {
+    const screen = &self.vt.back_screen_pri;
+    var history: std.Io.Writer.Allocating = .init(self.vt.allocator);
+    defer history.deinit();
+    if (include_history) {
+        self.vt.back_mutex.lockUncancelable(self.vt.io);
+        defer self.vt.back_mutex.unlock(self.vt.io);
+        try screen.encodeRows(&history.writer, 0, screen.contentRows());
+    }
+    try cbor.writeArrayHeader(writer, 8);
+    try cbor.writeValue(writer, self.title.items);
+    if (self.profile) |p| try cbor.writeValue(writer, p.name) else try cbor.writeValue(writer, null);
+    try cbor.writeValue(writer, self.cwd.items);
+    if (self.last_cmd) |cmd| if (cmd.bytes.len > 0) try writer.writeAll(cmd.bytes) else try cbor.writeValue(writer, null) else try cbor.writeValue(writer, null);
+    try cbor.writeArrayHeader(writer, self.vt.cmd.argv.len);
+    for (self.vt.cmd.argv) |arg| try cbor.writeValue(writer, arg);
+    try cbor.writeValue(writer, screen.width);
+    try cbor.writeValue(writer, screen.height);
+    try cbor.writeValue(writer, history.written());
+}
+
+pub fn restore(io: std.Io, allocator: std.mem.Allocator, state: []const u8) !*@This() {
+    var iter = state;
+    const fields = try cbor.decodeArrayHeader(&iter);
+    if (fields < 8) return error.InvalidTerminalState;
+    var title: []const u8 = "";
+    var profile_name: ?[]const u8 = null;
+    var cwd: []const u8 = "";
+    var last_cmd: []const u8 = "";
+    var cols: u16 = 80;
+    var rows: u16 = 24;
+    var history: []const u8 = "";
+    if (!try cbor.matchValue(&iter, cbor.extract(&title))) return error.InvalidTerminalState;
+    if (!try cbor.matchNull(&iter)) {
+        var name: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, cbor.extract(&name))) return error.InvalidTerminalState;
+        profile_name = name;
+    }
+    if (!try cbor.matchValue(&iter, cbor.extract(&cwd))) return error.InvalidTerminalState;
+    if (!try cbor.matchValue(&iter, cbor.extract_cbor(&last_cmd))) return error.InvalidTerminalState;
+    var saved_argv: std.ArrayList([]const u8) = .empty;
+    defer saved_argv.deinit(allocator);
+    var argc = try cbor.decodeArrayHeader(&iter);
+    while (argc > 0) : (argc -= 1) {
+        var arg: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, cbor.extract(&arg))) return error.InvalidTerminalState;
+        try saved_argv.append(allocator, arg);
+    }
+    if (!try cbor.matchValue(&iter, cbor.extract(&cols)) or
+        !try cbor.matchValue(&iter, cbor.extract(&rows)) or
+        !try cbor.matchValue(&iter, cbor.extract(&history)))
+        return error.InvalidTerminalState;
+
+    var cmd = try prepare_cmd(allocator, .empty(), null);
+    defer cmd.deinit(allocator);
+    cmd.env_owned = false;
+    const cmd_argv = if (saved_argv.items.len > 0) saved_argv.items else cmd.argv_list.items;
+    const self = try Vt.init(io, allocator, cmd_argv, cmd.env, @max(1, rows), @max(1, cols), tui.config().terminal_on_exit, false);
+    errdefer self.deinit(allocator);
+    self.process_exited = true;
+    self.set_title(title);
+    try self.cwd.appendSlice(allocator, cwd);
+    if (last_cmd.len > 0 and !(cbor.matchNull(&last_cmd) catch false))
+        self.last_cmd = .{ .bytes = try allocator.dupe(u8, last_cmd) };
+    if (profile_name) |name| self.profile = find_profile(allocator, name) catch null;
+    self.inject(history);
+    self.show_restored_message();
+    return self;
 }
 
 fn winsize_for(rows: u16, cols: u16) vaxis.Winsize {
