@@ -117,6 +117,18 @@ pub fn panel_set_current(self: *Self, current: bool) void {
         self.commands.unregister();
 }
 
+pub fn panel_write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {
+    try cbor.writeValue(writer, self.list_id);
+}
+
+pub fn panel_restore(allocator: Allocator, parent: Plane, state: []const u8) !Panel {
+    var list_id: FileList.Id = undefined;
+    if (!try cbor.match(state, cbor.extract(&list_id))) return error.InvalidFileListPanelState;
+    const mv = tui.mainview() orelse return error.NoMainView;
+    if (mv.filelists.get(list_id) == null) return error.FileListNotFound;
+    return create(allocator, parent, &mv.filelists, list_id);
+}
+
 pub fn is_list(self: *Self, list_id: FileList.Id) bool {
     return self.list_id == list_id;
 }

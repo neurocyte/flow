@@ -2,6 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const root = @import("soft_root").root;
 const command = @import("command");
+const cbor = @import("cbor");
+const Plane = @import("renderer").Plane;
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
@@ -14,6 +16,8 @@ const Self = @This();
 
 pub const Location = enum { bottom };
 pub const ToggleMode = enum { toggle, enable, disable };
+pub const GroupDirection = enum { left, right };
+pub const RestoreFn = *const fn (allocator: Allocator, parent: Plane, tag: []const u8, state: []const u8) ?Panel;
 
 pub const Found = struct {
     group: *PanelGroup,
@@ -112,14 +116,23 @@ pub fn active_plane(self: *Self) ?@import("renderer").Plane {
 }
 
 fn add_group(self: *Self) error{OutOfMemory}!*PanelGroup {
+    return self.add_group_at(self.groups.items.len);
+}
+
+fn add_group_at(self: *Self, n: usize) error{OutOfMemory}!*PanelGroup {
     const g = try PanelGroup.create(self.allocator, self.list.plane, .panel, &self.tab_style);
     errdefer g.widget().deinit(self.allocator);
     g.on_focus = .{ .ctx = self, .f = note_focused };
     g.on_activate = .{ .ctx = self, .f = note_activated };
-    try self.groups.append(self.allocator, g);
-    errdefer _ = self.groups.pop();
-    try self.list.add(g.widget());
+    try self.groups.insert(self.allocator, n, g);
+    errdefer _ = self.groups.orderedRemove(n);
+    try self.list.insert(n, g.widget());
     return g;
+}
+
+fn group_index(self: *const Self, g: *PanelGroup) ?usize {
+    for (self.groups.items, 0..) |g_, i| if (g_ == g) return i;
+    return null;
 }
 
 fn remove_group(self: *Self, g: *PanelGroup) void {
@@ -187,8 +200,7 @@ pub fn current_of(self: *Self, comptime V: type) ?*V {
 }
 
 fn is_group(self: *const Self, g: *PanelGroup) bool {
-    for (self.groups.items) |g_| if (g_ == g) return true;
-    return false;
+    return self.group_index(g) != null;
 }
 
 pub fn focused_group(self: *Self) ?*PanelGroup {
@@ -311,6 +323,175 @@ pub fn close_active(self: *Self) void {
     const g = self.focused_group() orelse return;
     const p = g.active() orelse return;
     self.close(p.id);
+}
+
+fn move_panel(self: *Self, f: Found, to: *PanelGroup) void {
+    const was_focused = tui.is_keyboard_focus(f.panel.widget);
+    const panel = f.group.detach(f.panel.id) orelse return;
+    to.add(panel, true) catch {
+        f.group.add(panel, true) catch panel.widget.deinit(self.allocator);
+        return;
+    };
+    if (f.group.empty()) self.remove_group(f.group);
+    self.last_focused = to;
+    tui.resize();
+    if (was_focused) panel.widget.focus();
+}
+
+pub fn split(self: *Self) error{OutOfMemory}!void {
+    const g = self.focused_group() orelse return;
+    if (g.count() < 2) return;
+    const p = g.active() orelse return;
+    const to = try self.add_group_at((self.group_index(g) orelse return) + 1);
+    self.move_panel(.{ .group = g, .panel = p }, to);
+    self.show();
+}
+
+pub fn move_active(self: *Self, dir: GroupDirection) error{OutOfMemory}!void {
+    const g = self.focused_group() orelse return;
+    const p = g.active() orelse return;
+    const i = self.group_index(g) orelse return;
+    const n = self.groups.items.len;
+    const to = switch (dir) {
+        .left => if (i > 0) self.groups.items[i - 1] else if (g.count() > 1) try self.add_group_at(0) else return,
+        .right => if (i + 1 < n) self.groups.items[i + 1] else if (g.count() > 1) try self.add_group_at(n) else return,
+    };
+    self.move_panel(.{ .group = g, .panel = p }, to);
+    self.show();
+}
+
+pub fn focus_group(self: *Self, dir: GroupDirection) void {
+    const g = self.focused_group() orelse return;
+    const i = self.group_index(g) orelse return;
+    const j = switch (dir) {
+        .left => if (i > 0) i - 1 else return,
+        .right => if (i + 1 < self.groups.items.len) i + 1 else return,
+    };
+    const to = self.groups.items[j];
+    // not every panel takes keyboard focus
+    if (g.is_focused()) tui.clear_keyboard_focus();
+    self.last_focused = to;
+    self.show();
+    if (to.active()) |p| {
+        p.widget.focus();
+        self.touch(p.id);
+    }
+    tui.need_render(@src());
+}
+
+fn find_by_tag(self: *const Self, tag: []const u8) ?Found {
+    for (self.groups.items) |g| for (g.panels.items) |p| if (std.mem.eql(u8, p.tag(), tag))
+        return .{ .group = g, .panel = p };
+    return null;
+}
+
+fn persistable(p: Panel) bool {
+    return p.vtable.write_state != null or p.singleton();
+}
+
+fn persistable_count(g: *const PanelGroup) usize {
+    var n: usize = 0;
+    for (g.panels.items) |p| if (persistable(p)) {
+        n += 1;
+    };
+    return n;
+}
+
+// [location, visible, maximized, focused_group, groups: [[active_index, tabs: [[tag, state]]]]]
+pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {
+    var n_groups: usize = 0;
+    var focused: ?usize = null;
+    for (self.groups.items) |g| if (persistable_count(g) > 0) {
+        if (self.last_focused == g) focused = n_groups;
+        n_groups += 1;
+    };
+    try cbor.writeArrayHeader(writer, 5);
+    try cbor.writeValue(writer, @tagName(self.location));
+    try cbor.writeValue(writer, self.attached);
+    try cbor.writeValue(writer, self.maximized);
+    try cbor.writeValue(writer, focused);
+    try cbor.writeArrayHeader(writer, n_groups);
+    for (self.groups.items) |g| {
+        const n = persistable_count(g);
+        if (n == 0) continue;
+        var active: usize = 0;
+        var idx: usize = 0;
+        for (g.panels.items) |p| if (persistable(p)) {
+            if (g.is_active(p.id)) active = idx;
+            idx += 1;
+        };
+        try cbor.writeArrayHeader(writer, 2);
+        try cbor.writeValue(writer, active);
+        try cbor.writeArrayHeader(writer, n);
+        for (g.panels.items) |p| if (persistable(p)) {
+            try cbor.writeArrayHeader(writer, 2);
+            try cbor.writeValue(writer, p.tag());
+            if (p.vtable.write_state) |write_state_| try write_state_(p.widget.ptr, writer) else try cbor.writeValue(writer, null);
+        };
+    }
+}
+
+fn skip_values(iter: *[]const u8, n: usize) !void {
+    for (0..n) |_| try cbor.skipValue(iter);
+}
+
+pub fn restore_state(self: *Self, state: []const u8, restore_panel: RestoreFn) !void {
+    var iter = state;
+    const fields = try cbor.decodeArrayHeader(&iter);
+    if (fields < 5) return error.InvalidPanelAreaState;
+    var location: []const u8 = undefined;
+    var visible_: bool = false;
+    var maximized: bool = false;
+    var focused: ?usize = null;
+    if (!try cbor.matchValue(&iter, cbor.extract(&location)) or
+        !try cbor.matchValue(&iter, cbor.extract(&visible_)) or
+        !try cbor.matchValue(&iter, cbor.extract(&maximized)) or
+        !try cbor.matchValue(&iter, cbor.extract(&focused)))
+        return error.InvalidPanelAreaState;
+    var n_groups = try cbor.decodeArrayHeader(&iter);
+    var group_idx: usize = 0;
+    while (n_groups > 0) : (n_groups -= 1) {
+        defer group_idx += 1;
+        const group_fields = try cbor.decodeArrayHeader(&iter);
+        if (group_fields < 2) return error.InvalidPanelGroupState;
+        var active: usize = 0;
+        if (!try cbor.matchValue(&iter, cbor.extract(&active))) return error.InvalidPanelGroupState;
+        var n_tabs = try cbor.decodeArrayHeader(&iter);
+        var group: ?*PanelGroup = null;
+        var tab_idx: usize = 0;
+        while (n_tabs > 0) : (n_tabs -= 1) {
+            defer tab_idx += 1;
+            const tab_fields = try cbor.decodeArrayHeader(&iter);
+            if (tab_fields < 2) return error.InvalidPanelTabState;
+            var tag: []const u8 = undefined;
+            var panel_state: []const u8 = undefined;
+            if (!try cbor.matchValue(&iter, cbor.extract(&tag)) or
+                !try cbor.matchValue(&iter, cbor.extract_cbor(&panel_state)))
+                return error.InvalidPanelTabState;
+            try skip_values(&iter, tab_fields - 2);
+            const g = group orelse try self.add_group();
+            group = g;
+            const panel = restore_panel(self.allocator, g.panel_parent(), tag, panel_state) orelse continue;
+            if (panel.singleton() and self.find_by_tag(panel.tag()) != null) {
+                panel.widget.deinit(self.allocator);
+                continue;
+            }
+            self.add(g, panel, .{ .activate = tab_idx == active, .show = false }) catch {
+                panel.widget.deinit(self.allocator);
+                continue;
+            };
+        }
+        try skip_values(&iter, group_fields - 2);
+        if (group) |g| {
+            if (g.empty())
+                self.remove_group(g)
+            else if (focused == group_idx)
+                self.last_focused = g;
+        }
+    }
+    try skip_values(&iter, fields - 5);
+    self.maximized = maximized;
+    if (visible_) self.show();
 }
 
 pub fn cycle_tab(self: *Self, dir: PanelGroup.Direction) void {

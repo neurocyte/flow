@@ -125,6 +125,13 @@ pub fn addP(self: *Self, w_: Widget) !*Widget {
     return &w.widget;
 }
 
+pub fn insert(self: *Self, n: usize, w_: Widget) !void {
+    try self.widgets.insert(self.allocator, n, .{
+        .widget = w_,
+        .layout = w_.layout(),
+    });
+}
+
 fn count_trailing_statics(self: *const Self) usize {
     var count: usize = 0;
     var i = self.widgets.items.len;

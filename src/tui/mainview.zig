@@ -39,6 +39,7 @@ const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
 const terminal_view = @import("terminal_view.zig");
 const PanelArea = @import("PanelArea.zig");
+const panel_registry = @import("panel_registry.zig");
 const Panel = @import("Panel.zig");
 const Vt = @import("Vt.zig");
 
@@ -59,6 +60,7 @@ active_view: usize = 0,
 panes: *WidgetList,
 panes_widget: Widget,
 bottom_area: *PanelArea = undefined,
+panel_layout_state: ?[]const u8 = null,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
@@ -138,6 +140,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
         self.toggle_keybindview_async();
+        tp.self_pid().send(.{ "cmd", "panel_split" }) catch {};
     }
     if (tp.env.get().is("show-log"))
         self.toggle_logview_async();
@@ -146,6 +149,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.bottom_area.deinit();
+    if (self.panel_layout_state) |state| allocator.free(state);
     terminal_view.shutdown_all();
     self.commands.deinit();
     self.widgets.deinit(allocator);
@@ -1059,6 +1063,41 @@ const cmds = struct {
             self.bottom_area.close_active();
     }
     pub const panel_tab_close_meta: Meta = .{ .description = "Close panel tab", .arguments = &.{.integer} };
+
+    pub fn panel_split(self: *Self, _: Ctx) Result {
+        try self.bottom_area.split();
+    }
+    pub const panel_split_meta: Meta = .{ .description = "Move panel tab to a new group" };
+
+    pub fn panel_move_tab_left(self: *Self, _: Ctx) Result {
+        try self.bottom_area.move_active(.left);
+    }
+    pub const panel_move_tab_left_meta: Meta = .{ .description = "Move panel tab to the group on the left" };
+
+    pub fn panel_move_tab_right(self: *Self, _: Ctx) Result {
+        try self.bottom_area.move_active(.right);
+    }
+    pub const panel_move_tab_right_meta: Meta = .{ .description = "Move panel tab to the group on the right" };
+
+    pub fn panel_focus_next_group(self: *Self, _: Ctx) Result {
+        self.bottom_area.focus_group(.right);
+    }
+    pub const panel_focus_next_group_meta: Meta = .{ .description = "Focus next panel group" };
+
+    pub fn panel_focus_prev_group(self: *Self, _: Ctx) Result {
+        self.bottom_area.focus_group(.left);
+    }
+    pub const panel_focus_prev_group_meta: Meta = .{ .description = "Focus previous panel group" };
+
+    pub fn restore_panel_layout(self: *Self, _: Ctx) Result {
+        const state = self.panel_layout_state orelse return;
+        defer {
+            self.allocator.free(state);
+            self.panel_layout_state = null;
+        }
+        try self.bottom_area.restore_state(state, panel_registry.restore);
+    }
+    pub const restore_panel_layout_meta: Meta = .{};
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, .toggle);
@@ -2424,6 +2463,8 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     try tui.write_state(writer);
 
     self.filelists.write_state(writer) catch return error.WriteFailed;
+
+    try self.bottom_area.write_state(writer);
 }
 
 fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
@@ -2522,8 +2563,18 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
         logger.print_err("mainview", "failed to restore TUI : {}", .{e});
 
     self.filelists.restore_state(iter) catch {};
-    if (self.filelists.count() > 0)
+
+    if (iter.len > 0) {
+        const section = iter.*;
+        if (cbor.skipValue(iter)) {
+            if (self.panel_layout_state) |state| self.allocator.free(state);
+            self.panel_layout_state = self.allocator.dupe(u8, section[0 .. section.len - iter.len]) catch null;
+            tui.post_on_ui_ready(.{ "cmd", "restore_panel_layout" });
+        } else |e| logger.print_err("mainview", "failed to restore panel layout: {}", .{e});
+    } else if (self.filelists.count() > 0) {
+        // legacy session without a panel layout section
         tui.post_on_ui_ready(.{ "cmd", "restore_filelist_tabs", .{self.filelists.legacy_panel_open} });
+    }
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
