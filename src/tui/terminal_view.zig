@@ -77,7 +77,11 @@ pub const panel_tag = "terminal";
 const close_confirm_ms = 3000;
 
 pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
-    var plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
+    const layer = try tui.WidgetLayerBox.create(allocator, parent, .{ .name = "terminal.layer" });
+    layer.prepare_resize = stack_above_parent;
+    errdefer layer.deinit(allocator);
+
+    var plane = try Plane.init(&(Widget.Box{}).opts(name), layer.inner_plane());
     errdefer plane.deinit();
 
     const self = try allocator.create(Self);
@@ -92,7 +96,13 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
     self.commands.init_unregistered(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
 
-    return Panel.to(self);
+    layer.set(Widget.to(self));
+    return Panel.to_hosted(self, layer.widget());
+}
+
+fn stack_above_parent(_: ?*anyopaque, layer: *tui.WidgetLayerBox, box: Widget.Box) Widget.Box {
+    if (layer.plane.layer) |l| layer.z_index = @enumFromInt(@intFromEnum(l.z_index) + 1);
+    return box;
 }
 
 pub fn panel_write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {

@@ -308,7 +308,7 @@ pub fn close(self: *Self, id: Panel.Id) void {
 }
 
 pub fn remove(self: *Self, f: Found, focus_mode: RemoveFocus) void {
-    const was_focused = tui.is_keyboard_focus(f.panel.widget);
+    const was_focused = tui.is_keyboard_focus(f.panel.impl);
     const tag = f.panel.tag();
     self.mru_remove(f.panel.id);
     if (self.current.get(tag)) |c| if (c.id == f.panel.id) {
@@ -352,7 +352,7 @@ pub fn close_active(self: *Self) void {
 }
 
 fn move_panel(self: *Self, f: Found, to: *PanelGroup) void {
-    const was_focused = tui.is_keyboard_focus(f.panel.widget);
+    const was_focused = tui.is_keyboard_focus(f.panel.impl);
     const panel = f.group.detach(f.panel.id) orelse return;
     to.add(panel, true) catch {
         f.group.add(panel, true) catch panel.widget.deinit(self.allocator);
@@ -452,7 +452,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void 
         for (g.panels.items) |p| if (persistable(p)) {
             try cbor.writeArrayHeader(writer, 2);
             try cbor.writeValue(writer, p.tag());
-            if (p.vtable.write_state) |write_state_| try write_state_(p.widget.ptr, writer) else try cbor.writeValue(writer, null);
+            if (p.vtable.write_state) |write_state_| try write_state_(p.impl.ptr, writer) else try cbor.writeValue(writer, null);
         };
     }
 }

@@ -8,6 +8,7 @@ pub const ScrollAction = enum { line_up, line_down, page_up, page_down, top, bot
 
 id: Id = 0,
 widget: Widget,
+impl: Widget,
 vtable: *const VTable,
 
 const Self = @This();
@@ -35,6 +36,7 @@ pub fn to(pimpl: anytype) Self {
     }.f;
     return .{
         .widget = Widget.to(pimpl),
+        .impl = Widget.to(pimpl),
         .vtable = comptime &.{
             .tag = child.panel_tag,
             .singleton = if (@hasDecl(child, "panel_singleton")) child.panel_singleton else false,
@@ -87,6 +89,12 @@ pub fn to(pimpl: anytype) Self {
     };
 }
 
+pub fn to_hosted(pimpl: anytype, host: Widget) Self {
+    var self = to(pimpl);
+    self.widget = host;
+    return self;
+}
+
 pub fn tag(self: Self) []const u8 {
     return self.vtable.tag;
 }
@@ -96,35 +104,35 @@ pub fn singleton(self: Self) bool {
 }
 
 pub fn title(self: Self) []const u8 {
-    return self.vtable.title(self.widget.ptr);
+    return self.vtable.title(self.impl.ptr);
 }
 
 pub fn icon(self: Self) []const u8 {
-    return self.vtable.icon(self.widget.ptr);
+    return self.vtable.icon(self.impl.ptr);
 }
 
 pub fn indicator(self: Self) Indicator {
-    return self.vtable.indicator(self.widget.ptr);
+    return self.vtable.indicator(self.impl.ptr);
 }
 
 pub fn request_close(self: Self) CloseResult {
-    return self.vtable.request_close(self.widget.ptr);
+    return self.vtable.request_close(self.impl.ptr);
 }
 
 pub fn set_current(self: Self, current: bool) void {
-    self.vtable.set_current(self.widget.ptr, current);
+    self.vtable.set_current(self.impl.ptr, current);
 }
 
 pub fn scroll(self: Self, action: ScrollAction) void {
-    if (self.vtable.scroll) |f| f(self.widget.ptr, action);
+    if (self.vtable.scroll) |f| f(self.impl.ptr, action);
 }
 
 pub fn copy(self: Self) void {
-    if (self.vtable.copy) |f| f(self.widget.ptr);
+    if (self.vtable.copy) |f| f(self.impl.ptr);
 }
 
 pub fn clear(self: Self) void {
-    if (self.vtable.clear) |f| f(self.widget.ptr);
+    if (self.vtable.clear) |f| f(self.impl.ptr);
 }
 
 pub fn is(self: Self, comptime T: type) bool {
@@ -132,5 +140,5 @@ pub fn is(self: Self, comptime T: type) bool {
 }
 
 pub fn cast(self: Self, comptime T: type) ?*T {
-    return self.widget.dynamic_cast(T);
+    return self.impl.dynamic_cast(T);
 }

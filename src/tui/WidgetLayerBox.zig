@@ -191,17 +191,18 @@ fn fill_frame(self: *Self, box: Widget.Box) void {
     const cw: i32 = root.cell_x();
     const ch: i32 = root.cell_y();
     const frame = box.frame;
+    const lx: i32, const ly: i32 = if (self.plane.layer) |l| l.global_origin_px() else .{ 0, 0 };
 
-    const x_cell: i32 = @divFloor(frame.x, cw);
-    const y_cell: i32 = @divFloor(frame.y, ch);
+    const x_cell: i32 = @divFloor(frame.x - lx, cw);
+    const y_cell: i32 = @divFloor(frame.y - ly, ch);
     self.plane.move_yx(y_cell, x_cell) catch return;
     const w_pix: u16 = @intCast(std.math.clamp(frame.w, 0, std.math.maxInt(u16)));
     const h_pix: u16 = @intCast(std.math.clamp(frame.h, 0, std.math.maxInt(u16)));
     self.plane.resize_simple(@intCast(box.h), @intCast(box.w)) catch return;
     self.layer.resize(@intCast(box.w), @intCast(box.h), w_pix, h_pix) catch return;
 
-    self.shift_x = frame.x - x_cell * cw;
-    self.shift_y = frame.y - y_cell * ch;
+    self.shift_x = frame.x - lx - x_cell * cw;
+    self.shift_y = frame.y - ly - y_cell * ch;
     self.layer.origin_px_x = frame.x;
     self.layer.origin_px_y = frame.y;
     self.layer.z_index = self.z_index;

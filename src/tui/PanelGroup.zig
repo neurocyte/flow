@@ -114,7 +114,7 @@ pub fn is_active(self: *const Self, id: Panel.Id) bool {
 
 pub fn is_focused(self: *const Self) bool {
     const p = self.active() orelse return false;
-    return tui.is_keyboard_focus(p.widget);
+    return tui.is_keyboard_focus(p.impl);
 }
 
 fn singleton_count(self: *const Self) usize {
@@ -158,9 +158,9 @@ pub fn detach(self: *Self, id: Panel.Id) ?Panel {
 
 pub fn remove(self: *Self, id: Panel.Id) void {
     const panel = self.detach(id) orelse return;
-    const focused = tui.is_keyboard_focus(panel.widget);
+    const focused = tui.is_keyboard_focus(panel.impl);
     panel.widget.deinit(self.allocator);
-    if (focused) tui.release_keyboard_focus(panel.widget);
+    if (focused) tui.release_keyboard_focus(panel.impl);
 }
 
 fn strip_count(ctx: *anyopaque) usize {
