@@ -1034,9 +1034,8 @@ const cmds = struct {
 
     pub fn toggle_maximize_panel(self: *Self, _: Ctx) Result {
         self.bottom_area.toggle_maximize();
-        if (self.bottom_area.visible()) if (self.current_terminal()) |vt| if (self.is_panel_view_showing(terminal_view)) {
-            if (self.bottom_area.is_maximized()) vt.focus() else vt.unfocus();
-        };
+        if (self.bottom_area.visible() and !self.bottom_area.is_maximized())
+            if (self.current_terminal()) |vt| if (self.is_panel_view_showing(terminal_view)) vt.unfocus();
     }
     pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
 
@@ -1075,6 +1074,7 @@ const cmds = struct {
     pub const panel_tab_close_meta: Meta = .{ .description = "Close panel tab", .arguments = &.{.integer} };
 
     pub fn panel_unfocus(self: *Self, _: Ctx) Result {
+        if (self.bottom_area.is_maximized()) return;
         if (self.focused_panel()) |_| tui.clear_keyboard_focus();
     }
     pub const panel_unfocus_meta: Meta = .{ .description = "Return focus from panel" };
@@ -1210,8 +1210,10 @@ const cmds = struct {
     pub const focus_panel_meta: Meta = .{ .description = "Focus the panel" };
 
     pub fn focus_filelist(self: *Self, _: Ctx) Result {
-        if (self.bottom_area.current_of(filelist_view)) |cur| if (cur.panel_input.focused)
-            return cur.unfocus();
+        if (self.bottom_area.current_of(filelist_view)) |cur| if (cur.panel_input.focused) {
+            if (!self.bottom_area.is_maximized()) cur.unfocus();
+            return;
+        };
         const fl = try self.show_filelist() orelse return;
         fl.focus();
     }
@@ -1301,8 +1303,10 @@ const cmds = struct {
     pub const send_to_terminal_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn unfocus_terminal(self: *Self, _: Ctx) Result {
-        if (self.current_terminal()) |tv|
+        if (self.current_terminal()) |tv| {
+            if (tv.panel_input.focused and self.bottom_area.is_maximized()) return;
             tv.toggle_focus();
+        }
     }
     pub const unfocus_terminal_meta: Meta = .{};
 

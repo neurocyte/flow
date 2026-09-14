@@ -476,6 +476,7 @@ const cmds = struct {
     pub const goto_selected_file_alternate_meta: Meta = .{};
 
     pub fn unfocus_filelist(self: *Self, _: Ctx) Result {
+        if (tui.mainview()) |mv| if (mv.is_panel_maximized()) return;
         self.unfocus();
     }
     pub const unfocus_filelist_meta: Meta = .{ .description = "Return focus from the file list" };

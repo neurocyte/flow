@@ -612,6 +612,7 @@ pub fn set_height_abs(self: *Self, y: usize) void {
         self.maximized = true;
         self.list.layout_ = .{ .static = max_h };
         self.height = null;
+        self.focus_active();
     } else {
         save_height_ratio(height);
     }
@@ -648,6 +649,7 @@ pub fn toggle_maximize(self: *Self) void {
         self.list.layout_ = .{ .static = max_h };
     }
     tui.resize();
+    if (self.maximized) self.focus_active();
 }
 
 pub fn update_layout_for_resize(self: *Self) void {
