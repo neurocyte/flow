@@ -59,18 +59,23 @@ pub fn destroyed(gone: *Vt) void {
 }
 
 pub fn run(io: std.Io, allocator: std.mem.Allocator, ctx: command.Context, rows: u16, cols: u16) !*Vt {
-    if (most_recent) |mr| if (index_of(mr) != null) switch (try mr.run_cmd(ctx)) {
+    if (most_recent) |mr| if (index_of(mr) != null and can_reuse(mr, ctx)) switch (try mr.run_cmd(ctx)) {
         .ok => return set_most_recent_and(mr),
         .busy => {},
     };
     for (vts.items) |vt| {
         if (vt == most_recent) continue; // already tried above
+        if (!can_reuse(vt, ctx)) continue;
         switch (try vt.run_cmd(ctx)) {
             .ok => return set_most_recent_and(vt),
             .busy => continue,
         }
     }
     return set_most_recent_and(try Vt.run_new_cmd(io, allocator, ctx, rows, cols));
+}
+
+fn can_reuse(vt: *const Vt, ctx: command.Context) bool {
+    return vt.process_exited and vt.is_last_cmd(ctx.args.buf);
 }
 
 fn set_most_recent_and(vt: *Vt) *Vt {

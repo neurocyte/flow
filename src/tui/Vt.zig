@@ -462,6 +462,16 @@ pub fn run_cmd(self: *@This(), ctx: command.Context) !enum { ok, busy } {
     return .ok;
 }
 
+pub fn is_last_cmd(self: *const @This(), args: []const u8) bool {
+    const last = if (self.last_cmd) |cmd| cmd.bytes else return false;
+    if (is_empty_args(last) and is_empty_args(args)) return true;
+    return std.mem.eql(u8, last, args);
+}
+
+fn is_empty_args(args: []const u8) bool {
+    return args.len == 0 or (cbor.match(args, .{}) catch false);
+}
+
 pub fn re_run_cmd(self: *@This()) !void {
     return if (self.last_cmd) |cmd|
         switch (try self.run_cmd(.init(.{ .buf = cmd.bytes }))) {
