@@ -35,6 +35,7 @@ layout_empty: bool = true,
 direction: Direction,
 deco_box: Widget.Box,
 trailing_layer: ?*Layer = null,
+trailing_z_index: ?Layer.Level = null,
 ctx: ?*anyopaque = null,
 on_deinit: ?*const fn (ctx: ?*anyopaque) void = null,
 on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
@@ -265,13 +266,18 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return more;
 }
 
+fn trailing_z(self: *const Self) Layer.Level {
+    if (self.trailing_z_index) |z| return z;
+    return if (self.plane.layer) |plane_layer| @enumFromInt(@intFromEnum(plane_layer.z_index) + 1) else .main;
+}
+
 fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.Box, trailing_count: usize) Layer.Target {
     var target: Layer.Target = .{
         .src = layer,
         .dst = tui.plane().window,
         .blend = .replace,
+        .z_index = self.trailing_z(),
     };
-    if (self.plane.layer) |plane_layer| target.z_index = @enumFromInt(@intFromEnum(plane_layer.z_index) + 1);
     layer.z_index = target.z_index; // keep in sync
 
     const cw = self.plane.cell_x();
@@ -497,8 +503,10 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
         self.trailing_layer = Layer.init(self.allocator, .{ .h = 1, .w = 1 }) catch null;
 
     self.reparent_main();
-    if (use_layer) if (self.trailing_layer) |layer|
+    if (use_layer) if (self.trailing_layer) |layer| {
+        layer.z_index = self.trailing_z(); // children may derive their z from it on resize
         reparent_subtrees(self.widgets.items[main_count..], layer, &layer.screen);
+    };
 
     var avail = total;
     if (use_layer) {

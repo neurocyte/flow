@@ -98,6 +98,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     const w = Widget.to(self);
 
     const widgets = try WidgetList.createV(allocator, self.plane, @typeName(Self) ++ ".widgets", .dynamic);
+    widgets.trailing_z_index = .panel;
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
 
