@@ -1202,6 +1202,13 @@ const cmds = struct {
     }
     pub const hide_filelist_meta: Meta = .{ .description = "Hide the file list" };
 
+    pub fn focus_panel(self: *Self, _: Ctx) Result {
+        if (self.bottom_area.empty()) return;
+        self.bottom_area.show();
+        self.bottom_area.focus_active();
+    }
+    pub const focus_panel_meta: Meta = .{ .description = "Focus the panel" };
+
     pub fn focus_filelist(self: *Self, _: Ctx) Result {
         if (self.bottom_area.current_of(filelist_view)) |cur| if (cur.panel_input.focused)
             return cur.unfocus();
