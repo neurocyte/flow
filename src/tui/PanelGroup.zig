@@ -21,7 +21,6 @@ list: *WidgetList,
 strip: TabStrip,
 deck: *WidgetDeck,
 panels: std.ArrayList(Panel) = .empty,
-previous: ?Panel.Id = null,
 on_focus: ?Callback = null,
 on_activate: ?Callback = null,
 
@@ -139,9 +138,6 @@ pub fn activate(self: *Self, id: Panel.Id) void {
 }
 
 fn set_active(self: *Self, n: usize) void {
-    if (self.active()) |cur| if (cur.id != self.panels.items[n].id) {
-        self.previous = cur.id;
-    };
     self.deck.set_active(n);
     self.notify_active();
 }
@@ -156,14 +152,7 @@ pub fn detach(self: *Self, id: Panel.Id) ?Panel {
     const was_active = self.is_active(id);
     const panel = self.panels.orderedRemove(n);
     _ = self.deck.detach(n);
-    if (self.previous == id) self.previous = null;
-    if (was_active) {
-        if (self.previous) |prev| if (self.index_of(prev)) |p| {
-            self.previous = null;
-            self.deck.set_active(p);
-        };
-        self.notify_active();
-    }
+    if (was_active) self.notify_active();
     return panel; // ownership passes to the caller
 }
 
@@ -172,16 +161,6 @@ pub fn remove(self: *Self, id: Panel.Id) void {
     const focused = tui.is_keyboard_focus(panel.widget);
     panel.widget.deinit(self.allocator);
     if (focused) tui.release_keyboard_focus(panel.widget);
-}
-
-pub fn cycle(self: *Self, dir: Direction) void {
-    const n = self.panels.items.len;
-    if (n < 2) return;
-    const cur = self.deck.active_index() orelse 0;
-    self.set_active(switch (dir) {
-        .next => (cur + 1) % n,
-        .previous => (cur + n - 1) % n,
-    });
 }
 
 fn strip_count(ctx: *anyopaque) usize {

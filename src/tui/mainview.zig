@@ -375,7 +375,7 @@ fn switch_terminal_vt(self: *Self, dir: enum { next, previous }) !void {
 }
 
 fn close_terminal_panels(self: *Self) void {
-    while (self.bottom_area.find_panel(terminal_view)) |f| self.bottom_area.remove(f);
+    while (self.bottom_area.find_panel(terminal_view)) |f| self.bottom_area.remove(f, .never);
 }
 
 fn get_panel_view(self: *Self, comptime view: type) ?*view {
@@ -1013,12 +1013,12 @@ const cmds = struct {
     pub const restore_session_meta: Meta = .{};
 
     pub fn toggle_panel(self: *Self, ctx: Ctx) Result {
-        if (self.bottom_area.visible())
-            self.bottom_area.hide()
-        else if (!self.bottom_area.empty())
-            self.bottom_area.show()
-        else
-            try open_terminal(self, .empty_from(ctx));
+        if (self.bottom_area.visible()) {
+            self.bottom_area.hide();
+        } else if (!self.bottom_area.empty()) {
+            self.bottom_area.show();
+            self.bottom_area.focus_active();
+        } else try open_terminal(self, .empty_from(ctx));
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
@@ -1148,6 +1148,8 @@ const cmds = struct {
     pub const hide_filelist_meta: Meta = .{ .description = "Hide the file list" };
 
     pub fn focus_filelist(self: *Self, _: Ctx) Result {
+        if (self.bottom_area.current_of(filelist_view)) |cur| if (cur.focused)
+            return cur.unfocus();
         const fl = try self.show_filelist() orelse return;
         fl.focus();
     }
@@ -1258,7 +1260,7 @@ const cmds = struct {
         var ref: usize = 0;
         if (!(cbor.match(ctx.args.buf, .{tp.extract(&ref)}) catch false and ref != 0)) return;
         for (Vt.Manager.all()) |vt| if (@intFromPtr(vt) == ref) {
-            if (self.terminal_panel(vt)) |f| return self.bottom_area.remove(f);
+            if (self.terminal_panel(vt)) |f| return self.bottom_area.remove(f, .if_focused);
             break;
         };
         Vt.Manager.reap_ref(ref);
@@ -2679,7 +2681,7 @@ fn open_filelist_panel(self: *Self, list_id: FileList.Id, opts: PanelArea.OpenOp
 }
 
 fn close_filelist_panel(self: *Self, list_id: FileList.Id) void {
-    if (self.filelist_panel(list_id)) |f| self.bottom_area.remove(f);
+    if (self.filelist_panel(list_id)) |f| self.bottom_area.remove(f, .if_focused);
 }
 
 fn active_filelist(self: *Self) ?*FileList {
@@ -2705,7 +2707,7 @@ fn open_filelist_panels(self: *Self, opts: PanelArea.OpenOptions) !?*filelist_vi
 }
 
 fn hide_filelist(self: *Self) void {
-    while (self.bottom_area.find_panel(filelist_view)) |f| self.bottom_area.remove(f);
+    while (self.bottom_area.find_panel(filelist_view)) |f| self.bottom_area.remove(f, .never);
 }
 
 pub fn set_filelist_label(self: *Self, list_id: FileList.Id, label: []const u8) void {

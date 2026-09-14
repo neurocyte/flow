@@ -17,6 +17,7 @@ const Self = @This();
 pub const Location = enum { bottom };
 pub const ToggleMode = enum { toggle, enable, disable };
 pub const GroupDirection = enum { left, right };
+pub const RemoveFocus = enum { never, if_focused, always };
 pub const RestoreFn = *const fn (allocator: Allocator, parent: Plane, tag: []const u8, state: []const u8) ?Panel;
 
 pub const Found = struct {
@@ -303,10 +304,11 @@ pub fn activate(self: *Self, id: Panel.Id) void {
 pub fn close(self: *Self, id: Panel.Id) void {
     const f = self.find_by_id(id) orelse return;
     if (f.panel.request_close() == .vetoed) return;
-    self.remove(f);
+    self.remove(f, .always);
 }
 
-pub fn remove(self: *Self, f: Found) void {
+pub fn remove(self: *Self, f: Found, focus_mode: RemoveFocus) void {
+    const was_focused = tui.is_keyboard_focus(f.panel.widget);
     const tag = f.panel.tag();
     self.mru_remove(f.panel.id);
     if (self.current.get(tag)) |c| if (c == f.panel.id) {
@@ -315,8 +317,32 @@ pub fn remove(self: *Self, f: Found) void {
     };
     f.group.remove(f.panel.id);
     self.update_current(tag);
-    if (f.group.empty()) self.remove_group(f.group);
+    var next: ?*PanelGroup = f.group;
+    if (f.group.empty()) {
+        const i = self.group_index(f.group) orelse 0;
+        self.remove_group(f.group);
+        const n = self.groups.items.len;
+        next = if (i < n) self.groups.items[i] else if (n > 0) self.groups.items[n - 1] else null;
+    }
+    const focus = switch (focus_mode) {
+        .never => false,
+        .if_focused => was_focused,
+        .always => true,
+    };
+    if (focus) if (next) |g| {
+        self.last_focused = g;
+        self.show();
+        self.focus_active();
+    };
     tui.need_render(@src());
+}
+
+pub fn focus_active(self: *Self) void {
+    const g = self.focused_group() orelse return;
+    const p = g.active() orelse return;
+    self.last_focused = g;
+    p.widget.focus();
+    self.touch(p.id);
 }
 
 pub fn close_active(self: *Self) void {
@@ -497,9 +523,33 @@ pub fn restore_state(self: *Self, state: []const u8, restore_panel: RestoreFn) !
 pub fn cycle_tab(self: *Self, dir: PanelGroup.Direction) void {
     const g = self.focused_group() orelse return;
     const was_focused = g.is_focused();
-    g.cycle(dir);
-    if (was_focused) if (g.active()) |p| p.widget.focus();
+    const n_groups = self.groups.items.len;
+    var gi = self.group_index(g) orelse return;
+    const cur = g.deck.active_index() orelse 0;
+    var ti: usize = cur;
+    switch (dir) {
+        .next => if (cur + 1 < g.count()) {
+            ti = cur + 1;
+        } else {
+            gi = (gi + 1) % n_groups;
+            ti = 0;
+        },
+        .previous => if (cur > 0) {
+            ti = cur - 1;
+        } else {
+            gi = (gi + n_groups - 1) % n_groups;
+            ti = self.groups.items[gi].count() -| 1;
+        },
+    }
+    const target = self.groups.items[gi];
+    const p = target.get_at(ti) orelse return;
+    // not every panel takes keyboard focus, so drop it from the old tab first
+    if (was_focused) tui.clear_keyboard_focus();
+    target.activate(p.id);
+    self.last_focused = target;
     self.show();
+    if (was_focused) p.widget.focus();
+    tui.need_render(@src());
 }
 
 fn total_height() usize {
