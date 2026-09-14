@@ -113,7 +113,8 @@ pub fn Closure(comptime T: type) type {
         }
 
         pub fn unregister(self: *Self) void {
-            removeCommand(self.vtbl.id);
+            if (self.vtbl.id < commands.items.len and commands.items[self.vtbl.id] == &self.vtbl)
+                removeCommand(self.vtbl.id);
         }
 
         fn run(vtbl: *Vtable, ctx: Context) tp.result {
@@ -147,8 +148,8 @@ fn addCommand(cmd: *Vtable) void {
 }
 
 fn reAddCommand(id: ID, cmd: *Vtable) !void {
-    cmd.id = id;
     if (commands.items[id] != null) return error.DuplicateCommand;
+    cmd.id = id;
     commands.items[id] = cmd;
 }
 

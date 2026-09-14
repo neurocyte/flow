@@ -41,7 +41,7 @@ attached: bool = false,
 last_focused: ?*PanelGroup = null,
 next_id: Panel.Id = 1,
 mru: std.ArrayList(Panel.Id) = .empty, // least recently used first
-current: std.StringHashMapUnmanaged(Panel.Id) = .empty, // by panel tag
+current: std.StringHashMapUnmanaged(Panel) = .empty, // by panel tag
 tab_style: Tabs.Style,
 tab_style_bufs: [][]const u8,
 
@@ -183,20 +183,20 @@ fn update_current(self: *Self, tag: []const u8) void {
         break :blk null;
     };
     const cur = self.current.get(tag);
-    if (want) |w| if (cur) |c| if (w.panel.id == c) return;
+    if (want) |w| if (cur) |c| if (w.panel.id == c.id) return;
     if (cur) |c| {
-        if (self.find_by_id(c)) |f| f.panel.set_current(false);
+        c.set_current(false);
         _ = self.current.remove(tag);
     }
     if (want) |w| {
-        self.current.put(self.allocator, tag, w.panel.id) catch return;
+        self.current.put(self.allocator, tag, w.panel) catch return;
         w.panel.set_current(true);
     }
 }
 
 pub fn current_of(self: *Self, comptime V: type) ?*V {
-    const id = self.current.get(V.panel_tag) orelse return null;
-    const f = self.find_by_id(id) orelse return null;
+    const panel = self.current.get(V.panel_tag) orelse return null;
+    const f = self.find_by_id(panel.id) orelse return null;
     return f.panel.cast(V);
 }
 
@@ -311,7 +311,7 @@ pub fn remove(self: *Self, f: Found, focus_mode: RemoveFocus) void {
     const was_focused = tui.is_keyboard_focus(f.panel.widget);
     const tag = f.panel.tag();
     self.mru_remove(f.panel.id);
-    if (self.current.get(tag)) |c| if (c == f.panel.id) {
+    if (self.current.get(tag)) |c| if (c.id == f.panel.id) {
         f.panel.set_current(false);
         _ = self.current.remove(tag);
     };
