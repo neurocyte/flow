@@ -196,8 +196,12 @@ pub fn execute(id: ID, name: []const u8, ctx: Context) tp.result {
 }
 
 pub fn get_id(name: []const u8) ?ID {
-    const id = get_name_id(name);
+    const id = find_name_id(name) orelse return null;
     return if (commands.items[id]) |_| id else null;
+}
+
+fn find_name_id(name: []const u8) ?ID {
+    return command_names.get(name);
 }
 
 pub fn get_name_id(name: []const u8) ID {
@@ -250,7 +254,8 @@ const suppressed_errors = std.StaticStringMap(void).initComptime(.{
 });
 
 pub fn executeName(name: []const u8, ctx: Context) tp.result {
-    return execute(get_name_id(name), name, ctx);
+    const id = find_name_id(name) orelse return notFoundError(ID_unknown, name);
+    return execute(id, name, ctx);
 }
 
 fn notFoundError(id: ID, name: []const u8) !void {
