@@ -42,7 +42,6 @@ have_mini_mode_cursor: bool = false,
 mini_layer: ?*tui.WidgetLayerBox = null,
 
 const project_icon = "";
-const terminal_icon = " ";
 const Self = @This();
 const ButtonType = Button.Options(Self).ButtonType;
 
@@ -119,12 +118,8 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.home();
     }
 
-    const terminal_status = if (tui.mainview()) |mv| mv.active_terminal_title() else null;
-
     if (tui.mini_mode()) |_|
         self.render_mini_mode(btn, theme)
-    else if (terminal_status) |ts|
-        self.render_vt_title(&btn.plane, theme, ts)
     else if (self.detailed)
         self.render_detailed(&btn.plane, theme, auto_save)
     else
@@ -135,7 +130,6 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.cursor_disable();
     }
 
-    self.render_terminal_title(if (terminal_status) |ts| ts.title else null);
     return false;
 }
 
@@ -269,51 +263,6 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_
         }
     }
     return;
-}
-
-fn render_vt_title(_: *Self, plane: *Plane, _: *const Widget.Theme, status: anytype) void {
-    plane.on_styles(styles.italic);
-    _ = plane.putstr(" ") catch {};
-    if (tui.config().show_fileicons) {
-        if (status.icon.len > 0) {
-            render_colored_icon(plane, status.icon, status.color);
-            _ = plane.print(" ", .{}) catch {};
-        } else if (terminal_icon.len > 0) {
-            _ = plane.print("{s} ", .{terminal_icon}) catch {};
-        }
-    }
-    if (status.count > 1)
-        _ = plane.print("({d}/{d}) ", .{ status.index, status.count }) catch {};
-    print_clipped(plane, status.title, .right);
-    return;
-}
-
-fn render_terminal_title(self: *Self, terminal_title: ?[]const u8) void {
-    var project_name_buf: [512]u8 = undefined;
-    var new_title_buf: [512]u8 = undefined;
-
-    const project_path = tp.env.get().str("project");
-    const project_name = project_manager.abbreviate_home(&project_name_buf, project_path);
-
-    const file_name = if (self.name.len > 0 and self.name[0] == '*')
-        self.name
-    else if (std.mem.lastIndexOfScalar(u8, self.name, '/')) |pos|
-        self.name[pos + 1 ..]
-    else
-        self.name;
-    const edit_state = if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "";
-
-    const new_title = if (terminal_title) |t|
-        std.fmt.bufPrint(&new_title_buf, "{s} {s}", .{ t, root.application_name }) catch &new_title_buf
-    else if (self.file)
-        std.fmt.bufPrint(&new_title_buf, "{s}{s} {s} {s}", .{ edit_state, file_name, project_name, root.application_name }) catch &new_title_buf
-    else
-        std.fmt.bufPrint(&new_title_buf, "{s} {s}", .{ project_name, root.application_name }) catch &new_title_buf;
-
-    if (std.mem.eql(u8, self.previous_title, new_title)) return;
-    @memcpy(self.previous_title_buf[0..new_title.len], new_title);
-    self.previous_title = self.previous_title_buf[0..new_title.len];
-    tui.rdr().set_terminal_title(new_title);
 }
 
 pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
