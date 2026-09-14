@@ -1410,6 +1410,18 @@ const cmds = struct {
     }
     pub const focus_split_meta: Meta = .{ .description = "Focus split view", .arguments = &.{.integer} };
 
+    pub fn focus_next_split(self: *Self, _: Ctx) Result {
+        if (self.active_view + 1 < self.views.widgets.items.len)
+            try self.focus_view(self.active_view + 1);
+    }
+    pub const focus_next_split_meta: Meta = .{ .description = "Focus next split view" };
+
+    pub fn focus_prev_split(self: *Self, _: Ctx) Result {
+        if (self.active_view > 0)
+            try self.focus_view(self.active_view - 1);
+    }
+    pub const focus_prev_split_meta: Meta = .{ .description = "Focus previous split view" };
+
     pub fn gutter_mode_next(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
         const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch (mode) {
