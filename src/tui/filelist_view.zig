@@ -17,6 +17,7 @@ const scrollbar_v = @import("scrollbar_v.zig");
 const editor = @import("editor.zig");
 const FileList = @import("FileList.zig");
 const Panel = @import("Panel.zig");
+const PanelInput = @import("PanelInput.zig");
 
 pub const name = @typeName(Self);
 
@@ -32,11 +33,10 @@ menu: *MenuType,
 logger: log.Logger,
 commands: Commands = undefined,
 current: bool = false,
-input_mode: keybind.Mode,
+panel_input: PanelInput,
 
 manager: *FileList.Manager,
 list_id: FileList.Id,
-focused: bool = false,
 activate: ActivateMode = .normal,
 view_rows: usize = 0,
 view_cols: usize = 0,
@@ -56,8 +56,8 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
     var plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
     errdefer plane.deinit();
 
-    var input_mode = try keybind.mode("filelist", allocator, .{ .insert_command = "do_nothing" });
-    errdefer input_mode.deinit();
+    var panel_input = try PanelInput.init(allocator, "filelist");
+    errdefer panel_input.mode.deinit();
 
     const menu = try Menu.create(*Self, allocator, plane, .{
         .ctx = self,
@@ -73,7 +73,7 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
         .allocator = allocator,
         .plane = plane,
         .logger = log.logger(@typeName(Self)),
-        .input_mode = input_mode,
+        .panel_input = panel_input,
         .menu = menu,
         .manager = manager,
         .list_id = list_id,
@@ -86,9 +86,8 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
-    if (self.focused) tui.release_keyboard_focus(Widget.to(self));
+    self.panel_input.deinit(Widget.to(self));
     if (self.current) self.commands.unregister();
-    self.input_mode.deinit();
     self.menu.widget().deinit(allocator);
     self.plane.deinit();
     allocator.destroy(self);
@@ -127,6 +126,15 @@ pub fn panel_restore(allocator: Allocator, parent: Plane, state: []const u8) !Pa
     const mv = tui.mainview() orelse return error.NoMainView;
     if (mv.filelists.get(list_id) == null) return error.FileListNotFound;
     return create(allocator, parent, &mv.filelists, list_id);
+}
+
+pub fn panel_copy(self: *Self) void {
+    const fl = self.list() orelse return;
+    const sel = fl.selected orelse return;
+    if (sel >= fl.entries.items.len) return;
+    const entry = fl.entries.items[sel];
+    var buf: [std.fs.max_path_bytes + 32]u8 = undefined;
+    PanelInput.copy_to_clipboard(std.fmt.bufPrint(&buf, "{s}:{d}", .{ entry.path, entry.begin_line + 1 }) catch return);
 }
 
 pub fn is_list(self: *Self, list_id: FileList.Id) bool {
@@ -395,28 +403,15 @@ fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end 
 }
 
 pub fn focus(self: *Self) void {
-    if (self.focused) return;
-    self.focused = true;
-    if (tui.mini_mode() != null)
-        command.executeName("exit_mini_mode", .empty()) catch {};
-    if (tui.input_mode_outer() != null)
-        command.executeName("exit_overlay_mode", .empty()) catch {};
-    tui.set_keyboard_focus(Widget.to(self));
-    tui.need_render(@src());
+    self.panel_input.focus(Widget.to(self));
 }
 
 pub fn unfocus(self: *Self) void {
-    if (!self.focused) return;
-    self.focused = false;
-    tui.release_keyboard_focus(Widget.to(self));
-    tui.need_render(@src());
+    self.panel_input.unfocus(Widget.to(self));
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (!self.focused) return false;
-    if (!try m.match(.{ "I", tp.more })) return false;
-    if (try self.input_mode.bindings.receive(from, m)) return true;
-    return true; // swallow unhandled input while focused
+    return self.panel_input.receive(from, m);
 }
 
 const cmds = struct {

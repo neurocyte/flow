@@ -390,6 +390,16 @@ fn is_panel_view_showing(self: *Self, comptime view: type) bool {
     return self.bottom_area.is_showing(view);
 }
 
+fn focused_panel(self: *Self) ?Panel {
+    const g = self.bottom_area.focused_group() orelse return null;
+    if (!g.is_focused()) return null;
+    return g.active();
+}
+
+fn scroll_focused_panel(self: *Self, action: Panel.ScrollAction) void {
+    if (self.focused_panel()) |p| p.scroll(action);
+}
+
 pub const TerminalStatus = struct {
     title: []const u8,
     index: usize,
@@ -400,7 +410,7 @@ pub const TerminalStatus = struct {
 
 pub fn active_terminal_title(self: *Self) ?TerminalStatus {
     const tv = self.current_terminal() orelse return null;
-    if (!tv.focused and !tui.is_deferred_keyboard_focus(Widget.to(tv))) return null;
+    if (!tv.panel_input.focused and !tui.is_deferred_keyboard_focus(Widget.to(tv))) return null;
     const pos = @import("Vt.zig").Manager.position(tv.vt) orelse return null;
     const title = tv.get_title();
     const profile = tv.vt.get_profile();
@@ -1064,6 +1074,51 @@ const cmds = struct {
     }
     pub const panel_tab_close_meta: Meta = .{ .description = "Close panel tab", .arguments = &.{.integer} };
 
+    pub fn panel_unfocus(self: *Self, _: Ctx) Result {
+        if (self.focused_panel()) |_| tui.clear_keyboard_focus();
+    }
+    pub const panel_unfocus_meta: Meta = .{ .description = "Return focus from panel" };
+
+    pub fn panel_scroll_up(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.line_up);
+    }
+    pub const panel_scroll_up_meta: Meta = .{ .description = "Scroll panel up" };
+
+    pub fn panel_scroll_down(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.line_down);
+    }
+    pub const panel_scroll_down_meta: Meta = .{ .description = "Scroll panel down" };
+
+    pub fn panel_scroll_page_up(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.page_up);
+    }
+    pub const panel_scroll_page_up_meta: Meta = .{ .description = "Scroll panel up a page" };
+
+    pub fn panel_scroll_page_down(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.page_down);
+    }
+    pub const panel_scroll_page_down_meta: Meta = .{ .description = "Scroll panel down a page" };
+
+    pub fn panel_scroll_top(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.top);
+    }
+    pub const panel_scroll_top_meta: Meta = .{ .description = "Scroll panel to the top" };
+
+    pub fn panel_scroll_bottom(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.bottom);
+    }
+    pub const panel_scroll_bottom_meta: Meta = .{ .description = "Scroll panel to the bottom" };
+
+    pub fn panel_copy(self: *Self, _: Ctx) Result {
+        if (self.focused_panel()) |p| p.copy();
+    }
+    pub const panel_copy_meta: Meta = .{ .description = "Copy panel content" };
+
+    pub fn panel_clear(self: *Self, _: Ctx) Result {
+        if (self.focused_panel()) |p| p.clear();
+    }
+    pub const panel_clear_meta: Meta = .{ .description = "Clear panel content" };
+
     pub fn panel_split(self: *Self, _: Ctx) Result {
         try self.bottom_area.split();
     }
@@ -1148,7 +1203,7 @@ const cmds = struct {
     pub const hide_filelist_meta: Meta = .{ .description = "Hide the file list" };
 
     pub fn focus_filelist(self: *Self, _: Ctx) Result {
-        if (self.bottom_area.current_of(filelist_view)) |cur| if (cur.focused)
+        if (self.bottom_area.current_of(filelist_view)) |cur| if (cur.panel_input.focused)
             return cur.unfocus();
         const fl = try self.show_filelist() orelse return;
         fl.focus();

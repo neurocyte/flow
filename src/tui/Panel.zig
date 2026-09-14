@@ -4,6 +4,7 @@ const Widget = @import("Widget.zig");
 pub const Indicator = enum { none, activity, bell, busy, exited };
 pub const CloseResult = enum { closed, vetoed };
 pub const Id = u32;
+pub const ScrollAction = enum { line_up, line_down, page_up, page_down, top, bottom };
 
 id: Id = 0,
 widget: Widget,
@@ -20,6 +21,9 @@ pub const VTable = struct {
     request_close: *const fn (ctx: *anyopaque) CloseResult,
     set_current: *const fn (ctx: *anyopaque, current: bool) void,
     write_state: ?*const fn (ctx: *anyopaque, writer: *std.Io.Writer) error{WriteFailed}!void,
+    scroll: ?*const fn (ctx: *anyopaque, action: ScrollAction) void,
+    copy: ?*const fn (ctx: *anyopaque) void,
+    clear: ?*const fn (ctx: *anyopaque) void,
 };
 
 pub fn to(pimpl: anytype) Self {
@@ -64,6 +68,21 @@ pub fn to(pimpl: anytype) Self {
                     return self_of(ctx).panel_write_state(writer);
                 }
             }.f else null,
+            .scroll = if (@hasDecl(child, "panel_scroll")) struct {
+                fn f(ctx: *anyopaque, action: ScrollAction) void {
+                    self_of(ctx).panel_scroll(action);
+                }
+            }.f else null,
+            .copy = if (@hasDecl(child, "panel_copy")) struct {
+                fn f(ctx: *anyopaque) void {
+                    self_of(ctx).panel_copy();
+                }
+            }.f else null,
+            .clear = if (@hasDecl(child, "panel_clear")) struct {
+                fn f(ctx: *anyopaque) void {
+                    self_of(ctx).panel_clear();
+                }
+            }.f else null,
         },
     };
 }
@@ -94,6 +113,18 @@ pub fn request_close(self: Self) CloseResult {
 
 pub fn set_current(self: Self, current: bool) void {
     self.vtable.set_current(self.widget.ptr, current);
+}
+
+pub fn scroll(self: Self, action: ScrollAction) void {
+    if (self.vtable.scroll) |f| f(self.widget.ptr, action);
+}
+
+pub fn copy(self: Self) void {
+    if (self.vtable.copy) |f| f(self.widget.ptr);
+}
+
+pub fn clear(self: Self) void {
+    if (self.vtable.clear) |f| f(self.widget.ptr);
 }
 
 pub fn is(self: Self, comptime T: type) bool {

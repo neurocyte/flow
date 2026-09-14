@@ -16,6 +16,7 @@ const command = @import("command");
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
+const PanelInput = @import("PanelInput.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 pub const name = "keybindview";
@@ -24,6 +25,7 @@ allocator: Allocator,
 parent: Plane,
 plane: Plane,
 buffer: Buffer,
+panel_input: PanelInput,
 
 const Self = @This();
 
@@ -55,6 +57,7 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
         .parent = parent,
         .plane = n,
         .buffer = .empty,
+        .panel_input = try PanelInput.init(allocator, "keybindview"),
     };
     try tui.message_filters().add(MessageFilter.bind(self, keybind_match));
     tui.enable_match_events();
@@ -62,6 +65,7 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    self.panel_input.deinit(Widget.to(self));
     tui.disable_match_events();
     tui.message_filters().remove_ptr(self);
     for (self.buffer.items) |item|
@@ -137,6 +141,27 @@ pub fn append(self: *Self, msg: []const u8) void {
     };
 }
 
-pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
-    return false;
+pub fn focus(self: *Self) void {
+    self.panel_input.focus(Widget.to(self));
+}
+
+pub fn unfocus(self: *Self) void {
+    self.panel_input.unfocus(Widget.to(self));
+}
+
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    return self.panel_input.receive(from, m);
+}
+
+pub fn panel_copy(self: *Self) void {
+    var text: Writer.Allocating = .init(self.allocator);
+    defer text.deinit();
+    for (self.buffer.items) |item| text.writer.print("{s}\n", .{item.msg}) catch return;
+    PanelInput.copy_to_clipboard(text.written());
+}
+
+pub fn panel_clear(self: *Self) void {
+    for (self.buffer.items) |item| self.allocator.free(item.msg);
+    self.buffer.clearRetainingCapacity();
+    tui.need_render(@src());
 }

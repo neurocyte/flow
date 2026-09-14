@@ -579,9 +579,67 @@
             ["backspace", "mini_mode_delete_backwards"]
         ]
     },
-    "filelist": {
+    "panel": {
         "on_match_failure": "nothing",
         "inherit": "project",
+        "press": [
+            ["ctrl+w", "panel_tab_close"],
+            ["escape", "panel_unfocus"],
+            ["ctrl+c", "panel_copy"],
+            ["ctrl+l", "panel_clear"],
+            ["ctrl+tab", "panel_tab_next"],
+            ["ctrl+shift+tab", "panel_tab_prev"],
+            ["ctrl+page_down", "panel_tab_next"],
+            ["ctrl+page_up", "panel_tab_prev"],
+            ["ctrl+alt+s", "panel_split"],
+            ["ctrl+alt+shift+page_down", "panel_move_tab_right"],
+            ["ctrl+alt+shift+page_up", "panel_move_tab_left"],
+            ["ctrl+alt+right", "panel_focus_next_group"],
+            ["ctrl+alt+left", "panel_focus_prev_group"]
+        ]
+    },
+    "log": {
+        "on_match_failure": "nothing",
+        "inherit": "panel",
+        "press": [
+            ["up", "panel_scroll_up"],
+            ["down", "panel_scroll_down"],
+            ["page_up", "panel_scroll_page_up"],
+            ["page_down", "panel_scroll_page_down"],
+            ["home", "panel_scroll_top"],
+            ["end", "panel_scroll_bottom"]
+        ]
+    },
+    "info": {
+        "on_match_failure": "nothing",
+        "inherit": "panel",
+        "press": [
+            ["up", "panel_scroll_up"],
+            ["down", "panel_scroll_down"],
+            ["page_up", "panel_scroll_page_up"],
+            ["page_down", "panel_scroll_page_down"],
+            ["home", "panel_scroll_top"],
+            ["end", "panel_scroll_bottom"]
+        ]
+    },
+    "inspector": {
+        "on_match_failure": "nothing",
+        "inherit": "panel",
+        "press": []
+    },
+    "inputview": {
+        "on_match_failure": "nothing",
+        "inherit": "panel",
+        "press": []
+    },
+    "keybindview": {
+        "on_match_failure": "nothing",
+        "inherit": "panel",
+        "press": []
+    },
+    "filelist": {
+        "on_match_failure": "nothing",
+        "inherit": "panel",
         "press": [
             ["ctrl+p", "select_prev_file"],
             ["ctrl+n", "select_next_file"],
@@ -597,15 +655,6 @@
             ["shift+enter", "goto_selected_file_alternate"],
             ["tab", "panel_tab_next"],
             ["shift+tab", "panel_tab_prev"],
-            ["ctrl+tab", "panel_tab_next"],
-            ["ctrl+shift+tab", "panel_tab_prev"],
-            ["ctrl+page_down", "panel_tab_next"],
-            ["ctrl+page_up", "panel_tab_prev"],
-            ["ctrl+alt+s", "panel_split"],
-            ["ctrl+alt+shift+page_down", "panel_move_tab_right"],
-            ["ctrl+alt+shift+page_up", "panel_move_tab_left"],
-            ["ctrl+alt+right", "panel_focus_next_group"],
-            ["ctrl+alt+left", "panel_focus_prev_group"],
             ["alt+n", "goto_next_file"],
             ["alt+p", "goto_prev_file"],
             ["alt+shift+l", "focus_filelist"],

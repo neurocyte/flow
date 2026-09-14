@@ -13,6 +13,8 @@ const Plane = @import("renderer").Plane;
 
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
+const PanelInput = @import("PanelInput.zig");
+const tui = @import("tui.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 const escape = @import("std").ascii.hexEscape;
@@ -20,6 +22,8 @@ const escape = @import("std").ascii.hexEscape;
 pub const name = @typeName(Self);
 
 plane: Plane,
+panel_input: PanelInput,
+top: ?usize = null,
 
 var persistent_buffer: ?Buffer = null;
 var last_count: u64 = 0;
@@ -46,7 +50,10 @@ pub const panel_singleton = true;
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts(name), parent) };
+    self.* = .{
+        .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
+        .panel_input = try PanelInput.init(allocator, "log"),
+    };
     return Panel.to(self);
 }
 
@@ -59,8 +66,59 @@ pub fn panel_icon(_: *Self) []const u8 {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    self.panel_input.deinit(Widget.to(self));
     self.plane.deinit();
     allocator.destroy(self);
+}
+
+pub fn focus(self: *Self) void {
+    self.panel_input.focus(Widget.to(self));
+}
+
+pub fn unfocus(self: *Self) void {
+    self.panel_input.unfocus(Widget.to(self));
+}
+
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    return self.panel_input.receive(from, m);
+}
+
+pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
+    const buffer = if (persistent_buffer) |*p| p else return;
+    const height = self.plane.dim_y();
+    const last_top = buffer.items.len -| height;
+    const cur = self.top orelse last_top;
+    const new: usize = switch (action) {
+        .line_up => cur -| 1,
+        .line_down => cur + 1,
+        .page_up => cur -| height,
+        .page_down => cur + height,
+        .top => 0,
+        .bottom => last_top,
+    };
+    self.top = if (new >= last_top) null else new;
+    tui.need_render(@src());
+}
+
+pub fn panel_copy(_: *Self) void {
+    const buffer = if (persistent_buffer) |*p| p else return;
+    var text: @import("std").Io.Writer.Allocating = .init(buffer.allocator);
+    defer text.deinit();
+    for (buffer.items) |item| text.writer.print("{s}: {s}\n", .{ item.src, item.msg }) catch return;
+    PanelInput.copy_to_clipboard(text.written());
+}
+
+pub fn panel_clear(self: *Self) void {
+    const buffer = if (persistent_buffer) |*p| p else return;
+    for (buffer.items) |item| {
+        // free sentinel too
+        buffer.allocator.free(item.src.ptr[0 .. item.src.len + 1]);
+        buffer.allocator.free(item.msg.ptr[0 .. item.msg.len + 1]);
+    }
+    buffer.clearRetainingCapacity();
+    last_count = 0;
+    self.top = null;
+    tui.need_render(@src());
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -74,8 +132,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     var first = true;
     const buffer = if (persistent_buffer) |*p| p else return false;
     const count = buffer.items.len;
-    const begin_at = if (height > count) 0 else count - height;
-    for (buffer.items[begin_at..]) |item| {
+    const begin_at = if (self.top) |top| @min(top, count -| height) else count -| height;
+    for (buffer.items[begin_at..@min(count, begin_at + height)]) |item| {
         if (first) first = false else _ = self.plane.putstr("\n") catch return false;
         self.output_tdiff(item.tdiff) catch return false;
         self.plane.set_style(if (item.level == .err) style_error else style_info);

@@ -17,6 +17,7 @@ const command = @import("command");
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
+const PanelInput = @import("PanelInput.zig");
 
 pub const name = "inputview";
 
@@ -25,6 +26,7 @@ parent: Plane,
 plane: Plane,
 last_count: u64 = 0,
 buffer: Buffer,
+panel_input: PanelInput,
 
 const Self = @This();
 
@@ -56,12 +58,14 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
         .parent = parent,
         .plane = n,
         .buffer = .empty,
+        .panel_input = try PanelInput.init(allocator, "inputview"),
     };
     try tui.input_listeners().add(EventHandler.bind(self, listen));
     return Panel.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    self.panel_input.deinit(Widget.to(self));
     tui.input_listeners().remove_ptr(self);
     for (self.buffer.items) |item|
         self.allocator.free(item.json);
@@ -146,6 +150,28 @@ fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     self.append(result.written()) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
-pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
-    return false;
+pub fn focus(self: *Self) void {
+    self.panel_input.focus(Widget.to(self));
+}
+
+pub fn unfocus(self: *Self) void {
+    self.panel_input.unfocus(Widget.to(self));
+}
+
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    return self.panel_input.receive(from, m);
+}
+
+pub fn panel_copy(self: *Self) void {
+    var text: Writer.Allocating = .init(self.allocator);
+    defer text.deinit();
+    for (self.buffer.items) |item| text.writer.print("{s}\n", .{item.json}) catch return;
+    PanelInput.copy_to_clipboard(text.written());
+}
+
+pub fn panel_clear(self: *Self) void {
+    for (self.buffer.items) |item| self.allocator.free(item.json);
+    self.buffer.clearRetainingCapacity();
+    self.last_count = 0;
+    tui.need_render(@src());
 }

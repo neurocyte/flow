@@ -12,6 +12,8 @@ const command = @import("command");
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
+const PanelInput = @import("PanelInput.zig");
+const tp = @import("thespian");
 const ed = @import("editor.zig");
 const syntax_validator = @import("syntax_validator");
 
@@ -21,6 +23,7 @@ plane: Plane,
 editor: *ed.Editor,
 theme: ?*const Widget.Theme = null,
 last_node: usize = 0,
+panel_input: PanelInput,
 
 const Self = @This();
 
@@ -42,14 +45,28 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
         .editor = editor,
+        .panel_input = try PanelInput.init(allocator, "inspector"),
     };
     return Panel.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    self.panel_input.deinit(Widget.to(self));
     tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
+}
+
+pub fn focus(self: *Self) void {
+    self.panel_input.focus(Widget.to(self));
+}
+
+pub fn unfocus(self: *Self) void {
+    self.panel_input.unfocus(Widget.to(self));
+}
+
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    return self.panel_input.receive(from, m);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

@@ -5,6 +5,8 @@ const command = @import("command");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
+const PanelInput = @import("PanelInput.zig");
+const tp = @import("thespian");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
 
@@ -18,6 +20,8 @@ plane: Plane,
 view_rows: usize = 0,
 lines: std.ArrayList([]const u8),
 widget_type: Widget.Type,
+panel_input: ?PanelInput = null,
+top: usize = 0,
 
 const default_widget_type: Widget.Type = .panel;
 
@@ -33,7 +37,10 @@ pub fn panel_icon(_: *Self) []const u8 {
 }
 
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
-    return Panel.to(try init(allocator, parent, default_widget_type));
+    const self = try init(allocator, parent, default_widget_type);
+    errdefer self.deinit(allocator);
+    self.panel_input = try PanelInput.init(allocator, "info");
+    return Panel.to(self);
 }
 
 pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !Widget {
@@ -58,10 +65,44 @@ fn init(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !*Self {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    if (self.panel_input) |*panel_input| panel_input.deinit(Widget.to(self));
     self.clear();
     self.lines.deinit(self.allocator);
     self.plane.deinit();
     allocator.destroy(self);
+}
+
+pub fn focus(self: *Self) void {
+    if (self.panel_input) |*panel_input| panel_input.focus(Widget.to(self));
+}
+
+pub fn unfocus(self: *Self) void {
+    if (self.panel_input) |*panel_input| panel_input.unfocus(Widget.to(self));
+}
+
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    return if (self.panel_input) |*panel_input| panel_input.receive(from, m) else false;
+}
+
+pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
+    const rows = @max(1, self.view_rows);
+    const max_top = self.lines.items.len -| rows;
+    self.top = @min(max_top, switch (action) {
+        .line_up => self.top -| 1,
+        .line_down => self.top + 1,
+        .page_up => self.top -| rows,
+        .page_down => self.top + rows,
+        .top => 0,
+        .bottom => max_top,
+    });
+    tui.need_render(@src());
+}
+
+pub fn panel_copy(self: *Self) void {
+    var text: std.Io.Writer.Allocating = .init(self.allocator);
+    defer text.deinit();
+    for (self.lines.items) |line| text.writer.print("{s}\n", .{line}) catch return;
+    PanelInput.copy_to_clipboard(text.written());
 }
 
 pub fn clear(self: *Self) void {
@@ -94,6 +135,7 @@ pub fn append_content(self: *Self, content: []const u8) !void {
 
 pub fn set_content(self: *Self, content: []const u8) !void {
     self.clear();
+    self.top = 0;
     return self.append_content(content);
 }
 
@@ -107,7 +149,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(if (tui.config().hover_info_mode == .box) theme.editor_widget else theme.panel);
     self.plane.erase();
     self.plane.home();
-    for (self.lines.items) |line| {
+    for (self.lines.items[@min(self.top, self.lines.items.len)..]) |line| {
         _ = self.plane.putstr(line) catch {};
         if (self.plane.cursor_y() >= self.view_rows - 1)
             return false;

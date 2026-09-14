@@ -12,6 +12,7 @@ const Vt = @import("Vt.zig");
 const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
+const PanelInput = @import("PanelInput.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const input = @import("input");
@@ -29,8 +30,7 @@ const Self = @This();
 
 allocator: Allocator,
 plane: Plane,
-focused: bool = false,
-input_mode: Mode,
+panel_input: PanelInput,
 hover: bool = false,
 vt: *Vt,
 commands: Commands = undefined,
@@ -86,7 +86,7 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
     self.* = .{
         .allocator = allocator,
         .plane = plane,
-        .input_mode = try keybind.mode("terminal", allocator, .{ .insert_command = "do_nothing" }),
+        .panel_input = try PanelInput.init(allocator, "terminal"),
         .vt = vt,
     };
     self.commands.init_unregistered(self);
@@ -223,7 +223,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 else => {},
             };
             // Forward to vt if terminal mouse reporting is active
-            if (self.focused and self.vt.vt.mode.mouse != .none) {
+            if (self.panel_input.focused and self.vt.vt.mode.mouse != .none) {
                 const cell = coord.to_cell(self.plane.mouse_geometry());
                 const mouse_event: vaxis.Mouse = .{
                     .col = @intCast(cell.col),
@@ -250,7 +250,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 self.selection_extend(coord);
                 return true;
             }
-            if (self.focused and self.vt.vt.mode.mouse != .none) {
+            if (self.panel_input.focused and self.vt.vt.mode.mouse != .none) {
                 const cell = coord.to_cell(self.plane.mouse_geometry());
                 const mouse_event: vaxis.Mouse = .{
                     .col = @intCast(cell.col),
@@ -270,7 +270,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         // Mouse motion (no button held)
         if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
             const cell = coord.to_cell(self.plane.mouse_geometry());
-            if (self.focused and self.vt.vt.mode.mouse == .any_event) {
+            if (self.panel_input.focused and self.vt.vt.mode.mouse == .any_event) {
                 const mouse_event: vaxis.Mouse = .{
                     .col = @intCast(cell.col),
                     .row = @intCast(cell.row),
@@ -297,7 +297,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (!(try m.match(.{ "I", tp.more })))
         return false;
 
-    if (!self.focused) return false;
+    if (!self.panel_input.focused) return false;
 
     var event: input.Event = 0;
     var keypress: input.Key = 0;
@@ -310,7 +310,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return false;
 
     const divert_to_vt = input.is_modifier(keypress) and self.vt.vt.wantsAllKeys();
-    if (!divert_to_vt and try self.input_mode.bindings.receive(from, m))
+    if (!divert_to_vt and try self.panel_input.mode.bindings.receive(from, m))
         return true;
 
     switch (event) {
@@ -358,7 +358,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 pub fn toggle_focus(self: *Self) void {
-    if (self.focused) self.unfocus() else self.focus();
+    if (self.panel_input.focused) self.unfocus() else self.focus();
 }
 
 pub fn get_title(self: *Self) []const u8 {
@@ -366,21 +366,14 @@ pub fn get_title(self: *Self) []const u8 {
 }
 
 pub fn focus(self: *Self) void {
-    if (self.focused) return;
-    self.focused = true;
-    if (tui.mini_mode() != null)
-        command.executeName("exit_mini_mode", .empty()) catch {};
-    if (tui.input_mode_outer() != null)
-        command.executeName("exit_overlay_mode", .empty()) catch {};
-    tui.set_keyboard_focus(Widget.to(self));
+    self.panel_input.focus(Widget.to(self));
 }
 
 pub fn unfocus(self: *Self) void {
-    if (!self.focused) return;
-    self.focused = false;
+    if (!self.panel_input.focused) return;
     self.reset_hover_pos();
     self.reset_file_link();
-    tui.release_keyboard_focus(Widget.to(self));
+    self.panel_input.unfocus(Widget.to(self));
 }
 
 fn set_file_link(self: *Self, link_: file_link.Dest, hl: FileLinkHighlight) error{OutOfMemory}!void {
@@ -407,7 +400,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.message_filters().remove_ptr(self);
     self.reset_file_link();
     if (self.vt.process_exited or self.close_vt) self.vt.deinit(allocator);
-    if (self.focused) tui.release_keyboard_focus(Widget.to(self));
+    self.panel_input.deinit(Widget.to(self));
     if (self.current) self.commands.unregister();
     self.plane.deinit();
     allocator.destroy(self);
@@ -433,7 +426,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     });
 
     // Blit the terminal's front screen into our vaxis.Window.
-    const focused_view = self.focused and tui.terminal_has_focus();
+    const focused_view = self.panel_input.focused and tui.terminal_has_focus();
     self.vt.vt.draw(self.allocator, self.plane.window, focused_view) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
@@ -851,7 +844,7 @@ fn navigate_to_file_link(dest: *const file_link.FileDest) void {
 fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     // consume paste when focused
     var text: []const u8 = undefined;
-    if (self.focused and m.match(.{ "system_clipboard", tp.extract(&text) }) catch false) {
+    if (self.panel_input.focused and m.match(.{ "system_clipboard", tp.extract(&text) }) catch false) {
         self.paste(text);
         return true;
     }
