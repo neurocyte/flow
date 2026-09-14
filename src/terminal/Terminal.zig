@@ -612,6 +612,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     }
                     var iter = vaxis.unicode.graphemeIterator(rest);
                     const grapheme = iter.next() orelse break;
+                    // the pty is untrusted and may deliver garbage, so check the cluster bounds
+                    if (grapheme.len == 0 or grapheme.start + grapheme.len > rest.len) break;
                     const gr = grapheme.bytes(rest);
                     // TODO: use actual instead of .unicode
                     const w = vaxis.gwidth.gwidth(gr, .unicode);
