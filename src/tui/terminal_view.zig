@@ -426,6 +426,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     });
 
     // Blit the terminal's front screen into our vaxis.Window.
+    // erase first to drop cells that reference graphemes in the front screen
+    self.plane.erase();
     const focused_view = self.panel_input.focused and tui.terminal_has_focus();
     self.vt.vt.draw(self.allocator, self.plane.window, focused_view) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
