@@ -1770,12 +1770,8 @@ pub fn get_file_owner(file: std.Io.File) ?FileOwner {
 }
 
 pub fn store_to_new_file_const(self: *const Self, io: std.Io, file_path: []const u8) StoreToFileError!void {
-    if (std.fs.path.dirname(file_path)) |dir_name| {
-        std.Io.Dir.createDirAbsolute(io, dir_name, .default_dir) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => {},
-        };
-    }
+    if (std.fs.path.dirname(file_path)) |dir_name|
+        cwd().createDirPath(io, dir_name) catch {};
     const file = try cwd().createFile(io, file_path, .{ .truncate = true });
     defer file.close(io);
     var write_buffer: [4096]u8 = undefined;
