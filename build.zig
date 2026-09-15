@@ -537,9 +537,31 @@ pub fn build_exe(
         },
     });
 
+    const file_watcher_mod = b.createModule(.{
+        .root_source_file = b.path("src/file_watcher.zig"),
+        .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "nightwatch", .module = nightwatch_mod },
+            .{ .name = "gitignore", .module = gitignore_mod },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
+    const FileStore_mod = b.createModule(.{
+        .root_source_file = b.path("src/FileStore.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "log", .module = log_mod },
+            .{ .name = "file_watcher", .module = file_watcher_mod },
+        },
+    });
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
+            .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "TypedInt", .module = TypedInt_mod },
@@ -1245,17 +1267,6 @@ pub fn build_exe(
         },
     });
 
-    const file_watcher_mod = b.createModule(.{
-        .root_source_file = b.path("src/file_watcher.zig"),
-        .imports = &.{
-            .{ .name = "soft_root", .module = soft_root_mod },
-            .{ .name = "nightwatch", .module = nightwatch_mod },
-            .{ .name = "gitignore", .module = gitignore_mod },
-            .{ .name = "cbor", .module = cbor_mod },
-            .{ .name = "thespian", .module = thespian_mod },
-        },
-    });
-
     const project_manager_mod = b.createModule(.{
         .root_source_file = b.path("src/project_manager.zig"),
         .imports = &.{
@@ -1275,6 +1286,7 @@ pub fn build_exe(
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "gitignore", .module = gitignore_mod },
         },
     });

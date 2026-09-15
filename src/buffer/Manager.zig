@@ -1,12 +1,15 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
+const FileStore = @import("FileStore");
 const Buffer = @import("Buffer.zig");
 
 const Self = @This();
 
 allocator: std.mem.Allocator,
 buffers: std.StringHashMapUnmanaged(*Buffer),
+file_store: ?FileStore = null,
+watched: std.AutoHashMapUnmanaged(*Buffer, []const u8) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) Self {
     return .{
@@ -18,10 +21,13 @@ pub fn init(allocator: std.mem.Allocator) Self {
 pub fn deinit(self: *Self) void {
     var i = self.buffers.iterator();
     while (i.next()) |p| {
+        self.unwatch_buffer(p.value_ptr.*);
         self.allocator.free(p.key_ptr.*);
         p.value_ptr.*.deinit();
     }
     self.buffers.deinit(self.allocator);
+    self.watched.deinit(self.allocator);
+    if (self.file_store) |*file_store| file_store.deinit();
 }
 
 fn get_buffer(self: *const Self, file_path: []const u8) ?*Buffer {
@@ -34,6 +40,7 @@ fn add_buffer(self: *Self, buffer: *Buffer) error{OutOfMemory}!void {
 
 pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
     const buffer = self.buffer_from_ref(buffer_.to_ref()) orelse return; // check buffer is valid
+    self.unwatch_buffer(buffer);
     if (self.buffers.fetchRemove(buffer.get_file_path())) |kv| {
         self.allocator.free(kv.key);
         kv.value.deinit();
@@ -50,6 +57,7 @@ pub fn open_file(self: *Self, io: std.Io, file_path: []const u8, now: std.Io.Tim
         errdefer buffer.deinit();
         try buffer.load_from_file_and_update(io, file_path, now);
         try self.add_buffer(buffer);
+        self.watch_buffer(buffer);
         break :blk buffer;
     };
     buffer.update_last_used_time(now);
@@ -70,6 +78,11 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8, now
     buffer.hidden = false;
     buffer.ephemeral = true;
     return buffer;
+}
+
+pub fn mark_not_ephemeral(self: *Self, buffer: *Buffer) void {
+    buffer.mark_not_ephemeral();
+    self.watch_buffer(buffer);
 }
 
 pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOfMemory, WriteFailed }!void {
@@ -96,6 +109,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
         }
         try buffer.extract_state(iter, now);
         try self.add_buffer(buffer);
+        self.watch_buffer(buffer);
         tp.trace(tp.channel.debug, .{ "buffer", "extract", buffer.get_file_path(), buffer.file_type_name });
     }
 }
@@ -203,6 +217,7 @@ pub fn reload_all(self: *const Self, io: std.Io, now: std.Io.Timestamp) Buffer.L
 pub fn delete_all(self: *Self) void {
     var i = self.buffers.iterator();
     while (i.next()) |p| {
+        self.unwatch_buffer(p.value_ptr.*);
         self.allocator.free(p.key_ptr.*);
         p.value_ptr.*.deinit();
     }
@@ -253,3 +268,84 @@ pub fn buffer_from_ref(self: *Self, buffer_ref: Buffer.Ref) ?*Buffer {
     tp.trace(tp.channel.debug, .{ "buffer_from_ref", "failed", buffer_ref });
     return null;
 }
+
+pub fn set_file_store(self: *Self, file_store: FileStore) void {
+    self.unwatch_all();
+    if (self.file_store) |*old| old.deinit();
+    self.file_store = file_store;
+    var i = self.buffers.valueIterator();
+    while (i.next()) |buffer| self.watch_buffer(buffer.*);
+}
+
+pub fn take_file_store(self: *Self) ?FileStore {
+    self.unwatch_all();
+    const file_store = self.file_store;
+    self.file_store = null;
+    return file_store;
+}
+
+fn watch_buffer(self: *Self, buffer: *Buffer) void {
+    if (buffer.is_ephemeral()) return;
+    const file_store = self.file_store orelse return;
+    if (self.watched.contains(buffer)) return;
+    const file_path = buffer.get_file_path();
+    const project = tp.env.get().str("project");
+    const abs_path = (if (std.fs.path.isAbsolute(file_path))
+        std.fs.path.resolve(self.allocator, &.{file_path})
+    else if (project.len > 0)
+        std.fs.path.resolve(self.allocator, &.{ project, file_path })
+    else
+        return) catch return;
+    self.watched.put(self.allocator, buffer, abs_path) catch {
+        self.allocator.free(abs_path);
+        return;
+    };
+    file_store.watch(abs_path) catch |e| std.log.err("file_store.watch: {s} -> {}", .{ abs_path, e });
+}
+
+fn unwatch_buffer(self: *Self, buffer: *Buffer) void {
+    const kv = self.watched.fetchRemove(buffer) orelse return;
+    defer self.allocator.free(kv.value);
+    if (self.file_store) |*file_store| file_store.unwatch(kv.value) catch {};
+}
+
+fn unwatch_all(self: *Self) void {
+    var i = self.buffers.valueIterator();
+    while (i.next()) |buffer| self.unwatch_buffer(buffer.*);
+}
+
+fn buffer_for_watched_path(self: *const Self, abs_path: []const u8) ?*Buffer {
+    var i = self.watched.iterator();
+    while (i.next()) |p|
+        if (std.mem.eql(u8, p.value_ptr.*, abs_path))
+            return p.key_ptr.*;
+    return null;
+}
+
+pub fn receive_file_watch_event(self: *Self, from: tp.pid_ref, m: tp.message) void {
+    var path: []const u8 = undefined;
+    var from_path: []const u8 = undefined;
+    var event_type: FileStore.EventType = undefined;
+    var object_type: FileStore.ObjectType = undefined;
+    if (m.match(.{ "FS", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) }) catch false) {
+        self.file_changed(path, event_type, object_type);
+    } else if (m.match(.{ "FS", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) }) catch false) {
+        self.file_renamed(from_path, path, object_type);
+    } else if (m.match(.{ "FS", "ready" }) catch false) {
+        return self.set_file_store(.{ .pid = from.clone() });
+    }
+}
+
+fn file_changed(self: *Self, abs_path: []const u8, event_type: FileStore.EventType, object_type: FileStore.ObjectType) void {
+    const buffer = self.buffer_for_watched_path(abs_path) orelse return;
+    log.debug("file {t}: {s} ({t})", .{ event_type, buffer.get_file_path(), object_type });
+}
+
+fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8, object_type: FileStore.ObjectType) void {
+    if (self.buffer_for_watched_path(from_path)) |buffer|
+        log.debug("file renamed: {s} -> {s} ({t})", .{ buffer.get_file_path(), to_path, object_type });
+    if (self.buffer_for_watched_path(to_path)) |buffer|
+        log.debug("file replaced: {s} <- {s} ({t})", .{ buffer.get_file_path(), from_path, object_type });
+}
+
+const log = std.log.scoped(.buffer_manager);

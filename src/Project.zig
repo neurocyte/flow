@@ -146,7 +146,7 @@ fn start_watcher(name: []const u8, options: Options) ?file_watcher.Owned {
         std.log.debug("not watching {s}", .{name});
         return null;
     }
-    const watcher = file_watcher.Owned.init() catch |e| {
+    const watcher = file_watcher.Owned.init(.project_tree) catch |e| {
         std.log.err("file_watcher.init: {s} -> {}", .{ name, e });
         return null;
     };

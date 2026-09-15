@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const log = @import("log");
 const tracy = @import("tracy");
 const file_watcher = @import("file_watcher");
+const FileStore = @import("FileStore");
 const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
 const root = @import("soft_root").root;
@@ -70,6 +71,10 @@ pub fn shutdown() void {
         return;
     }
     pid.send(.{"shutdown"}) catch {};
+}
+
+pub fn request_file_store() ProjectManagerError!void {
+    return send(.{"request_file_store"});
 }
 
 pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSystemError || std.Io.File.OpenError || SetCwdError)!?[]const u8 {
@@ -409,6 +414,7 @@ const Process = struct {
     projects: ProjectsMap,
     non_indexed: []const []const u8,
     watch_non_indexed: bool,
+    file_store: ?tp.pid = null,
 
     const InvalidArgumentError = error{InvalidArgument};
     const UnsupportedError = error{Unsupported};
@@ -438,6 +444,7 @@ const Process = struct {
     }
 
     fn dtor(self: *Process) void {
+        self.shutdown_file_store();
         var i = self.projects.iterator();
         while (i.next()) |p| {
             self.allocator.free(p.key_ptr.*);
@@ -608,7 +615,10 @@ const Process = struct {
                 self.logger.print("{s}: {s}", .{ tag, message });
         } else if (try cbor.match(m.buf, .{ "lsp", "err", tp.extract(&tag), tp.extract(&message) })) {
             self.logger.print("{s} error: {s}", .{ tag, message });
+        } else if (try cbor.match(m.buf, .{"request_file_store"})) {
+            self.request_file_store(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
+            self.shutdown_file_store();
             self.persist_projects();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
             return error.ExitNormal;
@@ -643,6 +653,27 @@ const Process = struct {
     fn unsubscribe_lsp_status(self: *Process, from: tp.pid_ref) void {
         var i = self.projects.valueIterator();
         while (i.next()) |project| project.*.remove_lsp_status_subscriber(from);
+    }
+
+    fn request_file_store(self: *Process, from: tp.pid_ref) (SpawnError || error{FileStoreFailed})!void {
+        if (self.file_store) |*pid| {
+            if (pid.expired()) {
+                pid.deinit();
+                self.file_store = null;
+            }
+        }
+        const file_store = self.file_store orelse blk: {
+            self.file_store = try FileStore.spawn();
+            break :blk self.file_store.?;
+        };
+        file_store.send(.{ "client", from.instance_id() }) catch return error.FileStoreFailed;
+    }
+
+    fn shutdown_file_store(self: *Process) void {
+        var file_store = self.file_store orelse return;
+        self.file_store = null;
+        file_store.send(.{"shutdown"}) catch {};
+        file_store.deinit();
     }
 
     fn project_for_path(self: *Process, abs_path: []const u8) ?struct { project: *Project, rel_path: []const u8 } {

@@ -94,6 +94,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .lsp_info = .init(allocator),
         .filelists = FileList.Manager.init(allocator),
     };
+    project_manager.request_file_store() catch |e| std.log.err("request_file_store: {}", .{e});
     try self.commands.init(self);
     const w = Widget.to(self);
 
@@ -459,7 +460,7 @@ fn open_style_config(self: *Self, Style: type, now: std.Io.Timestamp) command.Re
         conf.written(),
         "conf",
     }));
-    if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
+    if (self.get_active_buffer()) |buffer| self.buffer_manager.mark_not_ephemeral(buffer);
     self.location_update_from_editor();
 }
 
@@ -572,8 +573,10 @@ const cmds = struct {
             self.delete_all_buffers();
             self.hide_filelist();
             self.filelists.reset();
+            const file_store = self.buffer_manager.take_file_store();
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
+            if (file_store) |store| self.buffer_manager.set_file_store(store);
         }
 
         const project = tp.env.get().str("project");
@@ -826,7 +829,7 @@ const cmds = struct {
             content,
             "conf",
         }));
-        if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
+        if (self.get_active_buffer()) |buffer| self.buffer_manager.mark_not_ephemeral(buffer);
         self.location_update_from_editor();
     }
     pub const open_file_type_config_meta: Meta = .{
@@ -960,7 +963,7 @@ const cmds = struct {
                 const new_buffer = new_editor.buffer orelse return;
                 if (existing) new_editor.update_buf(new_buffer.root, now) catch {}; // store an undo point
                 try new_buffer.reset_from_string_and_update(content, now);
-                new_buffer.mark_not_ephemeral();
+                self.buffer_manager.mark_not_ephemeral(new_buffer);
                 new_buffer.mark_dirty();
                 new_editor.clamp(ctx.now);
                 new_editor.update_buf(new_buffer.root, now) catch {};

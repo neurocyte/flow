@@ -37,6 +37,10 @@ pub const Instance = struct {
     name: [:0]const u8,
     tag: [:0]const u8,
     filtered: bool = false,
+    recursive: bool = true,
+
+    pub const project_tree: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
+    pub const file_store: Instance = .{ .name = "file_store_watcher", .tag = "FSW", .recursive = false };
 
     pub fn watch(self: Instance, path: []const u8) Error!void {
         return self.send(.{ "watch", path });
@@ -80,9 +84,7 @@ pub const Instance = struct {
 pub const Owned = struct {
     pid: tp.pid,
 
-    const instance: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
-
-    pub fn init() SpawnError!@This() {
+    pub fn init(instance: Instance) SpawnError!@This() {
         return .{ .pid = try Process.create(instance) };
     }
 
@@ -120,6 +122,8 @@ const Process = struct {
     parent: tp.pid,
     receiver: Receiver,
     roots: std.ArrayList(*Root) = .empty,
+    dirs: std.ArrayList([]const u8) = .empty,
+    dirs_mutex: std.Io.Mutex = .init,
     nw: ?Watcher = null,
     fd_watcher: if (builtin.os.tag == .linux) ?tp.file_descriptor else void,
     handler: Watcher.Handler,
@@ -146,6 +150,8 @@ const Process = struct {
         if (self.nw) |*nw| nw.deinit();
         for (self.roots.items) |r| self.free_root(r);
         self.roots.deinit(self.allocator);
+        for (self.dirs.items) |dir| self.allocator.free(dir);
+        self.dirs.deinit(self.allocator);
         self.parent.deinit();
         self.allocator.destroy(self);
     }
@@ -208,6 +214,7 @@ const Process = struct {
             std.log.err("fd read error on {s}: ({d}) {s}", .{ tag, err_code, err_msg });
         } else if (try cbor.match(m.buf, .{ "watch", tp.extract(&path) })) {
             self.add_root(path);
+            self.add_dir(path);
             self.nw.?.watch(path) catch |e| switch (e) {
                 error.WatchLimitReached => std.log.err(
                     "file_watcher watch: {s} -> watch limit reached after {d} watches{s}",
@@ -218,6 +225,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "unwatch", tp.extract(&path) })) {
             self.nw.?.unwatch(path) catch |e| std.log.err("file_watcher unwatch: {s} -> {}", .{ path, e });
             self.remove_root(path);
+            self.remove_dir(path);
         } else if (try cbor.match(m.buf, .{ "ignore_changed", tp.extract(&path), tp.extract(&dir) })) {
             self.ignore_changed(path, dir);
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
@@ -231,6 +239,7 @@ const Process = struct {
 
     fn should_watch(handler: *Watcher.Handler, path: []const u8, object_type: ObjectType) bool {
         const self: *@This() = @alignCast(@fieldParentPtr("handler", handler));
+        if (!self.instance.recursive) return object_type != .dir or self.is_watched_dir(path);
         const r = self.root_for(path) orelse return true;
         const rel = path[r.path.len..];
         const rel_path = std.mem.trimStart(u8, rel, "/\\");
@@ -304,15 +313,52 @@ const Process = struct {
         self.allocator.destroy(r);
     }
 
+    fn add_dir(self: *@This(), path: []const u8) void {
+        if (self.instance.recursive) return;
+        const dir = std.mem.trimEnd(u8, path, "/\\");
+        self.dirs_mutex.lockUncancelable(root.get_io());
+        defer self.dirs_mutex.unlock(root.get_io());
+        for (self.dirs.items) |d| if (std.mem.eql(u8, d, dir)) return;
+        const owned = self.allocator.dupe(u8, dir) catch return;
+        self.dirs.append(self.allocator, owned) catch self.allocator.free(owned);
+    }
+
+    fn remove_dir(self: *@This(), path: []const u8) void {
+        if (self.instance.recursive) return;
+        const dir = std.mem.trimEnd(u8, path, "/\\");
+        self.dirs_mutex.lockUncancelable(root.get_io());
+        defer self.dirs_mutex.unlock(root.get_io());
+        for (self.dirs.items, 0..) |d, i| {
+            if (!std.mem.eql(u8, d, dir)) continue;
+            self.allocator.free(self.dirs.swapRemove(i));
+            return;
+        }
+    }
+
+    fn is_watched_dir(self: *@This(), path: []const u8) bool {
+        self.dirs_mutex.lockUncancelable(root.get_io());
+        defer self.dirs_mutex.unlock(root.get_io());
+        for (self.dirs.items) |d| if (std.mem.eql(u8, d, path)) return true;
+        return false;
+    }
+
+    fn in_watched_dir(self: *@This(), path: []const u8) bool {
+        if (self.instance.recursive) return true;
+        if (self.is_watched_dir(path)) return true;
+        return self.is_watched_dir(std.fs.path.dirname(path) orelse return false);
+    }
+
     fn handle_change(handler: *Watcher.Handler, path: []const u8, event_type: EventType, object_type: ObjectType) error{HandlerFailed}!void {
         const self: *@This() = @alignCast(@fieldParentPtr("handler", handler));
         if (event_type == .closed) return;
+        if (!self.in_watched_dir(path)) return;
         self.parent.send(.{ self.instance.tag, "change", path, event_type, object_type }) catch |e|
             std.log.err("file_watcher change: {s} -> {}", .{ path, e });
     }
 
     fn handle_rename(handler: *Watcher.Handler, src_path: []const u8, dst_path: []const u8, object_type: ObjectType) error{HandlerFailed}!void {
         const self: *@This() = @alignCast(@fieldParentPtr("handler", handler));
+        if (!self.in_watched_dir(src_path) and !self.in_watched_dir(dst_path)) return;
         self.parent.send(.{ self.instance.tag, "rename", src_path, dst_path, object_type }) catch |e|
             std.log.err("file_watcher rename: {s} -> {}", .{ src_path, e });
     }

@@ -755,6 +755,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
+    if (try m.match(.{ "FS", tp.more })) // file store events
+        return if (get_buffer_manager()) |buffer_manager| buffer_manager.receive_file_watch_event(from, m);
+
     if (try m.match(.{ "FW", "change", tp.more })) // project file watcher events
         return;
 
