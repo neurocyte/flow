@@ -71,6 +71,10 @@ pub const themes: std.StaticStringMap(T) = .initComptime(.{
         .color_scheme = .light,
         .opacity = 1.0,
     } },
+    .{ "solitued", T{
+        .theme = "kanso-zen",
+        .opacity = 1.0,
+    } },
     .{ "vantablack", T{
         .theme = "CRT-gray",
         .opacity = 1.0,
