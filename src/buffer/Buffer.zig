@@ -1730,24 +1730,43 @@ pub fn store_to_existing_file_const(self: *const Self, io: std.Io, file_path_: [
         return atomic.replace(io);
     }
 
-    // use fstat to get uid/gid, which std.fs.File.Stat omits.
-    const orig_stat: ?std.Io.File.Stat = blk: {
+    const Orig = struct { stat: std.Io.File.Stat, owner: ?FileOwner };
+    const orig: ?Orig = blk: {
         const f = cwd().openFile(io, file_path, .{}) catch break :blk null;
         defer f.close(io);
-        break :blk f.stat(io) catch null;
+        break :blk .{ .stat = f.stat(io) catch break :blk null, .owner = get_file_owner(f) };
     };
     var atomic = try cwd().createFileAtomic(io, file_path, .{ .replace = true });
     defer atomic.deinit(io);
     var writer = atomic.file.writer(io, &write_buffer);
     try self.store_to_file_const(&writer.interface);
     writer.flush() catch {};
-    // fchmod/setPermissions bypasses the process umask preserving the exact original mode
-    // fchown restores original owner/group
     // EPERM is silently ignored when we lack sufficient privileges
-    if (orig_stat) |s| {
-        atomic.file.setPermissions(io, s.permissions) catch {};
+    if (orig) |o| {
+        if (o.owner) |owner| atomic.file.setOwner(io, owner.uid, owner.gid) catch {};
+        atomic.file.setPermissions(io, o.stat.permissions) catch {};
     }
     try atomic.replace(io);
+}
+
+pub const FileOwner = struct { uid: std.Io.File.Uid, gid: std.Io.File.Gid };
+
+pub fn get_file_owner(file: std.Io.File) ?FileOwner {
+    switch (builtin.os.tag) {
+        .linux => {
+            const linux = std.os.linux;
+            var stx: linux.Statx = undefined;
+            const rc = linux.statx(file.handle, "", linux.AT.EMPTY_PATH, .{ .UID = true, .GID = true }, &stx);
+            if (linux.errno(rc) != .SUCCESS or !stx.mask.UID or !stx.mask.GID) return null;
+            return .{ .uid = stx.uid, .gid = stx.gid };
+        },
+        .macos, .freebsd => {
+            var st: std.c.Stat = undefined;
+            if (std.c.fstat(file.handle, &st) != 0) return null;
+            return .{ .uid = st.uid, .gid = st.gid };
+        },
+        else => return null,
+    }
 }
 
 pub fn store_to_new_file_const(self: *const Self, io: std.Io, file_path: []const u8) StoreToFileError!void {
