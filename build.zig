@@ -555,6 +555,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
 
@@ -1057,6 +1058,27 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const file_store_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-FileStore",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/FileStore.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "cbor", .module = cbor_mod },
+                    .{ .name = "thespian", .module = thespian_mod },
+                    .{ .name = "log", .module = log_mod },
+                    .{ .name = "file_watcher", .module = file_watcher_mod },
+                    .{ .name = "soft_root", .module = soft_root_mod },
+                },
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const glyph_constraint_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-glyph_constraint",
@@ -1544,6 +1566,7 @@ pub fn build_exe(
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&gitignore_test_run_cmd.step);
     test_step.dependOn(&dbus_test_run_cmd.step);
+    test_step.dependOn(&file_store_test_run_cmd.step);
     test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);

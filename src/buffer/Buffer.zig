@@ -9,6 +9,7 @@ const ArrayList = std.ArrayList;
 const cwd = std.Io.Dir.cwd;
 const Regex = @import("regex");
 const tracy = @import("tracy");
+const FileStore = @import("FileStore");
 
 const perf_log = std.log.scoped(.buffer_io);
 
@@ -1502,18 +1503,23 @@ pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_
 }
 
 fn load_timed(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_sanitized: *bool, timing: ?*LoadTiming) LoadError!Root {
-    const lf = '\n';
-    const cr = '\r';
-    const self_ = @constCast(self);
     var read_buffer: ArrayList(u8) = .empty;
     defer read_buffer.deinit(self.external_allocator);
-    var buf = blk: {
+    const buf = blk: {
         const zone = tracy.initZone(@src(), .{ .name = "buffer.load.read" });
         defer zone.deinit();
         try reader.appendRemainingUnlimited(self.external_allocator, &read_buffer);
         break :blk try read_buffer.toOwnedSlice(self.external_allocator);
     };
     if (timing) |t| t.read_us = t.timer.lap();
+    return self.load_owned_timed(buf, eol_mode, utf8_sanitized, timing);
+}
+
+fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sanitized: *bool, timing: ?*LoadTiming) LoadError!Root {
+    const lf = '\n';
+    const cr = '\r';
+    const self_ = @constCast(self);
+    var buf = buf_;
 
     {
         const zone = tracy.initZone(@src(), .{ .name = "buffer.load.sanitize" });
@@ -1741,6 +1747,34 @@ pub fn load_from_file_and_update(self: *Self, io: std.Io, file_path: []const u8,
     log_load(wall, file_path, &timing);
 }
 
+pub fn load_from_owned_bytes_and_update(self: *Self, io: std.Io, file_path: []const u8, bytes: []u8, file_exists: bool, now: std.Io.Timestamp) LoadError!void {
+    const zone = tracy.initZone(@src(), .{ .name = "buffer.load" });
+    defer zone.deinit();
+    const wall: std.Io.Timestamp = .now(io, .real);
+    var timing: LoadTiming = .{ .timer = .start_now(io) };
+
+    var eol_mode: EolMode = .lf;
+    var utf8_sanitized: bool = false;
+    self.root = try self.load_owned_timed(bytes, &eol_mode, &utf8_sanitized, &timing);
+    self.set_file_path(file_path);
+    self.last_save = self.root;
+    self.file_exists = file_exists;
+    self.file_eol_mode = eol_mode;
+    self.file_utf8_sanitized = utf8_sanitized;
+    self.last_save_eol_mode = eol_mode;
+    self.mtime = now.toMilliseconds();
+
+    timing.update_us = timing.timer.lap();
+    log_load(wall, file_path, &timing);
+}
+
+pub fn mark_saved(self: *Self, root: Root, eol_mode: EolMode) void {
+    self.last_save = root;
+    self.last_save_eol_mode = eol_mode;
+    self.file_exists = true;
+    self.file_utf8_sanitized = false;
+}
+
 pub fn reset_to_last_saved(self: *Self, now: std.Io.Timestamp) void {
     if (self.last_save) |last_save| {
         self.store_undo(&[_]u8{}) catch {};
@@ -1930,25 +1964,8 @@ fn store_to_existing_file_timed(self: *const Self, io: std.Io, file_path_: []con
     if (timing) |t| t.replace_us = t.timer.lap();
 }
 
-pub const FileOwner = struct { uid: std.Io.File.Uid, gid: std.Io.File.Gid };
-
-pub fn get_file_owner(file: std.Io.File) ?FileOwner {
-    switch (builtin.os.tag) {
-        .linux => {
-            const linux = std.os.linux;
-            var stx: linux.Statx = undefined;
-            const rc = linux.statx(file.handle, "", linux.AT.EMPTY_PATH, .{ .UID = true, .GID = true }, &stx);
-            if (linux.errno(rc) != .SUCCESS or !stx.mask.UID or !stx.mask.GID) return null;
-            return .{ .uid = stx.uid, .gid = stx.gid };
-        },
-        .macos, .freebsd => {
-            var st: std.c.Stat = undefined;
-            if (std.c.fstat(file.handle, &st) != 0) return null;
-            return .{ .uid = st.uid, .gid = st.gid };
-        },
-        else => return null,
-    }
-}
+pub const FileOwner = FileStore.FileOwner;
+pub const get_file_owner = FileStore.get_file_owner;
 
 pub fn store_to_new_file_const(self: *const Self, io: std.Io, file_path: []const u8) StoreToFileError!void {
     return self.store_to_new_file_timed(io, file_path, null);
