@@ -100,7 +100,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
         .allocator = allocator,
         .tty = vaxis.Tty.init(root.get_io(), tty_buffer) catch |e| {
             var stderr_buffer: [1024]u8 = undefined;
-            var stderr_writer = std.Io.File.stderr().writer(std.Options.debug_io, &stderr_buffer);
+            var stderr_writer = std.Io.File.stderr().writerStreaming(std.Options.debug_io, &stderr_buffer);
             stderr_writer.interface.print("\n" ++ root.application_name ++ " ERROR: {s}\n", .{@errorName(e)}) catch {};
             stderr_writer.flush() catch {};
             return error.TtyInitError;

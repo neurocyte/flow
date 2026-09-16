@@ -96,7 +96,7 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         }
         if (!self.no_stderr) {
             var stderr_buffer: [1024]u8 = undefined;
-            var stderr_writer = std.Io.File.stderr().writer(std.Options.debug_io, &stderr_buffer);
+            var stderr_writer = std.Io.File.stderr().writerStreaming(std.Options.debug_io, &stderr_buffer);
             stderr_writer.interface.print("flow {s}: error in {s}: {s}\n", .{ src, context, output }) catch {};
             stderr_writer.interface.flush() catch {};
         }
@@ -108,7 +108,7 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         }
         if (!self.no_stdout) {
             var stdout_buffer: [1024]u8 = undefined;
-            var stdout_writer = std.Io.File.stdout().writer(std.Options.debug_io, &stdout_buffer);
+            var stdout_writer = std.Io.File.stdout().writerStreaming(std.Options.debug_io, &stdout_buffer);
             stdout_writer.interface.print("flow {s}: {s}\n", .{ src, output }) catch {};
             stdout_writer.interface.flush() catch {};
         }
