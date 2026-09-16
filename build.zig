@@ -343,7 +343,7 @@ pub fn build_exe(
     });
     const cbor_mod = cbor_dep.module("cbor");
 
-    const tracy_dep = if (tracy_enabled) thespian_dep.builder.dependency("tracy", .{
+    const tracy_dep = if (tracy_enabled) thespian_dep.builder.dependency("zig_tracy", .{
         .target = target,
         .optimize = optimize,
     }) else undefined;
@@ -562,6 +562,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
             .{ .name = "FileStore", .module = FileStore_mod },
+            .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "TypedInt", .module = TypedInt_mod },
