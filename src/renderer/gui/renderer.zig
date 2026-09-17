@@ -261,8 +261,8 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
-    const handle: Layer.Handle = @enumFromInt(self.targets.items.len);
-    if (target.parent) |p| std.debug.assert(@intFromEnum(p) < @intFromEnum(handle));
+    const handle: Layer.Handle = @fromBackingInt(@intCast(self.targets.items.len));
+    if (target.parent) |p| std.debug.assert(@backingInt(p) < @backingInt(handle));
     resolve_layer_origin(self.stdplane(), target.src, target, self.targets.items);
     self.targets.append(self.allocator, target) catch |e| switch (e) {
         error.OutOfMemory => @panic("OOM gui.submit_layer"),
@@ -276,7 +276,7 @@ fn resolve_layer_origin(std_plane: Plane, layer: *Layer, target: Layer.Target, p
     var dst_x: i32 = 0;
     var dst_y: i32 = 0;
     if (target.parent) |h| {
-        const parent_layer = prior_targets[@intFromEnum(h)].src;
+        const parent_layer = prior_targets[@backingInt(h)].src;
         dst_x, dst_y = parent_layer.global_origin_px();
     }
     layer.origin_px_x = dst_x + target.x * cw + @as(i32, target.xoffset);
@@ -333,7 +333,7 @@ pub fn render(self: *Self, focused: bool) error{}!?i64 {
         }
 
         const parent_idx: u32 = if (t.parent) |h| blk: {
-            const parent_target = &self.targets.items[@intFromEnum(h)];
+            const parent_target = &self.targets.items[@backingInt(h)];
             break :blk layer_index_by_ptr.get(parent_target.src) orelse @panic("parent layer not registered");
         } else 0; // stdplane
 
@@ -357,7 +357,7 @@ pub fn render(self: *Self, focused: bool) error{}!?i64 {
             .dst_y_off = t.dst.y_off,
             .dst_width = t.dst.width,
             .dst_height = t.dst.height,
-            .z_index = @intFromEnum(t.z_index),
+            .z_index = @backingInt(t.z_index),
         }) catch @panic("OOM render");
     }
 

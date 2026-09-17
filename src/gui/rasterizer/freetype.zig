@@ -1,12 +1,6 @@
 /// FreeType-based glyph rasterizer
 const std = @import("std");
-const c = @cImport({
-    @cInclude("ft2build.h");
-    @cInclude("freetype/freetype.h");
-    @cInclude("freetype/ftoutln.h");
-    @cInclude("freetype/ftbbox.h");
-    @cInclude("freetype/tttables.h");
-});
+const c = @import("c");
 const XY = @import("xy").XY;
 const flow_sprite = @import("flow_sprite");
 pub const font_finder = @import("font_finder");
@@ -151,7 +145,7 @@ fn cachedFace(self: *Self, path: []const u8, face_index: i32, size_px: u16) !c.F
         return entry.face;
     }
 
-    const path_z = try self.allocator.dupeZ(u8, path);
+    const path_z = try self.allocator.dupeSentinel(u8, path, 0);
     defer self.allocator.free(path_z);
 
     var face: c.FT_Face = undefined;
@@ -642,7 +636,7 @@ const FtBackend = struct {
     }
 
     pub fn loadPath(library: c.FT_Library, allocator: std.mem.Allocator, cand: font_finder.FallbackCandidate, size_px: u16) ?Face {
-        const path_z = allocator.dupeZ(u8, cand.path) catch return null;
+        const path_z = allocator.dupeSentinel(u8, cand.path, 0) catch return null;
         defer allocator.free(path_z);
         var face: c.FT_Face = undefined;
         if (c.FT_New_Face(library, path_z.ptr, cand.face_index, &face) != 0) return null;

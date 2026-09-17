@@ -26,12 +26,12 @@ pub fn add_cleanup(c: Cleanup) CleanupHandle {
     const handle = cleanups_len;
     cleanups[handle] = c;
     cleanups_len += 1;
-    return @enumFromInt(handle);
+    return @fromBackingInt(@intCast(handle));
 }
 
 /// Remove a previously installed cleanup hook.
 pub fn remove_cleanup(handle_: CleanupHandle) void {
-    const handle: usize = @intFromEnum(handle_);
+    const handle: usize = @backingInt(handle_);
     if (handle >= cleanups.len) return;
     cleanups[handle] = null;
     while (cleanups_len > 0 and cleanups[cleanups_len - 1] == null)
@@ -123,7 +123,7 @@ fn handle_crash_posix(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx_
     report_fault(name, addr, ctx);
 
     if (builtin.os.tag == .linux and jit_debugger)
-        thespian.sighdl_debugger(@intCast(@intFromEnum(sig)), @ptrCast(@constCast(info)), ctx_ptr);
+        thespian.sighdl_debugger(@intCast(@backingInt(sig)), @ptrCast(@constCast(info)), ctx_ptr);
 
     std.c.abort();
 }
@@ -174,11 +174,11 @@ fn report_fault(name: []const u8, addr: ?usize, ctx: ?std.debug.CpuContextPtr) v
 fn write_crash_log_file(kind: []const u8, msg: []const u8, unwind: std.debug.StackUnwindOptions) void {
     if (builtin.os.tag == .windows) {
         var note: [256]u8 = undefined;
-        if (std.fmt.bufPrintZ(&note, "flow crashed: {s}{s}{s} (see crash.log)\n", .{
+        if (std.fmt.bufPrintSentinel(&note, "flow crashed: {s}{s}{s} (see crash.log)\n", .{
             kind,
             if (msg.len > 0) ": " else "",
             msg,
-        })) |z| OutputDebugStringA(z.ptr) else |_| {}
+        }, 0)) |z| OutputDebugStringA(z.ptr) else |_| {}
     }
 
     const dir = root.get_state_dir() catch return;
@@ -205,10 +205,11 @@ fn show_crash_dialog(kind: []const u8, msg: []const u8, path: []const u8) void {
 fn show_crash_dialog_win32(kind: []const u8, msg: []const u8, path: []const u8) void {
     if (!gui_crash_dialog) return;
     var buf: [std.fs.max_path_bytes + 256]u8 = undefined;
-    const text = std.fmt.bufPrintZ(
+    const text = std.fmt.bufPrintSentinel(
         &buf,
         "flow crashed: {s}{s}{s}\n\nA crash report was written to:\n{s}",
         .{ kind, if (msg.len > 0) ": " else "", msg, path },
+        0,
     ) catch return;
     const MB_ICONERROR: u32 = 0x00000010;
     const MB_SETFOREGROUND: u32 = 0x00010000;

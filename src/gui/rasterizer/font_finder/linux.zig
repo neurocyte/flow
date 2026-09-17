@@ -1,7 +1,5 @@
 const std = @import("std");
-const fc = @cImport({
-    @cInclude("fontconfig/fontconfig.h");
-});
+const fc = @import("c");
 
 var cached_config: std.atomic.Value(?*fc.FcConfig) = .init(null);
 
@@ -77,7 +75,7 @@ pub const FontMatch = struct {
 pub fn find(allocator: std.mem.Allocator, name: []const u8) !FontMatch {
     const cfg = try config();
 
-    const name_z = try allocator.dupeZ(u8, name);
+    const name_z = try allocator.dupeSentinel(u8, name, 0);
     defer allocator.free(name_z);
 
     const pat = fc.FcNameParse(name_z.ptr) orelse return error.FontPatternParse;

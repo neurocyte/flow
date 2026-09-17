@@ -29,7 +29,7 @@ pub const application_subtext = "a programmer's text editor";
 pub const application_description = application_title ++ ": " ++ application_subtext;
 
 pub const std_options: std.Options = .{
-    .log_level = if (builtin.mode == .Debug) .debug else .info,
+    .log_level = if (builtin.mode == .debug) .debug else .info,
     .logFn = log.std_log_function,
 };
 
@@ -627,31 +627,31 @@ fn read_cbor_config(
         else => return e,
     }) {
         var known = false;
-        inline for (@typeInfo(T).@"struct".fields) |field_info|
-            if (comptime std.mem.eql(u8, "include_files", field_info.name)) {
-                if (std.mem.eql(u8, field_name, field_info.name)) {
+        inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |struct_field_name, struct_field_type|
+            if (comptime std.mem.eql(u8, "include_files", struct_field_name)) {
+                if (std.mem.eql(u8, field_name, struct_field_name)) {
                     known = true;
-                    var value: field_info.type = undefined;
+                    var value: struct_field_type = undefined;
                     if (try cbor.matchValue(&iter, cbor.extract(&value))) {
                         if (conf.include_files.len > 0) {
                             std.log.err("{s}: ignoring nested 'include_files' value '{s}'", .{ file_name, value });
                         } else {
-                            @field(conf, field_info.name) = value;
+                            @field(conf, struct_field_name) = value;
                         }
                     } else {
                         try cbor.skipValue(&iter);
                         std.log.err("invalid value for key '{s}'", .{field_name});
                     }
                 }
-            } else if (std.mem.eql(u8, field_name, field_info.name)) {
+            } else if (std.mem.eql(u8, field_name, struct_field_name)) {
                 known = true;
-                switch (field_info.type) {
+                switch (struct_field_type) {
                     u24, ?u24 => {
                         var value: []const u8 = undefined;
                         if (try cbor.matchValue(&iter, cbor.extract(&value))) {
                             const color_ = color.RGB.from_string(value);
                             if (color_) |color__|
-                                @field(conf, field_info.name) = color__.to_u24()
+                                @field(conf, struct_field_name) = color__.to_u24()
                             else
                                 std.log.err("invalid value for key '{s}'", .{field_name});
                         } else {
@@ -660,9 +660,9 @@ fn read_cbor_config(
                         }
                     },
                     else => {
-                        var value: field_info.type = undefined;
+                        var value: struct_field_type = undefined;
                         if (try cbor.matchValue(&iter, cbor.extractAlloc(&value, allocator))) {
-                            @field(conf, field_info.name) = value;
+                            @field(conf, struct_field_name) = value;
                         } else {
                             try cbor.skipValue(&iter);
                             std.log.err("invalid value for key '{s}'", .{field_name});
@@ -752,28 +752,28 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer)
 
 fn write_config_to_writer_internal(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const default: T = .{};
-    inline for (@typeInfo(T).@"struct".fields) |field_info| {
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |field_name, field_type| {
         var is_default = false;
         if (config_eql(
             T,
-            field_info.type,
-            @field(data, field_info.name),
-            @field(default, field_info.name),
+            field_type,
+            @field(data, field_name),
+            @field(default, field_name),
         )) {
-            try writer.print("# {s} ", .{field_info.name});
+            try writer.print("# {s} ", .{field_name});
             is_default = true;
         } else {
-            try writer.print("{s} ", .{field_info.name});
+            try writer.print("{s} ", .{field_name});
         }
-        try write_config_value(field_info.type, @field(data, field_info.name), writer);
+        try write_config_value(field_type, @field(data, field_name), writer);
         try writer.print("\n", .{});
         if (!is_default) {
             try writer.print("# default value: ", .{});
-            try write_config_value(field_info.type, @field(default, field_info.name), writer);
+            try write_config_value(field_type, @field(default, field_name), writer);
             try writer.print("\n", .{});
         }
         try writer.print("# value type: ", .{});
-        try write_config_value_description(T, field_info.type, field_info.name, writer);
+        try write_config_value_description(T, field_type, field_name, writer);
         try writer.print("\n", .{});
         try writer.print("\n", .{});
     }

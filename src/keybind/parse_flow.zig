@@ -30,10 +30,10 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
         loop: while (iter.next()) |part| {
             if (part.len == 0) return parse_error("empty part in '{s}'", .{str});
             const modsInfo = @typeInfo(input.ModSet).@"struct";
-            inline for (modsInfo.fields) |field| {
-                if (std.mem.eql(u8, part, field.name)) {
-                    if (@field(mods, field.name)) return parse_error("duplicate modifier '{s}' in '{s}'", .{ part, str });
-                    @field(mods, field.name) = true;
+            inline for (modsInfo.field_names) |field_name| {
+                if (std.mem.eql(u8, part, field_name)) {
+                    if (@field(mods, field_name)) return parse_error("duplicate modifier '{s}' in '{s}'", .{ part, str });
+                    @field(mods, field_name) = true;
                     continue :loop;
                 }
             }

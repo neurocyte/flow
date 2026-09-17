@@ -135,7 +135,7 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, SymbolKind
         cbor.any, // detail
         cbor.extract(&depth), // number of ancestors
     }) catch false;
-    return .{ label_, container, @enumFromInt(kind), range, depth };
+    return .{ label_, container, @fromBackingInt(@intCast(kind)), range, depth };
 }
 
 fn find_closest(palette: *Type) ?usize {

@@ -53,8 +53,8 @@ pub fn guess(name: []const u8, command: []const u8) Style {
         .{ "linux", "\u{f17c}", 0 },
     };
     for (entries) |entry|
-        if (std.ascii.indexOfIgnoreCase(name, entry[0]) != null or
-            std.ascii.indexOfIgnoreCase(command, entry[0]) != null)
+        if (std.ascii.findIgnoreCase(name, entry[0]) != null or
+            std.ascii.findIgnoreCase(command, entry[0]) != null)
             return .{ .icon = entry[1], .color = entry[2] };
     return .{};
 }

@@ -607,5 +607,5 @@ test "no exponential blowup" {
     // the matcher must not backtrack exponentially
     var c = try compile(testing.allocator, "a*a*a*a*a*a*a*a*b");
     defer c.deinit(testing.allocator);
-    try testing.expect(!match(&c, "a" ** 64, .{}));
+    try testing.expect(!match(&c, @as([64]u8, @splat("a")), .{}));
 }

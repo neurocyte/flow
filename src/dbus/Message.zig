@@ -170,7 +170,7 @@ pub fn encode(gpa: Allocator, msg: Encode) wire.Error![]u8 {
     var enc = wire.Encoder.init(gpa, &buf, .little);
 
     try enc.byte('l');
-    try enc.byte(@intFromEnum(msg.type));
+    try enc.byte(@backingInt(msg.type));
     try enc.byte(@as(u8, @bitCast(msg.flags)));
     try enc.byte(protocol_version);
     try enc.int(u32, 0); // body length, backpatched below
@@ -204,7 +204,7 @@ pub fn encode(gpa: Allocator, msg: Encode) wire.Error![]u8 {
 
 fn encode_field(enc: *wire.Encoder, field: Field, type_code: u8, value: []const u8) wire.Error!void {
     try enc.pad(8); // struct
-    try enc.byte(@intFromEnum(field));
+    try enc.byte(@backingInt(field));
     try enc.signature(&.{type_code});
     switch (type_code) {
         's', 'o' => try enc.string(value),
@@ -215,7 +215,7 @@ fn encode_field(enc: *wire.Encoder, field: Field, type_code: u8, value: []const 
 
 fn encode_field_u32(enc: *wire.Encoder, field: Field, value: u32) wire.Error!void {
     try enc.pad(8);
-    try enc.byte(@intFromEnum(field));
+    try enc.byte(@backingInt(field));
     try enc.signature("u");
     try enc.int(u32, value);
 }

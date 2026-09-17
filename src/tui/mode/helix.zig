@@ -864,8 +864,9 @@ fn replace_cursel_with_character(ed: *Editor, root: Buffer.Root, cursel: *CurSel
     var sel_length: usize = 1;
     _ = root.get_range(selection.*, null, null, &sel_length, ed.metrics) catch return error.Stop;
 
-    var sfa = std.heap.stackFallback(4096, ed.allocator);
-    const sfa_allocator = sfa.get();
+    var sfa_buf: [4096]u8 = undefined;
+    var sfa: std.heap.BufferFirstAllocator = .init(&sfa_buf, ed.allocator);
+    const sfa_allocator = sfa.allocator();
 
     const total_length = sel_length * egc.len;
     const replacement = sfa_allocator.alloc(u8, total_length) catch return error.Stop;

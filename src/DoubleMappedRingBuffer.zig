@@ -82,10 +82,11 @@ const PosixShmBacking = struct {
 
     pub fn init(byte_len: usize) Error!PosixShmBacking {
         var name_buf: [64]u8 = undefined;
-        const name = std.fmt.bufPrintZ(
+        const name = std.fmt.bufPrintSentinel(
             &name_buf,
             "/flow-double-ring-{d}-{d}",
             .{ c.getpid(), name_counter.fetchAdd(1, .monotonic) },
+            0,
         ) catch unreachable;
 
         const O_RDWR: c_int = 0x0002;

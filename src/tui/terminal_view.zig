@@ -101,7 +101,7 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
 }
 
 fn stack_above_parent(_: ?*anyopaque, layer: *tui.WidgetLayerBox, box: Widget.Box) Widget.Box {
-    layer.z_index = if (layer.plane.layer) |l| @enumFromInt(@intFromEnum(l.z_index) + 1) else .main;
+    layer.z_index = if (layer.plane.layer) |l| @fromBackingInt(@intCast(@backingInt(l.z_index) + 1)) else .main;
     return box;
 }
 

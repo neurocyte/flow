@@ -37,7 +37,7 @@ pub fn embeddedDefaultTag(bold: bool, italic: bool) []const u8 {
 }
 
 fn unitsPerEm(tt: *const TrueType) u16 {
-    const head = tt.table_offsets[@intFromEnum(TrueType.TableId.head)];
+    const head = tt.table_offsets[@backingInt(TrueType.TableId.head)];
     return std.mem.readInt(u16, tt.ttf_bytes[head + 18 ..][0..2], .big);
 }
 
@@ -163,7 +163,7 @@ const TtBackend = struct {
             allocator.free(data);
             return null;
         };
-        if (tt.table_offsets[@intFromEnum(TrueType.TableId.glyf)] == 0) {
+        if (tt.table_offsets[@backingInt(TrueType.TableId.glyf)] == 0) {
             allocator.free(data);
             return null;
         }
@@ -403,7 +403,7 @@ pub fn loadFontFromMemory(_: *Self, data: []const u8, size_px: u16) !Font {
 fn fontFromData(data: []const u8, size_px: u16) !Font {
     const tt = try TrueType.load(data);
 
-    const head_offset = tt.table_offsets[@intFromEnum(TrueType.TableId.head)];
+    const head_offset = tt.table_offsets[@backingInt(TrueType.TableId.head)];
     const units_per_em: u16 = std.mem.readInt(u16, tt.ttf_bytes[head_offset + 18 ..][0..2], .big);
     const scale: f32 = @as(f32, @floatFromInt(size_px)) / @as(f32, @floatFromInt(@max(units_per_em, 1)));
     const vm = tt.verticalMetrics();

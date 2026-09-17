@@ -90,11 +90,9 @@ fn print(allocator: Allocator, comptime fmt: []const u8, args: anytype) Error![]
 fn get_functions() []struct { []const u8, Function } {
     comptime switch (@typeInfo(functions)) {
         .@"struct" => |info| {
-            var count = 0;
-            for (info.decls) |_| count += 1;
-            var funcs: [count]FunctionDef = undefined;
-            for (info.decls, 0..) |decl, i|
-                funcs[i] = .{ decl.name, &@field(functions, decl.name) };
+            var funcs: [info.decl_names.len]FunctionDef = undefined;
+            for (info.decl_names, 0..) |name, i|
+                funcs[i] = .{ name, &@field(functions, name) };
             return &funcs;
         },
         else => @compileError("expected tuple or struct type"),

@@ -332,10 +332,10 @@ fn git_err(
     const writer = &buf.writer;
     switch (@typeInfo(@TypeOf(cmd))) {
         .@"struct" => |info| if (info.is_tuple) {
-            try cbor.writeArrayHeader(writer, info.fields.len + 1);
+            try cbor.writeArrayHeader(writer, info.field_names.len + 1);
             try cbor.writeValue(writer, git_binary);
-            inline for (info.fields) |f|
-                try cbor.writeValue(writer, @field(cmd, f.name));
+            inline for (info.field_names) |name|
+                try cbor.writeValue(writer, @field(cmd, name));
             return shell.execute(allocator, .{ .buf = buf.written() }, .{
                 .context = context,
                 .out = to_shell_output_handler(out),

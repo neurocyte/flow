@@ -243,8 +243,12 @@ pub fn write_state_v0(self: *Self, writer: anytype) !void {
 }
 
 pub fn restore_state(self: *Self, data: []const u8) !void {
+    self.restore_state_inner(data) catch |e|
+        tp.trace(tp.channel.debug, .{ "restore_state", "abort", e });
+}
+
+pub fn restore_state_inner(self: *Self, data: []const u8) !void {
     tp.trace(tp.channel.debug, .{"restore_state"});
-    errdefer |e| tp.trace(tp.channel.debug, .{ "restore_state", "abort", e });
     defer self.sort_files_by_mtime();
     defer self.sort_tasks_by_mtime();
     var iter: []const u8 = data;
@@ -950,8 +954,8 @@ fn merge_pending_files(self: *Self) OutOfMemoryError!void {
 }
 
 fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
-    inline for (@typeInfo(@TypeOf(self.state)).@"struct".fields) |f|
-        if (@field(self.state, f.name) == .running) return;
+    inline for (@typeInfo(@TypeOf(self.state)).@"struct".field_names) |f|
+        if (@field(self.state, f) == .running) return;
 
     if (self.load_complete) return;
     self.load_complete = true;

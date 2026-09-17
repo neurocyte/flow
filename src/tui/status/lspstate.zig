@@ -87,7 +87,7 @@ fn overall(self: *Self) Overall {
             .running => {},
             else => result.problems += 1,
         }
-        if (@intFromEnum(status) > @intFromEnum(result.status orelse .starting)) {
+        if (@backingInt(status) > @backingInt(result.status orelse .starting)) {
             result.status = status;
             result.name = p.key_ptr.*;
         }

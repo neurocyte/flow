@@ -117,7 +117,7 @@ fn append(self: *Self, json: []const u8) !void {
     (try self.buffer.addOne(self.allocator)).* = .{
         .time = ts,
         .tdiff = tdiff,
-        .json = try self.allocator.dupeZ(u8, json),
+        .json = try self.allocator.dupeSentinel(u8, json, 0),
     };
 }
 

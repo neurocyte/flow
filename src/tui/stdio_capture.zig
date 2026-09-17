@@ -55,7 +55,7 @@ const Redirect = struct {
 var redirects = [_]?Redirect{ null, null };
 
 fn redirect(stream: Stream) *?Redirect {
-    return &redirects[@intFromEnum(stream)];
+    return &redirects[@backingInt(stream)];
 }
 
 /// Restore every redirected fd to its original. Async-signal-safe.
@@ -109,7 +109,7 @@ pub fn start(allocator: std.mem.Allocator, stream: Stream) !tp.pid {
 
     const self = try allocator.create(Reader);
     errdefer allocator.destroy(self);
-    const tag = try allocator.dupeZ(u8, @tagName(stream));
+    const tag = try allocator.dupeSentinel(u8, @tagName(stream), 0);
     errdefer allocator.free(tag);
     self.* = .{
         .allocator = allocator,

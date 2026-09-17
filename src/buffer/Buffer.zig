@@ -319,7 +319,7 @@ const Node = union(enum) {
     pub const Ref = TypedInt.Tagged(usize, "NREF");
 
     pub fn to_ref(self: *const Node) Node.Ref {
-        return @enumFromInt(@intFromPtr(self));
+        return @fromBackingInt(@intCast(@intFromPtr(self)));
     }
 
     fn new(allocator: Allocator, l: *const Node, r: *const Node) !*const Node {
@@ -1991,7 +1991,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
 }
 
 pub fn to_ref(self: *Self) Ref {
-    return @enumFromInt(@intFromPtr(self));
+    return @fromBackingInt(@intCast(@intFromPtr(self)));
 }
 
 pub const Ref = TypedInt.Tagged(usize, "BREF");

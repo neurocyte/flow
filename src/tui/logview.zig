@@ -189,8 +189,8 @@ fn append(buffer: *Buffer, src: []const u8, msg: []const u8, level: Level) !void
     (try buffer.addOne()).* = .{
         .time = ts,
         .tdiff = tdiff,
-        .src = try buffer.allocator.dupeZ(u8, src),
-        .msg = try buffer.allocator.dupeZ(u8, msg),
+        .src = try buffer.allocator.dupeSentinel(u8, src, 0),
+        .msg = try buffer.allocator.dupeSentinel(u8, msg, 0),
         .level = level,
     };
 }
@@ -209,8 +209,9 @@ fn append_json(buffer: *Buffer, src: []const u8, m: tp.message) MessageFilter.Er
     const std = @import("std");
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var sfa = std.heap.stackFallback(4096, arena.allocator());
-    const msg = try cbor.toJsonAlloc(sfa.get(), m.buf);
+    var sfa_buf: [4096]u8 = undefined;
+    var sfa: @import("std").heap.BufferFirstAllocator = .init(&sfa_buf, arena.allocator());
+    const msg = try cbor.toJsonAlloc(sfa.allocator(), m.buf);
     try append(buffer, src, msg, .err);
 }
 

@@ -5,21 +5,21 @@ pub fn Tagged(T: type, tag: []const u8) type {
         pub const TAG = tag;
 
         pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
-            const value: T = @intFromEnum(self);
+            const value: T = @backingInt(self);
             try cbor.writeValue(writer, .{ TAG, value });
         }
 
         pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
             var value: T = 0;
             if (try cbor.matchValue(iter, .{ TAG, cbor.extract(&value) })) {
-                self.* = @enumFromInt(value);
+                self.* = @fromBackingInt(@intCast(value));
                 return true;
             }
             return false;
         }
 
         pub fn format(self: @This(), writer: anytype) !void {
-            return writer.print("{s}:{d}", .{ TAG, @intFromEnum(self) });
+            return writer.print("{s}:{d}", .{ TAG, @backingInt(self) });
         }
     };
 }

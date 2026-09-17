@@ -215,8 +215,8 @@ const Process = struct {
             .receiver = .init(receive, dtor, self),
             .recv_buf = .empty,
             .parent = tp.self_pid().clone(),
-            .tag = try allocator.dupeZ(u8, tag),
-            .project = try allocator.dupeZ(u8, project),
+            .tag = try allocator.dupeSentinel(u8, tag, 0),
+            .project = try allocator.dupeSentinel(u8, project, 0),
             .requests = std.StringHashMap(tp.pid).init(allocator),
             .sp_tag = try sp_tag_.toOwnedSliceSentinel(0),
         };
@@ -584,7 +584,7 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "error");
         try cbor.writeMapHeader(msg_writer, 2);
         try cbor.writeValue(msg_writer, "code");
-        try cbor.writeValue(msg_writer, @intFromEnum(error_code));
+        try cbor.writeValue(msg_writer, @backingInt(error_code));
         try cbor.writeValue(msg_writer, "message");
         try cbor.writeValue(msg_writer, message);
 

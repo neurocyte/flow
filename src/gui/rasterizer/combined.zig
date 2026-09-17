@@ -266,7 +266,7 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
     };
 
     inline for (face_specs) |spec| {
-        const idx = @intFromEnum(spec.face);
+        const idx = @backingInt(spec.face);
         const wants_bold = spec.face == .bold or spec.face == .bold_italic;
         var installed = false;
 
@@ -347,25 +347,25 @@ pub fn render(
         return switch (font.backend) {
             .dwrite => |f| blk: {
                 const r = self.dw.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+                break :blk .{ .format = @fromBackingInt(@intCast(@backingInt(r.format))) };
             },
         };
     } else if (have_ft) {
         return switch (font.backend) {
             .truetype => |f| blk: {
                 const r = self.tt.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+                break :blk .{ .format = @fromBackingInt(@intCast(@backingInt(r.format))) };
             },
             .freetype => |f| blk: {
-                const r = self.ft.render(f, codepoint, emoji_presentation, constraint, constraint_width, @enumFromInt(@intFromEnum(split)), staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+                const r = self.ft.render(f, codepoint, emoji_presentation, constraint, constraint_width, @fromBackingInt(@intCast(@backingInt(split))), staging_buf);
+                break :blk .{ .format = @fromBackingInt(@intCast(@backingInt(r.format))) };
             },
         };
     } else {
         return switch (font.backend) {
             .truetype => |f| blk: {
                 const r = self.tt.render(f, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+                break :blk .{ .format = @fromBackingInt(@intCast(@backingInt(r.format))) };
             },
         };
     }

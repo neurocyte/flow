@@ -139,7 +139,7 @@ pub fn is_empty(self: *const Self) bool {
 pub fn write_state(self: *Self, writer: *std.Io.Writer) !void {
     try cbor.writeArrayHeader(writer, 6);
     try cbor.writeValue(writer, self.list_id);
-    try cbor.writeValue(writer, @intFromEnum(self.kind));
+    try cbor.writeValue(writer, @backingInt(self.kind));
     try cbor.writeValue(writer, self.label);
     try cbor.writeValue(writer, self.view_pos);
     try cbor.writeValue(writer, self.selected);
@@ -152,8 +152,8 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) !void {
             entry.end_line,
             entry.end_pos,
             entry.lines,
-            @intFromEnum(entry.severity),
-            @intFromEnum(entry.pos_type),
+            @backingInt(entry.severity),
+            @backingInt(entry.pos_type),
         });
     }
 }
@@ -195,12 +195,12 @@ pub fn restore_state(self: *Self, iter: *[]const u8) !void {
             .end_line = end_line,
             .end_pos = end_pos,
             .lines = lines,
-            .severity = if (severity <= @intFromEnum(editor.Diagnostic.Severity.Hint))
-                @enumFromInt(severity)
+            .severity = if (severity <= @backingInt(editor.Diagnostic.Severity.Hint))
+                @fromBackingInt(@intCast(severity))
             else
                 .Information,
-            .pos_type = if (pos_type <= @intFromEnum(editor.PosType.byte))
-                @enumFromInt(pos_type)
+            .pos_type = if (pos_type <= @backingInt(editor.PosType.byte))
+                @fromBackingInt(@intCast(pos_type))
             else
                 .byte,
         });
@@ -341,9 +341,9 @@ pub const Manager = struct {
             if (!try cbor.matchValue(iter, cbor.extract(&list_id)) or
                 !try cbor.matchValue(iter, cbor.extract(&kind)) or
                 !try cbor.matchValue(iter, cbor.extract(&label)) or
-                kind > @intFromEnum(Kind.terminal_links))
+                kind > @backingInt(Kind.terminal_links))
                 return error.InvalidFileListEntry;
-            const fl = try Self.init(self.allocator, list_id, @enumFromInt(kind));
+            const fl = try Self.init(self.allocator, list_id, @fromBackingInt(@intCast(kind)));
             errdefer fl.deinit();
             try fl.set_label(label);
             try self.lists.append(self.allocator, fl);

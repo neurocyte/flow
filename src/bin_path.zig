@@ -13,7 +13,7 @@ fn find_binary_in_path_posix(allocator: std.mem.Allocator, binary_name: []const 
     while (bin_path_iterator.next()) |bin_path| {
         const resolved_binary_path = try std.fs.path.resolve(allocator, &.{ bin_path, binary_name });
         defer allocator.free(resolved_binary_path);
-        const resolved_binary_pathZ = try allocator.dupeZ(u8, resolved_binary_path);
+        const resolved_binary_pathZ = try allocator.dupeSentinel(u8, resolved_binary_path, 0);
         errdefer allocator.free(resolved_binary_pathZ);
         const rc = std.posix.system.access(resolved_binary_pathZ, std.posix.X_OK);
         if (rc == -1) continue;
@@ -41,7 +41,7 @@ fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []con
             _ = dir.statFile(io, binary_name, .{}) catch continue;
             const resolved_binary_path = try std.fs.path.join(allocator, &[_][]const u8{ bin_path, binary_name });
             defer allocator.free(resolved_binary_path);
-            return try allocator.dupeZ(u8, resolved_binary_path);
+            return try allocator.dupeSentinel(u8, resolved_binary_path, 0);
         }
     }
     return null;
@@ -58,7 +58,7 @@ fn is_absolute_binary_path_executable(binary_path: [:0]const u8) bool {
 }
 
 pub fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
-    const binary_nameZ = allocator.dupeZ(u8, binary_name) catch @panic("OOM in can_execute");
+    const binary_nameZ = allocator.dupeSentinel(u8, binary_name, 0) catch @panic("OOM in can_execute");
     defer allocator.free(binary_nameZ);
     for (binary_name) |char| if (std.fs.path.isSep(char))
         return is_absolute_binary_path_executable(binary_nameZ);

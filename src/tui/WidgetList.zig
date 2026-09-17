@@ -268,7 +268,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn trailing_z(self: *const Self) Layer.Level {
     if (self.trailing_z_index) |z| return z;
-    return if (self.plane.layer) |plane_layer| @enumFromInt(@intFromEnum(plane_layer.z_index) + 1) else .main;
+    return if (self.plane.layer) |plane_layer| @fromBackingInt(@intCast(@backingInt(plane_layer.z_index) + 1)) else .main;
 }
 
 fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.Box, trailing_count: usize) Layer.Target {

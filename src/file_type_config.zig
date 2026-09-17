@@ -226,12 +226,9 @@ const ListEntry = struct { []const u8, LspDefaults };
 fn load_file_type_lsp_defaults(comptime Namespace: type) []const ListEntry {
     comptime switch (@typeInfo(Namespace)) {
         .@"struct" => |info| {
-            var count = 0;
-            for (info.decls) |_| count += 1;
-            var construct_types: [count]ListEntry = undefined;
+            var construct_types: [info.decl_names.len]ListEntry = undefined;
             var i = 0;
-            for (info.decls) |decl| {
-                const lang = decl.name;
+            for (info.decl_names) |lang| {
                 const args = @field(Namespace, lang);
                 construct_types[i] = .{ lang, .{
                     .formatter = if (@hasField(@TypeOf(args), "formatter")) vec(args.formatter) else null,

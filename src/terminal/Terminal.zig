@@ -1042,7 +1042,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                     try pty_writer.print("\x1b[{s}{d};{d}$y", .{
                                         if (private) "?" else "",
                                         ps,
-                                        @intFromEnum(state),
+                                        @backingInt(state),
                                     });
                                 },
                                 // DECSTR - Soft Terminal Reset (CSI ! p)
@@ -1057,8 +1057,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                 ' ' => {
                                     var iter = seq.iterator(u8);
                                     const shape = iter.next() orelse 0;
-                                    if (shape <= @intFromEnum(vaxis.Cell.CursorShape.unfocused))
-                                        self.back_screen.cursor.shape = @enumFromInt(shape);
+                                    if (shape <= @backingInt(vaxis.Cell.CursorShape.unfocused))
+                                        self.back_screen.cursor.shape = @fromBackingInt(@intCast(shape));
                                 },
                                 else => {},
                             }
@@ -1482,7 +1482,7 @@ inline fn handleC0(self: *Terminal, b: ansi.C0, context: anytype, handle_event: 
         .CR => self.carriageReturn(),
         .SO => self.charset_shifted = true, // Shift Out: activate G1
         .SI => self.charset_shifted = false, // Shift In: activate G0 (default)
-        else => log.warn("unhandled C0: 0x{x}", .{@intFromEnum(b)}),
+        else => log.warn("unhandled C0: 0x{x}", .{@backingInt(b)}),
     }
 }
 
@@ -1764,7 +1764,7 @@ fn graphemeCodepointSum(bytes: []const u8) u32 {
 fn reportColorScheme(self: *Terminal) !void {
     const pty_writer = self.get_pty_writer();
     defer pty_writer.flush() catch |e| log.warn("color scheme report flush failed: {t}", .{e});
-    try pty_writer.print("\x1b[?997;{d}n", .{@intFromEnum(self.color_scheme)});
+    try pty_writer.print("\x1b[?997;{d}n", .{@backingInt(self.color_scheme)});
 }
 
 pub fn setColorScheme(self: *Terminal, scheme: ColorScheme) void {

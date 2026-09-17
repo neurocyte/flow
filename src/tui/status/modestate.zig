@@ -81,7 +81,7 @@ pub fn render(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme) bool {
     }
     self.plane.set_style(style_label);
     self.plane.on_styles(styles.bold);
-    _ = self.plane.putstr(std.fmt.bufPrintZ(&buf, "{s} ", .{tui.get_mode()}) catch return false) catch {};
+    _ = self.plane.putstr(std.fmt.bufPrintSentinel(&buf, "{s} ", .{tui.get_mode()}, 0) catch return false) catch {};
     if (is_mini_mode())
         render_separator(self, theme);
     return false;

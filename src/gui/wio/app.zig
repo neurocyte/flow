@@ -202,15 +202,15 @@ fn clipboardText(_: ?*anyopaque, text: []const u8) void {
 }
 
 // Mouse cursor (stored as wio.Cursor tag value)
-var pending_cursor: std.atomic.Value(u8) = .init(@intFromEnum(wio.Cursor.pointer));
+var pending_cursor: std.atomic.Value(u8) = .init(@backingInt(wio.Cursor.pointer));
 var cursor_dirty: std.atomic.Value(bool) = .init(false);
 
 // Window attention request
 var attention_pending: std.atomic.Value(bool) = .init(false);
 
 // Window mode
-var current_mode: std.atomic.Value(u8) = .init(@intFromEnum(wio.WindowMode.normal));
-var pending_mode: std.atomic.Value(u8) = .init(@intFromEnum(wio.WindowMode.normal));
+var current_mode: std.atomic.Value(u8) = .init(@backingInt(wio.WindowMode.normal));
+var pending_mode: std.atomic.Value(u8) = .init(@backingInt(wio.WindowMode.normal));
 var mode_dirty: std.atomic.Value(bool) = .init(false);
 
 // Current font set — written and read only from the wio thread (after gpu.init).
@@ -465,7 +465,7 @@ fn buildLayerSnapshot(
             .background = bg,
             .foreground = colorFromVaxis(if (vc.style.reverse) vc.style.bg else vc.style.fg),
             .underline = ul_color,
-            .ul_style = @intFromEnum(vc.style.ul_style),
+            .ul_style = @backingInt(vc.style.ul_style),
             .strikethrough = if (vc.style.strikethrough) 1 else 0,
             .face = face,
             .flags = flags,
@@ -533,8 +533,7 @@ pub fn adjustFontSize(delta: f32) void {
 pub fn resetFontSize() void {
     const default = comptime blk: {
         const field = std.meta.fieldInfo(gui_config, .fontsize);
-        const ptr: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
-        break :blk ptr.*;
+        break :blk field.attrs.defaultValue(field.type).?;
     };
     setFontSize(@floatFromInt(default));
 }
@@ -556,8 +555,7 @@ pub fn adjustBackgroundOpacity(delta: f32) void {
 pub fn resetBackgroundOpacity() void {
     const default = comptime blk: {
         const field = std.meta.fieldInfo(gui_config, .gui_background_opacity);
-        const ptr: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
-        break :blk ptr.*;
+        break :blk field.attrs.defaultValue(field.type).?;
     };
     setBackgroundOpacity(default);
 }
@@ -581,8 +579,7 @@ pub fn getIgnoreThemeAlpha() bool {
 pub fn resetFontFace() void {
     const default = comptime blk: {
         const field = std.meta.fieldInfo(gui_config, .fontface);
-        const ptr: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
-        break :blk ptr.*;
+        break :blk field.attrs.defaultValue(field.type).?;
     };
     setFontFace(default);
 }
@@ -728,7 +725,7 @@ pub fn setMouseCursor(shape: vaxis.Mouse.Shape) void {
         .@"ns-resize" => .ns_resize,
         .cell => .cell,
     };
-    pending_cursor.store(@intFromEnum(cursor), .release);
+    pending_cursor.store(@backingInt(cursor), .release);
     cursor_dirty.store(true, .release);
     wio.cancelWait();
 }
@@ -799,9 +796,9 @@ pub fn requestAttention() void {
 }
 
 pub fn toggleFullscreen() void {
-    const now: wio.WindowMode = @enumFromInt(current_mode.load(.acquire));
+    const now: wio.WindowMode = @fromBackingInt(@intCast(current_mode.load(.acquire)));
     const target: wio.WindowMode = if (now == .fullscreen) .normal else .fullscreen;
-    pending_mode.store(@intFromEnum(target), .release);
+    pending_mode.store(@backingInt(target), .release);
     mode_dirty.store(true, .release);
     wio.cancelWait();
 }
@@ -1055,7 +1052,7 @@ fn wioLoop() void {
                     if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
                 },
                 .mode => |m| {
-                    current_mode.store(@intFromEnum(m), .release);
+                    current_mode.store(@backingInt(m), .release);
                 },
                 .size_physical => {
                     // Handled by onWioEventSync - runs inline from the
@@ -1066,7 +1063,7 @@ fn wioLoop() void {
                     held_buttons.press(btn);
                     const mods = syncModifiers(e.modifiers, btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        sendMouse(.press, @enumFromInt(mb_id), mouse_pos, mouseMods(e.modifiers));
+                        sendMouse(.press, @fromBackingInt(@intCast(mb_id)), mouse_pos, mouseMods(e.modifiers));
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             // Character keys are handled by .char unless modifiers are held.
@@ -1103,7 +1100,7 @@ fn wioLoop() void {
                     held_buttons.release(btn);
                     const mods = syncModifiers(e.modifiers, btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        sendMouse(.release, @enumFromInt(mb_id), mouse_pos, mouseMods(e.modifiers));
+                        sendMouse(.release, @fromBackingInt(@intCast(mb_id)), mouse_pos, mouseMods(e.modifiers));
                     } else {
                         if (composed.release_key(btn)) |cp| {
                             // Report the codepoint .char composed on press, so
@@ -1125,7 +1122,7 @@ fn wioLoop() void {
                 .mouse => |e| {
                     mouse_pos = e.position;
                     if (input_translate.heldMouseButtonId(held_buttons)) |mb_id| {
-                        sendMouse(.drag, @enumFromInt(mb_id), e.position, mouseMods(e.modifiers));
+                        sendMouse(.drag, @fromBackingInt(@intCast(mb_id)), e.position, mouseMods(e.modifiers));
                     } else {
                         sendMouse(.motion, .none, e.position, mouseMods(e.modifiers));
                     }
@@ -1139,11 +1136,11 @@ fn wioLoop() void {
                         continue;
                     }
                     const btn_id: u8 = if (e.delta < 0) 64 else 65; // up / down scroll
-                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, mouseMods(e.modifiers));
+                    sendMouse(.press, @fromBackingInt(@intCast(btn_id)), mouse_pos, mouseMods(e.modifiers));
                 },
                 .scroll_horizontal => |e| {
                     const btn_id: u8 = if (e.delta < 0) 66 else 67; // left / right scroll
-                    sendMouse(.press, @enumFromInt(btn_id), mouse_pos, mouseMods(e.modifiers));
+                    sendMouse(.press, @fromBackingInt(@intCast(btn_id)), mouse_pos, mouseMods(e.modifiers));
                 },
                 .focused => {
                     window.enableTextInput(.{});
@@ -1217,13 +1214,13 @@ fn wioLoop() void {
             window.getPrimaryText(clipboardText, null);
         }
         if (cursor_dirty.swap(false, .acq_rel)) {
-            window.setCursor(@enumFromInt(pending_cursor.load(.acquire)));
+            window.setCursor(@fromBackingInt(@intCast(pending_cursor.load(.acquire))));
         }
         if (attention_pending.swap(false, .acq_rel)) {
             window.requestAttention();
         }
         if (mode_dirty.swap(false, .acq_rel)) {
-            window.setMode(@enumFromInt(pending_mode.load(.acquire)));
+            window.setMode(@fromBackingInt(@intCast(pending_mode.load(.acquire))));
         }
     }
 
@@ -1481,8 +1478,8 @@ pub fn renderActorTick(focused: bool, visible: bool) void {
             };
             const glyph_cp = if (w == 0) layer_prev_cp else cp;
             const emoji = if (w == 0) layer_prev_emoji else ls.emoji[ci];
-            const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
-            const per_face = font_set.faces[@intFromEnum(face)];
+            const face: gpu.Face = @fromBackingInt(@intCast(@as(u2, @truncate(cell.face))));
+            const per_face = font_set.faces[@backingInt(face)];
 
             // Terminal-assigned double-width: generate both halves now
             if (w == 2) {
@@ -1803,10 +1800,10 @@ fn applyWindowIcons(hwnd: win32.HWND) void {
     if (builtin.os.tag != .windows) return;
     const hinst = win32.GetModuleHandleW(null);
     const dpi = win32.GetDpiForWindow(hwnd);
-    const small_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXSMICON), dpi);
-    const small_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYSMICON), dpi);
-    const large_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXICON), dpi);
-    const large_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYICON), dpi);
+    const small_x = win32.GetSystemMetricsForDpi(@backingInt(win32.SM_CXSMICON), dpi);
+    const small_y = win32.GetSystemMetricsForDpi(@backingInt(win32.SM_CYSMICON), dpi);
+    const large_x = win32.GetSystemMetricsForDpi(@backingInt(win32.SM_CXICON), dpi);
+    const large_y = win32.GetSystemMetricsForDpi(@backingInt(win32.SM_CYICON), dpi);
     const small = win32.LoadImageW(hinst, @ptrFromInt(ID_ICON_FLOW), .ICON, small_x, small_y, win32.LR_SHARED) orelse {
         log.warn("LoadImage small icon failed", .{});
         return;

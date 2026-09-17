@@ -27,17 +27,16 @@ const Self = @This();
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const style: ?DigitStyle = if (arg) |style| std.meta.stringToEnum(DigitStyle, style) orelse null else null;
 
-    const env: zeit.EnvConfig = .{
-        .tz = if (std.c.getenv("TZ")) |h| std.mem.span(h) else null,
-        .tzdir = if (std.c.getenv("TZDIR")) |h| std.mem.span(h) else null,
-    };
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .on_event = event_handler,
-        .tz = zeit.local(allocator, root.get_io(), env) catch |e| {
+        .tz = zeit.local(allocator, root.get_io(), .{
+            .tz = root.get_init().environ_map.get("TZ"),
+            .tzdir = root.get_init().environ_map.get("TZDIR"),
+        }) catch |e| {
             std.log.err("clock: zeit.local failed with {any}", .{e});
             return error.WidgetInitFailed;
         },
@@ -83,7 +82,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.fill(" ");
     self.plane.home();
 
-    const now = zeit.instant(root.get_io(), .{ .timezone = &self.tz }) catch return false;
+    const now = zeit.instant(.{ .now = root.get_io() }, &self.tz);
     const dt = now.time();
 
     var buf: [64]u8 = undefined;
@@ -110,7 +109,7 @@ fn update_tick_timer(self: *Self, event: enum { init, ticked }) void {
         t.deinit();
         self.tick_timer = null;
     }
-    const current = zeit.instant(root.get_io(), .{ .timezone = &self.tz }) catch return;
+    const current = zeit.instant(.{ .now = root.get_io() }, &self.tz);
     var next = current.time();
     next.minute += 1;
     next.second = 0;

@@ -13,7 +13,7 @@ var next_id_counter: u64 = 1;
 
 pub fn next_id() Id {
     defer next_id_counter += 1;
-    return @enumFromInt(next_id_counter);
+    return @fromBackingInt(@intCast(next_id_counter));
 }
 
 var root_caps: ?*const vaxis.Vaxis.Capabilities = null;

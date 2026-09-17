@@ -21,7 +21,7 @@ key_active_frame: u64 = 0,
 wipe_after_frames: i64 = 60,
 hover: bool = false,
 
-keys: [history]Key = [_]Key{.{}} ** history,
+keys: [history]Key = @splat(.{}),
 
 const Key = struct { id: input.Key = 0, mod: input.ModSet = .{} };
 

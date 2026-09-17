@@ -25,7 +25,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
     const arena = arena_allocator.allocator();
 
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
-    for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
     const envp = try createEnvironFromMap(arena, self.env_map);
 
@@ -71,7 +71,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
         }
 
         if (self.working_directory) |wd| {
-            const wd_z = arena.dupeZ(u8, wd) catch std.c.exit(1);
+            const wd_z = arena.dupeSentinel(u8, wd, 0) catch std.c.exit(1);
             _ = std.c.chdir(wd_z.ptr);
         }
 
@@ -115,7 +115,7 @@ pub fn try_wait(self: *Command) ?u8 {
     if (posix.W.IFEXITED(us))
         return posix.W.EXITSTATUS(us);
     if (posix.W.IFSIGNALED(us))
-        return @truncate(@intFromEnum(posix.W.TERMSIG(us)));
+        return @truncate(@backingInt(posix.W.TERMSIG(us)));
     return 0;
 }
 

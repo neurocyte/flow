@@ -20,7 +20,7 @@ pub const Address = struct {
     pub fn resolve(allocator: Allocator, bus: BusType, env: *const std.process.Environ.Map) Error!Address {
         switch (bus) {
             .system => return .{
-                .path = try allocator.dupeZ(u8, "/var/run/dbus/system_bus_socket"),
+                .path = try allocator.dupeSentinel(u8, "/var/run/dbus/system_bus_socket", 0),
                 .mode = .file,
             },
             .custom => |addr| return parseAddress(allocator, addr),
@@ -62,9 +62,9 @@ fn parseAddress(allocator: Allocator, address: []const u8) Error!Address {
             const key = pit.first();
             const value = pit.next() orelse continue;
             if (std.mem.eql(u8, key, "path"))
-                return .{ .path = try allocator.dupeZ(u8, value), .mode = .file };
+                return .{ .path = try allocator.dupeSentinel(u8, value, 0), .mode = .file };
             if (std.mem.eql(u8, key, "abstract"))
-                return .{ .path = try allocator.dupeZ(u8, value), .mode = .abstract };
+                return .{ .path = try allocator.dupeSentinel(u8, value, 0), .mode = .abstract };
         }
     }
     return error.UnsupportedTransport;

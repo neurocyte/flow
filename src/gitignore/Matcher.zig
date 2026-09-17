@@ -141,7 +141,7 @@ pub fn add_source(
         var l = list;
         l.deinit(self.gpa);
     }
-    try self.sources[@intFromEnum(precedence)].append(self.gpa, list);
+    try self.sources[@backingInt(precedence)].append(self.gpa, list);
     self.total_pattern_bytes += contents.len;
     self.invalidate_all();
 }
@@ -170,7 +170,7 @@ pub fn update_source(
     contents: ?[]const u8,
 ) error{OutOfMemory}!void {
     std.debug.assert(precedence != .per_directory);
-    const group = &self.sources[@intFromEnum(precedence)];
+    const group = &self.sources[@backingInt(precedence)];
     var i: usize = 0;
     while (i < group.items.len) {
         if (std.mem.eql(u8, group.items[i].name, source_name)) {
@@ -351,7 +351,7 @@ const Query = struct {
 
 /// Later registrations win within a level, hence the reverse scan.
 fn scan_group(self: *Matcher, precedence: Precedence, q: *Query) ?ChainResult {
-    const group = self.sources[@intFromEnum(precedence)].items;
+    const group = self.sources[@backingInt(precedence)].items;
     var i = group.len;
     while (i > 0) {
         i -= 1;

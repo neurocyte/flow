@@ -53,7 +53,7 @@ fn start(self: *@This()) tp.result {
         std.log.debug("terminal: pty initial wait_read failed: {}", .{e});
         return tp.exit_error(e, @errorReturnTrace());
     };
-    self.sigchld = tp.signal.init(@intFromEnum(std.posix.SIG.CHLD), tp.message.fmt(.{"sigchld"})) catch |e| {
+    self.sigchld = tp.signal.init(@backingInt(std.posix.SIG.CHLD), tp.message.fmt(.{"sigchld"})) catch |e| {
         std.log.debug("terminal: SIGCHLD signal init failed: {}", .{e});
         return tp.exit_error(e, @errorReturnTrace());
     };
@@ -111,7 +111,7 @@ fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         }
         // Not our child (or already reaped) - re-arm the signal and continue.
         if (self.sigchld) |s| s.deinit();
-        self.sigchld = tp.signal.init(@intFromEnum(std.posix.SIG.CHLD), tp.message.fmt(.{"sigchld"})) catch null;
+        self.sigchld = tp.signal.init(@backingInt(std.posix.SIG.CHLD), tp.message.fmt(.{"sigchld"})) catch null;
     } else if (try m.match(.{"quit"})) {
         std.log.debug("terminal: pty exiting: received quit", .{});
         return tp.exit_normal();

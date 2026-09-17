@@ -10,10 +10,10 @@ pub const Type = enum {
     drag,
 
     pub fn to_vaxis(self: @This()) vaxis.Mouse.Type {
-        return @enumFromInt(@intFromEnum(self));
+        return @fromBackingInt(@intCast(@backingInt(self)));
     }
     pub fn from_vaxis(t: vaxis.Mouse.Type) Type {
-        return @enumFromInt(@intFromEnum(t));
+        return @fromBackingInt(@intCast(@backingInt(t)));
     }
 };
 
@@ -33,10 +33,10 @@ pub const Button = enum(u8) {
     _,
 
     pub fn to_vaxis(self: @This()) vaxis.Mouse.Button {
-        return @enumFromInt(@intFromEnum(self));
+        return @fromBackingInt(@intCast(@backingInt(self)));
     }
     pub fn from_vaxis(b: vaxis.Mouse.Button) Button {
-        return @enumFromInt(@intFromEnum(b));
+        return @fromBackingInt(@intCast(@backingInt(b)));
     }
 };
 

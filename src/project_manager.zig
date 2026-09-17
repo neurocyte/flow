@@ -258,7 +258,7 @@ pub fn did_change(file_path: []const u8, version: usize, text_dst: []const u8, t
         return error.NoProject;
     const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
     const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;
-    return send(.{ "did_change", project, file_path, version, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len, @intFromEnum(eol_mode) });
+    return send(.{ "did_change", project, file_path, version, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len, @backingInt(eol_mode) });
 }
 
 pub fn did_save(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -505,7 +505,7 @@ const Process = struct {
         var vcs_id: []const u8 = undefined;
         var source_location: SourceLocation = undefined;
 
-        var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
+        var eol_mode: Buffer.EolModeTag = @backingInt(Buffer.EolMode.lf);
         var event_type: file_watcher.EventType = undefined;
         var object_type: file_watcher.ObjectType = undefined;
         var from_path: []const u8 = undefined;
@@ -583,7 +583,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len), tp.extract(&eol_mode) })) {
             const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
             const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
-            self.did_change(project_directory, path, version, text_dst, text_src, @enumFromInt(eol_mode)) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+            self.did_change(project_directory, path, version, text_dst, text_src, @fromBackingInt(@intCast(eol_mode))) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -1281,10 +1281,16 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
         }
 
         fn iterate(self: *path_files) !void {
+            iterateInner(self) catch |err| {
+                self.parent.send(.{ "PRJ", "path_error", self.project_name, self.path, err }) catch {};
+                return err;
+            };
+        }
+
+        fn iterateInner(self: *path_files) !void {
             const io = root.get_io();
             var count: usize = 0;
             var iter = self.dir.iterateAssumeFirstIteration();
-            errdefer |e| self.parent.send(.{ "PRJ", "path_error", self.project_name, self.path, e }) catch {};
             while (try iter.next(io)) |entry| {
                 const event_type = switch (entry.kind) {
                     .directory => "DIR",

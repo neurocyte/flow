@@ -123,7 +123,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     info.blend = .src_over;
     info.alpha = 0x80;
     {
-        const debug = builtin.mode == .Debug;
+        const debug = builtin.mode == .debug;
         const version = info_version();
         info.content_w = @intCast(if (debug) @max(version.len, info_debug_text.len) else version.len);
         info.content_h = if (debug) 2 else 1;
@@ -420,7 +420,7 @@ fn render_info(self: *Self, theme: *const Widget.Theme, style_subtext: Widget.Th
     p.erase();
 
     var row: c_int = 0;
-    if (builtin.mode == .Debug) {
+    if (builtin.mode == .debug) {
         p.cursor_move_yx(row, @intCast(cols - @as(i32, @intCast(info_debug_text.len))));
         p.set_style(theme.editor_error);
         _ = p.print("{s}", .{info_debug_text}) catch {};

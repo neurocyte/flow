@@ -131,8 +131,9 @@ pub const List = struct {
     }
 
     pub fn filter(self: *const List, from: tp.pid_ref, m: tp.message) Error!bool {
-        var sfa = std.heap.stackFallback(4096, self.allocator);
-        const a = sfa.get();
+        var sfa_buf: [4096]u8 = undefined;
+        var sfa: std.heap.BufferFirstAllocator = .init(&sfa_buf, self.allocator);
+        const a = sfa.allocator();
         const buf = try a.alloc(u8, m.buf.len);
         defer a.free(buf);
         @memcpy(buf[0..m.buf.len], m.buf);

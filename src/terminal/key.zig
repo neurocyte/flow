@@ -126,7 +126,7 @@ fn serialize(writer: *std.Io.Writer, e: Encoding, csi_trailer: u8) !void {
     if (second or third) {
         try writer.writeAll(";");
         if (second) try writer.print("{d}", .{encoded_mods});
-        if (add_actions) try writer.print(":{d}", .{@intFromEnum(e.event) + 1});
+        if (add_actions) try writer.print(":{d}", .{@backingInt(e.event) + 1});
     }
     if (third) {
         if (std.unicode.Utf8View.init(e.text.?)) |view| {

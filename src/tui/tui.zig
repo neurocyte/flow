@@ -414,7 +414,7 @@ fn listen_input_log(_: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 
 fn listen_sigwinch(self: *Self) error{ThespianSignalInitFailed}!void {
     if (self.sigwinch_signal) |old| old.deinit();
-    self.sigwinch_signal = try tp.signal.init(@intFromEnum(std.posix.SIG.WINCH), tp.message.fmt(.{"sigwinch"}));
+    self.sigwinch_signal = try tp.signal.init(@backingInt(std.posix.SIG.WINCH), tp.message.fmt(.{"sigwinch"}));
 }
 
 fn handle_input_idle(self: *Self) void {
@@ -1052,7 +1052,7 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
 
     std.mem.sort(*const renderer.Layer, ctx.layers.items, {}, struct {
         fn lt(_: void, a: *const renderer.Layer, b: *const renderer.Layer) bool {
-            return @intFromEnum(a.z_index) < @intFromEnum(b.z_index);
+            return @backingInt(a.z_index) < @backingInt(b.z_index);
         }
     }.lt);
 
@@ -1074,8 +1074,8 @@ pub fn dump_widget_tree(writer: *std.Io.Writer) std.Io.Writer.Error!void {
             fmt,
             .{
                 @intFromPtr(l),
-                @intFromEnum(l.id),
-                @intFromEnum(l.z_index),
+                @backingInt(l.id),
+                @backingInt(l.z_index),
                 l.origin_px_x,
                 l.origin_px_y,
                 l.screen.width,
@@ -1468,7 +1468,7 @@ const cmds = struct {
         @panic("user forced crash dump");
     }
     pub const force_crash_dump_meta: Meta = .{
-        .description = if (builtin.mode == .Debug) "Force a crash dump" else &.{},
+        .description = if (builtin.mode == .debug) "Force a crash dump" else &.{},
     };
 
     pub fn set_tab_width(self: *Self, ctx: Ctx) Result {
@@ -2254,7 +2254,7 @@ pub const KeybindHints = keybind.KeybindHints;
 threadlocal var instance_: ?*Self = null;
 
 fn current() *Self {
-    if (builtin.mode == .Debug) context_check();
+    if (builtin.mode == .debug) context_check();
     return instance_ orelse @panic("tui call out of context");
 }
 
@@ -2344,7 +2344,7 @@ pub fn get_buffer_manager() ?*@import("Buffer").Manager {
 }
 
 fn context_check() void {
-    if (builtin.mode == .Debug) {
+    if (builtin.mode == .debug) {
         const tui_proc = tp.env.get().proc("tui");
         if (tui_proc.expired())
             @panic("tui call out of context (expired)");
@@ -2971,9 +2971,9 @@ pub fn set_next_style(widget_type: WidgetType) void {
 
 fn next_widget_style(tag: ConfigWidgetStyle) ConfigWidgetStyle {
     const max_tag = comptime std.meta.tags(ConfigWidgetStyle).len;
-    const value: usize = @intFromEnum(tag);
+    const value: usize = @backingInt(tag);
     const new_value = value + 1;
-    return if (new_value >= max_tag) @enumFromInt(0) else @enumFromInt(new_value);
+    return if (new_value >= max_tag) @fromBackingInt(@intCast(0)) else @fromBackingInt(@intCast(new_value));
 }
 
 fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {

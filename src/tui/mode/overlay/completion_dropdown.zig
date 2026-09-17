@@ -286,7 +286,7 @@ pub fn get_values(item_cbor: []const u8) Values {
     return .{
         .label = label_,
         .sort_text = sort_text,
-        .kind = @enumFromInt(kind),
+        .kind = @fromBackingInt(@intCast(kind)),
         .insert = get_range(insert_cbor),
         .replace = get_range(replace_cbor),
         .additionalTextEdits = additionalTextEdits,
@@ -383,7 +383,7 @@ fn show_info_panel(mv: anytype, values: Values) !void {
     try mv.set_info_content(values.label, .replace);
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.detail, .append);
-    if (builtin.mode == .Debug) {
+    if (builtin.mode == .debug) {
         try mv.set_info_content("newText:", .append); // blank line
         try mv.set_info_content(values.textEdit_newText, .append);
         try mv.set_info_content("insertText:", .append); // blank line
@@ -416,7 +416,7 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
         try info.append_content(" "); // blank line
         try info.append_content(values.detail);
     }
-    if (builtin.mode == .Debug) {
+    if (builtin.mode == .debug) {
         try info.append_content("newText:"); // blank line
         try info.append_content(values.textEdit_newText);
         try info.append_content("insertText:"); // blank line

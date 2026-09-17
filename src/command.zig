@@ -284,22 +284,22 @@ fn getCommands(comptime Namespace: type) []const CmdDef(*getTargetType(Namespace
             var count = 0;
             const Target = getTargetType(Namespace);
             // @compileLog(Namespace, Target);
-            for (info.decls) |decl| {
-                // @compileLog(decl.name, @TypeOf(@field(Namespace, decl.name)));
-                if (@TypeOf(@field(Namespace, decl.name)) == CmdDef(*Target).Fn)
+            for (info.decl_names) |decl| {
+                // @compileLog(decl, @TypeOf(@field(Namespace, decl)));
+                if (@TypeOf(@field(Namespace, decl)) == CmdDef(*Target).Fn)
                     count += 1;
             }
             var cmds: [count]CmdDef(*Target) = undefined;
             var i = 0;
-            for (info.decls) |decl| {
-                if (@TypeOf(@field(Namespace, decl.name)) == CmdDef(*Target).Fn) {
+            for (info.decl_names) |decl| {
+                if (@TypeOf(@field(Namespace, decl)) == CmdDef(*Target).Fn) {
                     cmds[i] = .{
-                        .f = &@field(Namespace, decl.name),
-                        .name = decl.name,
-                        .meta = if (@hasDecl(Namespace, decl.name ++ "_meta"))
-                            @field(Namespace, decl.name ++ "_meta")
+                        .f = &@field(Namespace, decl),
+                        .name = decl,
+                        .meta = if (@hasDecl(Namespace, decl ++ "_meta"))
+                            @field(Namespace, decl ++ "_meta")
                         else
-                            @compileError(decl.name ++ " has no meta"),
+                            @compileError(decl ++ " has no meta"),
                     };
                     i += 1;
                 }
@@ -317,7 +317,7 @@ pub fn Collection(comptime Namespace: type) type {
     const Clsr = Closure(*Target);
     var field_names: [cmds.len][]const u8 = undefined;
     var field_types: [cmds.len]type = undefined;
-    var field_attrs: [cmds.len]std.builtin.Type.StructField.Attributes = undefined;
+    var field_attrs: [cmds.len]std.builtin.Type.Struct.FieldAttributes = undefined;
     inline for (cmds, 0..) |cmd, i| {
         @setEvalBranchQuota(10_000);
         field_names[i] = cmd.name;

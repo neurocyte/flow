@@ -39,7 +39,7 @@ pub const CursorInfo = struct {
 
 fn packCursor(c: CursorInfo, focused: bool) u32 {
     const shape_ = if (!focused) .unfocused else c.shape;
-    const shape: u32 = @as(u32, @intCast(@intFromEnum(shape_))) + 1;
+    const shape: u32 = @as(u32, @intCast(@backingInt(shape_))) + 1;
     return shape |
         (@as(u32, c.color.r) << 8) |
         (@as(u32, c.color.g) << 16) |
@@ -444,7 +444,7 @@ pub const WindowState = struct {
             .right_half = split == .right,
             .wide = split != .single,
             .emoji = emoji_presentation,
-            .face = @intFromEnum(face),
+            .face = @backingInt(face),
         };
         const r = state.atlas.reserve(state.allocator, key) catch |e| switch (e) {
             error.OutOfMemory => oom(error.OutOfMemory),
@@ -459,7 +459,7 @@ pub const WindowState = struct {
         @memset(staging_buf, 0);
 
         const rr = global.rasterizer.render(font, codepoint, emoji_presentation, constraint, constraint_width, split, staging_buf);
-        state.atlas.setKind(r.glyph, @intCast(@intFromEnum(rr.format)));
+        state.atlas.setKind(r.glyph, @intCast(@backingInt(rr.format)));
 
         const origin = state.atlas.slotOrigin(r.glyph);
         const page_cpu = state.atlas.pageCpu(GlyphAtlas.glyphPage(r.glyph)).?;
@@ -586,7 +586,7 @@ pub fn paintLayerOffscreen(
 
     // Distinct atlas pages referenced by this layer's cells; one paint pass is
     // issued per referenced page (page ids are < GlyphAtlas.max_pages).
-    var referenced = std.StaticBitSet(GlyphAtlas.max_pages).initEmpty();
+    var referenced: std.StaticBitSet(GlyphAtlas.max_pages) = .empty;
 
     for (cells[0..total], shader_cells) |src, *dst| {
         const kind = window_state.atlas.kindOf(src.glyph_index);

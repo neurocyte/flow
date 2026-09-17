@@ -137,8 +137,8 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn submit_layer(self: *Self, target: Layer.Target) Layer.Handle {
-    const handle: Layer.Handle = @enumFromInt(self.targets.items.len);
-    if (target.parent) |p| std.debug.assert(@intFromEnum(p) < @intFromEnum(handle));
+    const handle: Layer.Handle = @fromBackingInt(@intCast(self.targets.items.len));
+    if (target.parent) |p| std.debug.assert(@backingInt(p) < @backingInt(handle));
     resolve_layer_origin(self.stdplane(), target.src, target, self.targets.items);
     self.targets.append(self.allocator, target) catch |e| switch (e) {
         error.OutOfMemory => @panic("OOM vaxis.submit_layer"),
@@ -152,7 +152,7 @@ fn resolve_layer_origin(std_plane: Plane, layer: *Layer, target: Layer.Target, p
     var dst_x: i32 = 0;
     var dst_y: i32 = 0;
     if (target.parent) |h| {
-        const parent_layer = prior_targets[@intFromEnum(h)].src;
+        const parent_layer = prior_targets[@backingInt(h)].src;
         dst_x, dst_y = parent_layer.global_origin_px();
     }
     layer.origin_px_x = dst_x + target.x * cw + @as(i32, target.xoffset);
@@ -308,7 +308,7 @@ fn build_draw_order(allocator: std.mem.Allocator, targets: []const Layer.Target)
     for (order, 0..) |*o, i| o.* = @intCast(i);
     std.mem.sort(u32, order, targets, struct {
         fn lt(t: []const Layer.Target, a: u32, b: u32) bool {
-            if (t[a].z_index != t[b].z_index) return @intFromEnum(t[a].z_index) < @intFromEnum(t[b].z_index);
+            if (t[a].z_index != t[b].z_index) return @backingInt(t[a].z_index) < @backingInt(t[b].z_index);
             return a > b;
         }
     }.lt);

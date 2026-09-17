@@ -1429,7 +1429,7 @@ const cmds = struct {
         const config = tui.config_mut();
         const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch (mode) {
             .none => null,
-            else => @enumFromInt(@intFromEnum(mode) + 1),
+            else => @fromBackingInt(@intCast(@backingInt(mode) + 1)),
         } else .only_current;
 
         config.gutter_line_numbers_mode = mode;
@@ -1880,11 +1880,11 @@ const cmds = struct {
         defer self.allocator.free(cmd.bytes);
         const handlers = struct {
             fn out(context: usize, parent: tp.pid_ref, _: []const u8, output: []const u8) void {
-                const buffer_ref: Buffer.Ref = @enumFromInt(context);
+                const buffer_ref: Buffer.Ref = @fromBackingInt(@intCast(context));
                 parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, output } }) catch {};
             }
             fn exit(context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
-                const buffer_ref: Buffer.Ref = @enumFromInt(context);
+                const buffer_ref: Buffer.Ref = @fromBackingInt(@intCast(context));
                 var buf: [256]u8 = undefined;
                 var stream: std.Io.Writer = .fixed(&buf);
                 if (exit_code > 0) {
@@ -1899,7 +1899,7 @@ const cmds = struct {
         const editor = self.get_active_editor() orelse return error.Stop;
         const buffer = editor.buffer orelse return error.Stop;
         const buffer_ref = buffer.to_ref();
-        try shell.execute(self.allocator, .{ .buf = cmd.bytes }, .{ .context = @intFromEnum(buffer_ref), .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
+        try shell.execute(self.allocator, .{ .buf = cmd.bytes }, .{ .context = @backingInt(buffer_ref), .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
     }
     pub const shell_execute_stream_meta: Meta = .{ .arguments = &.{.string} };
 

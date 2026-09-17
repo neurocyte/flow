@@ -24,16 +24,16 @@ pub fn isShifted(mods: Mods) bool {
 
 // Simple set of currently held buttons (for modifier tracking)
 pub const ButtonSet = struct {
-    bits: std.bit_set.IntegerBitSet(256) = .initEmpty(),
+    bits: std.bit_set.IntegerBitSet(256) = .empty,
 
     pub fn press(self: *ButtonSet, b: wio.Button) void {
-        self.bits.set(@intFromEnum(b));
+        self.bits.set(@backingInt(b));
     }
     pub fn release(self: *ButtonSet, b: wio.Button) void {
-        self.bits.unset(@intFromEnum(b));
+        self.bits.unset(@backingInt(b));
     }
     pub fn has(self: ButtonSet, b: wio.Button) bool {
-        return self.bits.isSet(@intFromEnum(b));
+        return self.bits.isSet(@backingInt(b));
     }
 };
 

@@ -126,7 +126,7 @@ pub fn parseReader(self: *Parser, reader: *Reader) !Event {
             // C0 control
             0x00...0x1a,
             0x1c...0x1f,
-            => return .{ .c0 = @enumFromInt(b) },
+            => return .{ .c0 = @fromBackingInt(@intCast(b)) },
             // Single-byte C1 controls, mapped to their 7-bit escape equivalents.
             0x84 => return try self.c1Escape('D'), // IND
             0x85 => return try self.c1Escape('E'), // NEL

@@ -51,7 +51,7 @@ fn receive_safe(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
         // register interest in SettingChanged, then read the current value
         try self.bus.send(.{
             "call",
-            @intFromEnum(cookie.add_match),
+            @backingInt(cookie.add_match),
             dbus_dest,
             dbus_path,
             dbus_iface,
@@ -61,7 +61,7 @@ fn receive_safe(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
         });
         try self.bus.send(.{
             "call",
-            @intFromEnum(cookie.read),
+            @backingInt(cookie.read),
             portal_dest,
             portal_path,
             settings_iface,
@@ -69,13 +69,13 @@ fn receive_safe(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
             "ss",
             .{ appearance_ns, color_scheme_key },
         });
-    } else if (try m.match(.{ "dbus", "reply", @intFromEnum(cookie.add_match), tp.more })) {
+    } else if (try m.match(.{ "dbus", "reply", @backingInt(cookie.add_match), tp.more })) {
         log.info("subscribed to SettingChanged events", .{});
-    } else if (try m.match(.{ "dbus", "reply", @intFromEnum(cookie.read), tp.extract(&args) })) {
+    } else if (try m.match(.{ "dbus", "reply", @backingInt(cookie.read), tp.extract(&args) })) {
         on_read_reply(args);
     } else if (try m.match(.{ "dbus", "signal", tp.any, tp.any, settings_iface, "SettingChanged", tp.extract(&args) })) {
         on_setting_changed(args);
-    } else if (try m.match(.{ "dbus", "error", @intFromEnum(cookie.read), tp.extract(&reason), tp.more })) {
+    } else if (try m.match(.{ "dbus", "error", @backingInt(cookie.read), tp.extract(&reason), tp.more })) {
         log.err("could not read {s}/{s}: {s}", .{ appearance_ns, color_scheme_key, reason });
     } else if (try m.match(.{ "dbus", "signal", tp.more })) {
         // ignore unrelated signals (e.g. the daemon's NameAcquired)

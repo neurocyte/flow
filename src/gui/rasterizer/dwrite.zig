@@ -240,12 +240,12 @@ fn resolveCachedFace(
 
     var font: *win32.IDWriteFont = undefined;
     const style: win32.DWRITE_FONT_STYLE = if (italic) .ITALIC else .NORMAL;
-    const weight: win32.DWRITE_FONT_WEIGHT = @enumFromInt(@as(i32, css_weight));
+    const weight: win32.DWRITE_FONT_WEIGHT = @fromBackingInt(@intCast(@as(i32, css_weight)));
     if (family.GetFirstMatchingFont(weight, .NORMAL, style, &font) < 0)
         return error.FontNotFound;
     defer _ = font.IUnknown.Release();
 
-    const got_weight: i32 = @intFromEnum(font.GetWeight());
+    const got_weight: i32 = @backingInt(font.GetWeight());
     const got_style = font.GetStyle();
     const sims = font.GetSimulations();
     const want_w: i32 = @intCast(css_weight);

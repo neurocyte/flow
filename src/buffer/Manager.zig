@@ -103,10 +103,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
     tp.trace(tp.channel.debug, .{ @typeName(Self), "extract_state", len });
     while (len > 0) : (len -= 1) {
         var buffer = try Buffer.create(self.allocator, now);
-        errdefer |e| {
-            tp.trace(tp.channel.debug, .{ "buffer", "extract", "failed", buffer.get_file_path(), e });
-            buffer.deinit();
-        }
+        errdefer buffer.deinit();
         try buffer.extract_state(iter, now);
         try self.add_buffer(buffer);
         self.watch_buffer(buffer);
@@ -263,7 +260,7 @@ pub fn close_others(self: *Self, protected: *Buffer) error{OutOfMemory}!usize {
 pub fn buffer_from_ref(self: *Self, buffer_ref: Buffer.Ref) ?*Buffer {
     var i = self.buffers.iterator();
     while (i.next()) |p|
-        if (@intFromPtr(p.value_ptr.*) == @intFromEnum(buffer_ref))
+        if (@intFromPtr(p.value_ptr.*) == @backingInt(buffer_ref))
             return p.value_ptr.*;
     tp.trace(tp.channel.debug, .{ "buffer_from_ref", "failed", buffer_ref });
     return null;

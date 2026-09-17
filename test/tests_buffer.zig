@@ -140,7 +140,7 @@ test "buffer.store_to_file_and_clean preserves file mode" {
     const f = try std.Io.Dir.cwd().openFile(io, tmp_path, .{});
     defer f.close(io);
     const stat = try f.stat(io);
-    const mode = @intFromEnum(stat.permissions);
+    const mode = @backingInt(stat.permissions);
     try std.testing.expectEqual(@as(std.posix.mode_t, 0o644), mode & 0o777);
 }
 

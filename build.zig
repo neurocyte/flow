@@ -1,7 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const optimize_deps = .ReleaseFast;
+const optimize_deps: std.lang.Optimize = .fast;
+
+var shader_mod_counter: usize = 0;
 
 pub const Renderer = enum { terminal, gui };
 
@@ -25,16 +27,16 @@ pub fn build(b: *std.Build) void {
     var version: std.Io.Writer.Allocating = .init(b.allocator);
     defer version.deinit();
     gen_version(b, &version.writer) catch |e| {
-        if (b.release_mode != .off)
+        if (b.graph.release_mode != .off)
             std.debug.panic("gen_version failed: {any}", .{e});
         version.clearRetainingCapacity();
         version.writer.writeAll("unknown") catch {};
     };
 
-    const release = switch (b.release_mode) {
+    const release = switch (b.graph.release_mode) {
         .off => false,
         .any => blk: {
-            b.release_mode = .fast;
+            b.graph.release_mode = .fast;
             break :blk true;
         },
         else => true,
@@ -271,7 +273,7 @@ pub fn build_exe(
     embed_emoji: bool,
     install_tests: bool,
 ) void {
-    const use_llvm = use_llvm_ orelse if (target.result.os.tag == .linux) true else null;
+    const use_llvm = use_llvm_;
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
     const is_native = target.query.isNative();
     const options = b.addOptions();
@@ -293,7 +295,7 @@ pub fn build_exe(
     var version_info: std.Io.Writer.Allocating = .init(b.allocator);
     defer version_info.deinit();
     gen_version_info(b, target, &version_info.writer, optimize, renderer) catch |e| {
-        if (b.release_mode != .off)
+        if (b.graph.release_mode != .off)
             std.debug.panic("gen_version failed: {any}", .{e});
         version_info.clearRetainingCapacity();
         version_info.writer.writeAll("unknown") catch {};
@@ -673,7 +675,10 @@ pub fn build_exe(
                 }
 
                 const shdc = if (b.lazyImport(@This(), "sokol")) |sokol| sokol.shdc else break :blk tui_renderer_mod;
-                const shader_mod = shdc.createModule(b, "shader", sokol_mod, .{
+                // module counter to disabiguate sokol shader modules in muti-target builds
+                shader_mod_counter += 1;
+                const shader_mod_name = b.fmt("shader_{d}", .{shader_mod_counter});
+                const shader_mod = shdc.createModule(b, shader_mod_name, sokol_mod, .{
                     .shdc_dep = sokol_dep.builder.dependency("shdc", .{}),
                     .input = "src/gui/gpu/builtin.glsl",
                     .output = "builtin.glsl.zig",
@@ -688,7 +693,7 @@ pub fn build_exe(
                 const gui_blit_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/rasterizer/blit.zig"),
                     .target = target,
-                    .optimize = .ReleaseFast,
+                    .optimize = .fast,
                 });
                 const gui_glyph_constraint_mod = b.createModule(.{ .root_source_file = b.path("src/gui/glyph_constraint.zig") });
                 const gui_face_metrics_mod = b.createModule(.{ .root_source_file = b.path("src/gui/rasterizer/face_metrics.zig") });
@@ -807,14 +812,21 @@ pub fn build_exe(
                         .target = target,
                     });
                     if (target.result.os.tag == .linux) {
+                        const fontconfig_c_step = b.addTranslateC(.{
+                            .root_source_file = b.path("src/gui/rasterizer/font_finder/fontconfig_c.h"),
+                            .target = target,
+                            .optimize = optimize,
+                        });
                         if (is_native) {
                             font_finder_mod.linkSystemLibrary("fontconfig", .{});
                         } else {
                             const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
                             font_finder_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "fontconfig", 1, &fv.fontconfig_stub_symbols).getEmittedBin());
                             font_finder_mod.addIncludePath(flow_gui_headers_dep.?.path("include"));
+                            fontconfig_c_step.addIncludePath(flow_gui_headers_dep.?.path("include"));
                         }
                         font_finder_mod.link_libc = true;
+                        font_finder_mod.addImport("c", fontconfig_c_step.createModule());
                     }
 
                     const fallback_resolver_mod = b.createModule(.{
@@ -873,6 +885,14 @@ pub fn build_exe(
                         const freetype_dep = b.lazyDependency("freetype", .{}) orelse break :blk tui_renderer_mod;
                         freetype_rasterizer_mod.addIncludePath(freetype_dep.path("include"));
                         freetype_rasterizer_mod.link_libc = true;
+
+                        const freetype_c_step = b.addTranslateC(.{
+                            .root_source_file = b.path("src/gui/rasterizer/freetype_c.h"),
+                            .target = target,
+                            .optimize = optimize,
+                        });
+                        freetype_c_step.addIncludePath(freetype_dep.path("include"));
+                        freetype_rasterizer_mod.addImport("c", freetype_c_step.createModule());
 
                         combined_rasterizer_mod.addImport("ft_rasterizer", freetype_rasterizer_mod);
                     }
@@ -1422,7 +1442,7 @@ pub fn build_exe(
             .file = b.path("src/win32/flow.rc"),
         });
         if (renderer != .terminal) {
-            exe.subsystem = .Windows;
+            exe.subsystem = .windows;
         }
     }
 
@@ -1467,9 +1487,7 @@ pub fn build_exe(
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     run_step.dependOn(&run_cmd.step);
 
@@ -1557,7 +1575,7 @@ pub fn build_exe(
     if (stdio_capture_test_run_cmd) |cmd| test_step.dependOn(&cmd.step);
 
     const lints = b.addFmt(.{
-        .paths = &.{ "src", "test", "build.zig" },
+        .paths = &.{ b.path("src"), b.path("test"), b.path("build.zig") },
         .check = true,
     });
 
@@ -1602,7 +1620,7 @@ fn gen_version_info(
     const remote = std.mem.trimEnd(u8, remote_, "\r\n ");
     const base_commit_ = b.runAllowFail(&[_][]const u8{ "git", "merge-base", branch, tracking_branch }, &code, .ignore) catch "";
     const base_commit = std.mem.trimEnd(u8, base_commit_, "\r\n ");
-    const describe_base_commit_ = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags", base_commit }, &code, .ignore);
+    const describe_base_commit_ = b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags", base_commit }, &code, .ignore) catch "unknown";
     const describe_base_commit = std.mem.trimEnd(u8, describe_base_commit_, "\r\n ");
     const log = std.mem.trimEnd(u8, log_, "\r\n ");
     const diff = std.mem.trimEnd(u8, diff_, "\r\n ");

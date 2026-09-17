@@ -205,7 +205,7 @@ fn update_clear_timer(self: *Self) !void {
 }
 
 fn set(self: *Self, msg: []const u8, level: Level) !void {
-    if (@intFromEnum(level) < @intFromEnum(self.level)) return;
+    if (@backingInt(level) < @backingInt(self.level)) return;
     self.msg.clearRetainingCapacity();
     var iter = std.mem.splitScalar(u8, msg, '\n');
     const line1 = iter.next() orelse msg;

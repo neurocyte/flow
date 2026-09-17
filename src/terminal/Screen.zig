@@ -802,7 +802,7 @@ fn writeSgr(writer: *std.Io.Writer, style: vaxis.Style) std.Io.Writer.Error!void
     if (style.bold) try writer.writeAll(";1");
     if (style.dim) try writer.writeAll(";2");
     if (style.italic) try writer.writeAll(";3");
-    if (style.ul_style != .off) try writer.print(";4:{d}", .{@intFromEnum(style.ul_style)});
+    if (style.ul_style != .off) try writer.print(";4:{d}", .{@backingInt(style.ul_style)});
     if (style.blink) try writer.writeAll(";5");
     if (style.reverse) try writer.writeAll(";7");
     if (style.invisible) try writer.writeAll(";8");
@@ -936,8 +936,8 @@ pub fn sgr(self: *Screen, seq: ansi.CSI) void {
             4 => {
                 const kind: vaxis.Style.Underline = if (iter.next_is_sub) blk: {
                     const v = iter.next() orelse 1;
-                    break :blk if (v <= @intFromEnum(vaxis.Style.Underline.dashed))
-                        @enumFromInt(v)
+                    break :blk if (v <= @backingInt(vaxis.Style.Underline.dashed))
+                        @fromBackingInt(@intCast(v))
                     else
                         .single;
                 } else .single;

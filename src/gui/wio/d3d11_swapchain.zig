@@ -38,7 +38,7 @@ extern "user32" fn SetWindowCompositionAttribute(
 
 const tint_alpha: u8 = 0xB0;
 
-const DWMWA_SYSTEMBACKDROP_TYPE: win32.DWMWINDOWATTRIBUTE = @enumFromInt(38);
+const DWMWA_SYSTEMBACKDROP_TYPE: win32.DWMWINDOWATTRIBUTE = @fromBackingInt(@intCast(38));
 const DWMSBT_TRANSIENTWINDOW: i32 = 3;
 
 device: *win32.ID3D11Device,
