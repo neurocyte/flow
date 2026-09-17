@@ -272,7 +272,7 @@ fn init(allocator: Allocator) InitError!*Self {
     }
     self.mainview_ = try MainView.create(allocator);
     resize();
-    try save_config();
+    save_config() catch |e| self.logger.err("save_config", e);
     try self.init_input_namespace();
     if (tp.env.get().is("restore-session")) {
         command.executeName("restore_session", .empty()) catch |e| self.logger.err("restore_session", e);
@@ -288,7 +288,7 @@ fn init_input_namespace(self: *Self) InitError!void {
         self.logger.print_err("keybind", "unknown mode {s}", .{namespace_name});
         try keybind.set_namespace("flow");
         self.config_.input_mode = "flow";
-        try save_config();
+        save_config() catch |e| self.logger.err("save_config", e);
     };
 }
 

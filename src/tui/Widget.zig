@@ -98,7 +98,10 @@ const static_themes = @import("themes").themes;
 fn get_themes(allocator: std.mem.Allocator) *std.StringHashMap(*ThemeInfo) {
     if (themes_) |*themes__| return themes__;
 
-    const theme_files = root.list_themes(allocator) catch @panic("OOM get_themes");
+    const theme_files = root.list_themes(allocator) catch |e| ret: {
+        std.log.err("failed to list themes: {t}", .{e});
+        break :ret &.{};
+    };
     var themes: std.StringHashMap(*ThemeInfo) = .init(allocator);
     defer allocator.free(theme_files);
     for (theme_files) |file| {
