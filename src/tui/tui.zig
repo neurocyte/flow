@@ -56,6 +56,9 @@ frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
 frame_last_time: i64 = 0,
+render_blocks: std.AutoHashMapUnmanaged(usize, tp.timeout) = .empty,
+next_render_block: usize = 1,
+render_skipped: bool = false,
 receiver: Receiver,
 mainview_: ?Widget = null,
 on_ui_ready: DelayedMessageQueue,
@@ -355,6 +358,12 @@ fn deinit(self: *Self) void {
     };
     self.on_ui_ready.deinit();
     self.deinit_stdio_capture();
+    var render_blocks = self.render_blocks.valueIterator();
+    while (render_blocks.next()) |t| {
+        t.cancel() catch {};
+        t.deinit();
+    }
+    self.render_blocks.deinit(self.allocator);
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -589,6 +598,15 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    var render_block: usize = 0;
+    if (try m.match(.{ "render_block_timeout", tp.extract(&render_block) })) {
+        if (self.render_blocks.contains(render_block)) {
+            self.logger.print_err("render", "render block {d} timed out", .{render_block});
+            unblock_render(@enumFromInt(render_block));
+        }
+        return;
+    }
+
     var new_frame_rate: usize = 0;
     if (try m.match(.{ "render", "frame_rate", tp.extract(&new_frame_rate) })) {
         if (new_frame_rate == 0 or new_frame_rate == self.config_.frame_rate)
@@ -649,6 +667,15 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         need_render(@src());
         return;
     }
+
+    if (try m.match(.{ "exit", tp.more })) if (get_buffer_manager()) |buffer_manager| if (buffer_manager.is_file_store(from)) {
+        buffer_manager.file_store_exited();
+        if (!try m.match(.{ "exit", "normal" })) {
+            self.logger.print_err("file_store", "file store exited: {f}", .{m});
+            project_manager.request_file_store() catch |e| self.logger.err("file_store", e);
+        }
+        return;
+    };
 
     if (try m.match(.{ "exit", tp.more })) {
         if (try m.match(.{ tp.string, "normal" }) or
@@ -755,8 +782,14 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
-    if (try m.match(.{ "FS", tp.more })) // file store events
-        return if (get_buffer_manager()) |buffer_manager| buffer_manager.receive_file_watch_event(from, m);
+    if (try m.match(.{ "FS", tp.more })) { // file store events
+        if (get_buffer_manager()) |buffer_manager|
+            switch (buffer_manager.receive_file_store_message(from, m)) {
+                .modified => need_render(@src()),
+                .nochange => {},
+            };
+        return;
+    }
 
     if (try m.match(.{ "FW", "change", tp.more })) // project file watcher events
         return;
@@ -781,6 +814,14 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 }
 
 fn render(self: *Self) void {
+    if (self.render_blocks.count() > 0) {
+        self.render_skipped = true;
+        if (self.frame_clock_running) {
+            self.frame_clock.stop() catch {};
+            self.frame_clock_running = false;
+        }
+        return;
+    }
     defer self.frames_rendered_ += 1;
     const current_time = root.get_now().toMicroseconds();
     if (current_time < self.frame_last_time) { // clock moved backwards
@@ -2396,6 +2437,39 @@ fn maybe_reset_drag_source(self: *Self, btn: MouseEvent.Button) void {
     if (self.drag_button != btn) return;
     self.drag_source = null;
     self.drag_button = .none;
+}
+
+pub const RenderBlock = enum(usize) { _ };
+
+pub fn block_render(timeout_ms: u64) RenderBlock {
+    const self = current();
+    const id = self.next_render_block;
+    self.next_render_block += 1;
+    var timeout = tp.timeout.init_ms(timeout_ms, tp.message.fmt(.{ "render_block_timeout", id })) catch |e| {
+        self.logger.err("render", e);
+        return @enumFromInt(0);
+    };
+    self.render_blocks.put(self.allocator, id, timeout) catch |e| {
+        timeout.cancel() catch {};
+        timeout.deinit();
+        self.logger.err("render", e);
+        return @enumFromInt(0);
+    };
+    return @enumFromInt(id);
+}
+
+pub fn unblock_render(block: RenderBlock) void {
+    const self = current();
+    var kv = self.render_blocks.fetchRemove(@intFromEnum(block)) orelse return;
+    kv.value.cancel() catch {};
+    kv.value.deinit();
+    if (self.render_blocks.count() > 0 or !self.render_skipped) return;
+    self.render_skipped = false;
+    need_render(@src());
+}
+
+pub fn is_render_blocked() bool {
+    return current().render_blocks.count() > 0;
 }
 
 pub fn need_render(src: std.builtin.SourceLocation) void {

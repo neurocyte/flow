@@ -19,7 +19,7 @@ pub const SpawnError = error{ OutOfMemory, ThespianSpawnFailed };
 
 pub const max_chunk_size = 16 * 1024;
 pub const default_chunk_size = max_chunk_size;
-pub const default_window = 64;
+pub const default_window = max_window;
 pub const max_window = 1024;
 const read_quantum = 8;
 const max_streams_per_client = 64;
@@ -76,6 +76,20 @@ fn clamp_window(n: usize) usize {
 
 fn ack_interval(window: usize) usize {
     return @max(1, window / 2);
+}
+
+const perf_log = std.log.scoped(.file_store);
+
+fn us_since(io: std.Io, t: std.Io.Timestamp) i64 {
+    return t.durationTo(.now(io, .awake)).toMicroseconds();
+}
+
+fn to_ms(us: i64) f64 {
+    return @as(f64, @floatFromInt(us)) / 1000.0;
+}
+
+fn ns_to_ms(ns: i96) f64 {
+    return @as(f64, @floatFromInt(ns)) / 1_000_000.0;
 }
 
 fn is_below(path: []const u8, dir: []const u8) bool {
@@ -310,6 +324,8 @@ const Process = struct {
         window: usize,
         fingerprint: Fingerprint,
         continue_pending: bool = false,
+        started: std.Io.Timestamp,
+        read_ns: i96 = 0,
     };
 
     const WriteState = struct {
@@ -323,6 +339,9 @@ const Process = struct {
         acked: usize = 0,
         ack_interval: usize,
         orig: ?Orig,
+        started: std.Io.Timestamp,
+        begin_us: i64,
+        write_ns: i96 = 0,
     };
 
     const Orig = struct { permissions: std.Io.File.Permissions, owner: ?FileOwner };
@@ -519,6 +538,7 @@ const Process = struct {
     fn read_begin(self: *@This(), from: tp.pid_ref, id: usize, path: []const u8, chunk_size: usize, window: usize) void {
         if (!self.ensure_client(from)) return send_error(from, id, "read", "ClientLinkFailed");
         const io = root.get_io();
+        const started: std.Io.Timestamp = .now(io, .awake);
         const file = std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only }) catch |e| switch (e) {
             error.FileNotFound => {
                 from.send(.{ "FS", "read_begin", id, path, false, @as(u64, 0) }) catch {};
@@ -548,6 +568,7 @@ const Process = struct {
             .chunk_size = clamp_chunk_size(chunk_size),
             .window = clamp_window(window),
             .fingerprint = .of(stat),
+            .started = started,
         } }) catch |e| {
             file.close(io);
             self.allocator.free(owned_path);
@@ -595,8 +616,10 @@ const Process = struct {
                 return;
             }
             const n: usize = @intCast(@min(@as(u64, s.chunk_size), s.size - s.offset));
+            const read_started: std.Io.Timestamp = .now(io, .awake);
             const got = s.file.readPositionalAll(io, buf[0..n], s.offset) catch |e|
                 return self.fail_stream(key, "read", @errorName(e));
+            s.read_ns += read_started.durationTo(.now(io, .awake)).nanoseconds;
             if (got != n) return self.fail_stream(key, "read", "FileChangedDuringRead");
             s.client.send(.{ "FS", "read_chunk", key.id, s.next_seq, cbor.Bytes.init(buf[0..got]) }) catch {};
             s.offset += got;
@@ -614,6 +637,13 @@ const Process = struct {
         const stat = s.file.stat(root.get_io()) catch |e| return self.fail_stream(key, "read", @errorName(e));
         if (!Fingerprint.of(stat).eql(s.fingerprint))
             return self.fail_stream(key, "read", "FileChangedDuringRead");
+        perf_log.info("read {s} total {d:.3}ms bytes {d} chunks {d} [read {d:.3}]", .{
+            s.path,
+            to_ms(us_since(root.get_io(), s.started)),
+            s.size,
+            s.next_seq,
+            ns_to_ms(s.read_ns),
+        });
         s.client.send(.{ "FS", "read_done", key.id }) catch {};
         self.remove_stream(key);
     }
@@ -621,6 +651,7 @@ const Process = struct {
     fn write_begin(self: *@This(), from: tp.pid_ref, id: usize, path: []const u8, size: u64, retain_symlinks: bool, window: usize) void {
         if (!self.ensure_client(from)) return send_error(from, id, "write", "ClientLinkFailed");
         const io = root.get_io();
+        const started: std.Io.Timestamp = .now(io, .awake);
         const owned_path = self.allocator.dupe(u8, path) catch return send_error(from, id, "write", "OutOfMemory");
         const target = self.resolve_symlink(io, path, retain_symlinks) catch {
             self.allocator.free(owned_path);
@@ -641,6 +672,8 @@ const Process = struct {
             .size = size,
             .ack_interval = ack_interval(clamp_window(window)),
             .orig = orig,
+            .started = started,
+            .begin_us = us_since(io, started),
         } }) catch |e| {
             atomic.deinit(io);
             self.allocator.free(owned_path);
@@ -675,8 +708,11 @@ const Process = struct {
         };
         if (seq != s.next_seq) return self.fail_stream(key, "write", "OutOfOrderChunk");
         if (s.received + data.len > s.size) return self.fail_stream(key, "write", "SizeMismatch");
-        s.atomic.file.writePositionalAll(root.get_io(), data, s.received) catch |e|
+        const io = root.get_io();
+        const write_started: std.Io.Timestamp = .now(io, .awake);
+        s.atomic.file.writePositionalAll(io, data, s.received) catch |e|
             return self.fail_stream(key, "write", @errorName(e));
+        s.write_ns += write_started.durationTo(.now(io, .awake)).nanoseconds;
         s.received += data.len;
         s.next_seq += 1;
         if (s.next_seq - s.acked >= s.ack_interval) {
@@ -693,12 +729,21 @@ const Process = struct {
             else => return,
         };
         if (s.received != s.size) return self.fail_stream(key, "write", "SizeMismatch");
+        const commit_started: std.Io.Timestamp = .now(io, .awake);
         if (s.orig) |orig| {
             if (orig.owner) |owner| s.atomic.file.setOwner(io, owner.uid, owner.gid) catch {};
             s.atomic.file.setPermissions(io, orig.permissions) catch {};
         }
         s.atomic.replace(io) catch |e| return self.fail_stream(key, "write", @errorName(e));
         self.record_own_write(s.path);
+        perf_log.info("write {s} total {d:.3}ms bytes {d} [begin {d:.3} write {d:.3} commit {d:.3}]", .{
+            s.path,
+            to_ms(us_since(io, s.started)),
+            s.size,
+            to_ms(s.begin_us),
+            ns_to_ms(s.write_ns),
+            to_ms(us_since(io, commit_started)),
+        });
         s.client.send(.{ "FS", "write_done", key.id, s.path }) catch {};
         self.remove_stream(key);
     }

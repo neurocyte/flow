@@ -73,38 +73,35 @@ const cmds_ = struct {
 
     pub fn wa(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
-            bm.save_all(ctx.io) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            bm.save_all(ctx.io, .{}) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     pub const wa_meta: Meta = .{ .description = "wa (save all)" };
 
     pub fn xa(_: *void, ctx: Ctx) Result {
-        if (tui.get_buffer_manager()) |bm| {
-            bm.save_all(ctx.io) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            try cmd("quit", .empty_from(ctx));
-        }
+        if (tui.get_buffer_manager()) |bm|
+            bm.save_all(ctx.io, .{ .then = .{ .bytes = tp.message.fmt(.{ "cmd", "quit", .{} }).buf } }) catch |e|
+                return tp.exit_error(e, @errorReturnTrace());
     }
     pub const xa_meta: Meta = .{ .description = "xa (write all and quit)" };
 
     pub fn @"xa!"(_: *void, ctx: Ctx) Result {
-        if (tui.get_buffer_manager()) |bm| {
-            bm.save_all(ctx.io) catch {};
-            try cmd("quit_without_saving", .empty_from(ctx));
-        }
+        if (tui.get_buffer_manager()) |bm|
+            bm.save_all(ctx.io, .{ .then = .{ .bytes = tp.message.fmt(.{ "cmd", "quit_without_saving", .{} }).buf }, .then_on_error = true }) catch
+                try cmd("quit_without_saving", .empty_from(ctx));
     }
     pub const @"xa!_meta": Meta = .{ .description = "xa! (write all and exit, ignoring other unsaved changes)" };
 
     pub fn wqa(_: *void, ctx: Ctx) Result {
-        if (tui.get_buffer_manager()) |bm|
-            bm.save_all(ctx.io) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        try cmd("quit", .empty_from(ctx));
+        const bm = tui.get_buffer_manager() orelse return cmd("quit", .empty_from(ctx));
+        bm.save_all(ctx.io, .{ .then = .{ .bytes = tp.message.fmt(.{ "cmd", "quit", .{} }).buf } }) catch |e|
+            return tp.exit_error(e, @errorReturnTrace());
     }
     pub const wqa_meta: Meta = .{ .description = "wqa (write all and quit)" };
 
     pub fn @"wqa!"(_: *void, ctx: Ctx) Result {
-        if (tui.get_buffer_manager()) |bm| {
-            bm.save_all(ctx.io) catch {};
-            try cmd("quit_without_saving", .empty_from(ctx));
-        }
+        if (tui.get_buffer_manager()) |bm|
+            bm.save_all(ctx.io, .{ .then = .{ .bytes = tp.message.fmt(.{ "cmd", "quit_without_saving", .{} }).buf }, .then_on_error = true }) catch
+                try cmd("quit_without_saving", .empty_from(ctx));
     }
     pub const @"wqa!_meta": Meta = .{ .description = "wqa! (write all and exit, ignoring unsaved changes)" };
 
@@ -115,7 +112,7 @@ const cmds_ = struct {
 
     pub fn rla(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
-            bm.reload_all(ctx.io, ctx.now) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            bm.reload_all(ctx.io) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     pub const rla_meta: Meta = .{ .description = "rla (reload all files)" };
 

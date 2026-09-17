@@ -6,7 +6,6 @@ pub const VcsBlame = @import("VcsBlame");
 const file_type_config = @import("file_type_config");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const cwd = std.Io.Dir.cwd;
 const Regex = @import("regex");
 const tracy = @import("tracy");
 const FileStore = @import("FileStore");
@@ -1442,8 +1441,6 @@ fn to_ms(us: i64) f64 {
 
 pub const LoadTiming = struct {
     timer: Timer,
-    open_us: i64 = 0,
-    read_us: i64 = 0,
     sanitize_us: i64 = 0,
     scan_us: i64 = 0,
     build_us: i64 = 0,
@@ -1452,28 +1449,13 @@ pub const LoadTiming = struct {
     lines: usize = 0,
 };
 
-pub const SaveTiming = struct {
-    timer: Timer,
-    symlink_us: i64 = 0,
-    stat_us: i64 = 0,
-    create_us: i64 = 0,
-    write_us: i64 = 0,
-    restore_us: i64 = 0,
-    replace_us: i64 = 0,
-    update_us: i64 = 0,
-    bytes: usize = 0,
-    new_file: bool = false,
-};
-
 fn log_load(wall: std.Io.Timestamp, file_path: []const u8, t: *const LoadTiming) void {
-    perf_log.debug("load {s} at {d} total {d:.3}ms bytes {d} lines {d} [open {d:.3} read {d:.3} sanitize {d:.3} scan {d:.3} build {d:.3} update {d:.3}]", .{
+    perf_log.info("load {s} at {d} total {d:.3}ms bytes {d} lines {d} [sanitize {d:.3} scan {d:.3} build {d:.3} update {d:.3}]", .{
         file_path,
         wall.toMilliseconds(),
         to_ms(t.timer.total()),
         t.bytes,
         t.lines,
-        to_ms(t.open_us),
-        to_ms(t.read_us),
         to_ms(t.sanitize_us),
         to_ms(t.scan_us),
         to_ms(t.build_us),
@@ -1481,38 +1463,12 @@ fn log_load(wall: std.Io.Timestamp, file_path: []const u8, t: *const LoadTiming)
     });
 }
 
-fn log_save(wall: std.Io.Timestamp, file_path: []const u8, t: *const SaveTiming) void {
-    perf_log.debug("save {s} at {d} total {d:.3}ms bytes {d} {s} [symlink {d:.3} stat {d:.3} create {d:.3} write {d:.3} restore {d:.3} replace {d:.3} update {d:.3}]", .{
-        file_path,
-        wall.toMilliseconds(),
-        to_ms(t.timer.total()),
-        t.bytes,
-        if (t.new_file) "new" else "atomic",
-        to_ms(t.symlink_us),
-        to_ms(t.stat_us),
-        to_ms(t.create_us),
-        to_ms(t.write_us),
-        to_ms(t.restore_us),
-        to_ms(t.replace_us),
-        to_ms(t.update_us),
-    });
-}
-
 pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {
-    return self.load_timed(reader, eol_mode, utf8_sanitized, null);
-}
-
-fn load_timed(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_sanitized: *bool, timing: ?*LoadTiming) LoadError!Root {
     var read_buffer: ArrayList(u8) = .empty;
     defer read_buffer.deinit(self.external_allocator);
-    const buf = blk: {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.load.read" });
-        defer zone.deinit();
-        try reader.appendRemainingUnlimited(self.external_allocator, &read_buffer);
-        break :blk try read_buffer.toOwnedSlice(self.external_allocator);
-    };
-    if (timing) |t| t.read_us = t.timer.lap();
-    return self.load_owned_timed(buf, eol_mode, utf8_sanitized, timing);
+    try reader.appendRemainingUnlimited(self.external_allocator, &read_buffer);
+    const buf = try read_buffer.toOwnedSlice(self.external_allocator);
+    return self.load_owned_timed(buf, eol_mode, utf8_sanitized, null);
 }
 
 fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sanitized: *bool, timing: ?*LoadTiming) LoadError!Root {
@@ -1642,111 +1598,6 @@ pub fn reset_from_string_and_update(self: *Self, s: []const u8, now: std.Io.Time
     self.mtime = now.toMilliseconds();
 }
 
-pub const LoadFromFileError = error{
-    OutOfMemory,
-    Unexpected,
-    FileTooBig,
-    NoSpaceLeft,
-    DeviceBusy,
-    AccessDenied,
-    SystemResources,
-    WouldBlock,
-    IsDir,
-    SharingViolation,
-    PathAlreadyExists,
-    FileNotFound,
-    PipeBusy,
-    NameTooLong,
-    InvalidUtf8,
-    InvalidWtf8,
-    BadPathName,
-    NetworkNotFound,
-    AntivirusInterference,
-    SymLinkLoop,
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-    NoDevice,
-    NotDir,
-    FileLocksNotSupported,
-    FileBusy,
-    InputOutput,
-    BrokenPipe,
-    OperationAborted,
-    ConnectionResetByPeer,
-    ConnectionTimedOut,
-    NotOpenForReading,
-    SocketNotConnected,
-    BufferUnderrun,
-    DanglingSurrogateHalf,
-    ExpectedSecondSurrogateHalf,
-    UnexpectedSecondSurrogateHalf,
-    LockViolation,
-    ProcessNotFound,
-    Canceled,
-    PermissionDenied,
-    ReadOnlyFileSystem,
-    FileLocksUnsupported,
-} || LoadError;
-
-pub fn load_from_file(
-    self: *const Self,
-    io: std.Io,
-    file_path: []const u8,
-    file_exists: *bool,
-    eol_mode: *EolMode,
-    utf8_sanitized: *bool,
-) LoadFromFileError!Root {
-    return self.load_from_file_timed(io, file_path, file_exists, eol_mode, utf8_sanitized, null);
-}
-
-fn load_from_file_timed(
-    self: *const Self,
-    io: std.Io,
-    file_path: []const u8,
-    file_exists: *bool,
-    eol_mode: *EolMode,
-    utf8_sanitized: *bool,
-    timing: ?*LoadTiming,
-) LoadFromFileError!Root {
-    const file = blk: {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.load.open" });
-        defer zone.deinit();
-        break :blk cwd().openFile(io, file_path, .{ .mode = .read_only }) catch |e| switch (e) {
-            error.FileNotFound => return self.new_file(file_exists),
-            else => return e,
-        };
-    };
-    if (timing) |t| t.open_us = t.timer.lap();
-
-    file_exists.* = true;
-    defer file.close(io);
-    var read_buf: [4096]u8 = undefined;
-    var file_reader = file.reader(io, &read_buf);
-    return self.load_timed(&file_reader.interface, eol_mode, utf8_sanitized, timing);
-}
-
-pub fn load_from_file_and_update(self: *Self, io: std.Io, file_path: []const u8, now: std.Io.Timestamp) LoadFromFileError!void {
-    const zone = tracy.initZone(@src(), .{ .name = "buffer.load" });
-    defer zone.deinit();
-    const wall: std.Io.Timestamp = .now(io, .real);
-    var timing: LoadTiming = .{ .timer = .start_now(io) };
-
-    var file_exists: bool = false;
-    var eol_mode: EolMode = .lf;
-    var utf8_sanitized: bool = false;
-    self.root = try self.load_from_file_timed(io, file_path, &file_exists, &eol_mode, &utf8_sanitized, &timing);
-    self.set_file_path(file_path);
-    self.last_save = self.root;
-    self.file_exists = file_exists;
-    self.file_eol_mode = eol_mode;
-    self.file_utf8_sanitized = utf8_sanitized;
-    self.last_save_eol_mode = eol_mode;
-    self.mtime = now.toMilliseconds();
-
-    timing.update_us = timing.timer.lap();
-    log_load(wall, file_path, &timing);
-}
-
 pub fn load_from_owned_bytes_and_update(self: *Self, io: std.Io, file_path: []const u8, bytes: []u8, file_exists: bool, now: std.Io.Timestamp) LoadError!void {
     const zone = tracy.initZone(@src(), .{ .name = "buffer.load" });
     defer zone.deinit();
@@ -1782,11 +1633,6 @@ pub fn reset_to_last_saved(self: *Self, now: std.Io.Timestamp) void {
         self.file_eol_mode = self.last_save_eol_mode;
         self.mtime = now.toMilliseconds();
     }
-}
-
-pub fn refresh_from_file(self: *Self, io: std.Io, now: std.Io.Timestamp) LoadFromFileError!void {
-    try self.load_from_file_and_update(io, self.get_file_path(), now);
-    self.update_last_used_time(now);
 }
 
 pub fn store_to_string_cached(self: *Self, root: *const Node, eol_mode: EolMode) [:0]const u8 {
@@ -1831,189 +1677,6 @@ const StringCache = struct {
         if (self.code_folded) |text| allocator.free(text);
     }
 };
-
-fn store_to_file_const(self: *const Self, writer: *std.Io.Writer) StoreToFileError!void {
-    try self.root.store(writer, self.file_eol_mode);
-    try writer.flush();
-}
-
-pub const StoreToFileError = error{
-    AccessDenied,
-    AntivirusInterference,
-    BadPathName,
-    BrokenPipe,
-    ConnectionResetByPeer,
-    DeviceBusy,
-    DiskQuota,
-    FileBusy,
-    Canceled,
-    CrossDevice,
-    DirNotEmpty,
-    FileLocksNotSupported,
-    HardwareFailure,
-    FileLocksUnsupported,
-    FileNotFound,
-    FileTooBig,
-    InputOutput,
-    InvalidArgument,
-    InvalidUtf8,
-    InvalidWtf8,
-    IsDir,
-    LinkQuotaExceeded,
-    LockViolation,
-    NameTooLong,
-    NetworkNotFound,
-    NoDevice,
-    NoSpaceLeft,
-    NotDir,
-    NotOpenForWriting,
-    OperationAborted,
-    OutOfMemory,
-    PathAlreadyExists,
-    PipeBusy,
-    ProcessFdQuotaExceeded,
-    ProcessNotFound,
-    ReadOnlyFileSystem,
-    RenameAcrossMountPoints,
-    SharingViolation,
-    SymLinkLoop,
-    SystemFdQuotaExceeded,
-    SystemResources,
-    Unexpected,
-    WouldBlock,
-    PermissionDenied,
-    MessageTooBig,
-    WriteFailed,
-};
-
-pub fn store_to_existing_file_const(self: *const Self, io: std.Io, file_path_: []const u8) StoreToFileError!void {
-    return self.store_to_existing_file_timed(io, file_path_, null);
-}
-
-fn store_to_existing_file_timed(self: *const Self, io: std.Io, file_path_: []const u8, timing: ?*SaveTiming) StoreToFileError!void {
-    var file_path = file_path_;
-    var link: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    if (retain_symlinks) blk: {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.save.symlink" });
-        defer zone.deinit();
-        const size = cwd().readLink(io, file_path, &link) catch break :blk;
-        file_path = link[0..size];
-    }
-    if (timing) |t| t.symlink_us = t.timer.lap();
-
-    var write_buffer: [4096]u8 = undefined;
-
-    if (builtin.os.tag == .windows) {
-        // windows uses ACLs for ownership so we preserve mode only
-        var atomic = try cwd().createFileAtomic(io, file_path, .{ .replace = true });
-        defer atomic.deinit(io);
-        if (timing) |t| t.create_us = t.timer.lap();
-        {
-            const zone = tracy.initZone(@src(), .{ .name = "buffer.save.write" });
-            defer zone.deinit();
-            var writer = atomic.file.writer(io, &write_buffer);
-            try self.store_to_file_const(&writer.interface);
-            writer.flush() catch {};
-        }
-        if (timing) |t| t.write_us = t.timer.lap();
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.save.replace" });
-        defer zone.deinit();
-        defer if (timing) |t| {
-            t.replace_us = t.timer.lap();
-        };
-        return atomic.replace(io);
-    }
-
-    const Orig = struct { stat: std.Io.File.Stat, owner: ?FileOwner };
-    const orig: ?Orig = blk: {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.save.stat" });
-        defer zone.deinit();
-        const f = cwd().openFile(io, file_path, .{}) catch break :blk null;
-        defer f.close(io);
-        break :blk .{ .stat = f.stat(io) catch break :blk null, .owner = get_file_owner(f) };
-    };
-    if (timing) |t| t.stat_us = t.timer.lap();
-
-    var atomic = try cwd().createFileAtomic(io, file_path, .{ .replace = true });
-    defer atomic.deinit(io);
-    if (timing) |t| t.create_us = t.timer.lap();
-
-    {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.save.write" });
-        defer zone.deinit();
-        var writer = atomic.file.writer(io, &write_buffer);
-        try self.store_to_file_const(&writer.interface);
-        writer.flush() catch {};
-    }
-    if (timing) |t| t.write_us = t.timer.lap();
-
-    // EPERM is silently ignored when we lack sufficient privileges
-    if (orig) |o| {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.save.restore" });
-        defer zone.deinit();
-        if (o.owner) |owner| atomic.file.setOwner(io, owner.uid, owner.gid) catch {};
-        atomic.file.setPermissions(io, o.stat.permissions) catch {};
-    }
-    if (timing) |t| t.restore_us = t.timer.lap();
-
-    {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.save.replace" });
-        defer zone.deinit();
-        try atomic.replace(io);
-    }
-    if (timing) |t| t.replace_us = t.timer.lap();
-}
-
-pub const FileOwner = FileStore.FileOwner;
-pub const get_file_owner = FileStore.get_file_owner;
-
-pub fn store_to_new_file_const(self: *const Self, io: std.Io, file_path: []const u8) StoreToFileError!void {
-    return self.store_to_new_file_timed(io, file_path, null);
-}
-
-fn store_to_new_file_timed(self: *const Self, io: std.Io, file_path: []const u8, timing: ?*SaveTiming) StoreToFileError!void {
-    if (timing) |t| t.new_file = true;
-    {
-        const zone = tracy.initZone(@src(), .{ .name = "buffer.save.create" });
-        defer zone.deinit();
-        if (std.fs.path.dirname(file_path)) |dir_name|
-            cwd().createDirPath(io, dir_name) catch {};
-    }
-    const file = try cwd().createFile(io, file_path, .{ .truncate = true });
-    defer file.close(io);
-    if (timing) |t| t.create_us = t.timer.lap();
-
-    const zone = tracy.initZone(@src(), .{ .name = "buffer.save.write" });
-    defer zone.deinit();
-    var write_buffer: [4096]u8 = undefined;
-    var writer = file.writer(io, &write_buffer);
-    try self.store_to_file_const(&writer.interface);
-    writer.flush() catch {};
-    if (timing) |t| t.write_us = t.timer.lap();
-}
-
-pub fn store_to_file_and_clean(self: *Self, io: std.Io, file_path: []const u8) StoreToFileError!void {
-    const zone = tracy.initZone(@src(), .{ .name = "buffer.save" });
-    defer zone.deinit();
-    const wall: std.Io.Timestamp = .now(io, .real);
-    var timing: SaveTiming = .{ .timer = .start_now(io), .bytes = self.root.length() };
-
-    self.store_to_existing_file_timed(io, file_path, &timing) catch |e| switch (e) {
-        error.FileNotFound => try self.store_to_new_file_timed(io, file_path, &timing),
-        else => return e,
-    };
-    self.last_save = self.root;
-    self.last_save_eol_mode = self.file_eol_mode;
-    self.file_exists = true;
-    self.file_utf8_sanitized = false;
-    if (self.ephemeral) {
-        self.ephemeral = false;
-        self.set_file_path(file_path);
-    }
-
-    timing.update_us = timing.timer.lap();
-    log_save(wall, file_path, &timing);
-}
 
 pub fn mark_clean(self: *Self) void {
     self.last_save = self.root;
