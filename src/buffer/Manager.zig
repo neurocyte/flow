@@ -583,6 +583,15 @@ fn to_ms(us: i64) f64 {
     return @as(f64, @floatFromInt(us)) / 1000.0;
 }
 
+pub const ProbeError = error{ OutOfMemory, FileStoreNotReady, FileStoreSendFailed, ProbeNoFileName };
+
+pub fn probe(self: *Self, id: usize, file_path: []const u8) ProbeError!void {
+    const file_store = self.file_store orelse return error.FileStoreNotReady;
+    const abs_path = try self.resolve_path(file_path) orelse return error.ProbeNoFileName;
+    defer self.allocator.free(abs_path);
+    return file_store.probe(id, abs_path);
+}
+
 pub fn is_file_store(self: *const Self, pid: tp.pid_ref) bool {
     const file_store = self.file_store orelse return false;
     return file_store.pid.instance_id() == pid.instance_id();

@@ -301,7 +301,12 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
 
         const curr = try links.addOne(a);
-        curr.* = if (!args.literal) try file_link.parse(arg) else .{ .file = .{ .path = arg } };
+        curr.* = if (args.literal)
+            .{ .file = .{ .path = arg } }
+        else if (is_directory(arg))
+            .{ .dir = .{ .path = arg } }
+        else
+            try file_link.parse(arg);
         prev = curr;
 
         if (line_next) |line| {

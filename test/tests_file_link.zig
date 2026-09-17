@@ -27,7 +27,6 @@ test "find_in_line: mixed dots-slashes tokens in text are skipped" {
     try std.testing.expectEqualStrings("src/file_link.zig", text[r.start..r.end]);
     const dest = try fl.parse(text[r.start..r.end]);
     try std.testing.expect(dest == .file);
-    try std.testing.expect(dest.file.exists);
 }
 
 test "find_in_line: bare file:line" {
@@ -322,7 +321,6 @@ test "find_in_line: plain filename" {
     try std.testing.expectEqualStrings("build.zig", text[r.start..r.end]);
     const dest = try fl.parse(text[r.start..r.end]);
     try std.testing.expect(dest == .file);
-    try std.testing.expect(dest.file.exists);
 }
 
 test "find_in_line: plain path with directory" {
@@ -331,7 +329,6 @@ test "find_in_line: plain path with directory" {
     try std.testing.expectEqualStrings("src/file_link.zig", text[r.start..r.end]);
     const dest = try fl.parse(text[r.start..r.end]);
     try std.testing.expect(dest == .file);
-    try std.testing.expect(dest.file.exists);
 }
 
 test "find_in_line: plain filename in sentence" {
@@ -340,7 +337,6 @@ test "find_in_line: plain filename in sentence" {
     try std.testing.expectEqualStrings("src/file_link.zig", text[r.start..r.end]);
     const dest = try fl.parse(text[r.start..r.end]);
     try std.testing.expect(dest == .file);
-    try std.testing.expect(dest.file.exists);
 }
 
 test "find_at_point: point within plain filename" {
@@ -349,16 +345,15 @@ test "find_at_point: point within plain filename" {
     try std.testing.expectEqualStrings("src/file_link.zig", text[r.start..r.end]);
     const dest = try fl.parse(text[r.start..r.end]);
     try std.testing.expect(dest == .file);
-    try std.testing.expect(dest.file.exists);
 }
 
-test "find_at_point: plain path that does not exist is found but parse shows it absent" {
+test "find_at_point: plain path that does not exist is found and parsed" {
     const text = "no_such_file.zig";
     const r = fl.find_at_point(text, 0) orelse return error.NotFound;
     try std.testing.expectEqualStrings("no_such_file.zig", text[r.start..r.end]);
     const dest = try fl.parse(text[r.start..r.end]);
     try std.testing.expect(dest == .file);
-    try std.testing.expect(!dest.file.exists);
+    try std.testing.expectEqualStrings("no_such_file.zig", dest.file.path);
 }
 
 test "find_in_line: escaped space kept in colon-style link" {

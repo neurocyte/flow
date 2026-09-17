@@ -15,6 +15,7 @@ pub const renderer = @import("renderer");
 const crash = @import("crash");
 const stdio_capture = @import("stdio_capture.zig");
 const DelayedMessageQueue = @import("DelayedMessageQueue.zig");
+const FileProbe = @import("FileProbe.zig");
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
@@ -56,6 +57,7 @@ frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
 frame_last_time: i64 = 0,
+file_probe: FileProbe,
 render_blocks: std.AutoHashMapUnmanaged(usize, tp.timeout) = .empty,
 next_render_block: usize = 1,
 render_skipped: bool = false,
@@ -218,6 +220,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .frame_clock_running = true,
         .receiver = .init(receive, dtor, self),
         .on_ui_ready = DelayedMessageQueue.init(allocator),
+        .file_probe = .init(allocator),
         .message_filters_ = MessageFilter.List.init(allocator),
         .input_listeners_ = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
@@ -357,6 +360,7 @@ fn deinit(self: *Self) void {
         self.dbus_client = null;
     };
     self.on_ui_ready.deinit();
+    self.file_probe.deinit();
     self.deinit_stdio_capture();
     var render_blocks = self.render_blocks.valueIterator();
     while (render_blocks.next()) |t| {
@@ -782,12 +786,23 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
+    if (try m.match(.{ "MINI", tp.more })) // drop late mini mode replies
+        return;
+
     if (try m.match(.{ "FS", tp.more })) { // file store events
-        if (get_buffer_manager()) |buffer_manager|
+        if (self.file_probe.receive(root.get_io(), m)) {
+            need_render(@src());
+            return;
+        }
+        self.invalidate_probe(m);
+        if (get_buffer_manager()) |buffer_manager| {
             switch (buffer_manager.receive_file_store_message(from, m)) {
                 .modified => need_render(@src()),
                 .nochange => {},
-            };
+            }
+            if (try m.match(.{ "FS", "ready" }))
+                self.file_probe.start_queued(buffer_manager);
+        }
         return;
     }
 
@@ -2047,8 +2062,7 @@ const cmds = struct {
             const file_path = project_manager.expand_home(self.allocator, &buf, text);
             const link = try file_link.parse(file_path);
             switch (link) {
-                .file => |file| if (file.exists)
-                    return file_link.navigate(tp.self_pid(), &link),
+                .file => |file| return probe_file_link(file.path, file_path),
                 else => {},
             }
         } else if (get_active_editor()) |editor| {
@@ -2059,14 +2073,28 @@ const cmds = struct {
                     .dir => |d| self.allocator.free(d.path),
                 };
                 switch (link) {
-                    .file => |file| if (file.exists) return file_link.navigate(tp.self_pid(), &link),
-                    .dir => return file_link.navigate(tp.self_pid(), &link),
+                    .file => |file| return probe_file_link(file.path, file.path),
+                    .dir => return,
                 }
             }
         }
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
     pub const open_file_meta: Meta = .{ .description = "Open file" };
+
+    pub fn open_file_mini(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
+    }
+    pub const open_file_mini_meta: Meta = .{};
+
+    pub fn navigate_file_link(_: *Self, ctx: Ctx) Result {
+        var link_text: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&link_text)}) catch false))
+            return error.InvalidNavigateFileLinkArgument;
+        const link = file_link.parse(link_text) catch return;
+        return file_link.navigate(tp.self_pid(), &link);
+    }
+    pub const navigate_file_link_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn save_as(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/save_as.zig"), ctx);
@@ -2382,6 +2410,61 @@ pub fn get_active_selection(allocator: std.mem.Allocator) ?[]u8 {
 
 pub fn get_buffer_manager() ?*@import("Buffer").Manager {
     return if (mainview()) |mv| &mv.buffer_manager else null;
+}
+
+fn invalidate_probe(self: *Self, m: tp.message) void {
+    var path: []const u8 = undefined;
+    var to_path: []const u8 = undefined;
+    if (m.match(.{ "FS", "change", tp.extract(&path), tp.more }) catch false)
+        return self.file_probe.invalidate(path);
+    if (m.match(.{ "FS", "rename", tp.extract(&path), tp.extract(&to_path), tp.more }) catch false) {
+        self.file_probe.invalidate(path);
+        self.file_probe.invalidate(to_path);
+    }
+}
+
+pub fn probed(file_path: []const u8) ?FileProbe.Info {
+    return current().file_probe.get(root.get_io(), file_path);
+}
+
+pub fn probe(file_path: []const u8, request: FileProbe.Request) void {
+    const self = current();
+    const buffer_manager = get_buffer_manager() orelse return;
+    self.file_probe.probe(buffer_manager, root.get_io(), file_path, request);
+}
+
+pub fn probe_async(file_path: []const u8) void {
+    const self = current();
+    const buffer_manager = get_buffer_manager() orelse return;
+    self.file_probe.probe_async(buffer_manager, root.get_io(), file_path);
+}
+
+fn probe_file_link(file_path: []const u8, link_text: []const u8) void {
+    var buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+    probe(file_path, .{
+        .file = .{ .bytes = cbor.fmt(&buf, .{ "cmd", "navigate_file_link", .{link_text} }) },
+        .other = .{ .bytes = tp.message.fmt(.{ "cmd", "open_file_mini" }).buf },
+    });
+}
+
+pub const LinkState = enum { unknown, text_file, other };
+
+pub fn probe_link(file_path: []const u8) LinkState {
+    const info = probed(file_path) orelse {
+        probe_async(file_path);
+        return .unknown;
+    };
+    return if (info.is_text_file()) .text_file else .other;
+}
+
+pub fn clear_probe_cache() void {
+    current().file_probe.clear();
+}
+
+pub fn probe_all(paths: []const []const u8, then: ?cbor.Raw) void {
+    const self = current();
+    const buffer_manager = get_buffer_manager() orelse return;
+    self.file_probe.probe_all(buffer_manager, root.get_io(), paths, then);
 }
 
 fn context_check() void {

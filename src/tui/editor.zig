@@ -2194,7 +2194,8 @@ pub const Editor = struct {
     }
 
     fn update_file_link_highlight(self: *Self) void {
-        defer self.last_hover_pos = self.hover_pos;
+        var retry = false;
+        defer self.last_hover_pos = if (retry) null else self.hover_pos;
         const pos = self.hover_pos orelse {
             self.file_link_highlight = null;
             return;
@@ -2219,8 +2220,10 @@ pub const Editor = struct {
             };
             switch (link) {
                 .dir => {},
-                .file => |f| if (f.exists) {
-                    self.file_link_highlight = Match.from_selection(sel);
+                .file => |f| switch (tui.probe_link(f.path)) {
+                    .text_file => self.file_link_highlight = Match.from_selection(sel),
+                    .unknown => retry = true,
+                    .other => {},
                 },
             }
         } else self.file_link_highlight = null;
@@ -3481,8 +3484,10 @@ pub const Editor = struct {
             self.copy_cursel_file_name_and_location(cursel) catch return error.OutOfMemory;
     }
 
-    pub fn open_file_links(self: *Self, _: Context) Result {
+    pub fn open_file_links(self: *Self, ctx: Context) Result {
         const root = self.buf_root() catch return;
+        const probed = ctx.args.match(.{"probed"}) catch false;
+        if (!probed and self.probe_file_links(root)) return;
 
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         defer {
@@ -3518,7 +3523,8 @@ pub const Editor = struct {
                     .file => |f| f,
                     .dir => continue,
                 };
-                if (!f.exists) continue;
+                const info = tui.probed(f.path) orelse continue;
+                if (!info.is_text_file()) continue;
                 var path_buf: [std.fs.max_path_bytes]u8 = undefined;
                 const path = project_manager.normalize_file_path(f.path, &path_buf);
                 const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ path, f.line orelse 0 }) catch continue;
@@ -3540,6 +3546,38 @@ pub const Editor = struct {
         std.log.info("buffer: {d} file link{s} found", .{ sent, if (sent != 1) "s" else "" });
     }
     pub const open_file_links_meta: Meta = .{ .description = "Open file links in this buffer" };
+
+    fn probe_file_links(self: *Self, root: Buffer.Root) bool {
+        var unknown: std.ArrayList([]const u8) = .empty;
+        defer {
+            for (unknown.items) |path| self.allocator.free(path);
+            unknown.deinit(self.allocator);
+        }
+        const lines = root.lines();
+        var row: usize = 0;
+        while (row < lines) : (row += 1) {
+            var line: std.Io.Writer.Allocating = .init(self.allocator);
+            defer line.deinit();
+            root.get_line(row, &line.writer, self.metrics) catch continue;
+            const text = line.written();
+            var pos: usize = 0;
+            while (file_link.find_in_line(text[pos..])) |r| {
+                const slice = text[pos + r.start .. pos + r.end];
+                pos += r.end;
+                const link = file_link.parse(slice) catch continue;
+                const f = switch (link) {
+                    .file => |f| f,
+                    .dir => continue,
+                };
+                if (tui.probed(f.path)) |_| continue;
+                const path = self.allocator.dupe(u8, f.path) catch continue;
+                unknown.append(self.allocator, path) catch self.allocator.free(path);
+            }
+        }
+        if (unknown.items.len == 0) return false;
+        tui.probe_all(unknown.items, .{ .bytes = tp.message.fmt(.{ "cmd", "open_file_links", .{"probed"} }).buf });
+        return true;
+    }
 
     pub fn copy_file_name(self: *Self, ctx: Context) Result {
         var mode: enum { all, file_name_only } = .all;
@@ -7131,7 +7169,7 @@ pub const Editor = struct {
             .path = file_path,
             .line = primary.cursor.row,
             .column = col,
-        }, .alternative_destination = if (alt_dest) |dest| if (dest.exists) alt_dest else null else null });
+        }, .alternative_destination = if (alt_dest) |dest| if (tui.probe_link(dest.path) == .text_file) alt_dest else null else null });
     }
 
     pub fn goto_definition(self: *Self, _: Context) Result {

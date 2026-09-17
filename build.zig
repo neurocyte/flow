@@ -1337,6 +1337,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/tui/tui.zig"),
         .imports = &.{
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "crash", .module = crash_mod },
             .{ .name = "file_link", .module = file_link_mod },

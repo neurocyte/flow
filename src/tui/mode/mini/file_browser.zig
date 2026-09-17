@@ -102,12 +102,18 @@ pub fn Create(options: type) type {
         }
 
         fn try_complete_file(self: *Self) project_manager.Error!void {
+            const probed = tui.probed(self.file_path.items) orelse {
+                var buf: [std.fs.max_path_bytes + 32]u8 = undefined;
+                const complete: cbor.Raw = .{ .bytes = cbor.fmt(&buf, .{ "MINI", "probed", self.file_path.items }) };
+                tui.probe(self.file_path.items, .{ .file = complete, .dir = complete, .other = complete });
+                return;
+            };
             self.complete_trigger_count += 1;
             if (self.complete_trigger_count == 1) {
                 self.query.clearRetainingCapacity();
                 self.match.clearRetainingCapacity();
                 self.clear_entries();
-                if (root.is_directory(self.file_path.items)) {
+                if (probed.kind == .dir) {
                     try self.query.appendSlice(self.allocator, self.file_path.items);
                 } else if (self.file_path.items.len > 0) blk: {
                     const basename_begin = std.mem.lastIndexOfScalar(u8, self.file_path.items, std.fs.path.sep) orelse {
@@ -141,6 +147,12 @@ pub fn Create(options: type) type {
         }
 
         fn receive_path_entry(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+            var path: []const u8 = undefined;
+            if (try cbor.match(m.buf, .{ "MINI", "probed", tp.extract(&path) })) {
+                if (std.mem.eql(u8, path, self.file_path.items))
+                    self.try_complete_file() catch {};
+                return true;
+            }
             if (try cbor.match(m.buf, .{ "PRJ", tp.more })) {
                 try self.process_project_manager(m);
                 return true;

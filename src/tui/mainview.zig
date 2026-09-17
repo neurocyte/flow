@@ -582,6 +582,7 @@ const cmds = struct {
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
             if (file_store) |store| self.buffer_manager.set_file_store(store);
+            tui.clear_probe_cache();
         }
 
         const project = tp.env.get().str("project");
