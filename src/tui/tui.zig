@@ -28,6 +28,7 @@ const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
 const IdleAction = @import("config").IdleAction;
 const DbusClient = @import("DbusClient.zig");
+const Terminal = @import("Terminal");
 
 // exports for unittesting
 pub const exports = struct {
@@ -102,6 +103,7 @@ query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
 clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
+clipboard_forwards: std.ArrayListUnmanaged(ClipboardForward) = .empty,
 color_scheme: Widget.Theme.Type = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
@@ -133,6 +135,11 @@ pub const PaletteType = enum {
 pub const ClipboardEntry = struct {
     text: []const u8 = &.{},
     group: usize = 0,
+};
+
+const ClipboardForward = struct {
+    vt_ref: usize,
+    selection: Terminal.Selection,
 };
 
 const keepalive = std.time.us_per_day * 365; // one year
@@ -417,6 +424,7 @@ fn deinit(self: *Self) void {
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);
     self.clipboard_deinit();
+    self.clipboard_forwards.deinit(self.allocator);
 }
 
 fn listen_input_log(_: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -592,8 +600,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return self.handle_system_clipboard(text);
     }
 
-    if (try m.match(.{ "system_clipboard", tp.null_ }))
-        return self.logger.err_msg("clipboard", "clipboard request denied or empty");
+    if (try m.match(.{ "system_clipboard", tp.null_ })) {
+        if (self.clipboard_forward_pop()) |_| return;
+        return self.logger.err_msg("clipboard", "clipboard request denied/empty");
+    }
 
     if (try m.match(.{"render"})) {
         self.render_pending = false;
@@ -1004,6 +1014,9 @@ fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
 }
 
 fn handle_system_clipboard(self: *Self, text: []const u8) !void {
+    if (self.clipboard_forward_pop()) |fwd|
+        return @import("Vt.zig").Manager.respond_osc52_paste(fwd.vt_ref, fwd.selection, text);
+
     if (command.get_id("mini_mode_paste")) |id|
         return command.execute(id, "mini_mode_paste", command.fmt(.{text}));
 
@@ -3270,6 +3283,20 @@ fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {
 pub fn primary_send_to_system(text: []const u8) void {
     if (!build_options.gui and !config().enable_osc52_primary_selection) return;
     current().rdr_.copy_to_primary_selection(text);
+}
+
+pub fn clipboard_forward_request(vt_ref: usize, selection: Terminal.Selection) void {
+    const self = current();
+    self.clipboard_forwards.append(self.allocator, .{ .vt_ref = vt_ref, .selection = selection }) catch return;
+    switch (selection) {
+        .clipboard => self.rdr_.request_system_clipboard(),
+        .primary => self.rdr_.request_primary_selection(),
+    }
+}
+
+fn clipboard_forward_pop(self: *Self) ?ClipboardForward {
+    if (self.clipboard_forwards.items.len == 0) return null;
+    return self.clipboard_forwards.orderedRemove(0);
 }
 
 pub fn set_last_palette(type_: PaletteType, ctx: command.Context) void {

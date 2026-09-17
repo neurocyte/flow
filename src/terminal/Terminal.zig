@@ -28,12 +28,12 @@ pub const Event = union(enum) {
     bell,
     title_change: []const u8,
     pwd_change: []const u8,
-    /// OSC 52 copy: terminal app wrote to clipboard. Text is owned by the Terminal
+    /// OSC 52 copy: terminal app wrote to a selection. Text is owned by the Terminal
     /// allocator; the event handler must NOT free it (Terminal manages the buffer).
-    osc_copy: []const u8,
-    /// OSC 52 paste request: terminal app wants the clipboard contents.
+    osc_copy: struct { selection: Selection, text: []const u8 },
+    /// OSC 52 paste request: terminal app wants the contents of a selection.
     /// The handler should call Terminal.respondOsc52Paste() with the text.
-    osc_paste_request,
+    osc_paste_request: Selection,
     /// OSC 10/11/12 set: app overrode fg, bg, or cursor colour.
     /// null means "reset to default" for that slot.
     color_change: struct {
@@ -1958,25 +1958,48 @@ fn parsePointerShape(name: []const u8) vaxis.Mouse.Shape {
     return map.get(name) orelse .default;
 }
 
-/// Handle OSC 52 clipboard read/write from the terminal application.
+/// OSC 52 selection target.
+pub const Selection = enum {
+    clipboard,
+    primary,
+
+    fn parse(targets: []const u8) Selection {
+        for (targets) |target| switch (target) {
+            'c' => return .clipboard,
+            'p', 's' => return .primary,
+            else => {},
+        };
+        return .clipboard;
+    }
+
+    fn char(self: Selection) u8 {
+        return switch (self) {
+            .clipboard => 'c',
+            .primary => 'p',
+        };
+    }
+};
+
+/// Handle OSC 52 selection read/write from the terminal application.
 fn handleOsc52(self: *Terminal, rest: []const u8, context: anytype, handle_event: anytype) !void {
     // rest is "<targets>;<base64data|?>"
     const second_semi = std.mem.indexOfScalar(u8, rest, ';') orelse return;
+    const selection: Selection = .parse(rest[0..second_semi]);
     const data = rest[second_semi + 1 ..];
     if (std.mem.eql(u8, data, "?")) {
-        try handle_event(context, .osc_paste_request);
+        try handle_event(context, .{ .osc_paste_request = selection });
     } else {
         const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(data) catch return;
         self.osc52_buf.clearRetainingCapacity();
         self.osc52_buf.ensureTotalCapacity(self.allocator, decoded_len) catch return;
         self.osc52_buf.items.len = decoded_len;
         std.base64.standard.Decoder.decode(self.osc52_buf.items, data) catch return;
-        try handle_event(context, .{ .osc_copy = self.osc52_buf.items });
+        try handle_event(context, .{ .osc_copy = .{ .selection = selection, .text = self.osc52_buf.items } });
     }
 }
 
-/// Send clipboard text back to the terminal application in response to OSC 52 paste request.
-pub fn respondOsc52Paste(self: *Terminal, text: []const u8) void {
+/// Send selection text back to the terminal application in response to OSC 52 paste request.
+pub fn respondOsc52Paste(self: *Terminal, selection: Selection, text: []const u8) void {
     const encoder = std.base64.standard.Encoder;
     const encoded_len = encoder.calcSize(text.len);
     const encoded_buf = self.allocator.alloc(u8, encoded_len) catch return;
@@ -1984,7 +2007,7 @@ pub fn respondOsc52Paste(self: *Terminal, text: []const u8) void {
     const encoded = encoder.encode(encoded_buf, text);
     const pty_writer = self.get_pty_writer();
     defer pty_writer.flush() catch {};
-    pty_writer.print("\x1B]52;c;{s}\x1B\\", .{encoded}) catch {};
+    pty_writer.print("\x1B]52;{c};{s}\x1B\\", .{ selection.char(), encoded }) catch {};
 }
 
 /// Translate a DEC Special Character and Line Drawing Set codepoint (0x60–0x7E)
