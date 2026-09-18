@@ -445,7 +445,7 @@ pub const Editor = struct {
     need_save_after_filter: ?struct {
         then: ?struct {
             cmd: []const u8,
-            args: []const u8,
+            args: cbor.Raw,
         } = null,
     } = null,
 
@@ -719,11 +719,11 @@ pub const Editor = struct {
         self.view.cols = pos.w;
     }
 
-    fn open(self: *Self, io: std.Io, file_path: []const u8, now: std.Io.Timestamp) !void {
+    fn open(self: *Self, file_path: []const u8, now: std.Io.Timestamp) !void {
         const buffer: *Buffer = blk: {
             const frame = tracy.initZone(@src(), .{ .name = "open_file" });
             defer frame.deinit();
-            break :blk try self.buffer_manager.open_file(io, file_path, now);
+            break :blk try self.buffer_manager.open_file(file_path, now);
         };
         return self.open_buffer(file_path, buffer, null, now);
     }
@@ -901,16 +901,34 @@ pub const Editor = struct {
             project_manager.did_close(file_path) catch {};
     }
 
-    fn save(self: *Self, io: std.Io) !void {
+    fn save(self: *Self, then: ?cbor.Raw) !void {
         const b = self.buffer orelse return error.Stop;
-        if (b.is_ephemeral()) return self.logger.print_err("save", "ephemeral buffer, use save as", .{});
-        if (!b.is_dirty()) return self.logger.print("no changes to save", .{});
-        if (self.file_path) |file_path| {
-            if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(io, file_path);
-        } else return error.SaveNoFileName;
-        try self.send_editor_save(self.file_path.?, b.is_auto_save() and !b.is_ephemeral());
+        if (b.is_ephemeral() or !b.is_dirty()) {
+            if (b.is_ephemeral())
+                self.logger.print_err("save", "ephemeral buffer, use save as", .{})
+            else
+                self.logger.print("no changes to save", .{});
+            if (then) |msg| try tp.self_pid().send_raw(.{ .buf = msg.bytes });
+            return;
+        }
+        if (self.file_path == null) return error.SaveNoFileName;
+        try self.buffer_manager.save(root_mod.get_io(), b, .{ .auto_save = b.is_auto_save(), .then = then });
+    }
+
+    pub fn buffer_saved(self: *Self, file_path: []const u8, auto_save: bool) void {
+        self.send_editor_save(file_path, auto_save) catch {};
         self.last.dirty = false;
         self.update_event() catch {};
+    }
+
+    fn then_message(self: *Self, then_cmd: []const u8, then_args: cbor.Raw) !cbor.Raw {
+        var msg: std.Io.Writer.Allocating = .init(self.allocator);
+        errdefer msg.deinit();
+        try cbor.writeArrayHeader(&msg.writer, 3);
+        try cbor.writeValue(&msg.writer, "cmd");
+        try cbor.writeValue(&msg.writer, then_cmd);
+        try msg.writer.writeAll(then_args.bytes);
+        return .{ .bytes = try msg.toOwnedSlice() };
     }
 
     pub fn push_cursor(self: *Self) !void {
@@ -2178,7 +2196,8 @@ pub const Editor = struct {
     }
 
     fn update_file_link_highlight(self: *Self) void {
-        defer self.last_hover_pos = self.hover_pos;
+        var retry = false;
+        defer self.last_hover_pos = if (retry) null else self.hover_pos;
         const pos = self.hover_pos orelse {
             self.file_link_highlight = null;
             return;
@@ -2203,8 +2222,10 @@ pub const Editor = struct {
             };
             switch (link) {
                 .dir => {},
-                .file => |f| if (f.exists) {
-                    self.file_link_highlight = Match.from_selection(sel);
+                .file => |f| switch (tui.probe_link(f.path)) {
+                    .text_file => self.file_link_highlight = Match.from_selection(sel),
+                    .unknown => retry = true,
+                    .other => {},
                 },
             }
         } else self.file_link_highlight = null;
@@ -3466,8 +3487,10 @@ pub const Editor = struct {
             self.copy_cursel_file_name_and_location(cursel) catch return error.OutOfMemory;
     }
 
-    pub fn open_file_links(self: *Self, _: Context) Result {
+    pub fn open_file_links(self: *Self, ctx: Context) Result {
         const root = self.buf_root() catch return;
+        const probed = ctx.args.match(.{"probed"}) catch false;
+        if (!probed and self.probe_file_links(root)) return;
 
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         defer {
@@ -3503,7 +3526,8 @@ pub const Editor = struct {
                     .file => |f| f,
                     .dir => continue,
                 };
-                if (!f.exists) continue;
+                const info = tui.probed(f.path) orelse continue;
+                if (!info.is_text_file()) continue;
                 var path_buf: [std.fs.max_path_bytes]u8 = undefined;
                 const path = project_manager.normalize_file_path(f.path, &path_buf);
                 const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ path, f.line orelse 0 }) catch continue;
@@ -3525,6 +3549,38 @@ pub const Editor = struct {
         std.log.info("buffer: {d} file link{s} found", .{ sent, if (sent != 1) "s" else "" });
     }
     pub const open_file_links_meta: Meta = .{ .description = "Open file links in this buffer" };
+
+    fn probe_file_links(self: *Self, root: Buffer.Root) bool {
+        var unknown: std.ArrayList([]const u8) = .empty;
+        defer {
+            for (unknown.items) |path| self.allocator.free(path);
+            unknown.deinit(self.allocator);
+        }
+        const lines = root.lines();
+        var row: usize = 0;
+        while (row < lines) : (row += 1) {
+            var line: std.Io.Writer.Allocating = .init(self.allocator);
+            defer line.deinit();
+            root.get_line(row, &line.writer, self.metrics) catch continue;
+            const text = line.written();
+            var pos: usize = 0;
+            while (file_link.find_in_line(text[pos..])) |r| {
+                const slice = text[pos + r.start .. pos + r.end];
+                pos += r.end;
+                const link = file_link.parse(slice) catch continue;
+                const f = switch (link) {
+                    .file => |f| f,
+                    .dir => continue,
+                };
+                if (tui.probed(f.path)) |_| continue;
+                const path = self.allocator.dupe(u8, f.path) catch continue;
+                unknown.append(self.allocator, path) catch self.allocator.free(path);
+            }
+        }
+        if (unknown.items.len == 0) return false;
+        tui.probe_all(unknown.items, .{ .bytes = tp.message.fmt(.{ "cmd", "open_file_links", .{"probed"} }).buf });
+        return true;
+    }
 
     pub fn copy_file_name(self: *Self, ctx: Context) Result {
         var mode: enum { all, file_name_only } = .all;
@@ -6372,7 +6428,7 @@ pub const Editor = struct {
         defer frame.deinit();
         var file_path: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
-            try self.open(root_mod.get_io(), file_path, ctx.now);
+            try self.open(file_path, ctx.now);
             if (tui.config().follow_cursor_on_buffer_switch)
                 self.clamp(ctx.now);
         } else return error.InvalidOpenBufferFromFileArgument;
@@ -6399,8 +6455,8 @@ pub const Editor = struct {
     }
     pub const open_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
-    pub fn reload_file(self: *Self, ctx: Context) Result {
-        if (self.buffer) |buffer| try buffer.refresh_from_file(root_mod.get_io(), ctx.now);
+    pub fn reload_file(self: *Self, _: Context) Result {
+        if (self.buffer) |buffer| try self.buffer_manager.reload(root_mod.get_io(), buffer);
     }
     pub const reload_file_meta: Meta = .{ .description = "Reload file" };
 
@@ -6433,10 +6489,10 @@ pub const Editor = struct {
         var option: SaveOption = .default;
         var then = false;
         var cmd: []const u8 = undefined;
-        var args: []const u8 = undefined;
-        if (ctx.args.match(.{ tp.extract(&option), "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+        var args: cbor.Raw = undefined;
+        if (ctx.args.match(.{ tp.extract(&option), "then", .{ tp.extract(&cmd), tp.extract(&args) } }) catch false) {
             then = true;
-        } else if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+        } else if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract(&args) } }) catch false) {
             then = true;
         } else {
             _ = ctx.args.match(.{tp.extract(&option)}) catch false;
@@ -6451,13 +6507,9 @@ pub const Editor = struct {
             try self.format(.empty_from(ctx));
             return;
         };
-        try self.save(root_mod.get_io());
-        if (then)
-            return command.executeName(cmd, .{
-                .io = ctx.io,
-                .now = ctx.now,
-                .args = .{ .buf = args },
-            });
+        const then_msg = if (then) try self.then_message(cmd, args) else null;
+        defer if (then_msg) |msg| self.allocator.free(msg.bytes);
+        try self.save(then_msg);
     }
     pub const save_file_meta: Meta = .{ .description = "Save file" };
 
@@ -7129,7 +7181,7 @@ pub const Editor = struct {
             .path = file_path,
             .line = primary.cursor.row,
             .column = col,
-        }, .alternative_destination = if (alt_dest) |dest| if (dest.exists) alt_dest else null else null });
+        }, .alternative_destination = if (alt_dest) |dest| if (tui.probe_link(dest.path) == .text_file) alt_dest else null else null });
     }
 
     pub fn goto_definition(self: *Self, _: Context) Result {
@@ -7637,37 +7689,29 @@ pub const Editor = struct {
         }
     }
 
-    fn filter_error(self: *Self, io: std.Io, now: std.Io.Timestamp, bytes: []const u8) !void {
+    fn filter_error(self: *Self, _: std.Io, _: std.Io.Timestamp, bytes: []const u8) !void {
         std.log.err("filter: ERR: {s}", .{bytes});
         if (tui.config().ignore_filter_stderr) return;
         defer self.filter_deinit();
         if (self.need_save_after_filter) |info| {
-            try self.save(io);
-            if (info.then) |then|
-                return command.executeName(then.cmd, .{
-                    .io = io,
-                    .now = now,
-                    .args = .{ .buf = then.args },
-                });
+            const then_msg = if (info.then) |then| try self.then_message(then.cmd, then.args) else null;
+            defer if (then_msg) |msg| self.allocator.free(msg.bytes);
+            try self.save(then_msg);
         }
     }
 
-    fn filter_not_found(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
+    fn filter_not_found(self: *Self, _: std.Io, _: std.Io.Timestamp) !void {
         defer self.filter_deinit();
         if (self.filter_) |*state|
             std.log.err("executable '{?s}' not found", .{state.arg0});
         if (self.need_save_after_filter) |info| {
-            try self.save(io);
-            if (info.then) |then|
-                return command.executeName(then.cmd, .{
-                    .io = io,
-                    .now = now,
-                    .args = .{ .buf = then.args },
-                });
+            const then_msg = if (info.then) |then| try self.then_message(then.cmd, then.args) else null;
+            defer if (then_msg) |msg| self.allocator.free(msg.bytes);
+            try self.save(then_msg);
         }
     }
 
-    fn filter_done(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
+    fn filter_done(self: *Self, _: std.Io, now: std.Io.Timestamp) !void {
         const b = try self.buf_for_update();
         const buffer = self.buffer orelse return;
         const root = b.root;
@@ -7715,13 +7759,9 @@ pub const Editor = struct {
         self.clamp(now);
         self.need_render();
         if (self.need_save_after_filter) |info| {
-            try self.save(io);
-            if (info.then) |then|
-                return command.executeName(then.cmd, .{
-                    .io = io,
-                    .now = now,
-                    .args = .{ .buf = then.args },
-                });
+            const then_msg = if (info.then) |then| try self.then_message(then.cmd, then.args) else null;
+            defer if (then_msg) |msg| self.allocator.free(msg.bytes);
+            try self.save(then_msg);
         }
     }
 

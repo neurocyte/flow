@@ -500,8 +500,39 @@ fn reset_hover_pos(self: *Self) void {
         tui.need_render(@src());
 }
 
+fn probe_file_links(self: *Self, screen: *const Vt.Screen, range: anytype) bool {
+    var unknown: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (unknown.items) |path| self.allocator.free(path);
+        unknown.deinit(self.allocator);
+    }
+    var row: usize = range.start;
+    while (row < range.end) : (row += 1) {
+        var line: std.ArrayList(u8) = .empty;
+        defer line.deinit(self.allocator);
+        screen.extractRowText(self.allocator, row, &line, null) catch continue;
+        var pos: usize = 0;
+        while (file_link.find_in_line(line.items[pos..])) |r| {
+            const slice = line.items[pos + r.start .. pos + r.end];
+            pos += r.end;
+            const link = file_link.parse(slice) catch continue;
+            const f = switch (link) {
+                .file => |f| f,
+                .dir => continue,
+            };
+            if (tui.probed(f.path)) |_| continue;
+            const path = self.allocator.dupe(u8, f.path) catch continue;
+            unknown.append(self.allocator, path) catch self.allocator.free(path);
+        }
+    }
+    if (unknown.items.len == 0) return false;
+    tui.probe_all(unknown.items, .{ .bytes = tp.message.fmt(.{ "cmd", "terminal_open_file_links", .{"probed"} }).buf });
+    return true;
+}
+
 fn update_file_link_highlight(self: *Self) void {
-    defer self.last_hover_pos = self.hover_pos;
+    var retry = false;
+    defer self.last_hover_pos = if (retry) null else self.hover_pos;
     if (!tui.jump_mode() or self.vt.vt.back_screen != &self.vt.vt.back_screen_pri) {
         self.reset_file_link();
         return;
@@ -524,7 +555,7 @@ fn update_file_link_highlight(self: *Self) void {
     if (pos.row >= screen.height) return;
     const screen_row: usize = (screen.visible_top -| self.vt.vt.scroll_offset) + pos.row;
 
-    if (self.try_set_osc8_highlight(screen, screen_row, pos)) return;
+    if (self.try_set_osc8_highlight(screen, screen_row, pos, &retry)) return;
 
     var row_text: std.ArrayList(u8) = .empty;
     defer row_text.deinit(self.allocator);
@@ -535,9 +566,16 @@ fn update_file_link_highlight(self: *Self) void {
 
     const byte_offset = byte_offset_for_col(col_at_byte.items, pos.col) orelse return;
     const range = file_link.find_at_point(row_text.items, byte_offset) orelse return;
-    const link = file_link.parse(row_text.items[range.start..range.end]) catch return;
+    var link = file_link.parse(row_text.items[range.start..range.end]) catch return;
     switch (link) {
-        .file => |f| if (!f.exists) return,
+        .file => |*f| switch (tui.probe_link(f.path)) {
+            .text_file => f.exists = true,
+            .unknown => {
+                retry = true;
+                return;
+            },
+            .other => return,
+        },
         .dir => return,
     }
     const start_col = col_at_byte.items[range.start];
@@ -546,7 +584,7 @@ fn update_file_link_highlight(self: *Self) void {
     self.set_file_link(link, .{ .row = pos.row, .start_col = start_col, .end_col = end_col }) catch @panic("OOM terminal_view.set_file_link");
 }
 
-fn try_set_osc8_highlight(self: *Self, screen: *const Vt.Screen, screen_row: usize, pos: Position) bool {
+fn try_set_osc8_highlight(self: *Self, screen: *const Vt.Screen, screen_row: usize, pos: Position, retry: *bool) bool {
     if (screen.width == 0) return false;
     const total_rows = screen.buf.len / screen.width;
     if (screen_row >= total_rows) return false;
@@ -559,9 +597,16 @@ fn try_set_osc8_highlight(self: *Self, screen: *const Vt.Screen, screen_row: usi
 
     var path_buf: std.ArrayList(u8) = .empty;
     defer path_buf.deinit(self.allocator);
-    const link = file_link.url_parse(uri, &path_buf, self.allocator) catch return false;
+    var link = file_link.url_parse(uri, &path_buf, self.allocator) catch return false;
     switch (link) {
-        .file => |f| if (!f.exists) return false,
+        .file => |*f| switch (tui.probe_link(f.path)) {
+            .text_file => f.exists = true,
+            .unknown => {
+                retry.* = true;
+                return false;
+            },
+            .other => return false,
+        },
         .dir => return false,
     }
 
@@ -954,8 +999,9 @@ const cmds = struct {
     }
     pub const terminal_scroll_next_command_meta: Meta = .{ .description = "Terminal: Scroll to next command" };
 
-    pub fn terminal_open_file_links(self: *Self, _: Ctx) Result {
+    pub fn terminal_open_file_links(self: *Self, ctx: Ctx) Result {
         const screen = &self.vt.vt.back_screen_pri;
+        const probed = ctx.args.match(.{"probed"}) catch false;
         // When scrolled up, grab the command whose output is currently shown
         const range = (if (self.vt.vt.scroll_offset == 0)
             screen.lastCommandOutputRange()
@@ -964,6 +1010,7 @@ const cmds = struct {
             std.log.info("terminal: no command output available", .{});
             return;
         };
+        if (!probed and self.probe_file_links(screen, range)) return;
 
         // dedupe to avoid multiple entries for the same file position
         var seen: std.StringHashMapUnmanaged(void) = .empty;
@@ -998,7 +1045,8 @@ const cmds = struct {
                     .file => |f| f,
                     .dir => continue,
                 };
-                if (!f.exists) continue;
+                const info = tui.probed(f.path) orelse continue;
+                if (!info.is_text_file()) continue;
                 var path_buf: [std.fs.max_path_bytes]u8 = undefined;
                 const path = project_manager.normalize_file_path(f.path, &path_buf);
                 const key = std.fmt.allocPrint(self.allocator, "{s}:{d}", .{ path, f.line orelse 0 }) catch continue;

@@ -345,7 +345,7 @@ pub fn build_exe(
     });
     const cbor_mod = cbor_dep.module("cbor");
 
-    const tracy_dep = if (tracy_enabled) thespian_dep.builder.dependency("tracy", .{
+    const tracy_dep = if (tracy_enabled) thespian_dep.builder.dependency("zig_tracy", .{
         .target = target,
         .optimize = optimize,
     }) else undefined;
@@ -557,6 +557,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
 
@@ -564,6 +565,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
             .{ .name = "FileStore", .module = FileStore_mod },
+            .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "TypedInt", .module = TypedInt_mod },
@@ -1076,6 +1078,27 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const file_store_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-FileStore",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/FileStore.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "cbor", .module = cbor_mod },
+                    .{ .name = "thespian", .module = thespian_mod },
+                    .{ .name = "log", .module = log_mod },
+                    .{ .name = "file_watcher", .module = file_watcher_mod },
+                    .{ .name = "soft_root", .module = soft_root_mod },
+                },
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const glyph_constraint_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-glyph_constraint",
@@ -1334,6 +1357,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/tui/tui.zig"),
         .imports = &.{
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "crash", .module = crash_mod },
             .{ .name = "file_link", .module = file_link_mod },
@@ -1561,6 +1585,7 @@ pub fn build_exe(
     test_step.dependOn(&match_test_run_cmd.step);
     test_step.dependOn(&gitignore_test_run_cmd.step);
     test_step.dependOn(&dbus_test_run_cmd.step);
+    test_step.dependOn(&file_store_test_run_cmd.step);
     test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);

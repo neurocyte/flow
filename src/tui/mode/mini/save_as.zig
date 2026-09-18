@@ -1,6 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
-const root = @import("soft_root").root;
+const cbor = @import("cbor");
 const command = @import("command");
 const project_manager = @import("project_manager");
 
@@ -31,9 +31,11 @@ pub fn select(self: *Type) void {
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
         const file_path = project_manager.expand_home(self.allocator, &buf, self.file_path.items);
-        if (root.is_directory(file_path)) return;
-        if (file_path.len > 0)
-            tp.self_pid().send(.{ "cmd", "save_file_as", .{file_path} }) catch {};
+        if (file_path.len > 0) {
+            var save_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+            const save: cbor.Raw = .{ .bytes = cbor.fmt(&save_buf, .{ "cmd", "save_file_as", .{file_path} }) };
+            tui.probe(file_path, .{ .file = save, .other = save });
+        }
     }
     command.executeName("exit_mini_mode", .empty()) catch {};
 }

@@ -15,6 +15,7 @@ pub const renderer = @import("renderer");
 const crash = @import("crash");
 const stdio_capture = @import("stdio_capture.zig");
 const DelayedMessageQueue = @import("DelayedMessageQueue.zig");
+const FileProbe = @import("FileProbe.zig");
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
@@ -27,6 +28,7 @@ const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
 const IdleAction = @import("config").IdleAction;
 const DbusClient = @import("DbusClient.zig");
+const Terminal = @import("Terminal");
 
 // exports for unittesting
 pub const exports = struct {
@@ -56,6 +58,10 @@ frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
 frame_last_time: i64 = 0,
+file_probe: FileProbe,
+render_blocks: std.AutoHashMapUnmanaged(usize, tp.timeout) = .empty,
+next_render_block: usize = 1,
+render_skipped: bool = false,
 receiver: Receiver,
 mainview_: ?Widget = null,
 on_ui_ready: DelayedMessageQueue,
@@ -97,6 +103,7 @@ query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
 clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
+clipboard_forwards: std.ArrayListUnmanaged(ClipboardForward) = .empty,
 color_scheme: Widget.Theme.Type = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
@@ -128,6 +135,11 @@ pub const PaletteType = enum {
 pub const ClipboardEntry = struct {
     text: []const u8 = &.{},
     group: usize = 0,
+};
+
+const ClipboardForward = struct {
+    vt_ref: usize,
+    selection: Terminal.Selection,
 };
 
 const keepalive = std.time.us_per_day * 365; // one year
@@ -215,6 +227,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .frame_clock_running = true,
         .receiver = .init(receive, dtor, self),
         .on_ui_ready = DelayedMessageQueue.init(allocator),
+        .file_probe = .init(allocator),
         .message_filters_ = MessageFilter.List.init(allocator),
         .input_listeners_ = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
@@ -269,7 +282,7 @@ fn init(allocator: Allocator) InitError!*Self {
     }
     self.mainview_ = try MainView.create(allocator);
     resize();
-    try save_config();
+    save_config() catch |e| self.logger.err("save_config", e);
     try self.init_input_namespace();
     if (tp.env.get().is("restore-session")) {
         command.executeName("restore_session", .empty()) catch |e| self.logger.err("restore_session", e);
@@ -285,7 +298,7 @@ fn init_input_namespace(self: *Self) InitError!void {
         self.logger.print_err("keybind", "unknown mode {s}", .{namespace_name});
         try keybind.set_namespace("flow");
         self.config_.input_mode = "flow";
-        try save_config();
+        save_config() catch |e| self.logger.err("save_config", e);
     };
 }
 
@@ -354,7 +367,14 @@ fn deinit(self: *Self) void {
         self.dbus_client = null;
     };
     self.on_ui_ready.deinit();
+    self.file_probe.deinit();
     self.deinit_stdio_capture();
+    var render_blocks = self.render_blocks.valueIterator();
+    while (render_blocks.next()) |t| {
+        t.cancel() catch {};
+        t.deinit();
+    }
+    self.render_blocks.deinit(self.allocator);
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -404,6 +424,7 @@ fn deinit(self: *Self) void {
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);
     self.clipboard_deinit();
+    self.clipboard_forwards.deinit(self.allocator);
 }
 
 fn listen_input_log(_: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -579,13 +600,24 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return self.handle_system_clipboard(text);
     }
 
-    if (try m.match(.{ "system_clipboard", tp.null_ }))
-        return self.logger.err_msg("clipboard", "clipboard request denied or empty");
+    if (try m.match(.{ "system_clipboard", tp.null_ })) {
+        if (self.clipboard_forward_pop()) |_| return;
+        return self.logger.err_msg("clipboard", "clipboard request denied/empty");
+    }
 
     if (try m.match(.{"render"})) {
         self.render_pending = false;
         if (!self.frame_clock_running)
             self.render();
+        return;
+    }
+
+    var render_block: usize = 0;
+    if (try m.match(.{ "render_block_timeout", tp.extract(&render_block) })) {
+        if (self.render_blocks.contains(render_block)) {
+            self.logger.print_err("render", "render block {d} timed out", .{render_block});
+            unblock_render(@fromBackingInt(@intCast(render_block)));
+        }
         return;
     }
 
@@ -649,6 +681,15 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         need_render(@src());
         return;
     }
+
+    if (try m.match(.{ "exit", tp.more })) if (get_buffer_manager()) |buffer_manager| if (buffer_manager.is_file_store(from)) {
+        buffer_manager.file_store_exited();
+        if (!try m.match(.{ "exit", "normal" })) {
+            self.logger.print_err("file_store", "file store exited: {f}", .{m});
+            project_manager.request_file_store() catch |e| self.logger.err("file_store", e);
+        }
+        return;
+    };
 
     if (try m.match(.{ "exit", tp.more })) {
         if (try m.match(.{ tp.string, "normal" }) or
@@ -755,8 +796,25 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
-    if (try m.match(.{ "FS", tp.more })) // file store events
-        return if (get_buffer_manager()) |buffer_manager| buffer_manager.receive_file_watch_event(from, m);
+    if (try m.match(.{ "MINI", tp.more })) // drop late mini mode replies
+        return;
+
+    if (try m.match(.{ "FS", tp.more })) { // file store events
+        if (self.file_probe.receive(root.get_io(), m)) {
+            need_render(@src());
+            return;
+        }
+        self.invalidate_probe(m);
+        if (get_buffer_manager()) |buffer_manager| {
+            switch (buffer_manager.receive_file_store_message(from, m)) {
+                .modified => need_render(@src()),
+                .nochange => {},
+            }
+            if (try m.match(.{ "FS", "ready" }))
+                self.file_probe.start_queued(buffer_manager);
+        }
+        return;
+    }
 
     if (try m.match(.{ "FW", "change", tp.more })) // project file watcher events
         return;
@@ -781,6 +839,14 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 }
 
 fn render(self: *Self) void {
+    if (self.render_blocks.count() > 0) {
+        self.render_skipped = true;
+        if (self.frame_clock_running) {
+            self.frame_clock.stop() catch {};
+            self.frame_clock_running = false;
+        }
+        return;
+    }
     defer self.frames_rendered_ += 1;
     const current_time = root.get_now().toMicroseconds();
     if (current_time < self.frame_last_time) { // clock moved backwards
@@ -948,6 +1014,9 @@ fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
 }
 
 fn handle_system_clipboard(self: *Self, text: []const u8) !void {
+    if (self.clipboard_forward_pop()) |fwd|
+        return @import("Vt.zig").Manager.respond_osc52_paste(fwd.vt_ref, fwd.selection, text);
+
     if (command.get_id("mini_mode_paste")) |id|
         return command.execute(id, "mini_mode_paste", command.fmt(.{text}));
 
@@ -2006,8 +2075,7 @@ const cmds = struct {
             const file_path = project_manager.expand_home(self.allocator, &buf, text);
             const link = try file_link.parse(file_path);
             switch (link) {
-                .file => |file| if (file.exists)
-                    return file_link.navigate(tp.self_pid(), &link),
+                .file => |file| return probe_file_link(file.path, file_path),
                 else => {},
             }
         } else if (get_active_editor()) |editor| {
@@ -2018,14 +2086,28 @@ const cmds = struct {
                     .dir => |d| self.allocator.free(d.path),
                 };
                 switch (link) {
-                    .file => |file| if (file.exists) return file_link.navigate(tp.self_pid(), &link),
-                    .dir => return file_link.navigate(tp.self_pid(), &link),
+                    .file => |file| return probe_file_link(file.path, file.path),
+                    .dir => return,
                 }
             }
         }
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
     pub const open_file_meta: Meta = .{ .description = "Open file" };
+
+    pub fn open_file_mini(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
+    }
+    pub const open_file_mini_meta: Meta = .{};
+
+    pub fn navigate_file_link(_: *Self, ctx: Ctx) Result {
+        var link_text: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&link_text)}) catch false))
+            return error.InvalidNavigateFileLinkArgument;
+        const link = file_link.parse(link_text) catch return;
+        return file_link.navigate(tp.self_pid(), &link);
+    }
+    pub const navigate_file_link_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn save_as(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/save_as.zig"), ctx);
@@ -2343,6 +2425,61 @@ pub fn get_buffer_manager() ?*@import("Buffer").Manager {
     return if (mainview()) |mv| &mv.buffer_manager else null;
 }
 
+fn invalidate_probe(self: *Self, m: tp.message) void {
+    var path: []const u8 = undefined;
+    var to_path: []const u8 = undefined;
+    if (m.match(.{ "FS", "change", tp.extract(&path), tp.more }) catch false)
+        return self.file_probe.invalidate(path);
+    if (m.match(.{ "FS", "rename", tp.extract(&path), tp.extract(&to_path), tp.more }) catch false) {
+        self.file_probe.invalidate(path);
+        self.file_probe.invalidate(to_path);
+    }
+}
+
+pub fn probed(file_path: []const u8) ?FileProbe.Info {
+    return current().file_probe.get(root.get_io(), file_path);
+}
+
+pub fn probe(file_path: []const u8, request: FileProbe.Request) void {
+    const self = current();
+    const buffer_manager = get_buffer_manager() orelse return;
+    self.file_probe.probe(buffer_manager, root.get_io(), file_path, request);
+}
+
+pub fn probe_async(file_path: []const u8) void {
+    const self = current();
+    const buffer_manager = get_buffer_manager() orelse return;
+    self.file_probe.probe_async(buffer_manager, root.get_io(), file_path);
+}
+
+fn probe_file_link(file_path: []const u8, link_text: []const u8) void {
+    var buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+    probe(file_path, .{
+        .file = .{ .bytes = cbor.fmt(&buf, .{ "cmd", "navigate_file_link", .{link_text} }) },
+        .other = .{ .bytes = tp.message.fmt(.{ "cmd", "open_file_mini" }).buf },
+    });
+}
+
+pub const LinkState = enum { unknown, text_file, other };
+
+pub fn probe_link(file_path: []const u8) LinkState {
+    const info = probed(file_path) orelse {
+        probe_async(file_path);
+        return .unknown;
+    };
+    return if (info.is_text_file()) .text_file else .other;
+}
+
+pub fn clear_probe_cache() void {
+    current().file_probe.clear();
+}
+
+pub fn probe_all(paths: []const []const u8, then: ?cbor.Raw) void {
+    const self = current();
+    const buffer_manager = get_buffer_manager() orelse return;
+    self.file_probe.probe_all(buffer_manager, root.get_io(), paths, then);
+}
+
 fn context_check() void {
     if (builtin.mode == .debug) {
         const tui_proc = tp.env.get().proc("tui");
@@ -2396,6 +2533,39 @@ fn maybe_reset_drag_source(self: *Self, btn: MouseEvent.Button) void {
     if (self.drag_button != btn) return;
     self.drag_source = null;
     self.drag_button = .none;
+}
+
+pub const RenderBlock = enum(usize) { _ };
+
+pub fn block_render(timeout_ms: u64) RenderBlock {
+    const self = current();
+    const id = self.next_render_block;
+    self.next_render_block += 1;
+    var timeout = tp.timeout.init_ms(timeout_ms, tp.message.fmt(.{ "render_block_timeout", id })) catch |e| {
+        self.logger.err("render", e);
+        return @fromBackingInt(@intCast(0));
+    };
+    self.render_blocks.put(self.allocator, id, timeout) catch |e| {
+        timeout.cancel() catch {};
+        timeout.deinit();
+        self.logger.err("render", e);
+        return @fromBackingInt(@intCast(0));
+    };
+    return @fromBackingInt(@intCast(id));
+}
+
+pub fn unblock_render(block: RenderBlock) void {
+    const self = current();
+    var kv = self.render_blocks.fetchRemove(@backingInt(block)) orelse return;
+    kv.value.cancel() catch {};
+    kv.value.deinit();
+    if (self.render_blocks.count() > 0 or !self.render_skipped) return;
+    self.render_skipped = false;
+    need_render(@src());
+}
+
+pub fn is_render_blocked() bool {
+    return current().render_blocks.count() > 0;
 }
 
 pub fn need_render(src: std.builtin.SourceLocation) void {
@@ -3113,6 +3283,20 @@ fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {
 pub fn primary_send_to_system(text: []const u8) void {
     if (!build_options.gui and !config().enable_osc52_primary_selection) return;
     current().rdr_.copy_to_primary_selection(text);
+}
+
+pub fn clipboard_forward_request(vt_ref: usize, selection: Terminal.Selection) void {
+    const self = current();
+    self.clipboard_forwards.append(self.allocator, .{ .vt_ref = vt_ref, .selection = selection }) catch return;
+    switch (selection) {
+        .clipboard => self.rdr_.request_system_clipboard(),
+        .primary => self.rdr_.request_primary_selection(),
+    }
+}
+
+fn clipboard_forward_pop(self: *Self) ?ClipboardForward {
+    if (self.clipboard_forwards.items.len == 0) return null;
+    return self.clipboard_forwards.orderedRemove(0);
 }
 
 pub fn set_last_palette(type_: PaletteType, ctx: command.Context) void {

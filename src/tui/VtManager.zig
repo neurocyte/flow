@@ -4,6 +4,7 @@ const root = @import("root");
 const command = @import("command");
 
 const Vt = @import("Vt.zig");
+const Terminal = @import("Terminal");
 const TerminalOnExit = @import("config").TerminalOnExit;
 
 var vts: std.ArrayListUnmanaged(*Vt) = .empty;
@@ -141,6 +142,13 @@ pub fn prev(current: ?*const Vt) ?*Vt {
 pub fn reap_ref(ref: usize) void {
     for (vts.items) |vt| if (@intFromPtr(vt) == ref) {
         if (vt.process_exited) vt.deinit(vt.vt.allocator);
+        return;
+    };
+}
+
+pub fn respond_osc52_paste(ref: usize, selection: Terminal.Selection, text: []const u8) void {
+    for (vts.items) |vt| if (@intFromPtr(vt) == ref) {
+        if (!vt.process_exited) vt.vt.respondOsc52Paste(selection, text);
         return;
     };
 }

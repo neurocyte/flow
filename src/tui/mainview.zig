@@ -73,6 +73,8 @@ closing_project: bool = false,
 lsp_info: LspInfo,
 quit_on_terminal_exit: bool = false,
 quit_on_document_close: bool = false,
+navigate_render_block: ?tui.RenderBlock = null,
+startup_render_block: ?tui.RenderBlock = null,
 
 pub const CreateError = error{ OutOfMemory, ThespianSpawnFailed };
 
@@ -95,6 +97,8 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .filelists = FileList.Manager.init(allocator),
     };
     project_manager.request_file_store() catch |e| std.log.err("request_file_store: {}", .{e});
+    self.startup_render_block = tui.block_render(startup_render_block_timeout_ms);
+    errdefer self.unblock_startup_render();
     try self.commands.init(self);
     const w = Widget.to(self);
 
@@ -177,8 +181,9 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var end_pos: usize = undefined;
     var lines: []const u8 = undefined;
     var goto_args: []const u8 = undefined;
-    var line: i64 = undefined;
-    var column: i64 = undefined;
+    var line: ?i64 = null;
+    var column: ?i64 = null;
+    var offset: ?i64 = null;
     var stream: FileList.Stream = undefined;
 
     if (try m.match(.{ "FLS", tp.extract(&stream), "done" })) {
@@ -207,11 +212,11 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 }, lines) catch |e| return tp.exit_error(e, @errorReturnTrace()),
         }
         return true;
-    } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column) })) {
-        cmds.navigate_complete(self, null, path, goto_args, line, column, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column), tp.extract(&offset) })) {
+        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
-    } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
-        cmds.navigate_complete(self, null, path, goto_args, null, null, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    } else if (try m.match(.{"navigate_failed"})) {
+        self.unblock_navigate_render();
         return true;
     } else if (try m.match(.{ "vt", "gone" })) {
         if (self.quit_on_terminal_exit) _ = self.quit_if_idle();
@@ -577,6 +582,7 @@ const cmds = struct {
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
             if (file_store) |store| self.buffer_manager.set_file_store(store);
+            tui.clear_probe_cache();
         }
 
         const project = tp.env.get().str("project");
@@ -650,6 +656,8 @@ const cmds = struct {
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
         const f = project_manager.expand_home(self.allocator, &buf, f_);
+        self.block_navigate_render();
+        errdefer self.unblock_navigate_render();
         const view = self.get_view_for_file(f);
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
@@ -682,7 +690,7 @@ const cmds = struct {
                     var line_: ?i64 = null;
                     var column_: ?i64 = null;
                     _ = try cbor.match(rsp.buf, .{ tp.extract(&line_), tp.extract(&column_) });
-                    try ctx_.from.send(.{ "navigate_complete", ctx_.path, ctx_.goto_args, line_, column_ });
+                    try ctx_.from.send(.{ "navigate_complete", ctx_.path, ctx_.goto_args, line_, column_, null });
                 }
             } = .{
                 .allocator = self.allocator,
@@ -709,11 +717,18 @@ const cmds = struct {
         offset: ?i64,
         now: std.Io.Timestamp,
     ) Result {
+        errdefer self.unblock_navigate_render();
         if (view) |n| try self.focus_view(n);
 
         const different_file = if (self.get_active_file_path()) |active_file_path| !std.mem.eql(u8, active_file_path, f) else true;
 
         if (view == null or different_file) {
+            if (self.buffer_manager.needs_load(f)) {
+                var then_buf: [tp.max_message_size]u8 = undefined;
+                const then: cbor.Raw = .{ .bytes = cbor.fmt(&then_buf, .{ "navigate_complete", f, goto_args, line, column, offset }) };
+                const on_error: cbor.Raw = .{ .bytes = tp.message.fmt(.{"navigate_failed"}).buf };
+                return self.buffer_manager.load(root.get_io(), f, .{ .then = then, .on_error = on_error });
+            }
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
             }
@@ -735,6 +750,7 @@ const cmds = struct {
         }
         tui.need_render(@src());
         self.location_update_from_editor();
+        self.unblock_navigate_render();
     }
 
     pub fn open_help(self: *Self, ctx: Ctx) Result {
@@ -929,9 +945,19 @@ const cmds = struct {
             if (!auto_save) logger.print("no changes to save", .{});
             return;
         }
-        try buffer.store_to_file_and_clean(root.get_io(), file_path);
+        self.buffer_manager.save(root.get_io(), buffer, .{ .auto_save = auto_save }) catch |e|
+            return tp.exit_error(e, @errorReturnTrace());
     }
     pub const save_buffer_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn buffer_saved(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var auto_save = false;
+        if (!(ctx.args.match(.{ tp.extract(&file_path), tp.extract(&auto_save) }) catch false))
+            return error.InvalidBufferSavedArgument;
+        if (self.get_editor_for_file(file_path)) |editor| editor.buffer_saved(file_path, auto_save);
+    }
+    pub const buffer_saved_meta: Meta = .{};
 
     pub fn save_file_as(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -2487,6 +2513,7 @@ fn create_home(self: *Self) !void {
     tui.reset_drag_context();
     try self.replace_active_view(try home.create(self.allocator, Widget.to(self)));
     tui.resize();
+    self.unblock_startup_render();
 }
 
 pub fn create_home_split(self: *Self) !void {
@@ -2739,6 +2766,28 @@ fn get_next_mru_buffer(self: *Self, mode: enum { all, hidden, non_hidden }) ?[]c
         return buffer.get_file_path();
     }
     return null;
+}
+
+const navigate_render_block_timeout_ms = 250;
+
+fn block_navigate_render(self: *Self) void {
+    if (self.navigate_render_block == null)
+        self.navigate_render_block = tui.block_render(navigate_render_block_timeout_ms);
+}
+
+fn unblock_navigate_render(self: *Self) void {
+    self.unblock_startup_render();
+    const block = self.navigate_render_block orelse return;
+    self.navigate_render_block = null;
+    tui.unblock_render(block);
+}
+
+const startup_render_block_timeout_ms = 500;
+
+fn unblock_startup_render(self: *Self) void {
+    const block = self.startup_render_block orelse return;
+    self.startup_render_block = null;
+    tui.unblock_render(block);
 }
 
 fn delete_all_buffers(self: *Self) void {

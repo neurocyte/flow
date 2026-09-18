@@ -1,6 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
-const root = @import("soft_root").root;
+const cbor = @import("cbor");
 const command = @import("command");
 const project_manager = @import("project_manager");
 
@@ -51,10 +51,16 @@ pub fn select(self: *Type) void {
             .normal => "navigate",
             .alternate => "navigate_split_vertical",
         };
-        if (root.is_directory(file_path))
-            tp.self_pid().send(.{ "cmd", "change_project", .{file_path} }) catch {}
-        else if (file_path.len > 0)
-            tp.self_pid().send(.{ "cmd", cmd_, .{ .file = file_path } }) catch {};
+        if (file_path.len > 0) {
+            var open_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+            var dir_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+            const open: cbor.Raw = .{ .bytes = cbor.fmt(&open_buf, .{ "cmd", cmd_, .{ .file = file_path } }) };
+            tui.probe(file_path, .{
+                .file = open,
+                .other = open,
+                .dir = .{ .bytes = cbor.fmt(&dir_buf, .{ "cmd", "change_project", .{file_path} }) },
+            });
+        }
     }
     command.executeName("exit_mini_mode", .empty()) catch {};
 }

@@ -146,11 +146,11 @@ pub fn main(init: std.process.Init) anyerror!void {
     const args = flags.parse(io, init.environ_map, args_alloc, "flow", Flags, .{});
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_file = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_file = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_file.interface;
     defer stdout.flush() catch {};
     var stderr_buf: [4096]u8 = undefined;
-    var stderr_file = std.Io.File.stderr().writer(io, &stderr_buf);
+    var stderr_file = std.Io.File.stderr().writerStreaming(io, &stderr_buf);
     const stderr = &stderr_file.interface;
     defer stderr.flush() catch {};
 
@@ -301,7 +301,12 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
 
         const curr = try links.addOne(a);
-        curr.* = if (!args.literal) try file_link.parse(arg) else .{ .file = .{ .path = arg } };
+        curr.* = if (args.literal)
+            .{ .file = .{ .path = arg } }
+        else if (is_directory(arg))
+            .{ .dir = .{ .path = arg } }
+        else
+            try file_link.parse(arg);
         prev = curr;
 
         if (line_next) |line| {
@@ -425,7 +430,7 @@ pub fn print_exit_status(_: void, msg: []const u8) void {
         want_restart = true;
     } else {
         var stderr_buffer: [1024]u8 = undefined;
-        var stderr_writer = std.Io.File.stderr().writer(global_init.io, &stderr_buffer);
+        var stderr_writer = std.Io.File.stderr().writerStreaming(global_init.io, &stderr_buffer);
         stderr_writer.interface.print("\n" ++ application_name ++ " ERROR: {s}\n", .{msg}) catch {};
         stderr_writer.flush() catch {};
         final_exit_status = 1;
@@ -949,7 +954,11 @@ fn write_config_file_atomic(file_name: []const u8, content: []const u8) !void {
 }
 
 pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
-    var dir = try std.Io.Dir.openDirAbsolute(global_init.io, try get_theme_directory(), .{ .iterate = true });
+    const theme_directory = try get_theme_directory();
+    var dir = std.Io.Dir.openDirAbsolute(global_init.io, theme_directory, .{ .iterate = true }) catch |e| switch (e) {
+        error.FileNotFound => return &.{},
+        else => return e,
+    };
     defer dir.close(global_init.io);
     var result: std.ArrayList([]const u8) = .empty;
     var iter = dir.iterate();
@@ -969,14 +978,16 @@ pub fn get_config_dir() ConfigDirError![]const u8 {
 pub const ConfigDirError = error{
     NoSpaceLeft,
     MakeConfigDirFailed,
-    MakeHomeConfigDirFailed,
-    MakeAppConfigDirFailed,
     AppConfigDirUnavailable,
 };
 
 fn make_dir_error(path: []const u8, err: anytype) @TypeOf(err) {
     std.log.err("failed to create directory: '{s}'", .{path});
     return err;
+}
+
+fn create_dir_path(io: std.Io, path: []const u8) std.Io.Dir.CreateDirPathError!void {
+    return std.Io.Dir.cwd().createDirPath(io, path);
 }
 
 fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
@@ -993,34 +1004,22 @@ fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
     } else if (environ.get("XDG_CONFIG_HOME")) |xdg| ret: {
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
     } else if (environ.get("HOME")) |home| ret: {
-        const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config", .{ home, sep });
-        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => return make_dir_error(dir, error.MakeHomeConfigDirFailed),
-        };
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config{c}{s}", .{ home, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
         if (environ.get("APPDATA")) |appdata| {
-            const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
-            std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
-                error.PathAlreadyExists => {},
-                else => return make_dir_error(dir, error.MakeAppConfigDirFailed),
-            };
-            break :ret dir;
+            break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
         } else return error.AppConfigDirUnavailable;
     } else return error.AppConfigDirUnavailable;
 
     local.config_dir = config_dir;
-    std.Io.Dir.createDirAbsolute(io, config_dir, .default_dir) catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => return make_dir_error(config_dir, error.MakeConfigDirFailed),
-    };
+    create_dir_path(io, config_dir) catch
+        return make_dir_error(config_dir, error.MakeConfigDirFailed);
 
     var keybind_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    std.Io.Dir.createDirAbsolute(io, try std.fmt.bufPrint(&keybind_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, keybind_dir }), .default_dir) catch {};
+    create_dir_path(io, try std.fmt.bufPrint(&keybind_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, keybind_dir })) catch {};
 
     var theme_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    std.Io.Dir.createDirAbsolute(io, try std.fmt.bufPrint(&theme_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, theme_dir }), .default_dir) catch {};
+    create_dir_path(io, try std.fmt.bufPrint(&theme_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, theme_dir })) catch {};
 
     return config_dir;
 }
@@ -1041,28 +1040,15 @@ fn get_app_cache_dir(appname: []const u8) ![]const u8 {
     else if (environ.get("XDG_CACHE_HOME")) |xdg| ret: {
         break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
     } else if (environ.get("HOME")) |home| ret: {
-        const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache", .{ home, sep });
-        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => return make_dir_error(dir, e),
-        };
         break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache{c}{s}", .{ home, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
         if (environ.get("APPDATA")) |appdata| {
-            const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
-            std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
-                error.PathAlreadyExists => {},
-                else => return make_dir_error(dir, e),
-            };
-            break :ret dir;
+            break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
         } else return error.AppCacheDirUnavailable;
     } else return error.AppCacheDirUnavailable;
 
     local.cache_dir = cache_dir;
-    std.Io.Dir.createDirAbsolute(io, cache_dir, .default_dir) catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => return make_dir_error(cache_dir, e),
-    };
+    create_dir_path(io, cache_dir) catch |e| return make_dir_error(cache_dir, e);
     return cache_dir;
 }
 
@@ -1095,33 +1081,15 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
     else if (environ.get("XDG_STATE_HOME")) |xdg| ret: {
         break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
     } else if (environ.get("HOME")) |home| ret: {
-        var dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local", .{ home, sep });
-        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => return make_dir_error(dir, e),
-        };
-        dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state", .{ home, sep, sep });
-        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => return make_dir_error(dir, e),
-        };
         break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state{c}{s}", .{ home, sep, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
         if (environ.get("APPDATA")) |appdata| {
-            const dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
-            std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
-                error.PathAlreadyExists => {},
-                else => return make_dir_error(dir, e),
-            };
-            break :ret dir;
+            break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
         } else return error.AppCacheDirUnavailable;
     } else return error.AppCacheDirUnavailable;
 
     local.state_dir = state_dir;
-    std.Io.Dir.createDirAbsolute(io, state_dir, .default_dir) catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => return make_dir_error(state_dir, e),
-    };
+    create_dir_path(io, state_dir) catch |e| return make_dir_error(state_dir, e);
     return state_dir;
 }
 
@@ -1260,7 +1228,7 @@ fn launch_gui_win32(flow_gui: [:0]const u8, gpa: std.mem.Allocator) noreturn {
 
 fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
     var buf: [1024]u8 = undefined;
-    var w = std.Io.File.stderr().writer(get_init().io, &buf);
+    var w = std.Io.File.stderr().writerStreaming(get_init().io, &buf);
     w.interface.print(fmt ++ "\n", args) catch {};
     w.flush() catch {};
     exit(1);
@@ -1383,7 +1351,7 @@ fn restart_manual() noreturn {
     const executable = resolve_executable(argv0);
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.Io.File.stderr().writer(global_init.io, &stderr_buffer);
+    var stderr_writer = std.Io.File.stderr().writerStreaming(global_init.io, &stderr_buffer);
     stderr_writer.interface.print(
         \\
         \\ Manual restart required. Run:
@@ -1398,7 +1366,7 @@ fn restart_manual() noreturn {
 
 fn restart_failed(ret: c_int) noreturn {
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.Io.File.stderr().writer(global_init.io, &stderr_buffer);
+    var stderr_writer = std.Io.File.stderr().writerStreaming(global_init.io, &stderr_buffer);
     stderr_writer.interface.print("\nRestart failed: E{t}\n", .{std.posix.errno(ret)}) catch {};
     stderr_writer.interface.print(
         \\

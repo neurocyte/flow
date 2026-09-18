@@ -209,19 +209,22 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
             self.app_bg = cc.bg;
             self.app_cursor = cc.cursor;
         },
-        .osc_copy => |text| {
-            // Terminal app wrote to clipboard via OSC 52.
-            // Add to flow clipboard history and forward to system clipboard.
-            const owned = try tui.clipboard_allocator().dupe(u8, text);
-            tui.clipboard_clear_all();
-            tui.clipboard_start_group();
-            tui.clipboard_add_chunk(owned);
-            tui.clipboard_send_to_system() catch {};
+        .osc_copy => |copy| switch (copy.selection) {
+            // Terminal app wrote to the clipboard via OSC 52.
+            .clipboard => {
+                const owned = try tui.clipboard_allocator().dupe(u8, copy.text);
+                tui.clipboard_clear_all();
+                tui.clipboard_start_group();
+                tui.clipboard_add_chunk(owned);
+                tui.clipboard_send_to_system() catch {};
+            },
+            // Terminal app wrote to the primary selection via OSC 52.
+            .primary => tui.primary_send_to_system(copy.text),
         },
-        .osc_paste_request => {
+        .osc_paste_request => |selection| switch (selection) {
             // Terminal app requested clipboard contents via OSC 52.
             // Assemble from flow clipboard history and respond.
-            if (tui.clipboard_get_history()) |history| {
+            .clipboard => if (tui.clipboard_get_history()) |history| {
                 var buf: std.Io.Writer.Allocating = .init(self.vt.allocator);
                 defer buf.deinit();
                 var first = true;
@@ -229,8 +232,10 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
                     if (first) first = false else buf.writer.writeByte('\n') catch break;
                     buf.writer.writeAll(chunk.text) catch break;
                 }
-                self.vt.respondOsc52Paste(buf.written());
-            }
+                self.vt.respondOsc52Paste(.clipboard, buf.written());
+            },
+            // Terminal app requested the primary selection via OSC 52.
+            .primary => tui.clipboard_forward_request(@intFromPtr(self), .primary),
         },
         .shell_state_change => {},
         .pointer_shape_change => |shape| {

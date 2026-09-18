@@ -6,8 +6,11 @@ pub const VcsBlame = @import("VcsBlame");
 const file_type_config = @import("file_type_config");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const cwd = std.Io.Dir.cwd;
 const Regex = @import("regex");
+const tracy = @import("tracy");
+const FileStore = @import("FileStore");
+
+const perf_log = std.log.scoped(.buffer_io);
 
 const Self = @This();
 
@@ -1410,57 +1413,133 @@ pub const LoadError =
         WriteFailed,
     } || std.Io.Reader.Error;
 
+const Timer = struct {
+    io: std.Io,
+    start: std.Io.Timestamp,
+    last: std.Io.Timestamp,
+
+    fn start_now(io: std.Io) Timer {
+        const t: std.Io.Timestamp = .now(io, .awake);
+        return .{ .io = io, .start = t, .last = t };
+    }
+
+    fn lap(self: *Timer) i64 {
+        const t: std.Io.Timestamp = .now(self.io, .awake);
+        defer self.last = t;
+        return self.last.durationTo(t).toMicroseconds();
+    }
+
+    fn total(self: *const Timer) i64 {
+        const t: std.Io.Timestamp = .now(self.io, .awake);
+        return self.start.durationTo(t).toMicroseconds();
+    }
+};
+
+fn to_ms(us: i64) f64 {
+    return @as(f64, @floatFromInt(us)) / 1000.0;
+}
+
+pub const LoadTiming = struct {
+    timer: Timer,
+    sanitize_us: i64 = 0,
+    scan_us: i64 = 0,
+    build_us: i64 = 0,
+    update_us: i64 = 0,
+    bytes: usize = 0,
+    lines: usize = 0,
+};
+
+fn log_load(wall: std.Io.Timestamp, file_path: []const u8, t: *const LoadTiming) void {
+    perf_log.info("load {s} at {d} total {d:.3}ms bytes {d} lines {d} [sanitize {d:.3} scan {d:.3} build {d:.3} update {d:.3}]", .{
+        file_path,
+        wall.toMilliseconds(),
+        to_ms(t.timer.total()),
+        t.bytes,
+        t.lines,
+        to_ms(t.sanitize_us),
+        to_ms(t.scan_us),
+        to_ms(t.build_us),
+        to_ms(t.update_us),
+    });
+}
+
 pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {
-    const lf = '\n';
-    const cr = '\r';
-    const self_ = @constCast(self);
     var read_buffer: ArrayList(u8) = .empty;
     defer read_buffer.deinit(self.external_allocator);
     try reader.appendRemainingUnlimited(self.external_allocator, &read_buffer);
-    var buf = try read_buffer.toOwnedSlice(self.external_allocator);
+    const buf = try read_buffer.toOwnedSlice(self.external_allocator);
+    return self.load_owned_timed(buf, eol_mode, utf8_sanitized, null);
+}
 
-    if (!std.unicode.utf8ValidateSlice(buf)) {
-        const converted = try unicode.utf8_sanitize(self.external_allocator, buf);
-        self.external_allocator.free(buf);
-        buf = converted;
-        utf8_sanitized.* = true;
+fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sanitized: *bool, timing: ?*LoadTiming) LoadError!Root {
+    const lf = '\n';
+    const cr = '\r';
+    const self_ = @constCast(self);
+    var buf = buf_;
+
+    {
+        const zone = tracy.initZone(@src(), .{ .name = "buffer.load.sanitize" });
+        defer zone.deinit();
+        if (!std.unicode.utf8ValidateSlice(buf)) {
+            const converted = try unicode.utf8_sanitize(self.external_allocator, buf);
+            self.external_allocator.free(buf);
+            buf = converted;
+            utf8_sanitized.* = true;
+        }
     }
+    if (timing) |t| t.sanitize_us = t.timer.lap();
     self_.file_buf = buf;
 
     eol_mode.* = .lf;
     var leaf_count: usize = 1;
-    for (0..buf.len) |i| {
-        if (buf[i] == lf) {
-            leaf_count += 1;
-            if (i > 0 and buf[i - 1] == cr)
-                eol_mode.* = .crlf;
+    {
+        const zone = tracy.initZone(@src(), .{ .name = "buffer.load.scan" });
+        defer zone.deinit();
+        for (0..buf.len) |i| {
+            if (buf[i] == lf) {
+                leaf_count += 1;
+                if (i > 0 and buf[i - 1] == cr)
+                    eol_mode.* = .crlf;
+            }
         }
     }
-
-    var leaves = try self.external_allocator.alloc(Node, leaf_count);
-    self_.leaves_buf = leaves;
-    var cur_leaf: usize = 0;
-    var b: usize = 0;
-    var longest_line_len: usize = 0;
-    for (0..buf.len) |i| {
-        if (buf[i] == lf) {
-            const line_end = if (i > 0 and buf[i - 1] == cr) i - 1 else i;
-            const line = buf[b..line_end];
-            longest_line_len = @max(line.len, longest_line_len);
-            leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = true } };
-            cur_leaf += 1;
-            b = i + 1;
-        }
+    if (timing) |t| {
+        t.scan_us = t.timer.lap();
+        t.bytes = buf.len;
+        t.lines = leaf_count;
     }
-    const line = buf[b..];
-    leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = false } };
-    if (leaves.len != cur_leaf + 1)
-        return error.Unexpected;
 
-    self_.detected_indent_size = detect_indent_size(leaves[0..@min(leaves.len, 1000)]);
-    self_.longest_line_len = longest_line_len;
+    const root_node = blk: {
+        const zone = tracy.initZone(@src(), .{ .name = "buffer.load.build" });
+        defer zone.deinit();
 
-    return Node.merge_in_place(leaves, self.allocator);
+        var leaves = try self.external_allocator.alloc(Node, leaf_count);
+        self_.leaves_buf = leaves;
+        var cur_leaf: usize = 0;
+        var b: usize = 0;
+        var longest_line_len: usize = 0;
+        for (0..buf.len) |i| {
+            if (buf[i] == lf) {
+                const line_end = if (i > 0 and buf[i - 1] == cr) i - 1 else i;
+                const line = buf[b..line_end];
+                longest_line_len = @max(line.len, longest_line_len);
+                leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = true } };
+                cur_leaf += 1;
+                b = i + 1;
+            }
+        }
+        const line = buf[b..];
+        leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = false } };
+        if (leaves.len != cur_leaf + 1)
+            return error.Unexpected;
+
+        self_.detected_indent_size = detect_indent_size(leaves[0..@min(leaves.len, 1000)]);
+        self_.longest_line_len = longest_line_len;
+
+        break :blk try Node.merge_in_place(leaves, self.allocator);
+    };
+    if (timing) |t| t.build_us = t.timer.lap();
+    return root_node;
 }
 
 fn detect_indent_size(leaves: []const Node) ?usize {
@@ -1519,77 +1598,15 @@ pub fn reset_from_string_and_update(self: *Self, s: []const u8, now: std.Io.Time
     self.mtime = now.toMilliseconds();
 }
 
-pub const LoadFromFileError = error{
-    OutOfMemory,
-    Unexpected,
-    FileTooBig,
-    NoSpaceLeft,
-    DeviceBusy,
-    AccessDenied,
-    SystemResources,
-    WouldBlock,
-    IsDir,
-    SharingViolation,
-    PathAlreadyExists,
-    FileNotFound,
-    PipeBusy,
-    NameTooLong,
-    InvalidUtf8,
-    InvalidWtf8,
-    BadPathName,
-    NetworkNotFound,
-    AntivirusInterference,
-    SymLinkLoop,
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-    NoDevice,
-    NotDir,
-    FileLocksNotSupported,
-    FileBusy,
-    InputOutput,
-    BrokenPipe,
-    OperationAborted,
-    ConnectionResetByPeer,
-    ConnectionTimedOut,
-    NotOpenForReading,
-    SocketNotConnected,
-    BufferUnderrun,
-    DanglingSurrogateHalf,
-    ExpectedSecondSurrogateHalf,
-    UnexpectedSecondSurrogateHalf,
-    LockViolation,
-    ProcessNotFound,
-    Canceled,
-    PermissionDenied,
-    ReadOnlyFileSystem,
-    FileLocksUnsupported,
-} || LoadError;
+pub fn load_from_owned_bytes_and_update(self: *Self, io: std.Io, file_path: []const u8, bytes: []u8, file_exists: bool, now: std.Io.Timestamp) LoadError!void {
+    const zone = tracy.initZone(@src(), .{ .name = "buffer.load" });
+    defer zone.deinit();
+    const wall: std.Io.Timestamp = .now(io, .real);
+    var timing: LoadTiming = .{ .timer = .start_now(io) };
 
-pub fn load_from_file(
-    self: *const Self,
-    io: std.Io,
-    file_path: []const u8,
-    file_exists: *bool,
-    eol_mode: *EolMode,
-    utf8_sanitized: *bool,
-) LoadFromFileError!Root {
-    const file = cwd().openFile(io, file_path, .{ .mode = .read_only }) catch |e| switch (e) {
-        error.FileNotFound => return self.new_file(file_exists),
-        else => return e,
-    };
-
-    file_exists.* = true;
-    defer file.close(io);
-    var read_buf: [4096]u8 = undefined;
-    var file_reader = file.reader(io, &read_buf);
-    return self.load(&file_reader.interface, eol_mode, utf8_sanitized);
-}
-
-pub fn load_from_file_and_update(self: *Self, io: std.Io, file_path: []const u8, now: std.Io.Timestamp) LoadFromFileError!void {
-    var file_exists: bool = false;
     var eol_mode: EolMode = .lf;
     var utf8_sanitized: bool = false;
-    self.root = try self.load_from_file(io, file_path, &file_exists, &eol_mode, &utf8_sanitized);
+    self.root = try self.load_owned_timed(bytes, &eol_mode, &utf8_sanitized, &timing);
     self.set_file_path(file_path);
     self.last_save = self.root;
     self.file_exists = file_exists;
@@ -1597,6 +1614,16 @@ pub fn load_from_file_and_update(self: *Self, io: std.Io, file_path: []const u8,
     self.file_utf8_sanitized = utf8_sanitized;
     self.last_save_eol_mode = eol_mode;
     self.mtime = now.toMilliseconds();
+
+    timing.update_us = timing.timer.lap();
+    log_load(wall, file_path, &timing);
+}
+
+pub fn mark_saved(self: *Self, root: Root, eol_mode: EolMode) void {
+    self.last_save = root;
+    self.last_save_eol_mode = eol_mode;
+    self.file_exists = true;
+    self.file_utf8_sanitized = false;
 }
 
 pub fn reset_to_last_saved(self: *Self, now: std.Io.Timestamp) void {
@@ -1606,11 +1633,6 @@ pub fn reset_to_last_saved(self: *Self, now: std.Io.Timestamp) void {
         self.file_eol_mode = self.last_save_eol_mode;
         self.mtime = now.toMilliseconds();
     }
-}
-
-pub fn refresh_from_file(self: *Self, io: std.Io, now: std.Io.Timestamp) LoadFromFileError!void {
-    try self.load_from_file_and_update(io, self.get_file_path(), now);
-    self.update_last_used_time(now);
 }
 
 pub fn store_to_string_cached(self: *Self, root: *const Node, eol_mode: EolMode) [:0]const u8 {
@@ -1655,145 +1677,6 @@ const StringCache = struct {
         if (self.code_folded) |text| allocator.free(text);
     }
 };
-
-fn store_to_file_const(self: *const Self, writer: *std.Io.Writer) StoreToFileError!void {
-    try self.root.store(writer, self.file_eol_mode);
-    try writer.flush();
-}
-
-pub const StoreToFileError = error{
-    AccessDenied,
-    AntivirusInterference,
-    BadPathName,
-    BrokenPipe,
-    ConnectionResetByPeer,
-    DeviceBusy,
-    DiskQuota,
-    FileBusy,
-    Canceled,
-    CrossDevice,
-    DirNotEmpty,
-    FileLocksNotSupported,
-    HardwareFailure,
-    FileLocksUnsupported,
-    FileNotFound,
-    FileTooBig,
-    InputOutput,
-    InvalidArgument,
-    InvalidUtf8,
-    InvalidWtf8,
-    IsDir,
-    LinkQuotaExceeded,
-    LockViolation,
-    NameTooLong,
-    NetworkNotFound,
-    NoDevice,
-    NoSpaceLeft,
-    NotDir,
-    NotOpenForWriting,
-    OperationAborted,
-    OutOfMemory,
-    PathAlreadyExists,
-    PipeBusy,
-    ProcessFdQuotaExceeded,
-    ProcessNotFound,
-    ReadOnlyFileSystem,
-    RenameAcrossMountPoints,
-    SharingViolation,
-    SymLinkLoop,
-    SystemFdQuotaExceeded,
-    SystemResources,
-    Unexpected,
-    WouldBlock,
-    PermissionDenied,
-    MessageTooBig,
-    WriteFailed,
-};
-
-pub fn store_to_existing_file_const(self: *const Self, io: std.Io, file_path_: []const u8) StoreToFileError!void {
-    var file_path = file_path_;
-    var link: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    if (retain_symlinks) blk: {
-        const size = cwd().readLink(io, file_path, &link) catch break :blk;
-        file_path = link[0..size];
-    }
-
-    var write_buffer: [4096]u8 = undefined;
-
-    if (builtin.os.tag == .windows) {
-        // windows uses ACLs for ownership so we preserve mode only
-        var atomic = try cwd().createFileAtomic(io, file_path, .{ .replace = true });
-        defer atomic.deinit(io);
-        var writer = atomic.file.writer(io, &write_buffer);
-        try self.store_to_file_const(&writer.interface);
-        writer.flush() catch {};
-        return atomic.replace(io);
-    }
-
-    const Orig = struct { stat: std.Io.File.Stat, owner: ?FileOwner };
-    const orig: ?Orig = blk: {
-        const f = cwd().openFile(io, file_path, .{}) catch break :blk null;
-        defer f.close(io);
-        break :blk .{ .stat = f.stat(io) catch break :blk null, .owner = get_file_owner(f) };
-    };
-    var atomic = try cwd().createFileAtomic(io, file_path, .{ .replace = true });
-    defer atomic.deinit(io);
-    var writer = atomic.file.writer(io, &write_buffer);
-    try self.store_to_file_const(&writer.interface);
-    writer.flush() catch {};
-    // EPERM is silently ignored when we lack sufficient privileges
-    if (orig) |o| {
-        if (o.owner) |owner| atomic.file.setOwner(io, owner.uid, owner.gid) catch {};
-        atomic.file.setPermissions(io, o.stat.permissions) catch {};
-    }
-    try atomic.replace(io);
-}
-
-pub const FileOwner = struct { uid: std.Io.File.Uid, gid: std.Io.File.Gid };
-
-pub fn get_file_owner(file: std.Io.File) ?FileOwner {
-    switch (builtin.os.tag) {
-        .linux => {
-            const linux = std.os.linux;
-            var stx: linux.Statx = undefined;
-            const rc = linux.statx(file.handle, "", linux.AT.EMPTY_PATH, .{ .UID = true, .GID = true }, &stx);
-            if (linux.errno(rc) != .SUCCESS or !stx.mask.UID or !stx.mask.GID) return null;
-            return .{ .uid = stx.uid, .gid = stx.gid };
-        },
-        .macos, .freebsd => {
-            var st: std.c.Stat = undefined;
-            if (std.c.fstat(file.handle, &st) != 0) return null;
-            return .{ .uid = st.uid, .gid = st.gid };
-        },
-        else => return null,
-    }
-}
-
-pub fn store_to_new_file_const(self: *const Self, io: std.Io, file_path: []const u8) StoreToFileError!void {
-    if (std.fs.path.dirname(file_path)) |dir_name|
-        cwd().createDirPath(io, dir_name) catch {};
-    const file = try cwd().createFile(io, file_path, .{ .truncate = true });
-    defer file.close(io);
-    var write_buffer: [4096]u8 = undefined;
-    var writer = file.writer(io, &write_buffer);
-    try self.store_to_file_const(&writer.interface);
-    writer.flush() catch {};
-}
-
-pub fn store_to_file_and_clean(self: *Self, io: std.Io, file_path: []const u8) StoreToFileError!void {
-    self.store_to_existing_file_const(io, file_path) catch |e| switch (e) {
-        error.FileNotFound => try self.store_to_new_file_const(io, file_path),
-        else => return e,
-    };
-    self.last_save = self.root;
-    self.last_save_eol_mode = self.file_eol_mode;
-    self.file_exists = true;
-    self.file_utf8_sanitized = false;
-    if (self.ephemeral) {
-        self.ephemeral = false;
-        self.set_file_path(file_path);
-    }
-}
 
 pub fn mark_clean(self: *Self) void {
     self.last_save = self.root;
