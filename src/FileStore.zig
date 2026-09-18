@@ -66,6 +66,31 @@ pub fn reply_id(m: tp.message) ?usize {
     return if (m.match(.{ "FS", tp.string, tp.extract(&id), tp.more }) catch false) id else null;
 }
 
+const eol = '\n';
+
+pub const GetLineOfFileError = error{OutOfMemory} ||
+    std.Io.File.OpenError || std.Io.File.StatError || std.Io.File.ReadPositionalError;
+
+pub fn get_line_of_file(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8, line: usize) GetLineOfFileError![]const u8 {
+    const file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
+    defer file.close(io);
+    const stat = try file.stat(io);
+    const buf = try allocator.alloc(u8, @intCast(stat.size));
+    defer allocator.free(buf);
+    const read_size = try file.readPositionalAll(io, buf, 0);
+
+    var current: usize = 0;
+    var start: usize = 0;
+    for (buf[0..read_size], 0..) |c, i| {
+        if (c != eol) continue;
+        if (current == line) return allocator.dupe(u8, buf[start..i]);
+        current += 1;
+        start = i + 1;
+    }
+    if (current == line) return allocator.dupe(u8, buf[start..read_size]);
+    return allocator.dupe(u8, "");
+}
+
 fn clamp_chunk_size(n: usize) usize {
     return std.math.clamp(n, 1, max_chunk_size);
 }

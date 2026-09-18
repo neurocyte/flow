@@ -6,6 +6,39 @@ const FileStore = @import("FileStore.zig");
 
 const allocator = std.heap.c_allocator;
 
+test "get_line_of_file" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = dir_buf[0..try tmp.dir.realPath(io, &dir_buf)];
+
+    try write_fixture(tmp.dir, "lines.txt", "first\nsecond\nthird");
+    try write_fixture(tmp.dir, "trailing.txt", "a\nb\n");
+    try write_fixture(tmp.dir, "empty.txt", "");
+
+    const cases = .{
+        .{ "lines.txt", 0, "first" },
+        .{ "lines.txt", 1, "second" },
+        .{ "lines.txt", 2, "third" }, // last line, no trailing newline
+        .{ "lines.txt", 3, "" }, // past the end
+        .{ "trailing.txt", 1, "b" },
+        .{ "trailing.txt", 2, "" }, // the empty line after a trailing newline
+        .{ "empty.txt", 0, "" },
+    };
+    inline for (cases) |case| {
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const path = try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir, case[0] });
+        const line = try FileStore.get_line_of_file(allocator, io, path, case[1]);
+        defer allocator.free(line);
+        try std.testing.expectEqualStrings(case[2], line);
+    }
+
+    var missing_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const missing = try std.fmt.bufPrint(&missing_buf, "{s}/no_such_file", .{dir});
+    try std.testing.expectError(error.FileNotFound, FileStore.get_line_of_file(allocator, io, missing, 0));
+}
+
 test "largest stream messages fit in a remote frame" {
     const remote_max_frame_size = 8 * 4096;
     const remote_send_overhead = 64;
