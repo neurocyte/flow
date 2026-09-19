@@ -48,6 +48,7 @@ workspace: ?[]const u8 = null,
 
 walker: ?tp.pid = null,
 no_index: bool = false,
+index_workspace_files: bool = true,
 watcher: ?file_watcher.Owned = null,
 
 ignore: ?*gitignore.Matcher = null,
@@ -124,6 +125,7 @@ const State = enum { none, running, done, failed };
 pub const Options = struct {
     no_index: bool = false,
     watch_non_indexed: bool = false,
+    index_workspace_files: bool = true,
 };
 
 pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref, options: Options) OutOfMemoryError!Self {
@@ -132,6 +134,7 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref, 
         .allocator = allocator,
         .name = try allocator.dupe(u8, name),
         .no_index = options.no_index,
+        .index_workspace_files = options.index_workspace_files,
         .open_time = now.toMilliseconds(),
         .language_servers = std.StringHashMap(*LSPClient).init(allocator),
         .file_language_server_name = std.StringHashMap([]const u8).init(allocator),
@@ -1498,7 +1501,7 @@ pub fn query_git(self: *Self) void {
 }
 
 fn start_walker(self: *Self) void {
-    if (self.no_index) {
+    if (self.no_index or !self.index_workspace_files) {
         self.logger.print("not indexing {s}", .{self.name});
         return;
     }
@@ -1583,10 +1586,16 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         if (self.workspace) |p| self.allocator.free(p);
         self.workspace = convert_path(try self.allocator.dupe(u8, value));
         self.state.workspace_path = .done;
-        self.state.workspace_files = .running;
-        git.workspace_files(@intFromPtr(self)) catch {
-            self.state.workspace_files = .failed;
-        };
+        if (self.index_workspace_files) {
+            self.state.workspace_files = .running;
+            git.workspace_files(@intFromPtr(self)) catch {
+                self.state.workspace_files = .failed;
+            };
+        } else {
+            // An external finder owns project-wide discovery. Keep only the
+            // restored MRU entries instead of queueing every tracked path.
+            self.state.workspace_files = .done;
+        }
         self.state.status = .running;
         git.status(@intFromPtr(self)) catch {
             self.state.status = .failed;

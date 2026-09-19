@@ -14,6 +14,7 @@ const file_link = @import("file_link");
 const builtin = @import("builtin");
 
 const Project = @import("Project.zig");
+const external_file_finder = @import("external_file_finder.zig");
 pub const SourceLocation = Project.SourceLocation;
 
 pid: tp.pid_ref,
@@ -414,6 +415,7 @@ const Process = struct {
     projects: ProjectsMap,
     non_indexed: []const []const u8,
     watch_non_indexed: bool,
+    file_finder: ?[:0]const u8 = null,
     file_store: ?tp.pid = null,
 
     const InvalidArgumentError = error{InvalidArgument};
@@ -454,6 +456,7 @@ const Process = struct {
         self.projects.deinit(self.allocator);
         for (self.non_indexed) |dir| self.allocator.free(dir);
         self.allocator.free(self.non_indexed);
+        if (self.file_finder) |file_finder| self.allocator.free(file_finder);
         self.parent.deinit();
         self.logger.deinit();
         self.allocator.destroy(self);
@@ -796,6 +799,7 @@ const Process = struct {
             project.* = try Project.init(self.allocator, project_directory, self.parent.ref(), .{
                 .no_index = no_index,
                 .watch_non_indexed = self.watch_non_indexed,
+                .index_workspace_files = self.file_finder == null,
             });
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             if (self.ensure_file_store()) |file_store| {
@@ -811,6 +815,14 @@ const Process = struct {
         defer root.free_config(self.allocator, bufs);
 
         self.watch_non_indexed = conf.watch_non_indexed_projects;
+        self.file_finder = finder: {
+            const configured = conf.file_finder orelse break :finder null;
+            if (configured.len == 0 or std.mem.eql(u8, configured, "builtin")) break :finder null;
+            break :finder external_file_finder.resolve_executable(self.allocator, configured) catch |e| {
+                self.logger.print_err("file finder", "cannot resolve '{s}': {t}", .{ configured, e });
+                break :finder null;
+            };
+        };
 
         var list: std.ArrayList([]const u8) = .empty;
         errdefer {
@@ -930,6 +942,15 @@ const Process = struct {
 
     fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
+        // An empty query lists the most recently used files, which an external
+        // file finder knows nothing about, so it is answered from our own state.
+        if (self.file_finder) |file_finder| if (query.len > 0) fallback: {
+            external_file_finder.query_files(self.allocator, from, file_finder, project.name, max, query) catch |e| {
+                self.logger.print_err("file finder", "'{s}' query \"{s}\" failed: {t}", .{ file_finder, query, e });
+                break :fallback;
+            };
+            return;
+        };
         const start_time = root.get_now().toMilliseconds();
         const matched = try project.query_recent_files(from, max, query);
         const query_time = root.get_now().toMilliseconds() - start_time;

@@ -273,6 +273,42 @@ command. You can also create a new file type by adding a new `.conf` file
 to the `file_type` directory. Have a look at an existing file type to see
 what options are available.
 
+### External file finder
+
+By default, Find File searches Flow's project index. Set `file_finder` to an
+executable name or path to use an external file finder instead:
+
+```text
+file_finder "myles"
+```
+
+Flow runs the executable in the current project directory as:
+
+```text
+<file-finder> --json --limit <maximum-results> --client flow -- <query>
+```
+
+The command must finish within 15 seconds, terminate promptly when sent
+`SIGTERM`, and write at most 8 MiB as one JSON object to stdout:
+
+```json
+{
+  "root": "/absolute/repository/root",
+  "results": [
+    {"path": "relative/file.zig", "matchIndexes": [0, 1]}
+  ]
+}
+```
+
+Results must be relevance-ordered and are displayed only after the command
+exits. `root` defaults to the current project when omitted; result paths may be
+relative to it or absolute. `matchIndexes` are byte offsets into each result's
+`path`, and stderr is reserved for tool diagnostics. Empty queries use Flow's
+recent-file list. An executable that cannot be resolved at startup falls back
+to Flow's built-in index; runtime failures produce an empty result set.
+Configuration changes take effect after restart. Set `file_finder` to `null`
+to always use the built-in index.
+
 ## Flags and options
 
 As every respectable terminal program, flow provide various invoking
