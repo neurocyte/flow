@@ -1413,6 +1413,7 @@ pub fn build_exe(
         .{ .name = "thespian", .module = thespian_mod },
         .{ .name = "tracy", .module = tracy_mod },
         .{ .name = "file_type_config", .module = file_type_config_mod },
+        .{ .name = "bin_path", .module = bin_path_mod },
         .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
         .{ .name = "git", .module = git_mod },
         .{ .name = "file_watcher", .module = file_watcher_mod },

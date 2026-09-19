@@ -52,6 +52,7 @@ const tp = @import("thespian");
 const fuzzig = @import("fuzzig");
 
 pub const builtin_finder = @import("builtin_finder.zig");
+pub const external_finder = @import("external_finder.zig");
 pub const FileList = @import("FileList.zig");
 
 const file_type = @import("file_type.zig");

@@ -524,6 +524,7 @@ const Process = struct {
     open_files: std.StringHashMapUnmanaged(?*Repo) = .empty,
     non_indexed: []const []const u8,
     watch_non_indexed: bool,
+    file_finder: ?[:0]const u8 = null,
     file_store: ?tp.pid = null,
 
     const InvalidArgumentError = error{InvalidArgument};
@@ -647,6 +648,7 @@ const Process = struct {
         self.repos.deinit(self.allocator);
         for (self.non_indexed) |dir| self.allocator.free(dir);
         self.allocator.free(self.non_indexed);
+        if (self.file_finder) |executable| self.allocator.free(executable);
         self.parent.deinit();
         self.logger.deinit();
         self.allocator.destroy(self);
@@ -1150,6 +1152,9 @@ const Process = struct {
 
     /// The one place that decides which file finder a project uses.
     fn spawn_file_finder(self: *Process, project_directory: []const u8, no_index: bool) SpawnError!file_finder.Handle {
+        if (self.file_finder) |executable|
+            return .{ .pid = try file_finder.external_finder.spawn(self.allocator, project_directory, executable) };
+
         const file_store: ?tp.pid_ref = self.ensure_file_store() catch |e| blk: {
             self.logger.err("file_store", e);
             break :blk null;
@@ -1192,6 +1197,14 @@ const Process = struct {
         defer root.free_config(self.allocator, bufs);
 
         self.watch_non_indexed = conf.watch_non_indexed_projects;
+        self.file_finder = finder: {
+            const configured = conf.file_finder orelse break :finder null;
+            if (configured.len == 0 or std.mem.eql(u8, configured, "builtin")) break :finder null;
+            break :finder file_finder.external_finder.resolve_executable(self.allocator, configured) catch |e| {
+                self.logger.print_err("file finder", "cannot resolve '{s}': {t}", .{ configured, e });
+                break :finder null;
+            };
+        };
 
         var list: std.ArrayList([]const u8) = .empty;
         errdefer {
