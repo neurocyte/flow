@@ -9,7 +9,7 @@ const module_name = @typeName(@This());
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 const OutOfMemoryError = error{OutOfMemory};
 
-pub const EntryCallBack = *const fn (parent: tp.pid_ref, root_path: []const u8, path: []const u8, mtime_high: i64, mtime_low: i64) error{Exit}!void;
+pub const EntryCallBack = *const fn (parent: tp.pid_ref, root_path: []const u8, path: []const u8) error{Exit}!void;
 pub const DoneCallBack = *const fn (parent: tp.pid_ref, root_path: []const u8) error{Exit}!void;
 
 pub const Options = struct {
@@ -91,14 +91,7 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         fn next(self: *tree_walker) !void {
             const io = root.get_io();
             if (try self.walker.next(io)) |path| {
-                const stat = self.dir.statFile(io, path, .{}) catch {
-                    try self.entry_handler(self.parent.ref(), self.root_path, path, 0, 0);
-                    return tp.self_pid().send(.{"next"});
-                };
-                const mtime: i128 = @as(i128, stat.mtime.nanoseconds);
-                const high: i64 = @intCast(mtime >> 64);
-                const low: i64 = @truncate(mtime);
-                try self.entry_handler(self.parent.ref(), self.root_path, path, high, low);
+                try self.entry_handler(self.parent.ref(), self.root_path, path);
                 return tp.self_pid().send(.{"next"});
             } else {
                 self.done_handler(self.parent.ref(), self.root_path) catch {};

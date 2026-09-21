@@ -45,6 +45,11 @@ pub fn compare_entries(lhs: *const Entry, rhs: *const Entry) bool {
     return lhs.label.len < rhs.label.len;
 }
 
+// Uprank exact command name matches
+pub fn score_bonus(entry: *const Entry, query: []const u8) i32 {
+    return if (std.ascii.eqlIgnoreCase(entry.name, query)) 1000 else 0;
+}
+
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();

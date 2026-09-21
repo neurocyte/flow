@@ -57,6 +57,12 @@ pub fn probe(self: *const Self, id: usize, abs_path: []const u8) Error!void {
     return self.send(.{ "probe", id, abs_path });
 }
 
+/// replies with {"FS", "stat", id, path, mtime_high, mtime_low}
+/// mtime is 0 when stat fails
+pub fn stat(self: *const Self, id: usize, abs_path: []const u8) Error!void {
+    return self.send(.{ "stat", id, abs_path });
+}
+
 fn send(self: *const Self, message: anytype) Error!void {
     return self.pid.send(message) catch error.FileStoreSendFailed;
 }
@@ -64,6 +70,31 @@ fn send(self: *const Self, message: anytype) Error!void {
 pub fn reply_id(m: tp.message) ?usize {
     var id: usize = 0;
     return if (m.match(.{ "FS", tp.string, tp.extract(&id), tp.more }) catch false) id else null;
+}
+
+const eol = '\n';
+
+pub const GetLineOfFileError = error{OutOfMemory} ||
+    std.Io.File.OpenError || std.Io.File.StatError || std.Io.File.ReadPositionalError;
+
+pub fn get_line_of_file(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8, line: usize) GetLineOfFileError![]const u8 {
+    const file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
+    defer file.close(io);
+    const stat_ = try file.stat(io);
+    const buf = try allocator.alloc(u8, @intCast(stat_.size));
+    defer allocator.free(buf);
+    const read_size = try file.readPositionalAll(io, buf, 0);
+
+    var current: usize = 0;
+    var start: usize = 0;
+    for (buf[0..read_size], 0..) |c, i| {
+        if (c != eol) continue;
+        if (current == line) return allocator.dupe(u8, buf[start..i]);
+        current += 1;
+        start = i + 1;
+    }
+    if (current == line) return allocator.dupe(u8, buf[start..read_size]);
+    return allocator.dupe(u8, "");
 }
 
 fn clamp_chunk_size(n: usize) usize {
@@ -261,8 +292,8 @@ const Fingerprint = struct {
     size: u64,
     mtime: i96,
 
-    fn of(stat: std.Io.File.Stat) Fingerprint {
-        return .{ .inode = stat.inode, .size = stat.size, .mtime = stat.mtime.nanoseconds };
+    fn of(stat_: std.Io.File.Stat) Fingerprint {
+        return .{ .inode = stat_.inode, .size = stat_.size, .mtime = stat_.mtime.nanoseconds };
     }
 
     fn eql(a: Fingerprint, b: Fingerprint) bool {
@@ -433,6 +464,8 @@ const Process = struct {
             self.remove_stream(.{ .client = from.instance_id(), .id = id });
         } else if (try cbor.match(m.buf, .{ "probe", tp.extract(&id), tp.extract(&path) })) {
             probe_path(from, id, path);
+        } else if (try cbor.match(m.buf, .{ "stat", tp.extract(&id), tp.extract(&path) })) {
+            stat_path(from, id, path);
         } else if (try cbor.match(m.buf, .{ "watch", tp.extract(&path) })) {
             if (self.ensure_client(from))
                 self.watch(from.instance_id(), path) catch |e| self.logger.err("watch", e);
@@ -547,11 +580,11 @@ const Process = struct {
             },
             else => return send_error(from, id, "read", @errorName(e)),
         };
-        const stat = file.stat(io) catch |e| {
+        const stat_ = file.stat(io) catch |e| {
             file.close(io);
             return send_error(from, id, "read", @errorName(e));
         };
-        if (stat.kind == .directory) {
+        if (stat_.kind == .directory) {
             file.close(io);
             return send_error(from, id, "read", "IsDir");
         }
@@ -564,17 +597,17 @@ const Process = struct {
             .client = from.clone(),
             .path = owned_path,
             .file = file,
-            .size = stat.size,
+            .size = stat_.size,
             .chunk_size = clamp_chunk_size(chunk_size),
             .window = clamp_window(window),
-            .fingerprint = .of(stat),
+            .fingerprint = .of(stat_),
             .started = started,
         } }) catch |e| {
             file.close(io);
             self.allocator.free(owned_path);
             return send_error(from, id, "read", @errorName(e));
         };
-        from.send(.{ "FS", "read_begin", id, path, true, stat.size }) catch {};
+        from.send(.{ "FS", "read_begin", id, path, true, stat_.size }) catch {};
         self.read_pump(key);
     }
 
@@ -634,8 +667,8 @@ const Process = struct {
             .read => |*s| s,
             else => return,
         };
-        const stat = s.file.stat(root.get_io()) catch |e| return self.fail_stream(key, "read", @errorName(e));
-        if (!Fingerprint.of(stat).eql(s.fingerprint))
+        const stat_ = s.file.stat(root.get_io()) catch |e| return self.fail_stream(key, "read", @errorName(e));
+        if (!Fingerprint.of(stat_).eql(s.fingerprint))
             return self.fail_stream(key, "read", "FileChangedDuringRead");
         perf_log.info("read {s} total {d:.3}ms bytes {d} chunks {d} [read {d:.3}]", .{
             s.path,
@@ -696,8 +729,8 @@ const Process = struct {
         if (builtin.os.tag == .windows) return null;
         const f = std.Io.Dir.cwd().openFile(io, target, .{}) catch return null;
         defer f.close(io);
-        const stat = f.stat(io) catch return null;
-        return .{ .permissions = stat.permissions, .owner = get_file_owner(f) };
+        const stat_ = f.stat(io) catch return null;
+        return .{ .permissions = stat_.permissions, .owner = get_file_owner(f) };
     }
 
     fn write_chunk(self: *@This(), key: StreamKey, seq: usize, data: []const u8) void {
@@ -750,13 +783,25 @@ const Process = struct {
 
     fn probe_path(from: tp.pid_ref, id: usize, path: []const u8) void {
         const io = root.get_io();
-        const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch {
+        const stat_ = std.Io.Dir.cwd().statFile(io, path, .{}) catch {
             from.send(.{ "FS", "probed", id, path, ProbeKind.none, false }) catch {};
             return;
         };
-        const kind: ProbeKind = if (stat.kind == .directory) .dir else .file;
+        const kind: ProbeKind = if (stat_.kind == .directory) .dir else .file;
         const binary = kind == .file and is_binary_file(io, path);
         from.send(.{ "FS", "probed", id, path, kind, binary }) catch {};
+    }
+
+    fn stat_path(from: tp.pid_ref, id: usize, path: []const u8) void {
+        const io = root.get_io();
+        const stat_ = std.Io.Dir.cwd().statFile(io, path, .{}) catch {
+            from.send(.{ "FS", "stat", id, path, @as(i64, 0), @as(i64, 0) }) catch {};
+            return;
+        };
+        const mtime: i128 = stat_.mtime.nanoseconds;
+        const high: i64 = @intCast(mtime >> 64);
+        const low: i64 = @truncate(mtime);
+        from.send(.{ "FS", "stat", id, path, high, low }) catch {};
     }
 
     /// sniff the first 1k of `path` for a NUL
@@ -770,7 +815,7 @@ const Process = struct {
 
     fn record_own_write(self: *@This(), path: []const u8) void {
         if (!self.files.contains(path)) return;
-        const stat = std.Io.Dir.cwd().statFile(root.get_io(), path, .{}) catch return;
+        const stat_ = std.Io.Dir.cwd().statFile(root.get_io(), path, .{}) catch return;
         const gop = self.own_writes.getOrPut(self.allocator, path) catch return;
         if (!gop.found_existing) {
             gop.key_ptr.* = self.allocator.dupe(u8, path) catch {
@@ -778,13 +823,13 @@ const Process = struct {
                 return;
             };
         }
-        gop.value_ptr.* = .of(stat);
+        gop.value_ptr.* = .of(stat_);
     }
 
     fn is_own_write(self: *@This(), path: []const u8) bool {
         const fingerprint = self.own_writes.get(path) orelse return false;
-        if (std.Io.Dir.cwd().statFile(root.get_io(), path, .{})) |stat| {
-            if (Fingerprint.of(stat).eql(fingerprint)) return true;
+        if (std.Io.Dir.cwd().statFile(root.get_io(), path, .{})) |stat_| {
+            if (Fingerprint.of(stat_).eql(fingerprint)) return true;
         } else |_| {}
         self.forget_own_write(path);
         return false;

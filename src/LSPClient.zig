@@ -9,6 +9,7 @@ const filelist_stream_references: usize = 1;
 const dizzy = @import("dizzy");
 const tracy = @import("tracy");
 const Buffer = @import("Buffer");
+const FileStore = @import("FileStore");
 const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 
@@ -125,36 +126,10 @@ pub fn restart(self: *const Self) StartLspError!*Self {
     );
 }
 
-pub const eol = '\n';
+pub const GetLineOfFileError = FileStore.GetLineOfFileError;
 
-pub const GetLineOfFileError = (OutOfMemoryError || std.Io.File.OpenError || std.Io.File.ReadStreamingError || std.Io.File.StatError || std.Io.File.ReadPositionalError);
-
-pub fn get_line_of_file(allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
-    const io = root.get_io();
-    const line = line_ + 1;
-    const file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
-    defer file.close(io);
-    const stat = try file.stat(io);
-    var buf = try allocator.alloc(u8, @intCast(stat.size));
-    defer allocator.free(buf);
-    const read_size = try file.readPositionalAll(io, buf, 0);
-    if (read_size != @as(@TypeOf(read_size), @intCast(stat.size)))
-        @panic("get_line_of_file: buffer underrun");
-
-    var line_count: usize = 1;
-    for (0..buf.len) |i| {
-        if (line_count == line)
-            return get_line(allocator, buf[i..]);
-        if (buf[i] == eol) line_count += 1;
-    }
-    return allocator.dupe(u8, "");
-}
-
-pub fn get_line(allocator: std.mem.Allocator, buf: []const u8) ![]const u8 {
-    for (0..buf.len) |i| {
-        if (buf[i] == eol) return allocator.dupe(u8, buf[0..i]);
-    }
-    return allocator.dupe(u8, buf);
+pub fn get_line_of_file(allocator: std.mem.Allocator, file_path: []const u8, line: usize) GetLineOfFileError![]const u8 {
+    return FileStore.get_line_of_file(allocator, root.get_io(), file_path, line);
 }
 
 pub fn make_URI(allocator: std.mem.Allocator, project_name: []const u8, file_path: ?[]const u8) LspError![]const u8 {
@@ -1189,10 +1164,8 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
 
     const handler: struct {
         from: tp.pid,
-        file_path: []const u8,
 
         pub fn deinit(self_: *@This()) void {
-            std.heap.c_allocator.free(self_.file_path);
             self_.from.deinit();
         }
 
@@ -1217,7 +1190,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
                     for (renames.items) |rename| {
                         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
                         const file_path_ = try file_uri_to_path(rename.uri, &file_path_buf);
-                        const line = try get_line_of_file(allocator, self_.file_path, rename.range.start.line);
+                        const line = try get_line_of_file(allocator, file_path_, rename.range.start.line);
                         try cbor.writeValue(w, .{
                             file_path_,
                             rename.range.start.line,
@@ -1234,7 +1207,6 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
         }
     } = .{
         .from = from.clone(),
-        .file_path = try std.heap.c_allocator.dupe(u8, source_location.src.path),
     };
 
     self.lsp.send_request(self.allocator, "textDocument/rename", .{

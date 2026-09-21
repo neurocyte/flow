@@ -34,13 +34,13 @@ pub fn current_branch(context_: usize) Error!void {
 
 pub fn workspace_files(context: usize) Error!void {
     return if (is_file(".gitmodules"))
-        git_line_output(
+        git_chunk_output(
             context,
             @src().fn_name,
             .{ "ls-files", "--cached", "--exclude-standard", "--recurse-submodules" },
         )
     else
-        git_line_output(
+        git_chunk_output(
             context,
             @src().fn_name,
             .{ "ls-files", "--cached", "--others", "--exclude-standard" },
@@ -303,6 +303,14 @@ fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Erro
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
                 parent.send(.{ module_name, context, tag, value }) catch {};
+        }
+    }.result, log_err, exit_null(tag));
+}
+
+fn git_chunk_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
+    try git_err(context_, cmd, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            parent.send(.{ module_name, context, tag, output }) catch {};
         }
     }.result, log_err, exit_null(tag));
 }
