@@ -586,16 +586,7 @@ fn rebuild_file_index(self: *Self, items: []const File) void {
         self.file_index.put(self.allocator, file.path, @intCast(i)) catch {};
 }
 
-fn resolve_file_meta(file: *File) void {
-    if (file.meta_resolved) return;
-    const file_type, const file_icon, const file_color = guess_file_type(file.path);
-    file.type = file_type;
-    file.icon = file_icon;
-    file.color = file_color;
-    file.meta_resolved = true;
-}
-
-fn resolve_vcs_file_meta(file: *FileVcsStatus) void {
+fn resolve_meta(file: anytype) void {
     if (file.meta_resolved) return;
     const file_type, const file_icon, const file_color = guess_file_type(file.path);
     file.type = file_type;
@@ -659,7 +650,7 @@ pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) RequestEr
     self.refresh_order();
     defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "", self.files.items.len }) catch {};
     for (self.files.items, 0..) |*file, i| {
-        resolve_file_meta(file);
+        resolve_meta(file);
         from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color }) catch |e| {
             std.log.err("send recent failed: {t}", .{e});
             return;
@@ -677,7 +668,7 @@ fn simple_query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize,
             defer self.allocator.free(matches);
             var n: usize = 0;
             while (n < query.len) : (n += 1) matches[n] = idx + n;
-            resolve_vcs_file_meta(file);
+            resolve_meta(file);
             from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status, matches }) catch |e| {
                 std.log.err("send new_or_modified_files failed: {t}", .{e});
                 return error.InvalidNewOrModifiedFilesRequest;
@@ -741,7 +732,7 @@ pub fn query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, qu
 
     for (matches.items[0..@min(max, matches.items.len)]) |match| {
         const file = &self.new_or_modified_files.items[match.index];
-        resolve_vcs_file_meta(file);
+        resolve_meta(file);
         from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status, match.matches }) catch |e| {
             std.log.err("send new_or_modified_files failed: {t}", .{e});
             return error.InvalidQueryNewOrModifiedFilesRequest;
@@ -753,7 +744,7 @@ pub fn query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, qu
 pub fn request_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize) RequestError!void {
     defer from.send(.{ "PRJ", "new_or_modified_files_done", self.longest_new_or_modified_file_path, "" }) catch {};
     for (self.new_or_modified_files.items, 0..) |*file, i| {
-        resolve_vcs_file_meta(file);
+        resolve_meta(file);
         from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status }) catch |e| {
             std.log.err("send navigate failed: {t}", .{e});
             return error.InvalidRequestNewOrModifiedFilesRequest;
@@ -771,7 +762,7 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
             defer self.allocator.free(matches);
             var n: usize = 0;
             while (n < query.len) : (n += 1) matches[n] = idx + n;
-            resolve_file_meta(file);
+            resolve_meta(file);
             from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color, matches }) catch |e| {
                 std.log.err("send navigate failed: {t}", .{e});
                 return error.InvalidRecentFilesRequest;
@@ -827,7 +818,7 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query_: []c
 
     for (matches.items[0..@min(max, matches.items.len)]) |match| {
         const file = &self.files.items[match.index];
-        resolve_file_meta(file);
+        resolve_meta(file);
         from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color, match.matches }) catch |e| {
             std.log.err("send navigate failed: {t}", .{e});
             return error.InvalidQueryRecentFilesRequest;
