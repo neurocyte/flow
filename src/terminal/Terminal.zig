@@ -53,10 +53,15 @@ pub const Event = union(enum) {
 const log = std.log.scoped(.terminal);
 
 pub const Options = struct {
-    scrollback_size: u16 = 500,
+    scrollback_bytes: usize = 8 << 20,
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     initial_working_directory: ?[]const u8 = null,
 };
+
+fn scrollbackRowsFor(scrollback_bytes: usize, cols: u16) usize {
+    const row_bytes = @as(usize, cols) * @sizeOf(Screen.Cell);
+    return if (row_bytes == 0) 0 else scrollback_bytes / row_bytes;
+}
 
 pub const Mode = struct {
     origin: bool = false,
@@ -125,7 +130,7 @@ pub const InputEvent = union(enum) {
 
 io: std.Io,
 allocator: std.mem.Allocator,
-scrollback_size: u16,
+scrollback_bytes: usize,
 
 pty: Pty,
 pty_writer: std.Io.File.Writer,
@@ -258,9 +263,9 @@ pub fn init(
         else
             pty.pty.writerStreaming(io, write_buf),
         .cmd = cmd,
-        .scrollback_size = opts.scrollback_size,
+        .scrollback_bytes = opts.scrollback_bytes,
         .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
-        .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_size),
+        .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, scrollbackRowsFor(opts.scrollback_bytes, opts.winsize.cols)),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
         .cell_pixel_w = cellPixelsOf(opts.winsize).w,
@@ -388,13 +393,22 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);
 
-    if (reflow and ws.cols != self.front_screen.width) {
+    const width_unchanged = ws.cols == self.back_screen_pri.width;
+    const fits = ws.rows <= self.back_screen_pri.buf.len / self.back_screen_pri.width;
+    if (width_unchanged and fits) {
+        self.back_screen_pri.resizeVertical(self.allocator, ws.rows);
+        self.front_screen.deinit(self.allocator);
+        self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+        self.back_screen_alt.deinit(self.allocator);
+        self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+        self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+    } else if (reflow) {
         try self.resizeReflow(ws);
     } else {
         self.front_screen.deinit(self.allocator);
         self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
 
-        var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.scrollback_size);
+        var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, scrollbackRowsFor(self.scrollback_bytes, ws.cols));
         try self.back_screen_pri.copyHistoryTo(self.allocator, &new_pri);
         try self.back_screen_pri.copyViewportTo(self.allocator, &new_pri);
         self.back_screen_pri.deinit(self.allocator);
@@ -417,7 +431,7 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
     self.front_screen.deinit(self.allocator);
     self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
     self.back_screen_pri.deinit(self.allocator);
-    self.back_screen_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.scrollback_size);
+    self.back_screen_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, scrollbackRowsFor(self.scrollback_bytes, ws.cols));
     self.back_screen_alt.deinit(self.allocator);
     self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
 
@@ -1528,7 +1542,7 @@ fn hardReset(self: *Terminal) !void {
     const w = self.front_screen.width;
     const h = self.front_screen.height;
 
-    var new_pri = try Screen.initScrollback(self.allocator, w, h, self.scrollback_size);
+    var new_pri = try Screen.initScrollback(self.allocator, w, h, scrollbackRowsFor(self.scrollback_bytes, w));
     errdefer new_pri.deinit(self.allocator);
     const new_alt = try Screen.init(self.allocator, w, h);
     self.back_screen_pri.deinit(self.allocator);

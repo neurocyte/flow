@@ -52,7 +52,7 @@ fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, 
         &env,
         .{
             .winsize = winsize_for(rows, cols),
-            .scrollback_size = tui.config().terminal_scrollback_size,
+            .scrollback_bytes = @as(usize, tui.config().terminal_scrollback_mb) << 20,
             .initial_working_directory = blk: {
                 const project = tp.env.get().str("project");
                 break :blk if (project.len > 0) project else home;

@@ -259,7 +259,7 @@ pub fn init(alloc: std.mem.Allocator, w: u16, h: u16) !Screen {
     return initScrollback(alloc, w, h, 0);
 }
 
-pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollback: u16) !Screen {
+pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollback: usize) !Screen {
     const total_h: usize = @as(usize, visible_h) + scrollback;
     var screen = Screen{
         .allocator = alloc,
@@ -462,6 +462,32 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
     const vp_start = dst.visible_top * dst.width;
     const vp_end = vp_start + new_h * dst.width;
     for (dst.buf[vp_start..vp_end]) |*cell| cell.dirty = true;
+}
+
+pub fn resizeVertical(self: *Screen, allocator: std.mem.Allocator, new_h: u16) void {
+    if (new_h == self.height) return;
+    const old_h: usize = self.height;
+    const nh: usize = new_h;
+    if (nh > old_h) {
+        const delta = nh - old_h;
+        const pull = @min(delta, self.visible_top);
+        const blank_from = self.visible_top + old_h;
+        const blank_count = delta - pull;
+        self.visible_top -= pull;
+        self.cursor.row = @intCast(@min(nh - 1, pull + @as(usize, self.cursor.row)));
+        var i: usize = 0;
+        while (i < blank_count) : (i += 1) blankRowTail(self, allocator, blank_from + i, 0);
+    } else {
+        const keep_above = @min(@as(usize, self.cursor.row), nh - 1);
+        const src_vp_start = @as(usize, self.cursor.row) - keep_above;
+        self.visible_top += src_vp_start;
+        self.cursor.row = @intCast(keep_above);
+    }
+    self.height = new_h;
+    self.scrolling_region = .{ .top = 0, .bottom = new_h - 1, .left = 0, .right = self.width - 1 };
+    const vp_start = self.visible_top * self.width;
+    const vp_end = vp_start + nh * self.width;
+    for (self.buf[vp_start..vp_end]) |*cell| cell.dirty = true;
 }
 
 pub fn readCell(self: *Screen, col: usize, row: usize) ?vaxis.Cell {
@@ -1484,4 +1510,80 @@ test "geometric resize to a wider width blanks the untouched tail" {
     const vp_tail = &dst.buf[dst.rowIndex(0, 5)];
     try testing.expectEqualStrings(" ", vp_tail.char.bytes());
     try testing.expectEqual(@as(u8, 1), vp_tail.width);
+}
+
+fn printLines(screen: *Screen, lines: []const u8) !void {
+    for (lines, 0..) |ch, i| {
+        screen.cursor.col = 0;
+        try screen.print(&.{ch}, 1, false, false);
+        if (i + 1 < lines.len) try screen.index();
+    }
+}
+
+test "resizeVertical grow pulls history up without reallocating" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 2, 100);
+    defer screen.deinit(alloc);
+
+    // history: 0 1 2 3 ; viewport: 4 (row0), 5 (row1, cursor)
+    try printLines(&screen, "012345");
+    try testing.expectEqual(@as(usize, 4), screen.historySize());
+    const buf_ptr = screen.buf.ptr;
+
+    screen.resizeVertical(alloc, 4);
+
+    try testing.expectEqual(buf_ptr, screen.buf.ptr); // no reallocation
+    try testing.expectEqual(@as(u16, 4), screen.height);
+    try testing.expectEqual(@as(usize, 2), screen.visible_top); // pulled 2 up
+    try testing.expectEqual(@as(u16, 3), screen.cursor.row);
+    try expectRow(&screen, 0, "2");
+    try expectRow(&screen, 1, "3");
+    try expectRow(&screen, 2, "4");
+    try expectRow(&screen, 3, "5");
+}
+
+test "resizeVertical shrink pushes rows into history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 4, 100);
+    defer screen.deinit(alloc);
+
+    // history: 0 1 ; viewport: 2 3 4 5 (cursor on 5, row3)
+    try printLines(&screen, "012345");
+    try testing.expectEqual(@as(usize, 2), screen.historySize());
+    const buf_ptr = screen.buf.ptr;
+
+    screen.resizeVertical(alloc, 2);
+
+    try testing.expectEqual(buf_ptr, screen.buf.ptr);
+    try testing.expectEqual(@as(u16, 2), screen.height);
+    try testing.expectEqual(@as(usize, 4), screen.visible_top);
+    try testing.expectEqual(@as(u16, 1), screen.cursor.row);
+    try expectRow(&screen, 0, "4");
+    try expectRow(&screen, 1, "5");
+    try testing.expectEqualStrings("2", screen.buf[8].char.bytes());
+    try testing.expectEqualStrings("3", screen.buf[12].char.bytes());
+}
+
+test "resizeVertical grow blanks newly-exposed rows including stale content" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 2, 100);
+    defer screen.deinit(alloc);
+
+    screen.cursor.row = 0;
+    screen.cursor.col = 0;
+    try screen.print(&.{'X'}, 1, false, false);
+    screen.buf[8].char.set(alloc, "Z");
+    screen.buf[9].char.set(alloc, "Z");
+
+    screen.resizeVertical(alloc, 4);
+
+    try testing.expectEqual(@as(u16, 4), screen.height);
+    try testing.expectEqual(@as(usize, 0), screen.visible_top);
+    try testing.expectEqualStrings("X", screen.buf[0].char.bytes());
+    try testing.expectEqualStrings(" ", screen.buf[8].char.bytes());
+    try testing.expectEqual(@as(u8, 1), screen.buf[8].width);
+    try testing.expectEqualStrings(" ", screen.buf[9].char.bytes());
 }
