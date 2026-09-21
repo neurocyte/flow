@@ -117,7 +117,7 @@ pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
 pub fn resize(self: *@This(), pos: Box) void {
     const rows: u16 = @intCast(@max(1, pos.h));
     const cols: u16 = @intCast(@max(1, pos.w));
-    self.vt.resize(winsize_for(rows, cols)) catch |e| {
+    self.vt.resize(winsize_for(rows, cols), tui.config().terminal_reflow_on_resize) catch |e| {
         std.log.err("terminal: resize failed: {}", .{e});
     };
 }
@@ -135,7 +135,7 @@ pub fn kill(self: *@This()) void {
 fn inject(self: *@This(), bytes: []const u8) void {
     var parser: Pty.Parser = .{ .buf = .init(self.vt.allocator) };
     defer parser.buf.deinit();
-    _ = self.vt.processOutput(&parser, bytes, self, process_terminal_event) catch {};
+    _ = self.vt.processOutput(&parser, bytes, self, process_terminal_event, false) catch {};
 }
 
 // Write a shell-style prompt with OSC 133 marks

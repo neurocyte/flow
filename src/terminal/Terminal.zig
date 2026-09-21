@@ -371,7 +371,7 @@ pub fn respawn(
 /// resize the screen. Locks access to the back screen. Should only be called from the main thread.
 /// This is safe to call every render cycle: there is a guard to only perform a resize if the size
 /// of the window has changed.
-pub fn resize(self: *Terminal, ws: Winsize) !void {
+pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     const cell = cellPixelsOf(ws);
     const pixels_changed = cell.w != self.cell_pixel_w or cell.h != self.cell_pixel_h;
     self.cell_pixel_w = cell.w;
@@ -388,19 +388,53 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);
 
-    self.front_screen.deinit(self.allocator);
-    self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+    if (reflow and ws.cols != self.front_screen.width) {
+        try self.resizeReflow(ws);
+    } else {
+        self.front_screen.deinit(self.allocator);
+        self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
 
-    var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.scrollback_size);
-    try self.back_screen_pri.copyHistoryTo(self.allocator, &new_pri);
-    try self.back_screen_pri.copyViewportTo(self.allocator, &new_pri);
-    self.back_screen_pri.deinit(self.allocator);
-    self.back_screen_pri = new_pri;
-    self.back_screen_alt.deinit(self.allocator);
-    self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
-    self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+        var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.scrollback_size);
+        try self.back_screen_pri.copyHistoryTo(self.allocator, &new_pri);
+        try self.back_screen_pri.copyViewportTo(self.allocator, &new_pri);
+        self.back_screen_pri.deinit(self.allocator);
+        self.back_screen_pri = new_pri;
+        self.back_screen_alt.deinit(self.allocator);
+        self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+        self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+    }
 
     try self.pty.setSize(ws);
+}
+
+fn ignoreTerminalEvent(_: *Event.HandlerContext, _: Event) error{TerminalHandlerFailed}!void {}
+
+fn resizeReflow(self: *Terminal, ws: Winsize) !void {
+    var history: std.Io.Writer.Allocating = .init(self.allocator);
+    defer history.deinit();
+    try self.back_screen_pri.encodeRows(&history.writer, 0, self.back_screen_pri.contentRows());
+
+    self.front_screen.deinit(self.allocator);
+    self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+    self.back_screen_pri.deinit(self.allocator);
+    self.back_screen_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.scrollback_size);
+    self.back_screen_alt.deinit(self.allocator);
+    self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+
+    const on_primary = self.back_screen == &self.back_screen_pri;
+    const saved_mode = self.mode;
+    self.back_screen = &self.back_screen_pri;
+    self.mode = .{};
+    defer {
+        self.mode = saved_mode;
+        self.back_screen = if (on_primary) &self.back_screen_pri else &self.back_screen_alt;
+    }
+
+    var parser: Parser = .{ .buf = .init(self.allocator) };
+    defer parser.buf.deinit();
+    _ = self.processOutput(&parser, history.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
+
+    self.scroll_offset = 0;
 }
 
 pub fn draw(
@@ -567,12 +601,7 @@ pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
     return &self.pty_writer.interface;
 }
 
-/// Process all output bytes from the pty that were just read by read loop
-/// The read loop calls this after each non-blocking read. Returns true if
-/// the shell has exited.
-/// `parser` is owned by the read loop and persists across calls so that
-/// partial escape sequences spanning multiple reads are handled correctly.
-pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context: *Event.HandlerContext, handle_event: Event.Handler) error{
+pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context: *Event.HandlerContext, handle_event: Event.Handler, held_lock: bool) error{
     ReadFailed,
     WriteFailed,
     OutOfMemory,
@@ -589,8 +618,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
             error.OutOfMemory,
             => |e_| return e_,
         };
-        try self.back_mutex.lock(self.io);
-        defer self.back_mutex.unlock(self.io);
+        if (!held_lock) try self.back_mutex.lock(self.io);
+        defer if (!held_lock) self.back_mutex.unlock(self.io);
 
         if (!self.dirty) {
             try handle_event(context, .redraw);

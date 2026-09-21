@@ -166,7 +166,7 @@ fn read_and_process(self: *@This()) error{ Terminated, InputOutput, TerminalHand
             return error.Terminated;
         }
 
-        switch (self.vt.processOutput(&self.parser, buf[0..n], self, pty_process_terminal_event) catch |e| switch (e) {
+        switch (self.vt.processOutput(&self.parser, buf[0..n], self, pty_process_terminal_event, false) catch |e| switch (e) {
             error.WriteFailed,
             error.ReadFailed,
             error.OutOfMemory,
