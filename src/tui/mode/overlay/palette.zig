@@ -77,6 +77,7 @@ pub fn Create(options: type) type {
         const async_query = @hasDecl(options, "query");
         const preserve_entry_order = @hasDecl(options, "preserve_entry_order") and options.preserve_entry_order;
         const has_compare_entries = @hasDecl(options, "compare_entries");
+        const has_score_bonus = @hasDecl(options, "score_bonus");
 
         pub const MenuType = Menu.Options(*Self).MenuType;
         pub const ButtonType = MenuType.ButtonType;
@@ -467,10 +468,11 @@ pub fn Create(options: type) type {
 
             for (self.entries.items) |*entry| {
                 const match = searcher.scoreMatches(entry.label, query);
+                const bonus: i32 = if (has_score_bonus) options.score_bonus(entry, query) else 0;
                 if (match.score) |score|
                     (try matches.addOne(self.allocator)).* = .{
                         .entry = entry,
-                        .score = score,
+                        .score = score + bonus,
                         .matches = try self.allocator.dupe(usize, match.matches),
                     };
             }
