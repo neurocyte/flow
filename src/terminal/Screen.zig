@@ -276,7 +276,7 @@ pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollba
         .visible_top = 0,
     };
     screen.buf = screen.ring.window();
-    for (screen.ring.physical()) |*cell| {
+    for (screen.buf[0 .. @as(usize, visible_h) * w]) |*cell| {
         cell.* = .{};
         cell.char.set(alloc, " ");
     }
@@ -284,10 +284,14 @@ pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollba
 }
 
 pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
-    for (self.ring.physical()) |*cell| {
-        cell.char.deinit(alloc);
-        cell.uri.deinit(alloc);
-        cell.uri_id.deinit(alloc);
+    if (self.width != 0) {
+        const total_rows = self.buf.len / self.width;
+        const used_rows = @min(self.visible_top + self.height, total_rows);
+        for (self.buf[0 .. used_rows * self.width]) |*cell| {
+            cell.char.deinit(alloc);
+            cell.uri.deinit(alloc);
+            cell.uri_id.deinit(alloc);
+        }
     }
     self.cursor.uri.deinit(alloc);
     self.cursor.uri_id.deinit(alloc);
@@ -340,6 +344,7 @@ pub fn copyHistoryTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) 
             try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
             dst.buf[dst_i].dirty = true;
         }
+        blankRowTail(dst, allocator, dst_row, copy_cols);
     }
 
     const drop_start: u32 = @intCast(src_history - copy_rows);
@@ -365,6 +370,12 @@ fn transferMarksRange(
             .click_events = mark.click_events,
         });
     }
+}
+
+fn blankRowTail(dst: *Screen, allocator: std.mem.Allocator, dst_row: usize, from: usize) void {
+    const base = dst_row * dst.width;
+    var col = from;
+    while (col < dst.width) : (col += 1) dst.buf[base + col].erase(allocator, .default);
 }
 
 /// Copy the visible viewport from `self` into `dst` for a vertical resize
@@ -393,6 +404,7 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
                 const dst_i = dst_buf_row * dst.width + col;
                 try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
             }
+            blankRowTail(dst, allocator, dst_buf_row, copy_cols);
         }
         const src_top: u32 = @intCast(self.visible_top);
         const src_bot: u32 = @intCast(self.visible_top + old_h);
@@ -419,6 +431,7 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
                 try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
                 dst.buf[dst_i].dirty = true;
             }
+            blankRowTail(dst, allocator, dst_hist_row, copy_cols);
         }
         dst.visible_top += push;
 
@@ -432,6 +445,7 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
                 const dst_i = dst_buf_row * dst.width + col;
                 try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
             }
+            blankRowTail(dst, allocator, dst_buf_row, copy_cols);
         }
 
         const src_top: u32 = @intCast(self.visible_top + src_vp_start - push);
@@ -1423,4 +1437,51 @@ test "encodeRows output parses back into the same cells" {
         try std.testing.expectEqualStrings(a.char.bytes(), b.char.bytes());
         try std.testing.expect(std.meta.eql(a.style, b.style));
     };
+}
+
+test "lazy scrollback only initialises used rows and frees them on deinit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 2, 100);
+    defer screen.deinit(alloc);
+
+    const wide = "x" ** (Grapheme.inline_capacity + 4);
+    screen.buf[screen.rowIndex(0, 0)].char.set(alloc, wide);
+
+    screen.cursor.row = 1;
+    var i: usize = 0;
+    while (i < 5) : (i += 1) try screen.index();
+
+    try testing.expectEqual(@as(usize, 5), screen.historySize());
+    try testing.expectEqualStrings(wide, screen.buf[0].char.bytes());
+    try testing.expectEqualStrings(" ", screen.buf[screen.rowIndex(1, 0)].char.bytes());
+}
+
+test "geometric resize to a wider width blanks the untouched tail" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var src = try Screen.initScrollback(alloc, 4, 2, 10);
+    defer src.deinit(alloc);
+
+    for ("ABCD") |ch| try src.print(&.{ch}, 1, false, false);
+    src.cursor.row = 1;
+    src.cursor.col = 0;
+    try src.index(); // push "ABCD" into history
+    src.cursor.row = 0;
+    src.cursor.col = 0;
+    for ("EFGH") |ch| try src.print(&.{ch}, 1, false, false);
+
+    var dst = try Screen.initScrollback(alloc, 8, 2, 10);
+    defer dst.deinit(alloc);
+    try src.copyHistoryTo(alloc, &dst);
+    try src.copyViewportTo(alloc, &dst);
+
+    try testing.expectEqualStrings("D", dst.buf[3].char.bytes());
+    try testing.expectEqualStrings(" ", dst.buf[4].char.bytes());
+    try testing.expectEqual(@as(u8, 1), dst.buf[4].width);
+    try testing.expectEqual(@as(u8, 1), dst.buf[7].width);
+
+    const vp_tail = &dst.buf[dst.rowIndex(0, 5)];
+    try testing.expectEqualStrings(" ", vp_tail.char.bytes());
+    try testing.expectEqual(@as(u8, 1), vp_tail.width);
 }
