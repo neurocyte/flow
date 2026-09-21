@@ -509,11 +509,15 @@ const Process = struct {
         var event_type: file_watcher.EventType = undefined;
         var object_type: file_watcher.ObjectType = undefined;
         var from_path: []const u8 = undefined;
+        var mtime_high: i64 = 0;
+        var mtime_low: i64 = 0;
 
         if (try cbor.match(m.buf, .{ "FW", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) })) {
             self.handle_file_watch_rename(from_path, path, object_type);
         } else if (try cbor.match(m.buf, .{ "FW", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) })) {
             self.handle_file_watch_event(path, event_type, object_type);
+        } else if (try cbor.match(m.buf, .{ "FS", "stat", tp.any, tp.extract(&path), tp.extract(&mtime_high), tp.extract(&mtime_low) })) {
+            self.handle_file_store_mtime(path, mtime_high, mtime_low);
         } else if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.more })) {
             if (self.projects.get(project_directory)) |project|
                 project.walk_tree_entry(m) catch |e| self.logger.err("walk_tree_entry", e);
@@ -655,17 +659,20 @@ const Process = struct {
         while (i.next()) |project| project.*.remove_lsp_status_subscriber(from);
     }
 
-    fn request_file_store(self: *Process, from: tp.pid_ref) (SpawnError || error{FileStoreFailed})!void {
+    fn ensure_file_store(self: *Process) SpawnError!tp.pid_ref {
         if (self.file_store) |*pid| {
             if (pid.expired()) {
                 pid.deinit();
                 self.file_store = null;
             }
         }
-        const file_store = self.file_store orelse blk: {
+        if (self.file_store == null)
             self.file_store = try FileStore.spawn();
-            break :blk self.file_store.?;
-        };
+        return self.file_store.?.ref();
+    }
+
+    fn request_file_store(self: *Process, from: tp.pid_ref) (SpawnError || error{FileStoreFailed})!void {
+        const file_store = try self.ensure_file_store();
         file_store.send(.{ "client", from.instance_id() }) catch return error.FileStoreFailed;
     }
 
@@ -685,6 +692,13 @@ const Process = struct {
             return .{ .project = entry.value_ptr.*, .rel_path = abs_path[dir.len + 1 ..] };
         }
         return null;
+    }
+
+    fn handle_file_store_mtime(self: *Process, abs_path: []const u8, mtime_high: i64, mtime_low: i64) void {
+        if (mtime_high == 0 and mtime_low == 0) return;
+        const match = self.project_for_path(abs_path) orelse return;
+        const mtime = (@as(i128, @intCast(mtime_high)) << 64) | @as(i128, @intCast(mtime_low));
+        match.project.set_fs_mtime(match.rel_path, mtime);
     }
 
     fn handle_file_watch_rename(self: *Process, abs_from: []const u8, abs_to: []const u8, object_type: file_watcher.ObjectType) void {
@@ -784,6 +798,9 @@ const Process = struct {
                 .watch_non_indexed = self.watch_non_indexed,
             });
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
+            if (self.ensure_file_store()) |file_store| {
+                project.file_store = file_store.clone();
+            } else |e| self.logger.err("file_store", e);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.query_git();
         }
