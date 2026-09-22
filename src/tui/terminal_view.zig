@@ -1080,11 +1080,13 @@ const cmds = struct {
         // gets a screenshot of just the visible viewport, while the
         // primary screen also includes scrollback history.
         const screen = self.vt.vt.back_screen;
-        const total_rows = screen.visible_top + screen.height;
+        // clip trailing blank rows
+        var last = screen.visible_top + screen.height;
+        while (last > 0 and screen.rowIsBlank(last - 1)) last -= 1;
 
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        try screen.extractRangeText(self.allocator, 0, total_rows, &content);
+        try screen.extractRangeText(self.allocator, 0, last, &content);
         try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
