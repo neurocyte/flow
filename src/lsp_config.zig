@@ -58,14 +58,7 @@ fn get_config_dir_path(project: ?[]const u8, scope: Scope, mode: Mode) ![]u8 {
                 else => return e,
             };
             if (project) |prj| {
-                for (prj) |c| {
-                    _ = if (std.fs.path.isSep(c))
-                        try writer.write("__")
-                    else if (c == ':')
-                        try writer.write("___")
-                    else
-                        try writer.writeByte(c);
-                }
+                try root.encode_path_to_filename(writer, prj);
                 _ = try writer.writeByte(std.fs.path.sep);
             }
         },

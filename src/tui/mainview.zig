@@ -1045,8 +1045,12 @@ const cmds = struct {
     pub fn restore_session(self: *Self, _: Ctx) Result {
         const logger = log.logger("session");
         defer logger.deinit();
-        self.read_restore_info(root.get_io(), root.get_now()) catch |e|
-            return discard_restore_info(logger, e);
+        const file_name = tp.env.get().str("restore-session-file");
+        if (file_name.len == 0) return;
+        const remove_session = tp.env.get().is("remove-session-file");
+        defer if (remove_session) std.Io.Dir.deleteFileAbsolute(root.get_io(), file_name) catch {};
+        self.read_restore_info(root.get_io(), root.get_now(), file_name) catch |e|
+            return discard_restore_info(logger, file_name, e);
         logger.print("session restored", .{});
         tui.need_render(@src());
     }
@@ -2529,16 +2533,28 @@ pub const WriteStateError = error{
 };
 
 pub fn write_restore_info(self: *Self) WriteStateError!void {
-    const file_name = root.get_restore_file_name() catch return;
+    const project = tp.env.get().str("project");
+    const file_name = root.get_session_file_name(self.allocator, project) catch return;
+    defer self.allocator.free(file_name);
+    self.write_session_file(file_name) catch {};
+}
+
+fn write_session_file(self: *Self, file_name: []const u8) !void {
     const io = root.get_io();
-    var file = std.Io.Dir.createFileAbsolute(io, file_name, .{ .truncate = true }) catch return;
+    var file = try std.Io.Dir.createFileAbsolute(io, file_name, .{ .truncate = true });
     defer file.close(io);
     var buf: [32 + 1024]u8 = undefined;
     var file_writer = file.writer(io, &buf);
     const writer = &file_writer.interface;
-
     try self.write_state(writer);
     try writer.flush();
+}
+
+pub fn write_restart_session(self: *Self) WriteStateError!void {
+    self.write_restore_info() catch {};
+    const handoff = root.get_restart_session_file_name(self.allocator) catch return;
+    defer self.allocator.free(handoff);
+    self.write_session_file(handoff) catch return;
 }
 
 pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
@@ -2578,8 +2594,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     try self.bottom_area.write_state(writer);
 }
 
-fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
-    const file_name = try root.get_restore_file_name();
+fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp, file_name: []const u8) !void {
     const file = try std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only });
     defer file.close(io);
     const stat = try file.stat(io);
@@ -2592,10 +2607,8 @@ fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
     try self.extract_state(&iter, .with_project, now);
 }
 
-fn discard_restore_info(logger: log.Logger, err: anyerror) void {
+fn discard_restore_info(logger: log.Logger, file_name: []const u8, err: anyerror) void {
     if (err == error.FileNotFound) return; // no session has been saved yet
-    const file_name = root.get_restore_file_name() catch |e|
-        return logger.print_err("session", "failed to restore session: {s} ({s})", .{ @errorName(err), @errorName(e) });
     logger.print_err(
         "session",
         "failed to restore session: {s}",

@@ -93,6 +93,15 @@ fn rebuild(self: *Self) void {
             continue;
         };
     }
+    if (MenuButton.create(self.allocator, self.list.plane) catch null) |m| blk: {
+        var spacer = Widget.empty(self.allocator, self.list.plane, .dynamic) catch {
+            m.deinit(self.allocator);
+            break :blk;
+        };
+        self.list.add(spacer) catch spacer.deinit(self.allocator);
+        self.list.add(m) catch m.deinit(self.allocator);
+    }
+
     self.list.resize(self.list.deco_box);
     tui.refresh_hover(@src());
 }
@@ -166,5 +175,38 @@ const Tab = struct {
     fn on_click2(t: *Tab, _: *ButtonType, _: Widget.Pos) void {
         const src = t.strip.source;
         src.on_close(src.ctx, t.id);
+    }
+};
+
+const MenuButton = struct {
+    const ButtonType = Button.Options(@This()).ButtonType;
+
+    pub fn create(allocator: Allocator, parent: Plane) error{OutOfMemory}!Widget {
+        return Button.create_widget(@This(), allocator, parent, .{
+            .ctx = .{},
+            .label = " ≡ ",
+            .on_click = on_click,
+            .on_layout = layout,
+            .on_render = render,
+        });
+    }
+
+    fn on_click(_: *@This(), _: *ButtonType, _: Widget.Pos) void {
+        @import("command").executeName("switch_terminals", .empty()) catch {};
+    }
+
+    pub fn layout(_: *@This(), _: *ButtonType) Widget.Layout {
+        return .{ .static = 3 };
+    }
+
+    pub fn render(_: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
+        btn.plane.set_base_style(theme.editor);
+        btn.plane.erase();
+        btn.plane.home();
+        btn.plane.set_style(if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.tab_inactive);
+        btn.plane.fill(" ");
+        btn.plane.home();
+        _ = btn.plane.putstr(btn.opts.label) catch {};
+        return false;
     }
 };

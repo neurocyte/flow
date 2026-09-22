@@ -284,7 +284,7 @@ fn init(allocator: Allocator) InitError!*Self {
     resize();
     save_config() catch |e| self.logger.err("save_config", e);
     try self.init_input_namespace();
-    if (tp.env.get().is("restore-session")) {
+    if (tp.env.get().str("restore-session-file").len > 0) {
         command.executeName("restore_session", .empty()) catch |e| self.logger.err("restore_session", e);
     }
     self.start_config_watcher();
@@ -571,7 +571,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{"restart"})) {
-        if (mainview()) |mv| try mv.write_restore_info();
+        if (mainview()) |mv| mv.write_restart_session() catch {};
         config_watcher.shutdown();
         project_manager.shutdown();
         self.final_exit = "restart";

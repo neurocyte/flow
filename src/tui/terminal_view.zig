@@ -47,6 +47,7 @@ selection: ?Selection = null,
 selecting: bool = false,
 selection_screen: ?*Vt.Screen = null,
 selection_dropped: usize = 0,
+selection_cleared: usize = 0,
 last_click_ms: i64 = 0,
 last_click_pos: Position = .{ .row = 0, .col = 0 },
 click_count: u8 = 0,
@@ -701,6 +702,7 @@ fn begin_selection(self: *Self, mode: SelectionMode, anchor: Position, span: Sel
     self.selecting = true;
     self.selection_screen = self.vt.vt.back_screen;
     self.selection_dropped = self.vt.vt.back_screen.dropped;
+    self.selection_cleared = self.vt.vt.back_screen.cleared;
     tui.need_render(@src());
 }
 
@@ -773,6 +775,7 @@ fn reconcile_selection(self: *Self) void {
     var sel = self.selection orelse return;
     const screen = self.vt.vt.back_screen;
     if (self.selection_screen != screen) return self.clear_selection();
+    if (screen.cleared != self.selection_cleared) return self.clear_selection();
 
     const delta = screen.dropped -| self.selection_dropped;
     if (delta == 0) return;
@@ -844,6 +847,7 @@ fn selection_text(self: *Self, out_allocator: Allocator) !?[]u8 {
     var col_at_byte: std.ArrayList(u16) = .empty;
     defer col_at_byte.deinit(self.allocator);
 
+    var need_newline = false;
     var row = s.start.row;
     while (row <= s.end.row) : (row += 1) {
         if (row >= total_rows) break;
@@ -857,8 +861,10 @@ fn selection_text(self: *Self, out_allocator: Allocator) !?[]u8 {
         const end_byte = col_start_byte(col_at_byte.items, c1 +| 1);
         const seg = line.items[start_byte..end_byte];
 
-        if (row != s.start.row) try out.writer.writeByte('\n');
-        try out.writer.writeAll(std.mem.trimEnd(u8, seg, " \t"));
+        const wrapped = screen.rowWrapped(row);
+        if (need_newline) try out.writer.writeByte('\n');
+        try out.writer.writeAll(if (wrapped) seg else std.mem.trimEnd(u8, seg, " \t"));
+        need_newline = !wrapped;
     }
     if (self.selection_mode == .line) try out.writer.writeByte('\n');
     return try out.toOwnedSlice();
@@ -1074,15 +1080,14 @@ const cmds = struct {
         // gets a screenshot of just the visible viewport, while the
         // primary screen also includes scrollback history.
         const screen = self.vt.vt.back_screen;
-        const total_rows = screen.visible_top + screen.height;
+        // clip trailing blank rows
+        var last = screen.visible_top + screen.height;
+        while (last > 0 and screen.rowIsBlank(last - 1)) last -= 1;
 
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        var row: usize = 0;
-        while (row < total_rows) : (row += 1) {
-            screen.extractRowText(self.allocator, row, &content, null) catch break;
-            content.append(self.allocator, '\n') catch break;
-        }
+        try screen.extractRangeText(self.allocator, 0, last, &content);
+        try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
         defer buffer_name.deinit(self.allocator);
@@ -1120,11 +1125,8 @@ const cmds = struct {
 
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        var row: u32 = range.start;
-        while (row < range.end) : (row += 1) {
-            screen.extractRowText(self.allocator, row, &content, null) catch break;
-            content.append(self.allocator, '\n') catch break;
-        }
+        try screen.extractRangeText(self.allocator, range.start, range.end, &content);
+        try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
         defer buffer_name.deinit(self.allocator);

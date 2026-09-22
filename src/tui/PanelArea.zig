@@ -517,7 +517,10 @@ pub fn restore_state(self: *Self, state: []const u8, restore_panel: RestoreFn) !
     }
     try skip_values(&iter, fields - 5);
     self.maximized = maximized;
-    if (visible_) self.show();
+    if (visible_) {
+        self.show();
+        if (self.maximized) self.focus_active();
+    }
 }
 
 pub fn cycle_tab(self: *Self, dir: PanelGroup.Direction) void {

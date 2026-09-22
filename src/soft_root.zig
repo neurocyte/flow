@@ -30,6 +30,9 @@ pub const root = struct {
     pub const exists_config = if (@hasDecl(hard_root, "exists_config")) hard_root.exists_config else dummy.exists_config;
     pub const get_config_file_name = if (@hasDecl(hard_root, "get_config_file_name")) hard_root.get_config_file_name else dummy.get_config_file_name;
     pub const get_restore_file_name = if (@hasDecl(hard_root, "get_restore_file_name")) hard_root.get_restore_file_name else dummy.get_restore_file_name;
+    pub const encode_path_to_filename = if (@hasDecl(hard_root, "encode_path_to_filename")) hard_root.encode_path_to_filename else dummy.encode_path_to_filename;
+    pub const get_session_file_name = if (@hasDecl(hard_root, "get_session_file_name")) hard_root.get_session_file_name else dummy.get_session_file_name;
+    pub const get_restart_session_file_name = if (@hasDecl(hard_root, "get_restart_session_file_name")) hard_root.get_restart_session_file_name else dummy.get_restart_session_file_name;
 
     pub const read_theme = if (@hasDecl(hard_root, "read_theme")) hard_root.read_theme else dummy.read_theme;
     pub const write_theme = if (@hasDecl(hard_root, "write_theme")) hard_root.write_theme else dummy.write_theme;
@@ -127,6 +130,15 @@ const dummy = struct {
     }
     pub fn get_restore_file_name() ![]const u8 {
         @panic("dummy get_restore_file_name call");
+    }
+    pub fn encode_path_to_filename(_: *std.Io.Writer, _: []const u8) std.Io.Writer.Error!void {
+        @panic("dummy encode_path_to_filename call");
+    }
+    pub fn get_session_file_name(_: std.mem.Allocator, _: []const u8) ![]const u8 {
+        @panic("dummy get_session_file_name call");
+    }
+    pub fn get_restart_session_file_name(_: std.mem.Allocator) ![:0]const u8 {
+        @panic("dummy get_restart_session_file_name call");
     }
 
     pub fn read_theme(_: std.mem.Allocator, _: []const u8) ?[]const u8 {
