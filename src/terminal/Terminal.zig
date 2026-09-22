@@ -418,6 +418,8 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
         self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
     }
 
+    self.markViewDirty();
+
     try self.pty.setSize(ws);
 }
 
@@ -503,6 +505,15 @@ pub fn draw(
     }
 }
 
+fn markViewDirty(self: *Terminal) void {
+    const s = &self.back_screen_pri;
+    if (s.width == 0) return;
+    const total_rows = s.buf.len / s.width;
+    const start = s.visible_top -| self.scroll_offset;
+    const end = @min(start + @as(usize, s.height), total_rows);
+    for (s.buf[start * s.width .. end * s.width]) |*cell| cell.dirty = true;
+}
+
 /// adjust the scrollback view
 /// returns true if the offset changed
 pub fn scroll(self: *Terminal, delta: i32) bool {
@@ -516,7 +527,7 @@ pub fn scroll(self: *Terminal, delta: i32) bool {
     self.scroll_offset = new_offset;
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);
-    for (self.back_screen_pri.buf) |*cell| cell.dirty = true;
+    self.markViewDirty();
     return true;
 }
 
@@ -526,7 +537,7 @@ pub fn scrollToBottom(self: *Terminal) void {
     self.scroll_offset = 0;
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);
-    for (self.back_screen_pri.buf) |*cell| cell.dirty = true;
+    self.markViewDirty();
 }
 
 pub fn shellState(self: *Terminal) Screen.ShellState {
