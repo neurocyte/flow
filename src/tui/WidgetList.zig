@@ -113,11 +113,11 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     allocator.destroy(self);
 }
 
-pub fn add(self: *Self, w_: Widget) !void {
+pub fn add(self: *Self, w_: Widget) error{OutOfMemory}!void {
     _ = try self.addP(w_);
 }
 
-pub fn addP(self: *Self, w_: Widget) !*Widget {
+pub fn addP(self: *Self, w_: Widget) error{OutOfMemory}!*Widget {
     var w: *WidgetState = try self.widgets.addOne(self.allocator);
     w.* = .{
         .widget = w_,
@@ -126,7 +126,7 @@ pub fn addP(self: *Self, w_: Widget) !*Widget {
     return &w.widget;
 }
 
-pub fn insert(self: *Self, n: usize, w_: Widget) !void {
+pub fn insert(self: *Self, n: usize, w_: Widget) error{OutOfMemory}!void {
     try self.widgets.insert(self.allocator, n, .{
         .widget = w_,
         .layout = w_.layout(),
