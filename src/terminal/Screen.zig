@@ -1471,15 +1471,15 @@ test "lazy scrollback only initialises used rows and frees them on deinit" {
     var screen = try Screen.initScrollback(alloc, 4, 2, 100);
     defer screen.deinit(alloc);
 
-    const wide = "x" ** (Grapheme.inline_capacity + 4);
-    screen.buf[screen.rowIndex(0, 0)].char.set(alloc, wide);
+    const wide: [Grapheme.inline_capacity + 4]u8 = @splat('x');
+    screen.buf[screen.rowIndex(0, 0)].char.set(alloc, &wide);
 
     screen.cursor.row = 1;
     var i: usize = 0;
     while (i < 5) : (i += 1) try screen.index();
 
     try testing.expectEqual(@as(usize, 5), screen.historySize());
-    try testing.expectEqualStrings(wide, screen.buf[0].char.bytes());
+    try testing.expectEqualStrings(&wide, screen.buf[0].char.bytes());
     try testing.expectEqualStrings(" ", screen.buf[screen.rowIndex(1, 0)].char.bytes());
 }
 
