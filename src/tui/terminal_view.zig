@@ -47,6 +47,7 @@ selection: ?Selection = null,
 selecting: bool = false,
 selection_screen: ?*Vt.Screen = null,
 selection_dropped: usize = 0,
+selection_cleared: usize = 0,
 last_click_ms: i64 = 0,
 last_click_pos: Position = .{ .row = 0, .col = 0 },
 click_count: u8 = 0,
@@ -701,6 +702,7 @@ fn begin_selection(self: *Self, mode: SelectionMode, anchor: Position, span: Sel
     self.selecting = true;
     self.selection_screen = self.vt.vt.back_screen;
     self.selection_dropped = self.vt.vt.back_screen.dropped;
+    self.selection_cleared = self.vt.vt.back_screen.cleared;
     tui.need_render(@src());
 }
 
@@ -773,6 +775,7 @@ fn reconcile_selection(self: *Self) void {
     var sel = self.selection orelse return;
     const screen = self.vt.vt.back_screen;
     if (self.selection_screen != screen) return self.clear_selection();
+    if (screen.cleared != self.selection_cleared) return self.clear_selection();
 
     const delta = screen.dropped -| self.selection_dropped;
     if (delta == 0) return;

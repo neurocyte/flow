@@ -205,6 +205,7 @@ width: u16 = 0,
 height: u16 = 0,
 visible_top: usize = 0,
 dropped: usize = 0,
+cleared: usize = 0,
 
 scrolling_region: ScrollingRegion,
 
@@ -1296,6 +1297,7 @@ pub fn eraseAll(self: *Screen) void {
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
+    self.cleared += 1;
 }
 
 pub fn deleteCharacters(self: *Screen, n: usize) !void {
