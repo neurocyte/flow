@@ -426,9 +426,20 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
 fn ignoreTerminalEvent(_: *Event.HandlerContext, _: Event) error{TerminalHandlerFailed}!void {}
 
 fn resizeReflow(self: *Terminal, ws: Winsize) !void {
-    var history: std.Io.Writer.Allocating = .init(self.allocator);
-    defer history.deinit();
-    try self.back_screen_pri.encodeRows(&history.writer, 0, self.back_screen_pri.contentRows());
+    const old = &self.back_screen_pri;
+    const content_rows = old.contentRows();
+    const preserve = self.scroll_offset > 0;
+    const split = if (preserve) @min(old.visible_top -| self.scroll_offset, content_rows) else content_rows;
+    const ow: usize = old.width;
+    const hard_break = preserve and split > 0 and split < content_rows and
+        !old.buf[(split - 1) * ow + ow - 1].wrapped;
+
+    var above: std.Io.Writer.Allocating = .init(self.allocator);
+    defer above.deinit();
+    try old.encodeRows(&above.writer, 0, split);
+    var below: std.Io.Writer.Allocating = .init(self.allocator);
+    defer below.deinit();
+    try old.encodeRows(&below.writer, split, content_rows);
 
     self.front_screen.deinit(self.allocator);
     self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
@@ -448,9 +459,14 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
 
     var parser: Parser = .{ .buf = .init(self.allocator) };
     defer parser.buf.deinit();
-    _ = self.processOutput(&parser, history.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
+    _ = self.processOutput(&parser, above.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
+    if (hard_break)
+        _ = self.processOutput(&parser, "\r\n", @ptrCast(self), ignoreTerminalEvent, true) catch {};
+    const pri = &self.back_screen_pri;
+    const new_view_top = pri.visible_top + pri.cursor.row;
+    _ = self.processOutput(&parser, below.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
 
-    self.scroll_offset = 0;
+    self.scroll_offset = if (preserve) @min(pri.visible_top -| new_view_top, pri.historySize()) else 0;
 }
 
 pub fn draw(
