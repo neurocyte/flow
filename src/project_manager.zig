@@ -1178,14 +1178,7 @@ const Process = struct {
             error.PathAlreadyExists => {},
             else => return e,
         };
-        for (path) |c| {
-            _ = if (std.fs.path.isSep(c))
-                try writer.write("__")
-            else if (c == ':')
-                try writer.write("___")
-            else
-                try writer.writeByte(c);
-        }
+        try root.encode_path_to_filename(writer, path);
         return stream.toOwnedSlice();
     }
 

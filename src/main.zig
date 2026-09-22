@@ -74,7 +74,9 @@ pub fn main(init: std.process.Init) anyerror!void {
             .no_alternate = "Do not use the alternate terminal screen",
             .trace_level = "Enable internal tracing (level of detail from 1-5)",
             .no_trace = "Do not enable internal tracing",
-            .restore_session = "Restore restart session",
+            .restore_session = "Restore the session for the current project",
+            .restore_session_file = "Restore a session file",
+            .remove_session_file = "Remove session file after restore",
             .show_input = "Open the input view on start",
             .show_log = "Open the log view on start",
             .log_stdout = "Log to stdout",
@@ -119,6 +121,8 @@ pub fn main(init: std.process.Init) anyerror!void {
         trace_level: u8 = 0,
         no_trace: bool,
         restore_session: bool,
+        restore_session_file: ?[]const u8,
+        remove_session_file: bool,
         show_input: bool,
         show_log: bool,
         log_stdout: bool,
@@ -246,7 +250,19 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer log.set_std_log_pid(null);
 
     env.set("no-persist", args.no_persist);
-    env.set("restore-session", args.restore_session);
+    if (args.restore_session_file) |file| {
+        env.str_set("restore-session-file", file);
+    } else if (args.restore_session) {
+        var path_buf: [std.posix.PATH_MAX]u8 = undefined;
+        const project_dir = args.project orelse ".";
+        if (std.Io.Dir.cwd().realPathFile(get_io(), project_dir, &path_buf)) |len| {
+            if (get_session_file_name(a, path_buf[0..len])) |session_file| {
+                defer a.free(session_file);
+                env.str_set("restore-session-file", session_file);
+            } else |_| {}
+        } else |_| {}
+    }
+    env.set("remove-session-file", args.remove_session_file);
     env.set("no-alternate", args.no_alternate);
     env.set("show-input", args.show_input);
     env.set("show-log", args.show_log);
@@ -1122,6 +1138,70 @@ pub fn get_restore_file_name() ![]const u8 {
     return restore_file;
 }
 
+pub fn encode_path_to_filename(writer: *std.Io.Writer, path: []const u8) std.Io.Writer.Error!void {
+    for (path) |ch| {
+        if (std.fs.path.isSep(ch))
+            try writer.writeAll("__")
+        else if (ch == ':')
+            try writer.writeAll("___")
+        else
+            try writer.writeByte(ch);
+    }
+}
+
+fn get_sessions_dir() ![]const u8 {
+    const local = struct {
+        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var dir: ?[]const u8 = null;
+    };
+    if (local.dir) |dir| return dir;
+    const dir = try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}sessions", .{ try get_app_state_dir(application_name), sep });
+    create_dir_path(get_io(), dir) catch |e| return make_dir_error(dir, e);
+    local.dir = dir;
+    return dir;
+}
+
+pub fn get_session_file_name(allocator: std.mem.Allocator, project_dir: []const u8) ![]const u8 {
+    var stream: std.Io.Writer.Allocating = .init(allocator);
+    errdefer stream.deinit();
+    const writer = &stream.writer;
+    try writer.writeAll(try get_sessions_dir());
+    try writer.writeByte(sep);
+    try encode_path_to_filename(writer, project_dir);
+    return stream.toOwnedSlice();
+}
+
+fn get_runtime_dir() ![]const u8 {
+    const local = struct {
+        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var dir: ?[]const u8 = null;
+    };
+    if (local.dir) |dir| return dir;
+    const environ = get_init().environ_map;
+    const dir = if (environ.get("XDG_RUNTIME_DIR")) |xdg|
+        try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ xdg, sep, application_name })
+    else
+        return get_app_state_dir(application_name);
+    create_dir_path(get_io(), dir) catch |e| return make_dir_error(dir, e);
+    local.dir = dir;
+    return dir;
+}
+
+pub fn get_pid() i32 {
+    return switch (builtin.os.tag) {
+        .windows => @intCast(std.os.windows.GetCurrentProcessId()),
+        else => std.c.getpid(),
+    };
+}
+
+pub fn get_restart_session_file_name(allocator: std.mem.Allocator) ![:0]const u8 {
+    return std.fmt.allocPrintSentinel(allocator, "{s}{c}restart-{d}", .{ try get_runtime_dir(), sep, get_pid() }, 0);
+}
+
+fn pending_restart_session_file() ?[:0]const u8 {
+    return get_restart_session_file_name(get_init().gpa) catch null;
+}
+
 const keybind_dir = "keys";
 
 fn get_keybind_namespaces_directory() ![]const u8 {
@@ -1237,28 +1317,48 @@ fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
 fn restart() noreturn {
     if (builtin.os.tag == .windows) return restart_win32();
     const executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
-    const argv = [_]?[*:0]const u8{
-        executable,
-        "--restore-session",
-        null,
-    };
-    const ret = std.c.execve(executable, @ptrCast(&argv), @ptrCast(get_init().minimal.environ.block.slice.ptr));
-    restart_failed(ret);
+    const environ: [*:null]const ?[*:0]const u8 = @ptrCast(get_init().minimal.environ.block.slice.ptr);
+    if (pending_restart_session_file()) |path| {
+        const argv = [_]?[*:0]const u8{
+            executable,
+            "--restore-session-file",
+            path.ptr,
+            "--remove-session-file",
+            null,
+        };
+        restart_failed(std.c.execve(executable, @ptrCast(&argv), environ));
+    } else {
+        const argv = [_]?[*:0]const u8{ executable, "--restore-session", null };
+        restart_failed(std.c.execve(executable, @ptrCast(&argv), environ));
+    }
 }
 
 fn restart_with_sudo() noreturn {
     if (builtin.os.tag == .windows) return restart_win32();
     const sudo_executable = resolve_executable("sudo");
     const flow_executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
-    const argv = [_]?[*:0]const u8{
-        sudo_executable,
-        "--preserve-env",
-        flow_executable,
-        "--restore-session",
-        null,
-    };
-    const ret = std.c.execve(sudo_executable, @ptrCast(&argv), @ptrCast(get_init().minimal.environ.block.slice.ptr));
-    restart_failed(ret);
+    const environ: [*:null]const ?[*:0]const u8 = @ptrCast(get_init().minimal.environ.block.slice.ptr);
+    if (pending_restart_session_file()) |path| {
+        const argv = [_]?[*:0]const u8{
+            sudo_executable,
+            "--preserve-env",
+            flow_executable,
+            "--restore-session-file",
+            path.ptr,
+            "--remove-session-file",
+            null,
+        };
+        restart_failed(std.c.execve(sudo_executable, @ptrCast(&argv), environ));
+    } else {
+        const argv = [_]?[*:0]const u8{
+            sudo_executable,
+            "--preserve-env",
+            flow_executable,
+            "--restore-session",
+            null,
+        };
+        restart_failed(std.c.execve(sudo_executable, @ptrCast(&argv), environ));
+    }
 }
 
 fn restart_win32() noreturn {
@@ -1270,16 +1370,21 @@ fn restart_win32() noreturn {
 
     if (!build_options.gui) return restart_manual();
     const executable = resolve_executable(argv0);
-    const argv = [_][]const u8{
-        executable,
-        "--restore-session",
-    };
-    _ = std.process.spawn(get_io(), .{
-        .argv = &argv,
-        .stdin = .inherit,
-        .stdout = .inherit,
-        .stderr = .inherit,
-    }) catch {
+    const spawned = if (pending_restart_session_file()) |path|
+        std.process.spawn(get_io(), .{
+            .argv = &[_][]const u8{ executable, "--restore-session-file", path, "--remove-session-file" },
+            .stdin = .inherit,
+            .stdout = .inherit,
+            .stderr = .inherit,
+        })
+    else
+        std.process.spawn(get_io(), .{
+            .argv = &[_][]const u8{ executable, "--restore-session" },
+            .stdin = .inherit,
+            .stdout = .inherit,
+            .stderr = .inherit,
+        });
+    _ = spawned catch {
         std.os.windows.ntdll.RtlExitUserProcess(1);
     };
     std.os.windows.ntdll.RtlExitUserProcess(0);
