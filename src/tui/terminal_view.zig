@@ -844,6 +844,7 @@ fn selection_text(self: *Self, out_allocator: Allocator) !?[]u8 {
     var col_at_byte: std.ArrayList(u16) = .empty;
     defer col_at_byte.deinit(self.allocator);
 
+    var need_newline = false;
     var row = s.start.row;
     while (row <= s.end.row) : (row += 1) {
         if (row >= total_rows) break;
@@ -857,8 +858,10 @@ fn selection_text(self: *Self, out_allocator: Allocator) !?[]u8 {
         const end_byte = col_start_byte(col_at_byte.items, c1 +| 1);
         const seg = line.items[start_byte..end_byte];
 
-        if (row != s.start.row) try out.writer.writeByte('\n');
-        try out.writer.writeAll(std.mem.trimEnd(u8, seg, " \t"));
+        const wrapped = screen.rowWrapped(row);
+        if (need_newline) try out.writer.writeByte('\n');
+        try out.writer.writeAll(if (wrapped) seg else std.mem.trimEnd(u8, seg, " \t"));
+        need_newline = !wrapped;
     }
     if (self.selection_mode == .line) try out.writer.writeByte('\n');
     return try out.toOwnedSlice();
@@ -1078,11 +1081,8 @@ const cmds = struct {
 
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        var row: usize = 0;
-        while (row < total_rows) : (row += 1) {
-            screen.extractRowText(self.allocator, row, &content, null) catch break;
-            content.append(self.allocator, '\n') catch break;
-        }
+        try screen.extractRangeText(self.allocator, 0, total_rows, &content);
+        try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
         defer buffer_name.deinit(self.allocator);
@@ -1120,11 +1120,8 @@ const cmds = struct {
 
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        var row: u32 = range.start;
-        while (row < range.end) : (row += 1) {
-            screen.extractRowText(self.allocator, row, &content, null) catch break;
-            content.append(self.allocator, '\n') catch break;
-        }
+        try screen.extractRangeText(self.allocator, range.start, range.end, &content);
+        try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
         defer buffer_name.deinit(self.allocator);

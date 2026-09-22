@@ -754,6 +754,44 @@ pub fn contentRows(self: *const Screen) usize {
     return @min(self.buf.len / self.width, self.visible_top + @as(usize, self.cursor.row) + 1);
 }
 
+pub fn rowWrapped(self: *const Screen, row: usize) bool {
+    if (self.width == 0) return false;
+    return self.buf[row * self.width + self.width - 1].wrapped;
+}
+
+pub fn rowContentEnd(self: *const Screen, row: usize) usize {
+    if (self.width == 0) return 0;
+    const cells = self.buf[row * self.width ..][0..self.width];
+    if (cells[self.width - 1].wrapped) return self.width;
+    var end: usize = self.width;
+    while (end > 0 and isBlankCell(&cells[end - 1])) end -= 1;
+    return end;
+}
+
+pub fn extractRangeText(
+    self: *const Screen,
+    allocator: std.mem.Allocator,
+    first: usize,
+    last_: usize,
+    out: *std.ArrayList(u8),
+) !void {
+    if (self.width == 0) return;
+    const last = @min(last_, self.buf.len / self.width);
+    var row = first;
+    while (row < last) : (row += 1) {
+        const cells = self.buf[row * self.width ..][0..self.width];
+        const end = self.rowContentEnd(row);
+        var col: usize = 0;
+        while (col < end) {
+            const cell = &cells[col];
+            const bytes = cell.char.bytes();
+            try out.appendSlice(allocator, if (bytes.len == 0) " " else bytes);
+            col += @max(1, cell.width);
+        }
+        if (!self.rowWrapped(row) and row + 1 < last) try out.append(allocator, '\n');
+    }
+}
+
 pub fn encodeRows(self: *const Screen, writer: *std.Io.Writer, first: usize, last_: usize) std.Io.Writer.Error!void {
     if (self.width == 0) return;
     const last = @min(last_, self.buf.len / self.width);
@@ -766,11 +804,8 @@ pub fn encodeRows(self: *const Screen, writer: *std.Io.Writer, first: usize, las
     var row = first;
     while (row < last) : (row += 1) {
         const cells = self.buf[row * self.width ..][0..self.width];
-        const wrapped = cells[self.width - 1].wrapped;
-        var end: usize = self.width;
-        if (!wrapped) while (end > 0 and isBlankCell(&cells[end - 1])) {
-            end -= 1;
-        };
+        const wrapped = self.rowWrapped(row);
+        const end = self.rowContentEnd(row);
         var col: usize = 0;
         while (col < end) {
             mark_idx = try self.writeMarks(writer, mark_idx, row, col);
@@ -1586,4 +1621,21 @@ test "resizeVertical grow blanks newly-exposed rows including stale content" {
     try testing.expectEqualStrings(" ", screen.buf[8].char.bytes());
     try testing.expectEqual(@as(u8, 1), screen.buf[8].width);
     try testing.expectEqualStrings(" ", screen.buf[9].char.bytes());
+}
+
+test "extractRangeText joins soft-wrapped rows and trims hard lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 3, 10);
+    defer screen.deinit(alloc);
+
+    try printAll(&screen, "abcdef");
+    screen.cursor.col = 0;
+    try screen.index();
+    try printAll(&screen, "xy");
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(alloc);
+    try screen.extractRangeText(alloc, 0, screen.contentRows(), &out);
+    try testing.expectEqualStrings("abcdef\nxy", out.items);
 }
