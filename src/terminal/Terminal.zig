@@ -53,10 +53,15 @@ pub const Event = union(enum) {
 const log = std.log.scoped(.terminal);
 
 pub const Options = struct {
-    scrollback_size: u16 = 500,
+    scrollback_bytes: usize = 8 << 20,
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     initial_working_directory: ?[]const u8 = null,
 };
+
+fn scrollbackRowsFor(scrollback_bytes: usize, cols: u16) usize {
+    const row_bytes = @as(usize, cols) * @sizeOf(Screen.Cell);
+    return if (row_bytes == 0) 0 else scrollback_bytes / row_bytes;
+}
 
 pub const Mode = struct {
     origin: bool = false,
@@ -125,7 +130,7 @@ pub const InputEvent = union(enum) {
 
 io: std.Io,
 allocator: std.mem.Allocator,
-scrollback_size: u16,
+scrollback_bytes: usize,
 
 pty: Pty,
 pty_writer: std.Io.File.Writer,
@@ -258,9 +263,9 @@ pub fn init(
         else
             pty.pty.writerStreaming(io, write_buf),
         .cmd = cmd,
-        .scrollback_size = opts.scrollback_size,
+        .scrollback_bytes = opts.scrollback_bytes,
         .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
-        .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_size),
+        .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, scrollbackRowsFor(opts.scrollback_bytes, opts.winsize.cols)),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
         .cell_pixel_w = cellPixelsOf(opts.winsize).w,
@@ -371,7 +376,7 @@ pub fn respawn(
 /// resize the screen. Locks access to the back screen. Should only be called from the main thread.
 /// This is safe to call every render cycle: there is a guard to only perform a resize if the size
 /// of the window has changed.
-pub fn resize(self: *Terminal, ws: Winsize) !void {
+pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     const cell = cellPixelsOf(ws);
     const pixels_changed = cell.w != self.cell_pixel_w or cell.h != self.cell_pixel_h;
     self.cell_pixel_w = cell.w;
@@ -388,19 +393,62 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);
 
-    self.front_screen.deinit(self.allocator);
-    self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+    const width_unchanged = ws.cols == self.back_screen_pri.width;
+    const fits = ws.rows <= self.back_screen_pri.buf.len / self.back_screen_pri.width;
+    if (width_unchanged and fits) {
+        self.back_screen_pri.resizeVertical(self.allocator, ws.rows);
+        self.front_screen.deinit(self.allocator);
+        self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+        self.back_screen_alt.deinit(self.allocator);
+        self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+        self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+    } else if (reflow) {
+        try self.resizeReflow(ws);
+    } else {
+        self.front_screen.deinit(self.allocator);
+        self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
 
-    var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.scrollback_size);
-    try self.back_screen_pri.copyHistoryTo(self.allocator, &new_pri);
-    try self.back_screen_pri.copyViewportTo(self.allocator, &new_pri);
-    self.back_screen_pri.deinit(self.allocator);
-    self.back_screen_pri = new_pri;
-    self.back_screen_alt.deinit(self.allocator);
-    self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
-    self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+        var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, scrollbackRowsFor(self.scrollback_bytes, ws.cols));
+        try self.back_screen_pri.copyHistoryTo(self.allocator, &new_pri);
+        try self.back_screen_pri.copyViewportTo(self.allocator, &new_pri);
+        self.back_screen_pri.deinit(self.allocator);
+        self.back_screen_pri = new_pri;
+        self.back_screen_alt.deinit(self.allocator);
+        self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+        self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+    }
 
     try self.pty.setSize(ws);
+}
+
+fn ignoreTerminalEvent(_: *Event.HandlerContext, _: Event) error{TerminalHandlerFailed}!void {}
+
+fn resizeReflow(self: *Terminal, ws: Winsize) !void {
+    var history: std.Io.Writer.Allocating = .init(self.allocator);
+    defer history.deinit();
+    try self.back_screen_pri.encodeRows(&history.writer, 0, self.back_screen_pri.contentRows());
+
+    self.front_screen.deinit(self.allocator);
+    self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+    self.back_screen_pri.deinit(self.allocator);
+    self.back_screen_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, scrollbackRowsFor(self.scrollback_bytes, ws.cols));
+    self.back_screen_alt.deinit(self.allocator);
+    self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+
+    const on_primary = self.back_screen == &self.back_screen_pri;
+    const saved_mode = self.mode;
+    self.back_screen = &self.back_screen_pri;
+    self.mode = .{};
+    defer {
+        self.mode = saved_mode;
+        self.back_screen = if (on_primary) &self.back_screen_pri else &self.back_screen_alt;
+    }
+
+    var parser: Parser = .{ .buf = .init(self.allocator) };
+    defer parser.buf.deinit();
+    _ = self.processOutput(&parser, history.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
+
+    self.scroll_offset = 0;
 }
 
 pub fn draw(
@@ -567,12 +615,7 @@ pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
     return &self.pty_writer.interface;
 }
 
-/// Process all output bytes from the pty that were just read by read loop
-/// The read loop calls this after each non-blocking read. Returns true if
-/// the shell has exited.
-/// `parser` is owned by the read loop and persists across calls so that
-/// partial escape sequences spanning multiple reads are handled correctly.
-pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context: *Event.HandlerContext, handle_event: Event.Handler) error{
+pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context: *Event.HandlerContext, handle_event: Event.Handler, held_lock: bool) error{
     ReadFailed,
     WriteFailed,
     OutOfMemory,
@@ -589,8 +632,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
             error.OutOfMemory,
             => |e_| return e_,
         };
-        try self.back_mutex.lock(self.io);
-        defer self.back_mutex.unlock(self.io);
+        if (!held_lock) try self.back_mutex.lock(self.io);
+        defer if (!held_lock) self.back_mutex.unlock(self.io);
 
         if (!self.dirty) {
             try handle_event(context, .redraw);
@@ -1499,7 +1542,7 @@ fn hardReset(self: *Terminal) !void {
     const w = self.front_screen.width;
     const h = self.front_screen.height;
 
-    var new_pri = try Screen.initScrollback(self.allocator, w, h, self.scrollback_size);
+    var new_pri = try Screen.initScrollback(self.allocator, w, h, scrollbackRowsFor(self.scrollback_bytes, w));
     errdefer new_pri.deinit(self.allocator);
     const new_alt = try Screen.init(self.allocator, w, h);
     self.back_screen_pri.deinit(self.allocator);

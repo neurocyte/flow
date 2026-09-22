@@ -135,7 +135,7 @@ fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         try self.send_event_result(.{ .exited = code });
         return tp.exit_normal();
     } else if (try m.match(.{ "stream", "pty_out", "read_complete", tp.extract(&bytes) })) {
-        switch (self.vt.processOutput(&self.parser, bytes, self, pty_process_terminal_event) catch |e| {
+        switch (self.vt.processOutput(&self.parser, bytes, self, pty_process_terminal_event, false) catch |e| {
             std.log.debug("terminal: processOutput error: {}", .{e});
             return tp.exit_normal();
         }) {
