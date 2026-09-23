@@ -1003,7 +1003,11 @@ fn make_dir_error(path: []const u8, err: anytype) @TypeOf(err) {
 }
 
 fn create_dir_path(io: std.Io, path: []const u8) std.Io.Dir.CreateDirPathError!void {
-    return std.Io.Dir.cwd().createDirPath(io, path);
+    std.Io.Dir.cwd().createDirPath(io, path) catch |e| switch (e) {
+        // createDirPath does not follow symlinks on the last component
+        error.NotDir => if (!is_directory(path)) return e,
+        else => return e,
+    };
 }
 
 fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {

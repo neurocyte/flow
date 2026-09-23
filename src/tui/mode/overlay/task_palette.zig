@@ -8,6 +8,7 @@ const tui = @import("../../tui.zig");
 const Widget = @import("../../Widget.zig");
 pub const Type = @import("palette.zig").Create(@This());
 const module_name = @typeName(@This());
+const TaskRunner = @import("config").TaskRunner;
 
 pub const label = "Run a task";
 pub const name = " task";
@@ -37,18 +38,25 @@ pub fn load_entries(palette: *Type) !usize {
     }
     const hints = palette.mode.keybind_hints;
     var longest_hint: usize = 0;
-    longest_hint = @max(longest_hint, try add_palette_command(palette, "add_task", hints));
-    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_delete_item", hints));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_insert", hints, "Add task"));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_delete_item", hints, "Delete task"));
     return longest_hint - @min(longest_hint, longest) + 3;
 }
 
-fn add_palette_command(palette: *Type, command_name: []const u8, hints: *const tui.KeybindHints) !usize {
+fn add_palette_command(palette: *Type, command_name: []const u8, hints: *const tui.KeybindHints, label_override: []const u8) !usize {
     const id = command.get_id(command_name) orelse return 0;
     var width: usize = 0;
     if (command.get_icon(id)) |icon| width += tui.egc_chunk_width(icon, 0, 1);
-    if (command.get_description(id)) |desc| width += tui.egc_chunk_width(desc, 0, 1);
+    if (label_override.len > 0) {
+        width += tui.egc_chunk_width(label_override, 0, 1);
+    } else if (command.get_description(id)) |desc| {
+        width += tui.egc_chunk_width(desc, 0, 1);
+    }
     if (hints.get(command_name)) |hint| width += tui.egc_chunk_width(hint, 0, 1);
-    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .command = command_name };
+    (try palette.entries.addOne(palette.allocator)).* = .{
+        .label = try palette.allocator.dupe(u8, label_override),
+        .command = command_name,
+    };
     return width;
 }
 
@@ -56,6 +64,15 @@ pub fn clear_entries(palette: *Type) void {
     for (palette.entries.items) |entry|
         palette.allocator.free(entry.label);
     palette.entries.clearRetainingCapacity();
+}
+
+pub fn skip_entry(entry: *const Entry) bool {
+    return entry.command != null;
+}
+
+// Uprank exact task matches
+pub fn score_bonus(entry: *const Entry, query: []const u8) i32 {
+    return if (std.ascii.eqlIgnoreCase(entry.label, query)) 1000 else 0;
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
@@ -105,8 +122,11 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon|
             label_.writer.print("{s} ", .{icon}) catch {};
-        if (command.get_description(id)) |desc|
+        if (entry.label.len > 0) {
+            label_.writer.print("{s}", .{entry.label}) catch {};
+        } else if (command.get_description(id)) |desc| {
             label_.writer.print("{s}", .{desc}) catch {};
+        }
         _ = button.plane.print("{s} ", .{label_.written()}) catch {};
 
         const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
@@ -133,8 +153,13 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const activate = menu.*.opts.ctx.activate;
     menu.*.opts.ctx.activate = .normal;
     if (entry.command) |command_name| {
-        tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-        tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        const hints = if (tui.input_mode()) |m| m.keybind_hints else return;
+        if (hints.get(command_name)) |hint| {
+            if (std.mem.eql(u8, "palette_menu_insert", command_name))
+                std.log.info("type command and press {s}", .{hint})
+            else
+                std.log.info("select task and press {s}", .{hint});
+        }
     } else {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
         project_manager.add_task(entry.label) catch {};
@@ -142,14 +167,13 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     }
 }
 
-pub fn run_task(activate: @import("palette.zig").ActivateMode, task: []const u8) !void {
-    return switch (get_runner(activate)) {
-        .buffer => tp.self_pid().send(.{ "cmd", "run_task", .{task} }),
-        .terminal => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ task, tui.config().task_terminal_on_exit } }),
-    };
+pub fn run_task(activate: Type.ActivateMode, task: []const u8) !void {
+    return call_runner(get_runner(activate), task);
 }
+pub const activate_query = run_task;
+pub const insert = run_task;
 
-pub fn get_runner(activate: @import("palette.zig").ActivateMode) @import("config").TaskRunner {
+pub fn get_runner(activate: Type.ActivateMode) TaskRunner {
     const runner = tui.config().task_runner;
     return switch (activate) {
         .normal => runner,
@@ -157,6 +181,13 @@ pub fn get_runner(activate: @import("palette.zig").ActivateMode) @import("config
             .buffer => .terminal,
             .terminal => .buffer,
         },
+    };
+}
+
+pub fn call_runner(runner: TaskRunner, task: []const u8) !void {
+    return switch (runner) {
+        .buffer => tp.self_pid().send(.{ "cmd", "run_task", .{task} }),
+        .terminal => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ task, tui.config().task_terminal_on_exit } }),
     };
 }
 

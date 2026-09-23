@@ -40,11 +40,6 @@ pub const Placement = enum {
     }
 };
 
-pub const ActivateMode = enum {
-    normal,
-    alternate,
-};
-
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -78,10 +73,18 @@ pub fn Create(options: type) type {
         const preserve_entry_order = @hasDecl(options, "preserve_entry_order") and options.preserve_entry_order;
         const has_compare_entries = @hasDecl(options, "compare_entries");
         const has_score_bonus = @hasDecl(options, "score_bonus");
+        const has_activate_query = @hasDecl(options, "activate_query");
+        const has_skip_entry = @hasDecl(options, "skip_entry");
+        const has_insert = @hasDecl(options, "insert");
 
         pub const MenuType = Menu.Options(*Self).MenuType;
         pub const ButtonType = MenuType.ButtonType;
         pub const Pos = Widget.Pos;
+
+        pub const ActivateMode = enum {
+            normal,
+            alternate,
+        };
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             return create_with_args(allocator, .empty());
@@ -467,6 +470,7 @@ pub fn Create(options: type) type {
             var matches: std.ArrayList(Match) = .empty;
 
             for (self.entries.items) |*entry| {
+                if (has_skip_entry and options.skip_entry(entry)) continue;
                 const match = searcher.scoreMatches(entry.label, query);
                 const bonus: i32 = if (has_score_bonus) options.score_bonus(entry, query) else 0;
                 if (match.score) |score|
@@ -476,7 +480,10 @@ pub fn Create(options: type) type {
                         .matches = try self.allocator.dupe(usize, match.matches),
                     };
             }
-            if (matches.items.len == 0) return 0;
+            if (matches.items.len == 0) {
+                self.total_items = 0;
+                return 0;
+            }
 
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
@@ -696,15 +703,34 @@ pub fn Create(options: type) type {
             pub const palette_menu_complete_meta: Meta = .{};
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
+                if (has_activate_query and self.items == 0 and self.inputbox.text.items.len > 0) {
+                    const activate = self.activate;
+                    self.activate = .normal;
+                    return options.activate_query(activate, self.inputbox.text.items);
+                }
                 self.menu.activate_selected();
             }
             pub const palette_menu_activate_meta: Meta = .{};
 
-            pub fn palette_menu_activate_alternate(self: *Self, _: Ctx) Result {
+            pub fn palette_menu_activate_alternate(self: *Self, ctx: Ctx) Result {
                 self.activate = .alternate;
-                self.menu.activate_selected();
+                return palette_menu_activate(self, ctx);
             }
             pub const palette_menu_activate_alternate_meta: Meta = .{};
+
+            pub fn palette_menu_insert(self: *Self, _: Ctx) Result {
+                const activate = self.activate;
+                self.activate = .normal;
+                if (has_insert and self.inputbox.text.items.len > 0)
+                    return options.insert(activate, self.inputbox.text.items);
+            }
+            pub const palette_menu_insert_meta: Meta = .{ .icon = "" };
+
+            pub fn palette_menu_insert_alternate(self: *Self, ctx: Ctx) Result {
+                self.activate = .alternate;
+                return palette_menu_insert(self, ctx);
+            }
+            pub const palette_menu_insert_alternate_meta: Meta = .{ .icon = "" };
 
             pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
                 if (!self.quick_activate_enabled) return;
