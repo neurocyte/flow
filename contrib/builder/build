@@ -10,7 +10,19 @@ NAME="$APPNAME-builder"
 
 cd "$BASEDIR"
 
+mkdir -p "$BASEDIR/.zig-cache/builder/local"
+mkdir -p "$BASEDIR/.zig-cache/builder/global"
+mkdir -p "$BASEDIR/zig-pkg/builder"
+
 docker pull archlinux:latest
 
 docker build -t "$IMAGE" "$BUILDER"
-docker run --rm -ti --hostname "$NAME" -u 1000:1000 -v "$BASEDIR:/src/flow" "$IMAGE" zig build "$@"
+docker run --rm -ti \
+    --hostname "$NAME" \
+    -u 1000:1000 \
+    -v "$BASEDIR:/src/flow" \
+    -v "$BASEDIR/.zig-cache/builder/local:/src/flow/.zig-cache" \
+    -v "$BASEDIR/.zig-cache/builder/global:/home/builder/.cache/zig" \
+    -v "$BASEDIR/zig-pkg/builder:/src/flow/zig-pkg" \
+    "$IMAGE" \
+    zig build "$@"
