@@ -1035,16 +1035,16 @@ pub const Editor = struct {
     }
 
     fn restore_undo_meta(self: *Self, meta: []const u8) !void {
-        if (meta.len > 0)
-            self.clear_all_cursors();
+        if (meta.len == 0) return;
+        self.clear_all_cursors();
         var iter = meta;
         if ((cbor.decodeArrayHeader(&iter) catch return error.UndoMetaSyntaxError) != 2) return error.UndoMetaSyntaxError;
         return self.restore_cursels_array(&iter);
     }
 
     fn restore_redo_meta(self: *Self, meta: []const u8) !void {
-        if (meta.len > 0)
-            self.clear_all_cursors();
+        if (meta.len == 0) return;
+        self.clear_all_cursors();
         var iter = meta;
         if ((cbor.decodeArrayHeader(&iter) catch return error.UndoMetaSyntaxError) != 2) return error.UndoMetaSyntaxError;
         try cbor.skipValue(&iter); // first array is pre-operation cursels
