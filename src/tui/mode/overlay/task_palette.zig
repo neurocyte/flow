@@ -66,6 +66,10 @@ pub fn clear_entries(palette: *Type) void {
     palette.entries.clearRetainingCapacity();
 }
 
+pub fn skip_entry(entry: *const Entry) bool {
+    return entry.command != null;
+}
+
 // Uprank exact task matches
 pub fn score_bonus(entry: *const Entry, query: []const u8) i32 {
     return if (std.ascii.eqlIgnoreCase(entry.label, query)) 1000 else 0;

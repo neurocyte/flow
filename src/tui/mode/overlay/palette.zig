@@ -74,6 +74,7 @@ pub fn Create(options: type) type {
         const has_compare_entries = @hasDecl(options, "compare_entries");
         const has_score_bonus = @hasDecl(options, "score_bonus");
         const has_activate_query = @hasDecl(options, "activate_query");
+        const has_skip_entry = @hasDecl(options, "skip_entry");
         const has_insert = @hasDecl(options, "insert");
 
         pub const MenuType = Menu.Options(*Self).MenuType;
@@ -469,6 +470,7 @@ pub fn Create(options: type) type {
             var matches: std.ArrayList(Match) = .empty;
 
             for (self.entries.items) |*entry| {
+                if (has_skip_entry and options.skip_entry(entry)) continue;
                 const match = searcher.scoreMatches(entry.label, query);
                 const bonus: i32 = if (has_score_bonus) options.score_bonus(entry, query) else 0;
                 if (match.score) |score|
