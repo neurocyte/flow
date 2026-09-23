@@ -396,6 +396,7 @@ pub const Editor = struct {
         matches: usize = 0,
         cursels: usize = 0,
         dirty: bool = false,
+        file_state: Buffer.FileState = .in_sync,
         eol_mode: Buffer.EolMode = .lf,
         utf8_sanitized: bool = false,
         indent_mode: IndentMode = .auto,
@@ -2001,6 +2002,10 @@ pub const Editor = struct {
         if (self.last.dirty != dirty)
             try self.send_editor_dirty(dirty);
 
+        const file_state: Buffer.FileState = if (self.buffer) |buf| buf.file_state else .in_sync;
+        if (self.last.file_state != file_state)
+            try self.send_editor_file_state(file_state);
+
         if (self.matches.items.len != self.last.matches and self.match_token == self.match_done_token) {
             try self.send_editor_match(self.matches.items.len);
             self.last.matches = self.matches.items.len;
@@ -2037,6 +2042,7 @@ pub const Editor = struct {
         self.last.lines = lines;
         self.last.primary = primary.*;
         self.last.dirty = dirty;
+        self.last.file_state = file_state;
         self.last.root = root;
         self.last.eol_mode = eol_mode;
         self.last.utf8_sanitized = utf8_sanitized;
@@ -2106,6 +2112,10 @@ pub const Editor = struct {
 
     fn send_editor_dirty(self: *const Self, file_dirty: bool) !void {
         _ = try self.handlers.msg(.{ "E", "dirty", file_dirty });
+    }
+
+    fn send_editor_file_state(self: *const Self, file_state: Buffer.FileState) !void {
+        _ = try self.handlers.msg(.{ "E", "file_state", file_state });
     }
 
     fn send_editor_auto_save(self: *const Self, auto_save: bool) !void {

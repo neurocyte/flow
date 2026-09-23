@@ -17,6 +17,9 @@ const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const tui = @import("../tui.zig");
 
+const changed_on_disk_glyph = "󰳻";
+const deleted_on_disk_glyph = "󱂥";
+
 allocator: Allocator,
 name: []const u8,
 name_buf: [512]u8 = undefined,
@@ -32,6 +35,7 @@ lines: usize,
 column: usize,
 file_exists: bool,
 file_dirty: bool = false,
+file_state: Buffer.FileState = .in_sync,
 detailed: bool = false,
 file: bool = false,
 eol_mode: Buffer.EolMode = .lf,
@@ -226,7 +230,7 @@ fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_sa
         self.render_file_icon(plane, theme);
         _ = plane.print(" ", .{}) catch {};
     }
-    _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (auto_save) "󱑛 " else if (self.file_dirty) "󰆓 " else "") catch {};
+    _ = plane.putstr(if (self.file_state == .deleted_on_disk) deleted_on_disk_glyph ++ " " else if (self.file_state == .changed_on_disk) changed_on_disk_glyph ++ " " else if (!self.file_exists) "󰽂 " else if (auto_save) "󱑛 " else if (self.file_dirty) "󰆓 " else "") catch {};
     print_clipped(plane, self.name, .left);
     return;
 }
@@ -251,7 +255,7 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_
             .tabs => "[⭾ = ␉]",
         };
 
-        _ = plane.putstr(if (!self.file_exists) "󰽂" else if (auto_save) "󱑛" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
+        _ = plane.putstr(if (self.file_state == .deleted_on_disk) deleted_on_disk_glyph else if (self.file_state == .changed_on_disk) changed_on_disk_glyph else if (!self.file_exists) "󰽂" else if (auto_save) "󱑛" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
         _ = plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
         _ = plane.print(" of {d} lines", .{self.lines}) catch {};
         if (self.file_type.len > 0)
@@ -284,6 +288,8 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
         return false;
     if (try m.match(.{ tp.any, "dirty", tp.extract(&file_dirty) })) {
         self.file_dirty = file_dirty;
+    } else if (try m.match(.{ tp.any, "file_state", tp.extract(&self.file_state) })) {
+        //
     } else if (try m.match(.{ tp.any, "auto_save", tp.extract(&self.auto_save) })) {
         //
     } else if (try m.match(.{ tp.any, "eol_mode", tp.extract(&self.eol_mode), tp.extract(&self.utf8_sanitized), tp.extract(&self.indent_mode) })) {
@@ -294,6 +300,7 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
         self.name = self.name_buf[0..name_len];
         self.file_exists = true;
         self.file_dirty = false;
+        self.file_state = .in_sync;
         self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
     } else if (try m.match(.{
         tp.any,
@@ -315,6 +322,7 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
         self.file_icon_buf[file_icon.len] = 0;
         self.file_icon = self.file_icon_buf[0..file_icon.len :0];
         self.file_dirty = false;
+        self.file_state = .in_sync;
         self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
         self.file = true;
     } else if (try m.match(.{ tp.any, "close" })) {
@@ -323,6 +331,7 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
         self.line = 0;
         self.column = 0;
         self.file_exists = true;
+        self.file_state = .in_sync;
         self.file = false;
         self.eol_mode = .lf;
         self.show_project();
