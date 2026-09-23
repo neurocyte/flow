@@ -2859,13 +2859,19 @@ pub fn message(comptime fmt: anytype, args: anytype) void {
 
 const dirty_indicator = "";
 const hidden_indicator = "-";
+const changed_on_disk_indicator = "󰳻";
+const deleted_on_disk_indicator = "󱂥";
 
 pub fn get_file_state_indicator(buffer_manager: *const @import("Buffer").Manager, file_name: []const u8) []const u8 {
     return if (buffer_manager.get_buffer_for_file(file_name)) |buffer| get_buffer_state_indicator(buffer) else "";
 }
 
 pub fn get_buffer_state_indicator(buffer: *const @import("Buffer")) []const u8 {
-    return if (buffer.is_dirty()) dirty_indicator else if (buffer.is_hidden()) hidden_indicator else "";
+    return switch (buffer.file_state) {
+        .changed_on_disk => changed_on_disk_indicator,
+        .deleted_on_disk => deleted_on_disk_indicator,
+        .in_sync => if (buffer.is_dirty()) dirty_indicator else if (buffer.is_hidden()) hidden_indicator else "",
+    };
 }
 
 pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) usize {

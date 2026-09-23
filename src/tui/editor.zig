@@ -396,6 +396,7 @@ pub const Editor = struct {
         matches: usize = 0,
         cursels: usize = 0,
         dirty: bool = false,
+        file_state: Buffer.FileState = .in_sync,
         eol_mode: Buffer.EolMode = .lf,
         utf8_sanitized: bool = false,
         indent_mode: IndentMode = .auto,
@@ -447,6 +448,7 @@ pub const Editor = struct {
             cmd: []const u8,
             args: cbor.Raw,
         } = null,
+        overwrite: Buffer.Manager.Overwrite = .check,
     } = null,
 
     const HoverPos = struct { row: usize, col: usize };
@@ -902,6 +904,10 @@ pub const Editor = struct {
     }
 
     fn save(self: *Self, then: ?cbor.Raw) !void {
+        return self.save_overwrite(then, .check);
+    }
+
+    fn save_overwrite(self: *Self, then: ?cbor.Raw, overwrite: Buffer.Manager.Overwrite) !void {
         const b = self.buffer orelse return error.Stop;
         if (b.is_ephemeral() or !b.is_dirty()) {
             if (b.is_ephemeral())
@@ -912,7 +918,10 @@ pub const Editor = struct {
             return;
         }
         if (self.file_path == null) return error.SaveNoFileName;
-        try self.buffer_manager.save(root_mod.get_io(), b, .{ .auto_save = b.is_auto_save(), .then = then });
+        self.buffer_manager.save(b, .{ .auto_save = b.is_auto_save(), .overwrite = overwrite, .then = then }) catch |e| switch (e) {
+            error.FileChangedOnDisk => self.logger.print_err("save", "{s} changed on disk, use force_save_file to overwrite", .{b.get_file_path()}),
+            else => return e,
+        };
     }
 
     pub fn buffer_saved(self: *Self, file_path: []const u8, auto_save: bool) void {
@@ -1027,16 +1036,16 @@ pub const Editor = struct {
     }
 
     fn restore_undo_meta(self: *Self, meta: []const u8) !void {
-        if (meta.len > 0)
-            self.clear_all_cursors();
+        if (meta.len == 0) return;
+        self.clear_all_cursors();
         var iter = meta;
         if ((cbor.decodeArrayHeader(&iter) catch return error.UndoMetaSyntaxError) != 2) return error.UndoMetaSyntaxError;
         return self.restore_cursels_array(&iter);
     }
 
     fn restore_redo_meta(self: *Self, meta: []const u8) !void {
-        if (meta.len > 0)
-            self.clear_all_cursors();
+        if (meta.len == 0) return;
+        self.clear_all_cursors();
         var iter = meta;
         if ((cbor.decodeArrayHeader(&iter) catch return error.UndoMetaSyntaxError) != 2) return error.UndoMetaSyntaxError;
         try cbor.skipValue(&iter); // first array is pre-operation cursels
@@ -1995,6 +2004,10 @@ pub const Editor = struct {
         if (self.last.dirty != dirty)
             try self.send_editor_dirty(dirty);
 
+        const file_state: Buffer.FileState = if (self.buffer) |buf| buf.file_state else .in_sync;
+        if (self.last.file_state != file_state)
+            try self.send_editor_file_state(file_state);
+
         if (self.matches.items.len != self.last.matches and self.match_token == self.match_done_token) {
             try self.send_editor_match(self.matches.items.len);
             self.last.matches = self.matches.items.len;
@@ -2031,6 +2044,7 @@ pub const Editor = struct {
         self.last.lines = lines;
         self.last.primary = primary.*;
         self.last.dirty = dirty;
+        self.last.file_state = file_state;
         self.last.root = root;
         self.last.eol_mode = eol_mode;
         self.last.utf8_sanitized = utf8_sanitized;
@@ -2100,6 +2114,10 @@ pub const Editor = struct {
 
     fn send_editor_dirty(self: *const Self, file_dirty: bool) !void {
         _ = try self.handlers.msg(.{ "E", "dirty", file_dirty });
+    }
+
+    fn send_editor_file_state(self: *const Self, file_state: Buffer.FileState) !void {
+        _ = try self.handlers.msg(.{ "E", "file_state", file_state });
     }
 
     fn send_editor_auto_save(self: *const Self, auto_save: bool) !void {
@@ -6456,7 +6474,7 @@ pub const Editor = struct {
     pub const open_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
     pub fn reload_file(self: *Self, _: Context) Result {
-        if (self.buffer) |buffer| try self.buffer_manager.reload(root_mod.get_io(), buffer);
+        if (self.buffer) |buffer| try self.buffer_manager.reload(buffer, .user);
     }
     pub const reload_file_meta: Meta = .{ .description = "Reload file" };
 
@@ -6486,6 +6504,16 @@ pub const Editor = struct {
     pub const toggle_format_on_save_meta: Meta = .{ .description = "Toggle format on save" };
 
     pub fn save_file(self: *Self, ctx: Context) Result {
+        return self.save_file_overwrite(ctx, .check);
+    }
+    pub const save_file_meta: Meta = .{ .description = "Save file" };
+
+    pub fn force_save_file(self: *Self, ctx: Context) Result {
+        return self.save_file_overwrite(ctx, .force);
+    }
+    pub const force_save_file_meta: Meta = .{ .description = "Force save file (overwrite)" };
+
+    fn save_file_overwrite(self: *Self, ctx: Context, overwrite: Buffer.Manager.Overwrite) Result {
         var option: SaveOption = .default;
         var then = false;
         var cmd: []const u8 = undefined;
@@ -6499,7 +6527,7 @@ pub const Editor = struct {
         }
 
         if ((option == .default and self.enable_format_on_save) or option == .format) if (self.get_formatter()) |_| {
-            self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
+            self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null, .overwrite = overwrite };
             const primary = self.get_primary();
             const sel = primary.selection;
             primary.selection = null;
@@ -6509,9 +6537,8 @@ pub const Editor = struct {
         };
         const then_msg = if (then) try self.then_message(cmd, args) else null;
         defer if (then_msg) |msg| self.allocator.free(msg.bytes);
-        try self.save(then_msg);
+        try self.save_overwrite(then_msg, overwrite);
     }
-    pub const save_file_meta: Meta = .{ .description = "Save file" };
 
     pub fn save_file_with_formatting(self: *Self, _: Context) Result {
         return self.save_file(Context.fmt(.{"format"}));
@@ -7696,7 +7723,7 @@ pub const Editor = struct {
         if (self.need_save_after_filter) |info| {
             const then_msg = if (info.then) |then| try self.then_message(then.cmd, then.args) else null;
             defer if (then_msg) |msg| self.allocator.free(msg.bytes);
-            try self.save(then_msg);
+            try self.save_overwrite(then_msg, info.overwrite);
         }
     }
 
@@ -7707,7 +7734,7 @@ pub const Editor = struct {
         if (self.need_save_after_filter) |info| {
             const then_msg = if (info.then) |then| try self.then_message(then.cmd, then.args) else null;
             defer if (then_msg) |msg| self.allocator.free(msg.bytes);
-            try self.save(then_msg);
+            try self.save_overwrite(then_msg, info.overwrite);
         }
     }
 
@@ -7761,7 +7788,7 @@ pub const Editor = struct {
         if (self.need_save_after_filter) |info| {
             const then_msg = if (info.then) |then| try self.then_message(then.cmd, then.args) else null;
             defer if (then_msg) |msg| self.allocator.free(msg.bytes);
-            try self.save(then_msg);
+            try self.save_overwrite(then_msg, info.overwrite);
         }
     }
 
@@ -8419,7 +8446,7 @@ pub fn auto_save_buffer(b: *Buffer, comptime event: @import("config").AutoSaveMo
             .on_input_idle, .on_document_change => false,
         },
     };
-    if (auto_save and b.is_auto_save() and !b.is_ephemeral() and b.is_dirty()) {
+    if (auto_save and b.is_auto_save() and !b.is_ephemeral() and b.is_dirty() and b.file_state != .changed_on_disk) {
         tp.self_pid().send(.{ "cmd", "save_buffer", .{ b.get_file_path(), "auto_save" } }) catch {};
         std.log.debug("auto save {t} {s}", .{ event, b.get_file_path() });
     }

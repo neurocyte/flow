@@ -9,6 +9,7 @@ const ArrayList = std.ArrayList;
 const Regex = @import("regex");
 const tracy = @import("tracy");
 const FileStore = @import("FileStore");
+const get_now = @import("soft_root").root.get_now;
 
 const perf_log = std.log.scoped(.buffer_io);
 
@@ -78,6 +79,7 @@ file_buf: ?[]const u8 = null,
 file_path_buf: std.ArrayListUnmanaged(u8) = .empty,
 last_save: ?Root = null,
 file_exists: bool = true,
+file_state: FileState = .in_sync,
 file_eol_mode: EolMode = .lf,
 last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
@@ -106,6 +108,7 @@ file_type_name: ?[]const u8 = null,
 file_type_icon: ?[]const u8 = null,
 file_type_color: ?u24 = null,
 
+pub const FileState = enum { in_sync, changed_on_disk, deleted_on_disk };
 pub const EolMode = enum { lf, crlf };
 pub const EolModeTag = @typeInfo(EolMode).@"enum".tag_type;
 
@@ -1414,23 +1417,22 @@ pub const LoadError =
     } || std.Io.Reader.Error;
 
 const Timer = struct {
-    io: std.Io,
     start: std.Io.Timestamp,
     last: std.Io.Timestamp,
 
-    fn start_now(io: std.Io) Timer {
-        const t: std.Io.Timestamp = .now(io, .awake);
-        return .{ .io = io, .start = t, .last = t };
+    fn start_now() Timer {
+        const t: std.Io.Timestamp = get_now();
+        return .{ .start = t, .last = t };
     }
 
     fn lap(self: *Timer) i64 {
-        const t: std.Io.Timestamp = .now(self.io, .awake);
+        const t: std.Io.Timestamp = get_now();
         defer self.last = t;
         return self.last.durationTo(t).toMicroseconds();
     }
 
     fn total(self: *const Timer) i64 {
-        const t: std.Io.Timestamp = .now(self.io, .awake);
+        const t: std.Io.Timestamp = get_now();
         return self.start.durationTo(t).toMicroseconds();
     }
 };
@@ -1450,7 +1452,7 @@ pub const LoadTiming = struct {
 };
 
 fn log_load(wall: std.Io.Timestamp, file_path: []const u8, t: *const LoadTiming) void {
-    perf_log.info("load {s} at {d} total {d:.3}ms bytes {d} lines {d} [sanitize {d:.3} scan {d:.3} build {d:.3} update {d:.3}]", .{
+    perf_log.debug("load {s} at {d} total {d:.3}ms bytes {d} lines {d} [sanitize {d:.3} scan {d:.3} build {d:.3} update {d:.3}]", .{
         file_path,
         wall.toMilliseconds(),
         to_ms(t.timer.total()),
@@ -1588,6 +1590,7 @@ pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []cons
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = false;
+    self.file_state = .in_sync;
     self.mtime = now.toMilliseconds();
 }
 
@@ -1595,14 +1598,15 @@ pub fn reset_from_string_and_update(self: *Self, s: []const u8, now: std.Io.Time
     self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
+    self.file_state = .in_sync;
     self.mtime = now.toMilliseconds();
 }
 
-pub fn load_from_owned_bytes_and_update(self: *Self, io: std.Io, file_path: []const u8, bytes: []u8, file_exists: bool, now: std.Io.Timestamp) LoadError!void {
+pub fn load_from_owned_bytes_and_update(self: *Self, file_path: []const u8, bytes: []u8, file_exists: bool, now: std.Io.Timestamp) LoadError!void {
     const zone = tracy.initZone(@src(), .{ .name = "buffer.load" });
     defer zone.deinit();
-    const wall: std.Io.Timestamp = .now(io, .real);
-    var timing: LoadTiming = .{ .timer = .start_now(io) };
+    const wall: std.Io.Timestamp = get_now();
+    var timing: LoadTiming = .{ .timer = .start_now() };
 
     var eol_mode: EolMode = .lf;
     var utf8_sanitized: bool = false;
@@ -1610,6 +1614,7 @@ pub fn load_from_owned_bytes_and_update(self: *Self, io: std.Io, file_path: []co
     self.set_file_path(file_path);
     self.last_save = self.root;
     self.file_exists = file_exists;
+    self.file_state = .in_sync;
     self.file_eol_mode = eol_mode;
     self.file_utf8_sanitized = utf8_sanitized;
     self.last_save_eol_mode = eol_mode;
@@ -1623,6 +1628,7 @@ pub fn mark_saved(self: *Self, root: Root, eol_mode: EolMode) void {
     self.last_save = root;
     self.last_save_eol_mode = eol_mode;
     self.file_exists = true;
+    self.file_state = .in_sync;
     self.file_utf8_sanitized = false;
 }
 

@@ -727,7 +727,7 @@ const cmds = struct {
                 var then_buf: [tp.max_message_size]u8 = undefined;
                 const then: cbor.Raw = .{ .bytes = cbor.fmt(&then_buf, .{ "navigate_complete", f, goto_args, line, column, offset }) };
                 const on_error: cbor.Raw = .{ .bytes = tp.message.fmt(.{"navigate_failed"}).buf };
-                return self.buffer_manager.load(root.get_io(), f, .{ .then = then, .on_error = on_error });
+                return self.buffer_manager.load(f, .{ .then = then, .on_error = on_error });
             }
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
@@ -945,8 +945,10 @@ const cmds = struct {
             if (!auto_save) logger.print("no changes to save", .{});
             return;
         }
-        self.buffer_manager.save(root.get_io(), buffer, .{ .auto_save = auto_save }) catch |e|
-            return tp.exit_error(e, @errorReturnTrace());
+        self.buffer_manager.save(buffer, .{ .auto_save = auto_save }) catch |e| switch (e) {
+            error.FileChangedOnDisk => return logger.print_err("save", "{s} changed on disk, use force_save_file to overwrite", .{buffer.get_file_path()}),
+            else => return tp.exit_error(e, @errorReturnTrace()),
+        };
     }
     pub const save_buffer_meta: Meta = .{ .arguments = &.{.string} };
 

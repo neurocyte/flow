@@ -1,6 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
+const get_now = @import("soft_root").root.get_now;
 const FileStore = @import("FileStore");
 const Buffer = @import("Buffer.zig");
 
@@ -22,15 +23,24 @@ pub const LoadOptions = struct {
     on_error: ?cbor.Raw = null,
 };
 
+const Reload = struct {
+    buffer: Buffer.Ref,
+    root: Buffer.Root,
+    reason: Reason = .user,
+    state: State = .current,
+
+    const Reason = enum { user, external };
+    const State = enum { current, superseded };
+};
+
 const PendingLoad = struct {
-    io: std.Io,
     id: usize,
     stream: ?FileStore.ReadStream = null,
     file_path: []const u8,
     abs_path: []const u8,
     thens: std.ArrayList(cbor.Raw) = .empty,
     on_errors: std.ArrayList(cbor.Raw) = .empty,
-    reload: ?struct { buffer: Buffer.Ref, root: Buffer.Root } = null,
+    reload: ?Reload = null,
     retried: bool = false,
     started: std.Io.Timestamp,
 
@@ -45,10 +55,13 @@ const PendingLoad = struct {
     }
 };
 
-pub const SaveError = error{ OutOfMemory, FileStoreNotReady, FileStoreSendFailed, SaveNoFileName };
+pub const SaveError = error{ OutOfMemory, FileStoreNotReady, FileStoreSendFailed, SaveNoFileName, FileChangedOnDisk };
+
+pub const Overwrite = enum { check, force };
 
 pub const SaveOptions = struct {
     auto_save: bool = false,
+    overwrite: Overwrite = .check,
     then: ?cbor.Raw = null,
 };
 
@@ -58,7 +71,6 @@ pub const SaveAllOptions = struct {
 };
 
 const PendingSave = struct {
-    io: std.Io,
     stream: FileStore.WriteStream,
     buffer: Buffer.Ref,
     root: Buffer.Root,
@@ -149,12 +161,12 @@ pub fn needs_load(self: *const Self, file_path: []const u8) bool {
     return !buffer.ephemeral and buffer.hidden;
 }
 
-pub fn load(self: *Self, io: std.Io, file_path: []const u8, options: LoadOptions) LoadError!void {
+pub fn load(self: *Self, file_path: []const u8, options: LoadOptions) LoadError!void {
     const then: ?cbor.Raw = if (options.then) |t| .{ .bytes = try self.allocator.dupe(u8, t.bytes) } else null;
     errdefer if (then) |t| self.allocator.free(t.bytes);
     const on_error: ?cbor.Raw = if (options.on_error) |t| .{ .bytes = try self.allocator.dupe(u8, t.bytes) } else null;
     errdefer if (on_error) |t| self.allocator.free(t.bytes);
-    const pending = self.find_load(file_path) orelse try self.add_load(io, file_path, null);
+    const pending = self.find_load(file_path) orelse try self.add_load(file_path, null);
     try pending.thens.ensureUnusedCapacity(self.allocator, 1);
     try pending.on_errors.ensureUnusedCapacity(self.allocator, 1);
     if (then) |t| pending.thens.appendAssumeCapacity(t);
@@ -162,10 +174,21 @@ pub fn load(self: *Self, io: std.Io, file_path: []const u8, options: LoadOptions
     if (pending.stream == null) self.start_load_stream(pending);
 }
 
-pub fn reload(self: *Self, io: std.Io, buffer: *Buffer) LoadError!void {
+pub fn reload(self: *Self, buffer: *Buffer, reason: Reload.Reason) LoadError!void {
     if (buffer.is_ephemeral()) return;
-    const pending = try self.add_load(io, buffer.get_file_path(), .{ .buffer = buffer.to_ref(), .root = buffer.root });
+    const pending = try self.add_load(buffer.get_file_path(), .{
+        .buffer = buffer.to_ref(),
+        .root = buffer.root,
+        .reason = reason,
+    });
     self.start_load_stream(pending);
+}
+
+fn find_reload(self: *Self, buffer: Buffer.Ref) ?*PendingLoad {
+    var it = self.loads.valueIterator();
+    while (it.next()) |pending|
+        if (pending.reload) |reload_of| if (reload_of.buffer == buffer) return pending;
+    return null;
 }
 
 fn find_load(self: *Self, file_path: []const u8) ?*PendingLoad {
@@ -175,19 +198,18 @@ fn find_load(self: *Self, file_path: []const u8) ?*PendingLoad {
     return null;
 }
 
-fn add_load(self: *Self, io: std.Io, file_path: []const u8, reload_of: @FieldType(PendingLoad, "reload")) LoadError!*PendingLoad {
+fn add_load(self: *Self, file_path: []const u8, reload_of: @FieldType(PendingLoad, "reload")) LoadError!*PendingLoad {
     const abs_path = try self.resolve_path(file_path) orelse return error.LoadNoFileName;
     errdefer self.allocator.free(abs_path);
     const owned_path = try self.allocator.dupe(u8, file_path);
     errdefer self.allocator.free(owned_path);
     const id = self.new_request_id();
     try self.loads.put(self.allocator, id, .{
-        .io = io,
         .id = id,
         .file_path = owned_path,
         .abs_path = abs_path,
         .reload = reload_of,
-        .started = .now(io, .awake),
+        .started = get_now(),
     });
     return self.loads.getPtr(id).?;
 }
@@ -234,13 +256,15 @@ fn finish_load(self: *Self, id: usize, ok: bool) void {
     const pending = &kv.value;
     self.complete_load(pending, ok) catch
         for (pending.on_errors.items) |on_error| tp.self_pid().send_raw(.{ .buf = on_error.bytes }) catch {};
+    if (pending.reload) |reload_of| if (reload_of.state == .superseded)
+        if (self.buffer_from_ref(reload_of.buffer)) |buffer|
+            self.reload(buffer, .external) catch {};
 }
 
 fn complete_load(self: *Self, pending: *PendingLoad, ok: bool) error{LoadFailed}!void {
     if (!ok) return error.LoadFailed;
     const stream = if (pending.stream) |*stream| stream else return error.LoadFailed;
-    const io = pending.io;
-    const stream_us = pending.started.durationTo(.now(io, .awake)).toMicroseconds();
+    const stream_us = pending.started.durationTo(get_now()).toMicroseconds();
     const bytes = stream.take_content() catch |e| {
         log.err("open {s} failed: {t}", .{ pending.file_path, e });
         return error.LoadFailed;
@@ -251,8 +275,8 @@ fn complete_load(self: *Self, pending: *PendingLoad, ok: bool) error{LoadFailed}
         return error.LoadFailed;
     };
     if (buffer == null) return;
-    const total_us = pending.started.durationTo(.now(io, .awake)).toMicroseconds();
-    perf_log.info("{s} {s} total {d:.3}ms bytes {d} [stream {d:.3} load {d:.3}]", .{
+    const total_us = pending.started.durationTo(get_now()).toMicroseconds();
+    perf_log.debug("{s} {s} total {d:.3}ms bytes {d} [stream {d:.3} load {d:.3}]", .{
         if (pending.reload != null) "reload" else "open",
         pending.file_path,
         to_ms(total_us),
@@ -264,8 +288,7 @@ fn complete_load(self: *Self, pending: *PendingLoad, ok: bool) error{LoadFailed}
 }
 
 fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*Buffer {
-    const io = pending.io;
-    const now: std.Io.Timestamp = .now(io, .real);
+    const now: std.Io.Timestamp = get_now();
     if (pending.reload) |reload_of| {
         const buffer = self.buffer_from_ref(reload_of.buffer) orelse {
             self.allocator.free(bytes);
@@ -276,18 +299,21 @@ fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*
             self.allocator.free(bytes);
             return null;
         }
-        try buffer.load_from_owned_bytes_and_update(io, buffer.get_file_path(), bytes, exists, now);
+        buffer.store_undo(&[_]u8{}) catch {};
+        try buffer.load_from_owned_bytes_and_update(buffer.get_file_path(), bytes, exists, now);
         buffer.update_last_used_time(now);
+        if (reload_of.reason == .external)
+            log.info("reloaded {s} from disk", .{pending.file_path});
         return buffer;
     }
     if (self.get_buffer(pending.file_path)) |buffer| {
-        try buffer.load_from_owned_bytes_and_update(io, pending.file_path, bytes, exists, now);
+        try buffer.load_from_owned_bytes_and_update(pending.file_path, bytes, exists, now);
         buffer.hidden = false;
         return buffer;
     }
     var buffer = try Buffer.create(self.allocator, now);
     errdefer buffer.deinit();
-    try buffer.load_from_owned_bytes_and_update(io, pending.file_path, bytes, exists, now);
+    try buffer.load_from_owned_bytes_and_update(pending.file_path, bytes, exists, now);
     try self.add_buffer(buffer);
     self.watch_buffer(buffer);
     return buffer;
@@ -426,11 +452,11 @@ pub fn is_buffer_dirty(self: *const Self, file_path: []const u8) bool {
     return if (self.get_buffer(file_path)) |buffer| buffer.is_dirty() else false;
 }
 
-pub fn save(self: *Self, io: std.Io, buffer: *Buffer, options: SaveOptions) SaveError!void {
-    return self.save_in_group(io, buffer, options, null);
+pub fn save(self: *Self, buffer: *Buffer, options: SaveOptions) SaveError!void {
+    return self.save_in_group(buffer, options, null);
 }
 
-pub fn save_all(self: *Self, io: std.Io, options: SaveAllOptions) SaveError!void {
+pub fn save_all(self: *Self, options: SaveAllOptions) SaveError!void {
     const then: ?cbor.Raw = if (options.then) |t| .{ .bytes = try self.allocator.dupe(u8, t.bytes) } else null;
     errdefer if (then) |t| self.allocator.free(t.bytes);
     const group_id = self.new_request_id();
@@ -449,7 +475,7 @@ pub fn save_all(self: *Self, io: std.Io, options: SaveAllOptions) SaveError!void
             };
     }
     for (dirty.items) |buffer|
-        self.save_in_group(io, buffer, .{ .auto_save = buffer.is_auto_save() }, group_id) catch |e| {
+        self.save_in_group(buffer, .{ .auto_save = buffer.is_auto_save() }, group_id) catch |e| {
             log.err("save {s} failed: {t}", .{ buffer.get_file_path(), e });
             self.save_groups.getPtr(group_id).?.failed = true;
         };
@@ -461,16 +487,18 @@ fn new_request_id(self: *Self) usize {
     return self.next_request_id;
 }
 
-fn save_in_group(self: *Self, io: std.Io, buffer: *Buffer, options: SaveOptions, group: ?usize) SaveError!void {
+fn save_in_group(self: *Self, buffer: *Buffer, options: SaveOptions, group: ?usize) SaveError!void {
+    if (options.overwrite == .check and buffer.file_state == .changed_on_disk)
+        return error.FileChangedOnDisk;
     const file_store = self.file_store orelse return error.FileStoreNotReady;
-    const started: std.Io.Timestamp = .now(io, .awake);
+    const started: std.Io.Timestamp = get_now();
     const abs_path = try self.resolve_abs_path(buffer) orelse return error.SaveNoFileName;
     defer self.allocator.free(abs_path);
 
     const root = buffer.root;
     const eol_mode = buffer.file_eol_mode;
     const content = buffer.store_to_string_cached(root, eol_mode);
-    const prepare_us = started.durationTo(.now(io, .awake)).toMicroseconds();
+    const prepare_us = started.durationTo(get_now()).toMicroseconds();
 
     const file_path = try self.allocator.dupe(u8, buffer.get_file_path());
     errdefer self.allocator.free(file_path);
@@ -478,9 +506,9 @@ fn save_in_group(self: *Self, io: std.Io, buffer: *Buffer, options: SaveOptions,
     errdefer if (then) |t| self.allocator.free(t.bytes);
 
     const id = self.new_request_id();
-    const stream_started: std.Io.Timestamp = .now(io, .awake);
+    const stream_started: std.Io.Timestamp = get_now();
     var stream = try FileStore.WriteStream.start(&file_store, self.allocator, id, abs_path, content, .{ .retain_symlinks = Buffer.retain_symlinks });
-    const start_us = stream_started.durationTo(.now(io, .awake)).toMicroseconds();
+    const start_us = stream_started.durationTo(get_now()).toMicroseconds();
     errdefer {
         stream.abort(&file_store);
         stream.deinit();
@@ -495,7 +523,6 @@ fn save_in_group(self: *Self, io: std.Io, buffer: *Buffer, options: SaveOptions,
             self.finish_group_member(aborted_group, false);
     }
     try self.saves.put(self.allocator, id, .{
-        .io = io,
         .stream = stream,
         .buffer = buffer.to_ref(),
         .root = root,
@@ -550,8 +577,8 @@ fn finish_save(self: *Self, id: usize, ok: bool) void {
             buffer.mark_saved(pending.root, pending.eol_mode);
             tp.self_pid().send(.{ "cmd", "buffer_saved", .{ pending.file_path, pending.auto_save } }) catch {};
         }
-        const total_us = pending.started.durationTo(.now(pending.io, .awake)).toMicroseconds();
-        perf_log.info("save {s} total {d:.3}ms bytes {d} [prepare {d:.3} start {d:.3} wait {d:.3}]", .{
+        const total_us = pending.started.durationTo(get_now()).toMicroseconds();
+        perf_log.debug("save {s} total {d:.3}ms bytes {d} [prepare {d:.3} start {d:.3} wait {d:.3}]", .{
             pending.file_path,
             to_ms(total_us),
             pending.bytes,
@@ -619,14 +646,14 @@ pub fn file_store_exited(self: *Self) void {
     }
 }
 
-pub fn reload_all(self: *Self, io: std.Io) LoadError!void {
+pub fn reload_all(self: *Self) LoadError!void {
     var i = self.buffers.valueIterator();
     while (i.next()) |b| {
         const buffer = b.*;
         if (buffer.is_ephemeral())
             buffer.mark_clean()
         else
-            try self.reload(io, buffer);
+            try self.reload(buffer, .user);
     }
 }
 
@@ -760,25 +787,61 @@ pub fn receive_file_store_message(self: *Self, from: tp.pid_ref, m: tp.message) 
     var event_type: FileStore.EventType = undefined;
     var object_type: FileStore.ObjectType = undefined;
     if (m.match(.{ "FS", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) }) catch false) {
-        self.file_changed(path, event_type, object_type);
+        return self.file_changed(path, event_type, object_type);
     } else if (m.match(.{ "FS", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) }) catch false) {
-        self.file_renamed(from_path, path, object_type);
+        return self.file_renamed(from_path, path, object_type);
     } else if (m.match(.{ "FS", "ready" }) catch false) {
         self.set_file_store(.{ .pid = from.clone() });
     }
     return .nochange;
 }
 
-fn file_changed(self: *Self, abs_path: []const u8, event_type: FileStore.EventType, object_type: FileStore.ObjectType) void {
-    const buffer = self.buffer_for_watched_path(abs_path) orelse return;
-    log.debug("file {t}: {s} ({t})", .{ event_type, buffer.get_file_path(), object_type });
+fn file_changed(self: *Self, abs_path: []const u8, event_type: FileStore.EventType, object_type: FileStore.ObjectType) LoadResult {
+    if (object_type == .dir) return .nochange;
+    const buffer = self.buffer_for_watched_path(abs_path) orelse return .nochange;
+    return switch (event_type) {
+        .deleted => file_gone(buffer, null),
+        .created, .modified => self.file_replaced(buffer),
+        .closed => .nochange,
+    };
 }
 
-fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8, object_type: FileStore.ObjectType) void {
+fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8, _: FileStore.ObjectType) LoadResult {
+    var result: LoadResult = .nochange;
     if (self.buffer_for_watched_path(from_path)) |buffer|
-        log.debug("file renamed: {s} -> {s} ({t})", .{ buffer.get_file_path(), to_path, object_type });
+        result = file_gone(buffer, to_path);
     if (self.buffer_for_watched_path(to_path)) |buffer|
-        log.debug("file replaced: {s} <- {s} ({t})", .{ buffer.get_file_path(), from_path, object_type });
+        if (self.file_replaced(buffer) == .modified) {
+            result = .modified;
+        };
+    return result;
+}
+
+fn file_gone(buffer: *Buffer, renamed_to: ?[]const u8) LoadResult {
+    buffer.file_exists = false;
+    buffer.file_state = .deleted_on_disk;
+    if (renamed_to) |to_path|
+        log.warn("{s} was renamed to {s}", .{ buffer.get_file_path(), to_path })
+    else
+        log.warn("{s} was deleted on disk", .{buffer.get_file_path()});
+    return .modified;
+}
+
+fn file_replaced(self: *Self, buffer: *Buffer) LoadResult {
+    buffer.file_exists = true;
+    if (self.find_reload(buffer.to_ref())) |pending| {
+        pending.reload.?.state = .superseded;
+        return .nochange;
+    }
+    buffer.file_state = .changed_on_disk;
+    if (buffer.is_dirty()) {
+        log.warn("{s} changed on disk; reload_file to discard your edits or force_save_file to overwrite", .{buffer.get_file_path()});
+        return .modified;
+    }
+    if (buffer.hidden) return .nochange;
+    self.reload(buffer, .external) catch |e|
+        log.err("reload {s} failed: {t}", .{ buffer.get_file_path(), e });
+    return .modified;
 }
 
 const log = std.log.scoped(.buffer_manager);
