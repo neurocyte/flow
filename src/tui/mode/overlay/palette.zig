@@ -40,11 +40,6 @@ pub const Placement = enum {
     }
 };
 
-pub const ActivateMode = enum {
-    normal,
-    alternate,
-};
-
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -78,10 +73,17 @@ pub fn Create(options: type) type {
         const preserve_entry_order = @hasDecl(options, "preserve_entry_order") and options.preserve_entry_order;
         const has_compare_entries = @hasDecl(options, "compare_entries");
         const has_score_bonus = @hasDecl(options, "score_bonus");
+        const has_activate_query = @hasDecl(options, "activate_query");
+        const has_insert = @hasDecl(options, "insert");
 
         pub const MenuType = Menu.Options(*Self).MenuType;
         pub const ButtonType = MenuType.ButtonType;
         pub const Pos = Widget.Pos;
+
+        pub const ActivateMode = enum {
+            normal,
+            alternate,
+        };
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             return create_with_args(allocator, .empty());
@@ -699,15 +701,34 @@ pub fn Create(options: type) type {
             pub const palette_menu_complete_meta: Meta = .{};
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
+                if (has_activate_query and self.items == 0 and self.inputbox.text.items.len > 0) {
+                    const activate = self.activate;
+                    self.activate = .normal;
+                    return options.activate_query(activate, self.inputbox.text.items);
+                }
                 self.menu.activate_selected();
             }
             pub const palette_menu_activate_meta: Meta = .{};
 
-            pub fn palette_menu_activate_alternate(self: *Self, _: Ctx) Result {
+            pub fn palette_menu_activate_alternate(self: *Self, ctx: Ctx) Result {
                 self.activate = .alternate;
-                self.menu.activate_selected();
+                return palette_menu_activate(self, ctx);
             }
             pub const palette_menu_activate_alternate_meta: Meta = .{};
+
+            pub fn palette_menu_insert(self: *Self, _: Ctx) Result {
+                const activate = self.activate;
+                self.activate = .normal;
+                if (has_insert)
+                    return options.insert(activate, self.inputbox.text.items);
+            }
+            pub const palette_menu_insert_meta: Meta = .{ .icon = "" };
+
+            pub fn palette_menu_insert_alternate(self: *Self, ctx: Ctx) Result {
+                self.activate = .alternate;
+                return palette_menu_insert(self, ctx);
+            }
+            pub const palette_menu_insert_alternate_meta: Meta = .{ .icon = "" };
 
             pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
                 if (!self.quick_activate_enabled) return;

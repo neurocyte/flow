@@ -398,7 +398,6 @@
             ["ctrl+escape", "palette_menu_cancel"],
             ["ctrl+up", "palette_menu_up"],
             ["ctrl+down", "palette_menu_down"],
-            ["ctrl+enter", "palette_menu_activate"],
             ["alt+backspace", "overlay_delete_word_left"],
             ["ctrl+backspace", "overlay_delete_word_left"],
             ["ctrl+shift+e", "palette_menu_up"],
@@ -419,6 +418,8 @@
             ["end", "palette_menu_bottom"],
             ["enter", "palette_menu_activate"],
             ["shift+enter", "palette_menu_activate_alternate"],
+            ["ctrl+enter", "palette_menu_insert"],
+            ["ctrl+shift+enter", "palette_menu_insert_alternate"],
             ["tab", "palette_menu_complete"],
             ["delete", "palette_menu_delete_item"],
             ["backspace", "overlay_delete_backwards"]
