@@ -721,7 +721,7 @@ pub fn Create(options: type) type {
             pub fn palette_menu_insert(self: *Self, _: Ctx) Result {
                 const activate = self.activate;
                 self.activate = .normal;
-                if (has_insert)
+                if (has_insert and self.inputbox.text.items.len > 0)
                     return options.insert(activate, self.inputbox.text.items);
             }
             pub const palette_menu_insert_meta: Meta = .{ .icon = "" };
