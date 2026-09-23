@@ -299,6 +299,7 @@ fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*
             self.allocator.free(bytes);
             return null;
         }
+        buffer.store_undo(&[_]u8{}) catch {};
         try buffer.load_from_owned_bytes_and_update(buffer.get_file_path(), bytes, exists, now);
         buffer.update_last_used_time(now);
         if (reload_of.reason == .external)
