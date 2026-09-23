@@ -6499,7 +6499,7 @@ pub const Editor = struct {
     pub fn force_save_file(self: *Self, ctx: Context) Result {
         return self.save_file_overwrite(ctx, .force);
     }
-    pub const force_save_file_meta: Meta = .{ .description = "Save file and overwrite on disk changes" };
+    pub const force_save_file_meta: Meta = .{ .description = "Force save file (overwrite)" };
 
     fn save_file_overwrite(self: *Self, ctx: Context, overwrite: Buffer.Manager.Overwrite) Result {
         var option: SaveOption = .default;
