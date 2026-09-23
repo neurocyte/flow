@@ -476,7 +476,10 @@ pub fn Create(options: type) type {
                         .matches = try self.allocator.dupe(usize, match.matches),
                     };
             }
-            if (matches.items.len == 0) return 0;
+            if (matches.items.len == 0) {
+                self.total_items = 0;
+                return 0;
+            }
 
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
