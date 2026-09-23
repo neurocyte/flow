@@ -487,7 +487,7 @@ const cmds = struct {
 
     pub fn save_all(_: *Self, _: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
-            bm.save_all(root.get_io(), .{}) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            bm.save_all(.{}) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 

@@ -33,6 +33,11 @@ const cmds_ = struct {
     }
     pub const w_meta: Meta = .{ .description = "w (write file)" };
 
+    pub fn @"w!"(_: *void, ctx: Ctx) Result {
+        try cmd("force_save_file", ctx);
+    }
+    pub const @"w!_meta": Meta = .{ .description = "w! (write file, overwriting external changes)" };
+
     pub fn q(_: *void, ctx: Ctx) Result {
         try cmd("quit", ctx);
     }
@@ -59,7 +64,7 @@ const cmds_ = struct {
     pub const x_meta: Meta = .{ .description = "x (write file and quit)" };
 
     pub fn @"wq!"(_: *void, ctx: Ctx) Result {
-        cmd("save_file", ctx) catch {};
+        cmd("force_save_file", ctx) catch {};
         try cmd("quit_without_saving", .empty_from(ctx));
     }
     pub const @"wq!_meta": Meta = .{ .description = "wq! (write file and quit without saving)" };
