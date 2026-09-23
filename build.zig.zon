@@ -99,6 +99,10 @@
             .url = "git+https://github.com/neurocyte/nightwatch?ref=master#023e79f52bde36ac8fa4c967bd8333b14efb93cc",
             .hash = "nightwatch-1.0.0-uXzeH1ALAwAr6LLM0H1Z0aBO_a5gpxQ1YsXpdlh3Xv6U",
         },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c#0944784e197e419433a21d4b28bfc65e48e7d514",
+            .hash = "translate_c-0.0.0-Q_BUWo5NBwBs3K0a-B1XbxEF3gFdTb75VgOE0FL-2qKL",
+        },
     },
     .paths = .{
         "src",

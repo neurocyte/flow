@@ -385,6 +385,9 @@ pub fn build_exe(
     });
     const nightwatch_mod = nightwatch_dep.module("nightwatch");
 
+    const Translator = @import("translate_c").Translator;
+    const translate_c = b.dependency("translate_c", .{});
+
     const help_mod = b.createModule(.{
         .root_source_file = b.path("help.md"),
     });
@@ -814,8 +817,8 @@ pub fn build_exe(
                         .target = target,
                     });
                     if (target.result.os.tag == .linux) {
-                        const fontconfig_c_step = b.addTranslateC(.{
-                            .root_source_file = b.path("src/gui/rasterizer/font_finder/fontconfig_c.h"),
+                        const fontconfig_c_step: Translator = .init(translate_c, .{
+                            .c_source_file = b.path("src/gui/rasterizer/font_finder/fontconfig_c.h"),
                             .target = target,
                             .optimize = optimize,
                         });
@@ -828,7 +831,7 @@ pub fn build_exe(
                             fontconfig_c_step.addIncludePath(flow_gui_headers_dep.?.path("include"));
                         }
                         font_finder_mod.link_libc = true;
-                        font_finder_mod.addImport("c", fontconfig_c_step.createModule());
+                        font_finder_mod.addImport("c", fontconfig_c_step.mod);
                     }
 
                     const fallback_resolver_mod = b.createModule(.{
@@ -888,13 +891,13 @@ pub fn build_exe(
                         freetype_rasterizer_mod.addIncludePath(freetype_dep.path("include"));
                         freetype_rasterizer_mod.link_libc = true;
 
-                        const freetype_c_step = b.addTranslateC(.{
-                            .root_source_file = b.path("src/gui/rasterizer/freetype_c.h"),
+                        const freetype_c_step: Translator = .init(translate_c, .{
+                            .c_source_file = b.path("src/gui/rasterizer/freetype_c.h"),
                             .target = target,
                             .optimize = optimize,
                         });
                         freetype_c_step.addIncludePath(freetype_dep.path("include"));
-                        freetype_rasterizer_mod.addImport("c", freetype_c_step.createModule());
+                        freetype_rasterizer_mod.addImport("c", freetype_c_step.mod);
 
                         combined_rasterizer_mod.addImport("ft_rasterizer", freetype_rasterizer_mod);
                     }
@@ -1402,12 +1405,12 @@ pub fn build_exe(
         },
     });
 
-    const c_step = b.addTranslateC(.{
-        .root_source_file = b.path("src/c.h"),
+    const c_step: Translator = .init(translate_c, .{
+        .c_source_file = b.path("src/c.h"),
         .target = target,
         .optimize = optimize,
     });
-    const c_mod = c_step.createModule();
+    const c_mod = c_step.mod;
 
     const exe_name = switch (renderer) {
         .terminal => "flow",
