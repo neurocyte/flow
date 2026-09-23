@@ -670,7 +670,7 @@ const Process = struct {
         const stat_ = s.file.stat(root.get_io()) catch |e| return self.fail_stream(key, "read", @errorName(e));
         if (!Fingerprint.of(stat_).eql(s.fingerprint))
             return self.fail_stream(key, "read", "FileChangedDuringRead");
-        perf_log.info("read {s} total {d:.3}ms bytes {d} chunks {d} [read {d:.3}]", .{
+        perf_log.debug("read {s} total {d:.3}ms bytes {d} chunks {d} [read {d:.3}]", .{
             s.path,
             to_ms(us_since(root.get_io(), s.started)),
             s.size,
@@ -769,7 +769,7 @@ const Process = struct {
         }
         s.atomic.replace(io) catch |e| return self.fail_stream(key, "write", @errorName(e));
         self.record_own_write(s.path);
-        perf_log.info("write {s} total {d:.3}ms bytes {d} [begin {d:.3} write {d:.3} commit {d:.3}]", .{
+        perf_log.debug("write {s} total {d:.3}ms bytes {d} [begin {d:.3} write {d:.3} commit {d:.3}]", .{
             s.path,
             to_ms(us_since(io, s.started)),
             s.size,

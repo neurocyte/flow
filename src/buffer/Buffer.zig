@@ -1452,7 +1452,7 @@ pub const LoadTiming = struct {
 };
 
 fn log_load(wall: std.Io.Timestamp, file_path: []const u8, t: *const LoadTiming) void {
-    perf_log.info("load {s} at {d} total {d:.3}ms bytes {d} lines {d} [sanitize {d:.3} scan {d:.3} build {d:.3} update {d:.3}]", .{
+    perf_log.debug("load {s} at {d} total {d:.3}ms bytes {d} lines {d} [sanitize {d:.3} scan {d:.3} build {d:.3} update {d:.3}]", .{
         file_path,
         wall.toMilliseconds(),
         to_ms(t.timer.total()),

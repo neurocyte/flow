@@ -276,7 +276,7 @@ fn complete_load(self: *Self, pending: *PendingLoad, ok: bool) error{LoadFailed}
     };
     if (buffer == null) return;
     const total_us = pending.started.durationTo(get_now()).toMicroseconds();
-    perf_log.info("{s} {s} total {d:.3}ms bytes {d} [stream {d:.3} load {d:.3}]", .{
+    perf_log.debug("{s} {s} total {d:.3}ms bytes {d} [stream {d:.3} load {d:.3}]", .{
         if (pending.reload != null) "reload" else "open",
         pending.file_path,
         to_ms(total_us),
@@ -580,7 +580,7 @@ fn finish_save(self: *Self, id: usize, ok: bool) void {
             tp.self_pid().send(.{ "cmd", "buffer_saved", .{ pending.file_path, pending.auto_save } }) catch {};
         }
         const total_us = pending.started.durationTo(get_now()).toMicroseconds();
-        perf_log.info("save {s} total {d:.3}ms bytes {d} [prepare {d:.3} start {d:.3} wait {d:.3}]", .{
+        perf_log.debug("save {s} total {d:.3}ms bytes {d} [prepare {d:.3} start {d:.3} wait {d:.3}]", .{
             pending.file_path,
             to_ms(total_us),
             pending.bytes,
