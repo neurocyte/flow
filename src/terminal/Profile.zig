@@ -7,10 +7,13 @@
 
 const std = @import("std");
 const root = @import("soft_root").root;
+const TerminalOnExit = @import("config").TerminalOnExit;
 
 const log = std.log.scoped(.terminal_profiles);
 
 const Profile = @This();
+
+pub const Maximize = enum { always, never };
 
 /// Display name. Empty means "use the file name".
 name: []const u8 = "",
@@ -22,12 +25,19 @@ icon: []const u8 = "",
 color: u24 = 0x000000,
 /// Working directory to start in.
 cwd: []const u8 = "{{project}}",
+/// Global keybinding (flow syntax).
+keybind: []const u8 = "",
+/// Config option terminal_on_exit override.
+on_exit: ?TerminalOnExit = null,
+/// Maximize state when this profile starts.
+maximize: ?Maximize = null,
 
 pub fn deinit(self: *Profile, allocator: std.mem.Allocator) void {
     allocator.free(self.name);
     allocator.free(self.command);
     allocator.free(self.icon);
     allocator.free(self.cwd);
+    allocator.free(self.keybind);
 }
 
 pub fn dupe(allocator: std.mem.Allocator, src: Profile) std.mem.Allocator.Error!Profile {
@@ -38,7 +48,9 @@ pub fn dupe(allocator: std.mem.Allocator, src: Profile) std.mem.Allocator.Error!
     const icon = try allocator.dupe(u8, src.icon);
     errdefer allocator.free(icon);
     const cwd = try allocator.dupe(u8, src.cwd);
-    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd };
+    errdefer allocator.free(cwd);
+    const keybind = try allocator.dupe(u8, src.keybind);
+    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd, .keybind = keybind, .on_exit = src.on_exit, .maximize = src.maximize };
 }
 
 pub fn free(allocator: std.mem.Allocator, profiles: []Profile) void {
@@ -165,6 +177,53 @@ pub fn write(profile: Profile, id: []const u8) WriteError!void {
     var writer = file.writer(io, &buf);
     root.write_config_to_writer(Profile, profile, &writer.interface) catch return error.WriteFailed;
     writer.interface.flush() catch return error.WriteFailed;
+}
+
+pub fn file_path_for_name(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    const dir_path = try get_profiles_dir(allocator);
+    defer allocator.free(dir_path);
+    const id = find_id_for_name(allocator, dir_path, name) orelse try id_from_name(allocator, name);
+    defer allocator.free(id);
+    return std.fs.path.join(allocator, &.{ dir_path, id });
+}
+
+fn find_id_for_name(allocator: std.mem.Allocator, dir_path: []const u8, name: []const u8) ?[]const u8 {
+    var ids = collect_ids(allocator, dir_path) catch return null;
+    defer {
+        for (ids.items) |id| allocator.free(id);
+        ids.deinit(allocator);
+    }
+    for (ids.items) |id| {
+        const file_path = std.fs.path.join(allocator, &.{ dir_path, id }) catch continue;
+        defer allocator.free(file_path);
+        var profile = read_file(allocator, id, file_path) catch continue;
+        defer profile.deinit(allocator);
+        if (std.mem.eql(u8, profile.name, name))
+            return allocator.dupe(u8, id) catch null;
+    }
+    return null;
+}
+
+fn id_from_name(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, name, default_profile.name)) return allocator.dupe(u8, default_id);
+    const id = try allocator.dupe(u8, name);
+    for (id) |*c| c.* = switch (c.*) {
+        'A'...'Z' => std.ascii.toLower(c.*),
+        'a'...'z', '0'...'9', '-', '_' => c.*,
+        else => '-',
+    };
+    return id;
+}
+
+pub fn is_profile_file(path: []const u8) bool {
+    var buf: [std.posix.PATH_MAX]u8 = undefined;
+    const dir = std.fmt.bufPrint(&buf, "{s}{c}{s}{c}", .{
+        root.get_config_dir() catch return false,
+        std.fs.path.sep,
+        profiles_dir_name,
+        std.fs.path.sep,
+    }) catch return false;
+    return std.mem.startsWith(u8, path, dir);
 }
 
 pub fn write_default() WriteError!void {

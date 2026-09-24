@@ -271,6 +271,7 @@ fn init(allocator: Allocator) InitError!*Self {
     try frame_clock.start();
     try self.commands.init(self);
     try keybind.init(self.config_.keybind_mode);
+    @import("Vt.zig").register_profile_keybindings();
     errdefer self.deinit();
     switch (builtin.os.tag) {
         .windows => {
@@ -1217,6 +1218,19 @@ pub fn is_deferred_keyboard_focus(w: Widget) bool {
     return if (self.keyboard_focus_outer) |outer| outer.ptr == w.ptr else false;
 }
 
+pub fn transfer_keyboard_focus(from: Widget, to: Widget) void {
+    const self = current();
+    if (self.keyboard_focus) |cur| if (cur.ptr == from.ptr) {
+        clear_keyboard_focus();
+        to.focus();
+        return;
+    };
+    if (self.input_mode_outer_ == null) return;
+    if (self.keyboard_focus_outer) |outer| if (outer.ptr == from.ptr) {
+        self.keyboard_focus_outer = to;
+    };
+}
+
 fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const frame = tracy.initZone(@src(), .{ .name = "tui widgets" });
     defer frame.deinit();
@@ -1300,6 +1314,7 @@ fn config_file_changed(self: *Self, path: []const u8) void {
         self.reload_config();
     if (self.config_.desktop_theme_file.len > 0 and std.mem.eql(u8, self.config_.desktop_theme_file, path))
         self.read_desktop_theme_file() catch {};
+    @import("Vt.zig").profile_config_changed(path);
 }
 
 pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {

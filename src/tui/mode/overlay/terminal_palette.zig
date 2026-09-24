@@ -6,6 +6,8 @@ const command = @import("command");
 const tui = @import("../../tui.zig");
 const Widget = @import("../../Widget.zig");
 const Vt = @import("../../Vt.zig");
+const PanelArea = @import("../../PanelArea.zig");
+const tab_render = @import("../../tab_render.zig");
 const module_name = @typeName(@This());
 pub const Type = @import("palette.zig").Create(@This());
 
@@ -19,6 +21,7 @@ pub const modal_dim = false;
 pub const placement = .panel;
 
 const label_len = label.len + 3 + icon.len;
+const indicator_separator = 1;
 
 pub const Entry = struct {
     label: []const u8,
@@ -27,7 +30,17 @@ pub const Entry = struct {
     profile: ?[]const u8 = null,
     icon: []const u8 = "",
     color: u24 = 0,
+    state: Vt.State = .idle,
+    keybind: []const u8 = "",
+    command_action: CommandAction = .run,
 };
+
+pub const CommandAction = enum { run, describe };
+
+fn entry_state(vt: *Vt) Vt.State {
+    const mv = tui.mainview() orelse return vt.get_state(.hidden);
+    return vt.get_state(if (mv.is_terminal_visible(vt)) .visible else .hidden);
+}
 
 fn add_entry(palette: *Type, vt: *Vt, idx: usize, longest: *usize) !void {
     const title = try palette.allocator.dupe(u8, vt.get_title());
@@ -42,21 +55,26 @@ fn add_entry(palette: *Type, vt: *Vt, idx: usize, longest: *usize) !void {
         .idx = idx,
         .icon = entry_icon,
         .color = entry_color,
+        .state = entry_state(vt),
     };
     longest.* = @max(longest.*, title.len);
 }
 
-fn add_profile_entry(palette: *Type, profile: anytype, longest: *usize) !void {
+fn add_profile_entry(palette: *Type, profile: anytype, longest: *usize, longest_hint: *usize) !void {
     const profile_name = try palette.allocator.dupe(u8, profile.name);
     const entry_icon = try palette.allocator.dupe(u8, profile.icon);
+    const keybind = try palette.allocator.dupe(u8, profile.keybind);
     (try palette.entries.addOne(palette.allocator)).* = .{
         .label = profile_name,
         .idx = 0,
         .profile = profile_name, // aliases label; serialized separately, freed once via label
         .icon = entry_icon,
         .color = profile.color,
+        .keybind = keybind,
     };
     longest.* = @max(longest.*, profile_name.len);
+    if (keybind.len > 0)
+        longest_hint.* = @max(longest_hint.*, profile_name.len + tui.egc_chunk_width(keybind, 0, 1) + 1);
 }
 
 pub fn load_entries(palette: *Type) !usize {
@@ -72,30 +90,50 @@ pub fn load_entries(palette: *Type) !usize {
     }
     const hints = palette.mode.keybind_hints;
     var longest_hint: usize = 0;
-    longest_hint = @max(longest_hint, try add_palette_command(palette, "terminal_new", hints));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "terminal_new", hints, "", .run));
 
     const profiles = try Vt.available_profiles(palette.allocator);
     defer Vt.free_profiles(palette.allocator, profiles);
-    for (profiles) |profile| try add_profile_entry(palette, profile, &longest);
+    for (profiles) |profile| try add_profile_entry(palette, profile, &longest, &longest_hint);
 
-    return longest_hint - @min(longest_hint, longest) + 3;
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_insert", hints, "Add or edit profile", .describe));
+    return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
 
 pub fn deinit(palette: *Type) void {
     for (palette.entries.items) |entry| {
         palette.allocator.free(entry.label);
         palette.allocator.free(entry.icon);
+        palette.allocator.free(entry.keybind);
     }
 }
 
-fn add_palette_command(palette: *Type, command_name: []const u8, hints: *const tui.KeybindHints) !usize {
+fn add_palette_command(
+    palette: *Type,
+    command_name: []const u8,
+    hints: *const tui.KeybindHints,
+    label_override: []const u8,
+    action: CommandAction,
+) !usize {
     const id = command.get_id(command_name) orelse return 0;
     var width: usize = 0;
     if (command.get_icon(id)) |icon_| width += tui.egc_chunk_width(icon_, 0, 1);
-    if (command.get_description(id)) |desc| width += tui.egc_chunk_width(desc, 0, 1);
+    if (label_override.len > 0)
+        width += tui.egc_chunk_width(label_override, 0, 1) + 1
+    else if (command.get_description(id)) |desc|
+        width += tui.egc_chunk_width(desc, 0, 1) + 1;
     if (hints.get(command_name)) |hint| width += tui.egc_chunk_width(hint, 0, 1);
-    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .idx = 0, .command = command_name };
+    (try palette.entries.addOne(palette.allocator)).* = .{
+        .label = try palette.allocator.dupe(u8, label_override),
+        .idx = 0,
+        .command = command_name,
+        .command_action = action,
+    };
     return width;
+}
+
+pub fn skip_entry(entry: *const Entry) bool {
+    return entry.command != null;
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
@@ -148,8 +186,10 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
 
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon_|
-            label_.writer.print("{s} ", .{icon_}) catch {};
-        if (command.get_description(id)) |desc|
+            label_.writer.print("{s}  ", .{icon_}) catch {};
+        if (entry.label.len > 0)
+            label_.writer.print("{s}", .{entry.label}) catch {}
+        else if (command.get_description(id)) |desc|
             label_.writer.print("{s}", .{desc}) catch {};
         _ = button.plane.print("{s} ", .{label_.written()}) catch {};
 
@@ -160,6 +200,12 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         render_colored_icon(&button.plane, profile_icon, entry.color, icon_width);
         _ = button.plane.print(" ", .{}) catch {};
         _ = button.plane.print("{s} ", .{entry.label}) catch {};
+        if (entry.keybind.len > 0) {
+            button.plane.set_style(style_hint);
+            _ = button.plane.print_aligned_right(0, "{s} ", .{entry.keybind}) catch {};
+            button.plane.set_style(style_label);
+        }
+        render_indicator(&button.plane, theme, entry.state, style_label);
     }
 
     const match_offset: usize = 2 + if (icon_width > 0) @as(usize, icon_width + 2) else 0;
@@ -173,6 +219,24 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     return false;
 }
 
+fn render_indicator(plane: *@import("renderer").Plane, theme: *const Widget.Theme, state: Vt.State, style_label: Widget.Theme.Style) void {
+    const indicator: tab_render.Indicator = switch (state) {
+        .idle => return,
+        .alt_screen => .alt_screen,
+        .activity => .activity,
+        .busy => .busy,
+        .bell => .bell,
+        .exited => .exited,
+        .exited_error => .exited_error,
+    };
+    const mv = tui.mainview() orelse return;
+    const glyph = tab_render.indicator_glyph(mv.panel_tab_style(), indicator);
+    if (glyph.fg) |color|
+        plane.set_style(.{ .fg = color.from_theme(theme) });
+    _ = plane.print_aligned_right(0, " {s}\u{00A0}", .{glyph.glyph}) catch {};
+    plane.set_style(style_label);
+}
+
 fn render_colored_icon(plane: *@import("renderer").Plane, glyph: []const u8, glyph_color: u24, icon_width: usize) void {
     var cell = plane.cell_init();
     _ = plane.at_cursor_cell(&cell) catch return;
@@ -184,16 +248,45 @@ fn render_colored_icon(plane: *@import("renderer").Plane, glyph: []const u8, gly
         plane.cursor_move_rel(0, 1) catch {};
 }
 
+pub fn edit_selected(palette: *Type, button: ?*Type.ButtonType) !void {
+    if (palette.inputbox.text.items.len > 0) return add_profile(palette);
+    const button_ = button orelse return;
+    var entry: Entry = undefined;
+    var iter = button_.opts.label;
+    if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
+    const profile = entry.profile orelse return;
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
+}
+
+fn add_profile(palette: *Type) !void {
+    const profile = palette.inputbox.text.items;
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
+}
+
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
+    const activate = menu.*.opts.ctx.activate;
+    menu.*.opts.ctx.activate = .normal;
+    const target: PanelArea.Target = switch (activate) {
+        .normal => .focused_group,
+        .alternate => .new_group,
+    };
+    if (entry.command) |command_name| if (entry.command_action == .describe) {
+        const hints = if (tui.input_mode()) |m| m.keybind_hints else return;
+        if (hints.get(command_name)) |hint|
+            std.log.info("type a new profile name or select an existing profile and press {s}", .{hint});
+        return;
+    };
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     if (entry.command) |command_name| {
-        tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", command_name, .{ "", target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else if (entry.profile) |profile_name| {
-        tp.self_pid().send(.{ "cmd", "terminal_new", .{profile_name} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", "terminal_new", .{ profile_name, target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else {
-        tp.self_pid().send(.{ "cmd", "terminal_select", .{entry.idx} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", "terminal_select", .{ entry.idx, target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
 }

@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
+const command = @import("command");
 
 const Plane = @import("renderer").Plane;
 
@@ -52,6 +53,7 @@ pub fn create(allocator: Allocator, parent: Plane, widget_type: Widget.Type, sty
         .focused = strip_focused,
         .on_select = strip_select,
         .on_close = strip_close,
+        .on_menu = strip_menu,
     });
     errdefer self.strip.widget().deinit(allocator);
 
@@ -112,6 +114,11 @@ pub fn is_active(self: *const Self, id: Panel.Id) bool {
     return if (self.active()) |p| p.id == id else false;
 }
 
+pub fn focus(self: *Self) void {
+    if (self.active()) |p| p.widget.focus();
+    if (self.on_focus) |cb| cb.f(cb.ctx, self);
+}
+
 pub fn is_focused(self: *const Self) bool {
     const p = self.active() orelse return false;
     return tui.is_keyboard_focus(p.impl);
@@ -138,7 +145,10 @@ pub fn activate(self: *Self, id: Panel.Id) void {
 }
 
 fn set_active(self: *Self, n: usize) void {
+    const prev = self.active();
     self.deck.set_active(n);
+    if (prev) |p| if (self.active()) |cur| if (cur.id != p.id)
+        tui.transfer_keyboard_focus(p.impl, cur.widget);
     self.notify_active();
 }
 
@@ -171,11 +181,25 @@ fn strip_count(ctx: *anyopaque) usize {
 fn strip_info(ctx: *anyopaque, n: usize) TabStrip.TabInfo {
     const self: *Self = @ptrCast(@alignCast(ctx));
     const p = self.panels.items[n];
+    const visibility: Panel.Visibility = if (self.deck.active_index() == n) .visible else .hidden;
     return .{
         .id = p.id,
         .label = p.title(),
         .icon = p.icon(),
-        .active = self.deck.active_index() == n,
+        .active = visibility == .visible,
+        .indicator = strip_indicator(p, visibility),
+    };
+}
+
+fn strip_indicator(p: Panel, visibility: Panel.Visibility) TabStrip.Indicator {
+    return switch (p.indicator(visibility)) {
+        .none => .clean,
+        .alt_screen => .alt_screen,
+        .activity => .activity,
+        .bell => .bell,
+        .busy => .busy,
+        .exited => .exited,
+        .exited_error => .exited_error,
     };
 }
 
@@ -193,4 +217,10 @@ fn strip_select(ctx: *anyopaque, id: TabStrip.Id) void {
 
 fn strip_close(_: *anyopaque, id: TabStrip.Id) void {
     tp.self_pid().send(.{ "cmd", "panel_tab_close", .{id} }) catch {};
+}
+
+fn strip_menu(ctx: *anyopaque) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    self.focus();
+    command.executeName("switch_terminals", .empty()) catch {};
 }

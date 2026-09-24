@@ -13,11 +13,40 @@ pub const State = struct {
     dragging: bool = false,
 };
 
+pub const Indicator = enum {
+    clean,
+    dirty,
+    changed_on_disk,
+    deleted_on_disk,
+    alt_screen,
+    activity,
+    bell,
+    busy,
+    exited,
+    exited_error,
+};
+
+pub const Glyph = struct {
+    glyph: []const u8,
+    fg: ?Tabs.colors,
+    transparent: bool,
+};
+
+pub fn indicator_glyph(s: *const Style, indicator: Indicator) Glyph {
+    return switch (indicator) {
+        inline else => |tag| .{
+            .glyph = @field(s, @tagName(tag) ++ "_indicator"),
+            .fg = @field(s, @tagName(tag) ++ "_indicator_fg"),
+            .transparent = @field(s, @tagName(tag) ++ "_indicator_fg_transparent"),
+        },
+    };
+}
+
 pub const Content = struct {
     icon: []const u8 = "",
     icon_color: ?u24 = null,
     label: []const u8,
-    indicator: enum { clean, dirty } = .clean,
+    indicator: Indicator = .clean,
     hover_action: enum { close, save } = .close,
 };
 
@@ -122,17 +151,11 @@ fn render_content(plane: *Plane, s: *const Style, theme: *const Widget.Theme, ho
             hit.close_pos = plane.cursor_x();
             put_glyph(plane, s.close_icon, s.close_icon_fg_transparent, .normal);
         },
-    } else switch (c.indicator) {
-        .dirty => {
-            if (s.dirty_indicator_fg) |color|
-                plane.set_style(.{ .fg = color.from_theme(theme) });
-            put_glyph(plane, s.dirty_indicator, s.dirty_indicator_fg_transparent, .normal);
-        },
-        .clean => {
-            if (s.clean_indicator_fg) |color|
-                plane.set_style(.{ .fg = color.from_theme(theme) });
-            put_glyph(plane, s.clean_indicator, s.clean_indicator_fg_transparent, .normal);
-        },
+    } else {
+        const indicator = indicator_glyph(s, c.indicator);
+        if (indicator.fg) |color|
+            plane.set_style(.{ .fg = color.from_theme(theme) });
+        put_glyph(plane, indicator.glyph, indicator.transparent, .normal);
     }
     plane.set_style(.{ .fg = fg });
     render_padding(plane, s, .right);

@@ -154,8 +154,16 @@ pub fn panel_icon(self: *Self) []const u8 {
     return "";
 }
 
-pub fn panel_indicator(self: *Self) Panel.Indicator {
-    return if (self.vt.process_exited) .exited else .none;
+pub fn panel_indicator(self: *Self, visibility: Panel.Visibility) Panel.Indicator {
+    return switch (self.vt.get_state(visibility)) {
+        .idle => .none,
+        .alt_screen => .alt_screen,
+        .activity => .activity,
+        .busy => .busy,
+        .bell => .bell,
+        .exited => .exited,
+        .exited_error => .exited_error,
+    };
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -422,6 +430,8 @@ pub fn shutdown_all() void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    self.vt.clear_activity();
+
     // Update the terminal's fg/bg color cache from the current theme so that
     // OSC 10/11 colour queries return accurate values.
     if (theme.editor.fg) |fg| self.vt.vt.fg_color = color.u24_to_u8s(fg.color);

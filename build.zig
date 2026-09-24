@@ -592,6 +592,7 @@ pub fn build_exe(
     const Terminal_mod = b.createModule(.{
         .root_source_file = b.path("src/terminal/Terminal.zig"),
         .imports = &.{
+            .{ .name = "config", .module = config_mod },
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "DoubleMappedRingBuffer", .module = double_mapped_ring_buffer_mod },
             .{ .name = "xterm", .module = xterm_mod },
@@ -1191,6 +1192,7 @@ pub fn build_exe(
         });
         tests.root_module.addImport("soft_root", soft_root_mod);
         tests.root_module.addImport("command_line", command_line_mod);
+        tests.root_module.addImport("config", config_mod);
         if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };

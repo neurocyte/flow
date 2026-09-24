@@ -306,6 +306,10 @@ pub fn active_panel_plane(self: *const Self) ?Plane {
     return self.bottom_area.active_plane();
 }
 
+pub fn panel_tab_style(self: *const Self) *const @import("status/tabs.zig").Style {
+    return &self.bottom_area.tab_style;
+}
+
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
@@ -345,12 +349,19 @@ fn terminal_panel(self: *Self, vt: *const Vt) ?PanelArea.Found {
     return self.bottom_area.find_panel_where(terminal_view, vt, terminal_view.is_vt);
 }
 
+pub fn is_terminal_visible(self: *Self, vt: *const Vt) bool {
+    if (!self.bottom_area.visible()) return false;
+    const f = self.terminal_panel(vt) orelse return false;
+    return f.group.is_active(f.panel.id);
+}
+
 fn current_terminal(self: *Self) ?*terminal_view {
     return self.bottom_area.current_of(terminal_view);
 }
 
 fn open_terminal_panel(self: *Self, vt: *Vt, opts: PanelArea.OpenOptions) !*terminal_view {
     if (self.terminal_panel(vt)) |f| {
+        if (opts.target == .new_group) try self.bottom_area.move_to_new_group(f);
         if (opts.activate) self.bottom_area.activate(f.panel.id) else if (opts.show) self.bottom_area.show();
         const tv = f.panel.cast(terminal_view) orelse return error.PanelNotFound;
         if (opts.focus) tv.focus();
@@ -441,6 +452,19 @@ pub fn hide_info_view_panel(self: *Self) void {
 fn check_all_not_dirty(self: *const Self) command.Result {
     if (self.buffer_manager.is_dirty())
         return tp.exit("unsaved changes");
+}
+
+fn open_profile_buffer(self: *Self, now: std.Io.Timestamp, file_name: []const u8, profile: Vt.Profile) command.Result {
+    var conf: std.Io.Writer.Allocating = .init(self.allocator);
+    defer conf.deinit();
+    root.write_config_to_writer_no_header(Vt.Profile, profile, &conf.writer) catch {};
+    try self.create_editor(now);
+    try command.executeName("open_scratch_buffer", command.fmt(.{ file_name, conf.written(), "conf" }));
+    if (self.get_active_buffer()) |buffer| {
+        self.buffer_manager.mark_not_ephemeral(buffer);
+        buffer.mark_dirty();
+    }
+    self.location_update_from_editor();
 }
 
 fn check_no_active_terminals(_: *const Self) command.Result {
@@ -1287,25 +1311,50 @@ const cmds = struct {
 
     pub fn terminal_new(self: *Self, ctx: Ctx) Result {
         var profile_name: []const u8 = "";
-        const have_name = ctx.args.match(.{tp.extract(&profile_name)}) catch false;
+        var target: PanelArea.Target = .focused_group;
+        const have_name = (ctx.args.match(.{tp.extract(&profile_name)}) catch false) or
+            (ctx.args.match(.{ tp.extract(&profile_name), tp.extract(&target) }) catch false);
 
+        var maximize: ?Vt.Profile.Maximize = null;
         const vt = if (have_name and profile_name.len > 0) blk: {
             if (try Vt.find_profile(self.allocator, profile_name)) |found| {
                 var profile = found;
                 defer profile.deinit(self.allocator);
+                maximize = profile.maximize;
                 break :blk try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
             }
             std.log.err("terminal_new: unknown profile '{s}'", .{profile_name});
             return error.Stop;
         } else try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
 
-        _ = try self.open_terminal_panel(vt, .{ .focus = true });
+        _ = try self.open_terminal_panel(vt, .{ .focus = true, .target = target });
+        if (maximize) |maximize_| self.bottom_area.set_maximized(maximize_ == .always);
     }
     pub const terminal_new_meta: Meta = .{
         .description = "Open a new terminal",
         .arguments = &.{.string},
         .icon = "",
     };
+
+    pub fn open_terminal_profile(self: *Self, ctx: Ctx) Result {
+        var name: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&name)})) return error.InvalidOpenTerminalProfileArgument;
+        const file_name = Vt.Profile.file_path_for_name(self.allocator, name) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        defer self.allocator.free(file_name);
+
+        if (root.is_file(file_name)) {
+            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+            return;
+        }
+
+        if (try Vt.find_profile(self.allocator, name)) |found| {
+            var profile = found;
+            defer profile.deinit(self.allocator);
+            return self.open_profile_buffer(ctx.now, file_name, profile);
+        }
+        return self.open_profile_buffer(ctx.now, file_name, .{ .name = name });
+    }
+    pub const open_terminal_profile_meta: Meta = .{ .description = "Add or edit terminal profile", .arguments = &.{.string} };
 
     pub fn terminal_next_vt(self: *Self, _: Ctx) Result {
         try self.switch_terminal_vt(.next);
@@ -1319,9 +1368,12 @@ const cmds = struct {
 
     pub fn terminal_select(self: *Self, ctx: Ctx) Result {
         var idx: usize = undefined;
-        if (!try ctx.args.match(.{tp.extract(&idx)})) return error.InvalidTerminalSelectArgument;
+        var target: PanelArea.Target = .focused_group;
+        if (!(try ctx.args.match(.{tp.extract(&idx)}) or
+            try ctx.args.match(.{ tp.extract(&idx), tp.extract(&target) })))
+            return error.InvalidTerminalSelectArgument;
         const vt = Vt.Manager.by_index(idx) orelse return;
-        _ = try self.open_terminal_panel(vt, .{ .focus = true });
+        _ = try self.open_terminal_panel(vt, .{ .focus = true, .target = target });
     }
     pub const terminal_select_meta: Meta = .{ .arguments = &.{.integer} };
 
@@ -2958,6 +3010,19 @@ fn close_filelist_by_id(self: *Self, list_id: FileList.Id) void {
     tui.need_render(@src());
 }
 
+fn may_activate_background_filelist(self: *Self, list_id: FileList.Id) bool {
+    if (!self.bottom_area.visible()) return true;
+    const group = if (self.filelist_panel(list_id)) |f|
+        f.group
+    else
+        self.bottom_area.focused_group() orelse return true;
+    const active = group.active() orelse return true;
+    const flv = active.cast(filelist_view) orelse return false;
+    if (flv.list_id == list_id) return true;
+    const fl = flv.list() orelse return false;
+    return fl.is_empty();
+}
+
 fn add_filelist_entry(
     self: *Self,
     list_id: FileList.Id,
@@ -2970,13 +3035,11 @@ fn add_filelist_entry(
     severity: ed.Diagnostic.Severity,
     stream_type: enum { background, foreground },
 ) tp.result {
-    const take_focus = if (stream_type == .foreground) true else blk: {
-        if (!self.is_panel_view_showing(filelist_view)) break :blk true;
-        const cur = self.active_filelist() orelse break :blk true;
-        if (cur.list_id == list_id) break :blk true;
-        break :blk cur.is_empty();
+    const activate = switch (stream_type) {
+        .foreground => true,
+        .background => self.may_activate_background_filelist(list_id),
     };
-    const flv = self.open_filelist_panel(list_id, .{ .activate = take_focus }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const flv = self.open_filelist_panel(list_id, .{ .activate = activate }) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const event = self.filelists.add_item(list_id, .{
         .path = path,
         .begin_line = @max(1, begin_line) - 1,
