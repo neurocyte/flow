@@ -32,7 +32,10 @@ pub const Entry = struct {
     color: u24 = 0,
     state: Vt.State = .idle,
     keybind: []const u8 = "",
+    command_action: CommandAction = .run,
 };
+
+pub const CommandAction = enum { run, describe };
 
 fn entry_state(vt: *Vt) Vt.State {
     const mv = tui.mainview() orelse return vt.get_state(.hidden);
@@ -87,12 +90,13 @@ pub fn load_entries(palette: *Type) !usize {
     }
     const hints = palette.mode.keybind_hints;
     var longest_hint: usize = 0;
-    longest_hint = @max(longest_hint, try add_palette_command(palette, "terminal_new", hints));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "terminal_new", hints, "", .run));
 
     const profiles = try Vt.available_profiles(palette.allocator);
     defer Vt.free_profiles(palette.allocator, profiles);
     for (profiles) |profile| try add_profile_entry(palette, profile, &longest, &longest_hint);
 
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_insert", hints, "Edit profile", .describe));
     return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
 
@@ -104,13 +108,27 @@ pub fn deinit(palette: *Type) void {
     }
 }
 
-fn add_palette_command(palette: *Type, command_name: []const u8, hints: *const tui.KeybindHints) !usize {
+fn add_palette_command(
+    palette: *Type,
+    command_name: []const u8,
+    hints: *const tui.KeybindHints,
+    label_override: []const u8,
+    action: CommandAction,
+) !usize {
     const id = command.get_id(command_name) orelse return 0;
     var width: usize = 0;
     if (command.get_icon(id)) |icon_| width += tui.egc_chunk_width(icon_, 0, 1);
-    if (command.get_description(id)) |desc| width += tui.egc_chunk_width(desc, 0, 1);
+    if (label_override.len > 0)
+        width += tui.egc_chunk_width(label_override, 0, 1)
+    else if (command.get_description(id)) |desc|
+        width += tui.egc_chunk_width(desc, 0, 1);
     if (hints.get(command_name)) |hint| width += tui.egc_chunk_width(hint, 0, 1);
-    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .idx = 0, .command = command_name };
+    (try palette.entries.addOne(palette.allocator)).* = .{
+        .label = try palette.allocator.dupe(u8, label_override),
+        .idx = 0,
+        .command = command_name,
+        .command_action = action,
+    };
     return width;
 }
 
@@ -165,7 +183,9 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon_|
             label_.writer.print("{s} ", .{icon_}) catch {};
-        if (command.get_description(id)) |desc|
+        if (entry.label.len > 0)
+            label_.writer.print("{s}", .{entry.label}) catch {}
+        else if (command.get_description(id)) |desc|
             label_.writer.print("{s}", .{desc}) catch {};
         _ = button.plane.print("{s} ", .{label_.written()}) catch {};
 
@@ -243,6 +263,12 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const target: PanelArea.Target = switch (activate) {
         .normal => .focused_group,
         .alternate => .new_group,
+    };
+    if (entry.command) |command_name| if (entry.command_action == .describe) {
+        const hints = if (tui.input_mode()) |m| m.keybind_hints else return;
+        if (hints.get(command_name)) |hint|
+            std.log.info("select a profile and press {s}", .{hint});
+        return;
     };
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     if (entry.command) |command_name| {
