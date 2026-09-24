@@ -382,7 +382,10 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
     });
 
     var cmd_arg: []const u8 = "";
-    var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
+    var on_exit: TerminalOnExit = if (profile_override) |po|
+        po.on_exit orelse tui.config().terminal_on_exit
+    else
+        tui.config().terminal_on_exit;
     const have_arg = (cbor.match(ctx.args.buf, .{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0) or
         (cbor.match(ctx.args.buf, .{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0);
 

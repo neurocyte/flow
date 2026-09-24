@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const root = @import("soft_root").root;
+const TerminalOnExit = @import("config").TerminalOnExit;
 
 const log = std.log.scoped(.terminal_profiles);
 
@@ -24,6 +25,8 @@ color: u24 = 0x000000,
 cwd: []const u8 = "{{project}}",
 /// Global keybinding (flow syntax).
 keybind: []const u8 = "",
+/// Config option terminal_on_exit override.
+on_exit: ?TerminalOnExit = null,
 
 pub fn deinit(self: *Profile, allocator: std.mem.Allocator) void {
     allocator.free(self.name);
@@ -43,7 +46,7 @@ pub fn dupe(allocator: std.mem.Allocator, src: Profile) std.mem.Allocator.Error!
     const cwd = try allocator.dupe(u8, src.cwd);
     errdefer allocator.free(cwd);
     const keybind = try allocator.dupe(u8, src.keybind);
-    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd, .keybind = keybind };
+    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd, .keybind = keybind, .on_exit = src.on_exit };
 }
 
 pub fn free(allocator: std.mem.Allocator, profiles: []Profile) void {
