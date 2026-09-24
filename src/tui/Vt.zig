@@ -159,7 +159,12 @@ fn inject_output_end(self: *@This(), code: u8) void {
 pub fn get_title(self: *@This()) []const u8 {
     if (self.title.items.len > 0) return self.title.items;
     if (self.profile) |p| if (p.name.len > 0) return p.name;
-    return self.title.items;
+    return self.get_command_name();
+}
+
+pub fn get_command_name(self: *const @This()) []const u8 {
+    const cmd_argv = self.vt.cmd.argv;
+    return if (cmd_argv.len > 0) std.fs.path.basename(cmd_argv[0]) else "";
 }
 
 pub fn set_title(self: *@This(), title: []const u8) void {
