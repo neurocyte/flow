@@ -25,8 +25,10 @@ pub const Found = struct {
     panel: Panel,
 };
 
+pub const Target = enum { focused_group, new_group };
+
 pub const OpenOptions = struct {
-    group: ?*PanelGroup = null,
+    target: Target = .focused_group,
     activate: bool = true,
     focus: bool = false,
     show: bool = true,
@@ -214,8 +216,19 @@ fn target_group(self: *Self) error{OutOfMemory}!*PanelGroup {
     return self.focused_group() orelse self.add_group();
 }
 
+fn new_group_after(self: *Self, g: *PanelGroup) error{OutOfMemory}!*PanelGroup {
+    return self.add_group_at((self.group_index(g) orelse self.groups.items.len) + 1);
+}
+
+fn group_for(self: *Self, target: Target) error{OutOfMemory}!*PanelGroup {
+    return switch (target) {
+        .focused_group => self.target_group(),
+        .new_group => if (self.focused_group()) |g| self.new_group_after(g) else self.add_group(),
+    };
+}
+
 pub fn create_panel(self: *Self, comptime V: type, args: anytype, opts: OpenOptions) !*V {
-    const group = opts.group orelse try self.target_group();
+    const group = try self.group_for(opts.target);
     errdefer if (group.empty()) self.remove_group(group);
     const panel = try @call(.auto, V.create, .{ self.allocator, group.panel_parent() } ++ args);
     errdefer panel.widget.deinit(self.allocator);
@@ -364,12 +377,15 @@ fn move_panel(self: *Self, f: Found, to: *PanelGroup) void {
     if (was_focused) panel.widget.focus();
 }
 
+pub fn move_to_new_group(self: *Self, f: Found) error{OutOfMemory}!void {
+    if (f.group.count() < 2) return;
+    self.move_panel(f, try self.new_group_after(f.group));
+}
+
 pub fn split(self: *Self) error{OutOfMemory}!void {
     const g = self.focused_group() orelse return;
-    if (g.count() < 2) return;
     const p = g.active() orelse return;
-    const to = try self.add_group_at((self.group_index(g) orelse return) + 1);
-    self.move_panel(.{ .group = g, .panel = p }, to);
+    try self.move_to_new_group(.{ .group = g, .panel = p });
     self.show();
 }
 

@@ -351,6 +351,7 @@ fn current_terminal(self: *Self) ?*terminal_view {
 
 fn open_terminal_panel(self: *Self, vt: *Vt, opts: PanelArea.OpenOptions) !*terminal_view {
     if (self.terminal_panel(vt)) |f| {
+        if (opts.target == .new_group) try self.bottom_area.move_to_new_group(f);
         if (opts.activate) self.bottom_area.activate(f.panel.id) else if (opts.show) self.bottom_area.show();
         const tv = f.panel.cast(terminal_view) orelse return error.PanelNotFound;
         if (opts.focus) tv.focus();
@@ -1287,7 +1288,9 @@ const cmds = struct {
 
     pub fn terminal_new(self: *Self, ctx: Ctx) Result {
         var profile_name: []const u8 = "";
-        const have_name = ctx.args.match(.{tp.extract(&profile_name)}) catch false;
+        var target: PanelArea.Target = .focused_group;
+        const have_name = (ctx.args.match(.{tp.extract(&profile_name)}) catch false) or
+            (ctx.args.match(.{ tp.extract(&profile_name), tp.extract(&target) }) catch false);
 
         const vt = if (have_name and profile_name.len > 0) blk: {
             if (try Vt.find_profile(self.allocator, profile_name)) |found| {
@@ -1299,7 +1302,7 @@ const cmds = struct {
             return error.Stop;
         } else try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
 
-        _ = try self.open_terminal_panel(vt, .{ .focus = true });
+        _ = try self.open_terminal_panel(vt, .{ .focus = true, .target = target });
     }
     pub const terminal_new_meta: Meta = .{
         .description = "Open a new terminal",
@@ -1319,9 +1322,12 @@ const cmds = struct {
 
     pub fn terminal_select(self: *Self, ctx: Ctx) Result {
         var idx: usize = undefined;
-        if (!try ctx.args.match(.{tp.extract(&idx)})) return error.InvalidTerminalSelectArgument;
+        var target: PanelArea.Target = .focused_group;
+        if (!(try ctx.args.match(.{tp.extract(&idx)}) or
+            try ctx.args.match(.{ tp.extract(&idx), tp.extract(&target) })))
+            return error.InvalidTerminalSelectArgument;
         const vt = Vt.Manager.by_index(idx) orelse return;
-        _ = try self.open_terminal_panel(vt, .{ .focus = true });
+        _ = try self.open_terminal_panel(vt, .{ .focus = true, .target = target });
     }
     pub const terminal_select_meta: Meta = .{ .arguments = &.{.integer} };
 

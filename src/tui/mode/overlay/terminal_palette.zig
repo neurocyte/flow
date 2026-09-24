@@ -6,6 +6,7 @@ const command = @import("command");
 const tui = @import("../../tui.zig");
 const Widget = @import("../../Widget.zig");
 const Vt = @import("../../Vt.zig");
+const PanelArea = @import("../../PanelArea.zig");
 const module_name = @typeName(@This());
 pub const Type = @import("palette.zig").Create(@This());
 
@@ -188,12 +189,18 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
+    const activate = menu.*.opts.ctx.activate;
+    menu.*.opts.ctx.activate = .normal;
+    const target: PanelArea.Target = switch (activate) {
+        .normal => .focused_group,
+        .alternate => .new_group,
+    };
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     if (entry.command) |command_name| {
-        tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", command_name, .{ "", target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else if (entry.profile) |profile_name| {
-        tp.self_pid().send(.{ "cmd", "terminal_new", .{profile_name} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", "terminal_new", .{ profile_name, target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else {
-        tp.self_pid().send(.{ "cmd", "terminal_select", .{entry.idx} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", "terminal_select", .{ entry.idx, target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
 }
