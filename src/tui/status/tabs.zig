@@ -21,7 +21,7 @@ const default_min_tabs = 2;
 const @"style.config" = struct {
     default_minimum_tabs_shown: usize = 2,
 
-    padding: []const u8 = " ",
+    padding: []const u8 = "\u{00A0}", // nbsp
     padding_fg_transparent: bool = true,
     padding_left: usize = 2,
     padding_right: usize = 1,
