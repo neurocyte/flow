@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
+const command = @import("command");
 
 const Plane = @import("renderer").Plane;
 
@@ -52,6 +53,7 @@ pub fn create(allocator: Allocator, parent: Plane, widget_type: Widget.Type, sty
         .focused = strip_focused,
         .on_select = strip_select,
         .on_close = strip_close,
+        .on_menu = strip_menu,
     });
     errdefer self.strip.widget().deinit(allocator);
 
@@ -110,6 +112,11 @@ pub fn active(self: *const Self) ?Panel {
 
 pub fn is_active(self: *const Self, id: Panel.Id) bool {
     return if (self.active()) |p| p.id == id else false;
+}
+
+pub fn focus(self: *Self) void {
+    if (self.active()) |p| p.widget.focus();
+    if (self.on_focus) |cb| cb.f(cb.ctx, self);
 }
 
 pub fn is_focused(self: *const Self) bool {
@@ -196,4 +203,10 @@ fn strip_select(ctx: *anyopaque, id: TabStrip.Id) void {
 
 fn strip_close(_: *anyopaque, id: TabStrip.Id) void {
     tp.self_pid().send(.{ "cmd", "panel_tab_close", .{id} }) catch {};
+}
+
+fn strip_menu(ctx: *anyopaque) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    self.focus();
+    command.executeName("switch_terminals", .empty()) catch {};
 }

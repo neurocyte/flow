@@ -26,6 +26,7 @@ pub const Source = struct {
     focused: *const fn (ctx: *anyopaque) bool,
     on_select: *const fn (ctx: *anyopaque, id: Id) void,
     on_close: *const fn (ctx: *anyopaque, id: Id) void,
+    on_menu: *const fn (ctx: *anyopaque) void,
 };
 
 const Self = @This();
@@ -93,7 +94,7 @@ fn rebuild(self: *Self) void {
             continue;
         };
     }
-    if (MenuButton.create(self.allocator, self.list.plane) catch null) |m| blk: {
+    if (MenuButton.create(self.allocator, self.list.plane, self) catch null) |m| blk: {
         var spacer = Widget.empty(self.allocator, self.list.plane, .dynamic) catch {
             m.deinit(self.allocator);
             break :blk;
@@ -179,11 +180,13 @@ const Tab = struct {
 };
 
 const MenuButton = struct {
+    strip: *Self,
+
     const ButtonType = Button.Options(@This()).ButtonType;
 
-    pub fn create(allocator: Allocator, parent: Plane) error{OutOfMemory}!Widget {
+    pub fn create(allocator: Allocator, parent: Plane, strip: *Self) error{OutOfMemory}!Widget {
         return Button.create_widget(@This(), allocator, parent, .{
-            .ctx = .{},
+            .ctx = .{ .strip = strip },
             .label = " ≡ ",
             .on_click = on_click,
             .on_layout = layout,
@@ -191,8 +194,9 @@ const MenuButton = struct {
         });
     }
 
-    fn on_click(_: *@This(), _: *ButtonType, _: Widget.Pos) void {
-        @import("command").executeName("switch_terminals", .empty()) catch {};
+    fn on_click(m: *@This(), _: *ButtonType, _: Widget.Pos) void {
+        const src = m.strip.source;
+        src.on_menu(src.ctx);
     }
 
     pub fn layout(_: *@This(), _: *ButtonType) Widget.Layout {
