@@ -32,6 +32,12 @@ const @"style.config" = struct {
     dirty_indicator: []const u8 = "",
     dirty_indicator_fg: ?colors = null,
     dirty_indicator_fg_transparent: bool = false,
+    changed_on_disk_indicator: []const u8 = "󰳻",
+    changed_on_disk_indicator_fg: ?colors = null,
+    changed_on_disk_indicator_fg_transparent: bool = false,
+    deleted_on_disk_indicator: []const u8 = "󱂥",
+    deleted_on_disk_indicator_fg: ?colors = null,
+    deleted_on_disk_indicator_fg_transparent: bool = false,
     close_icon: []const u8 = "󰅖",
     close_icon_fg: colors = .Error,
     close_icon_fg_transparent: bool = false,
@@ -807,17 +813,29 @@ const Tab = struct {
         return false;
     }
 
+    fn indicator_for(buffer_: ?*Buffer) tab_render.Indicator {
+        const buffer = buffer_ orelse return .clean;
+        return switch (buffer.file_state) {
+            .changed_on_disk => .changed_on_disk,
+            .deleted_on_disk => .deleted_on_disk,
+            .in_sync => blk: {
+                if (!buffer.is_dirty()) break :blk .clean;
+                const auto_save = if (buffer.is_auto_save()) switch (tui.config().auto_save_mode) {
+                    .on_input_idle, .on_document_change => true,
+                    .on_focus_change => false,
+                } else false;
+                break :blk if (auto_save) .clean else .dirty;
+            },
+        };
+    }
+
     fn render_tab(self: *@This(), plane: *Plane, label: []const u8, state: tab_render.State, theme: *const Widget.Theme) tab_render.Hit {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
         const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
-        const auto_save = if (buffer_) |buffer| if (buffer.is_auto_save()) switch (tui.config().auto_save_mode) {
-            .on_input_idle, .on_document_change => true,
-            .on_focus_change => false,
-        } else false else false;
         var content: tab_render.Content = .{
             .label = label,
-            .indicator = if (is_dirty and !auto_save) .dirty else .clean,
+            .indicator = indicator_for(buffer_),
             .hover_action = if (is_dirty) .save else .close,
         };
         if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
@@ -841,18 +859,23 @@ const Tab = struct {
 
     fn layout(self: *@This(), btn: *ButtonType) Widget.Layout {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        const is_dirty = if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| buffer.is_dirty() else false;
+        const indicator = indicator_for(buffer_manager.buffer_from_ref(self.buffer_ref));
         const active = self.is_active();
         const len = btn.plane.egc_chunk_width(btn.opts.label, 0, 1);
-        const len_padding = padding_len(btn.plane, self.tabbar.tab_style, active, is_dirty);
+        const len_padding = padding_len(btn.plane, self.tabbar.tab_style, active, indicator);
         return .{ .static = len + len_padding };
     }
 
-    fn padding_len(plane: Plane, tab_style: Style, active: bool, dirty: bool) usize {
+    fn padding_len(plane: Plane, tab_style: Style, active: bool, indicator: tab_render.Indicator) usize {
         const len_file_icon: usize = if (tab_style.file_type_icon) 3 else 0;
         const len_close_icon = plane.egc_chunk_width(tab_style.close_icon, 0, 1);
-        const len_dirty_indicator = if (dirty) plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1) else 0;
-        return len_file_icon + tab_render.chrome_width(plane, &tab_style, active, @max(len_close_icon, len_dirty_indicator));
+        const len_indicator = switch (indicator) {
+            .clean => 0,
+            .dirty => plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1),
+            .changed_on_disk => plane.egc_chunk_width(tab_style.changed_on_disk_indicator, 0, 1),
+            .deleted_on_disk => plane.egc_chunk_width(tab_style.deleted_on_disk_indicator, 0, 1),
+        };
+        return len_file_icon + tab_render.chrome_width(plane, &tab_style, active, @max(len_close_icon, len_indicator));
     }
 
     fn name_from_buffer(buffer: *Buffer) []const u8 {

@@ -13,11 +13,13 @@ pub const State = struct {
     dragging: bool = false,
 };
 
+pub const Indicator = enum { clean, dirty, changed_on_disk, deleted_on_disk };
+
 pub const Content = struct {
     icon: []const u8 = "",
     icon_color: ?u24 = null,
     label: []const u8,
-    indicator: enum { clean, dirty } = .clean,
+    indicator: Indicator = .clean,
     hover_action: enum { close, save } = .close,
 };
 
@@ -127,6 +129,16 @@ fn render_content(plane: *Plane, s: *const Style, theme: *const Widget.Theme, ho
             if (s.dirty_indicator_fg) |color|
                 plane.set_style(.{ .fg = color.from_theme(theme) });
             put_glyph(plane, s.dirty_indicator, s.dirty_indicator_fg_transparent, .normal);
+        },
+        .changed_on_disk => {
+            if (s.changed_on_disk_indicator_fg) |color|
+                plane.set_style(.{ .fg = color.from_theme(theme) });
+            put_glyph(plane, s.changed_on_disk_indicator, s.changed_on_disk_indicator_fg_transparent, .normal);
+        },
+        .deleted_on_disk => {
+            if (s.deleted_on_disk_indicator_fg) |color|
+                plane.set_style(.{ .fg = color.from_theme(theme) });
+            put_glyph(plane, s.deleted_on_disk_indicator, s.deleted_on_disk_indicator_fg_transparent, .normal);
         },
         .clean => {
             if (s.clean_indicator_fg) |color|
