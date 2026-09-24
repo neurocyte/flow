@@ -485,6 +485,7 @@ const Command = struct {
 pub const Binding = struct {
     key_events: []KeyEvent,
     commands: []Command,
+    description: []const u8 = "",
 
     fn len(self: Binding) usize {
         return self.key_events.items.len;
@@ -524,7 +525,7 @@ pub const Binding = struct {
         const key_events = try allocator.alloc(KeyEvent, prefix.len + self.key_events.len);
         @memcpy(key_events[0..prefix.len], prefix);
         @memcpy(key_events[prefix.len..], self.key_events);
-        return .{ .key_events = key_events, .commands = self.commands };
+        return .{ .key_events = key_events, .commands = self.commands, .description = self.description };
     }
 
     fn is_prefix_of(seq: []const KeyEvent, of: []const KeyEvent) bool {
@@ -569,11 +570,12 @@ const GlobalBinding = struct {
             globals_allocator.free(cmd.args);
         }
         globals_allocator.free(self.binding.commands);
+        globals_allocator.free(self.binding.description);
         globals_allocator.destroy(self);
     }
 };
 
-pub fn add_global_binding(keys: []const u8, command_name: []const u8, args: []const u8) GlobalBindError!GlobalId {
+pub fn add_global_binding(keys: []const u8, command_name: []const u8, args: []const u8, description: []const u8) GlobalBindError!GlobalId {
     const allocator = globals_allocator;
     const key_events = parse_flow.parse_key_events(allocator, keys) catch |e| {
         if (!builtin.is_test)
@@ -589,13 +591,15 @@ pub fn add_global_binding(keys: []const u8, command_name: []const u8, args: []co
     const command_ = try allocator.dupe(u8, command_name);
     errdefer allocator.free(command_);
     binding_commands[0] = .{ .command = command_, .args = try allocator.dupe(u8, args) };
+    const description_ = try allocator.dupe(u8, description);
+    errdefer allocator.free(description_);
 
     const id = globals.next_global_id;
     const global = try allocator.create(GlobalBinding);
     errdefer allocator.destroy(global);
     global.* = .{
         .id = id,
-        .binding = .{ .key_events = key_events, .commands = binding_commands },
+        .binding = .{ .key_events = key_events, .commands = binding_commands, .description = description_ },
     };
     try globals.global_bindings.append(allocator, global);
     globals.next_global_id += 1;
@@ -797,18 +801,37 @@ const BindingSet = struct {
                 log.err("ERROR: invalid binding definition {any}", .{entry});
                 continue :bindings;
             }
-            const keys = entry[0];
-            if (keys != .string) {
-                log.err("ERROR: invalid binding key definition {any}", .{keys});
-                continue :bindings;
+            // the key field is either "keys" or ["keys", "description"]
+            var keys: []const u8 = undefined;
+            var description: []const u8 = "";
+            switch (entry[0]) {
+                .string => |str| keys = str,
+                .array => |fields| {
+                    if (fields.items.len == 0 or fields.items.len > 2 or fields.items[0] != .string) {
+                        log.err("ERROR: invalid binding key definition {any}", .{entry[0]});
+                        continue :bindings;
+                    }
+                    keys = fields.items[0].string;
+                    if (fields.items.len > 1) {
+                        if (fields.items[1] != .string) {
+                            log.err("ERROR: invalid binding description {any}", .{fields.items[1]});
+                            continue :bindings;
+                        }
+                        description = fields.items[1].string;
+                    }
+                },
+                else => {
+                    log.err("ERROR: invalid binding key definition {any}", .{entry[0]});
+                    continue :bindings;
+                },
             }
 
             const key_events = switch (self.syntax) {
-                .flow => parse_flow.parse_key_events(allocator, keys.string) catch |e| {
+                .flow => parse_flow.parse_key_events(allocator, keys) catch |e| {
                     log.err("ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
                     break;
                 },
-                .vim => parse_vim.parse_key_events(allocator, keys.string) catch |e| {
+                .vim => parse_vim.parse_key_events(allocator, keys) catch |e| {
                     log.err("ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
                     break;
                 },
@@ -834,6 +857,7 @@ const BindingSet = struct {
             try dest.append(allocator, .{
                 .key_events = key_events,
                 .commands = try cmds.toOwnedSlice(allocator),
+                .description = try allocator.dupe(u8, description),
             });
         }
     }
@@ -1464,7 +1488,7 @@ test "global keybind fires when the mode has no match" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
 
     try std.testing.expectEqualStrings("cmd_mode", (try feed(&bs, "ctrl+a")).?);
     try std.testing.expectEqualStrings("cmd_global", (try feed(&bs, "ctrl+alt+a ctrl+alt+g")).?);
@@ -1478,7 +1502,7 @@ test "mode keybind wins over a global on the same keys" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
 
     try std.testing.expectEqualStrings("cmd_mode", (try feed(&bs, "ctrl+alt+a ctrl+alt+g")).?);
 }
@@ -1491,7 +1515,7 @@ test "a live mode prefix defers the global until the mode chord dies" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
 
     try std.testing.expectEqualStrings("cmd_mode", (try feed(&bs, "ctrl+alt+a ctrl+alt+x")).?);
     try std.testing.expectEqualStrings("cmd_global", (try feed(&bs, "ctrl+alt+a ctrl+alt+g")).?);
@@ -1505,7 +1529,7 @@ test "a global prefix keeps the sequence open" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
 
     // the mode cannot match ctrl+alt+a, but the global still can: the
     // sequence must survive for the second key to complete it
@@ -1522,7 +1546,7 @@ test "an unmatched key still terminates the sequence" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
 
     try expectEqual(@as(?[]const u8, null), try feed(&bs, "ctrl+b"));
     try expectEqual(@as(usize, 0), globals.current_sequence.items.len);
@@ -1536,8 +1560,8 @@ test "remove_global_binding only removes its own id" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    const one = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_one", "");
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+h", "cmd_two", "");
+    const one = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_one", "", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+h", "cmd_two", "", "");
 
     remove_global_binding(one);
     remove_global_binding(one); // removing twice is a no-op
@@ -1550,10 +1574,51 @@ test "remove_global_binding only removes its own id" {
 test "a global may not start on a text producing key" {
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("g g", "cmd_global", ""));
-    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("shift+g", "cmd_global", ""));
-    try std.testing.expectError(error.InvalidKeybind, add_global_binding("ctrl+nonsense", "cmd_global", ""));
+    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("g g", "cmd_global", "", ""));
+    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("shift+g", "cmd_global", "", ""));
+    try std.testing.expectError(error.InvalidKeybind, add_global_binding("ctrl+nonsense", "cmd_global", "", ""));
     try expectEqual(@as(usize, 0), globals.global_bindings.items.len);
+}
+
+test "keybind definition with a description" {
+    const bs = try test_bindings(
+        \\  "normal": { "syntax": "flow", "on_match_failure": "ignore", "press": [
+        \\    [["ctrl+alt+n", "Open new flow window"], ["shell_execute_log", "flow-gui", "{{project}}"]],
+        \\    ["ctrl+a", "cmd_plain"]
+        \\  ]}
+    );
+    defer reset_global_bindings_for_test();
+    reset_global_bindings_for_test();
+
+    const described = try find_binding(&bs, "ctrl+alt+n");
+    try std.testing.expectEqualStrings("shell_execute_log", described.commands[0].command);
+    try std.testing.expectEqualStrings("Open new flow window", described.description);
+
+    const plain = try find_binding(&bs, "ctrl+a");
+    try std.testing.expectEqualStrings("cmd_plain", plain.commands[0].command);
+    try std.testing.expectEqualStrings("", plain.description);
+
+    // a global binding carries its own description
+    const id = try add_global_binding("ctrl+alt+a ctrl+alt+g", "terminal_new", "", "Tig (all)");
+    defer remove_global_binding(id);
+    const bindings = try with_global_bindings(std.testing.allocator, &.{}, null, .all);
+    defer std.testing.allocator.free(bindings);
+    try std.testing.expectEqual(@as(usize, 1), bindings.len);
+    try std.testing.expectEqualStrings("Tig (all)", bindings[0].description);
+}
+
+fn find_binding(bs: *const BindingSet, key_string: []const u8) !Binding {
+    const want = try parse_flow.parse_key_events(std.testing.allocator, key_string);
+    defer std.testing.allocator.free(want);
+    for (bs.press.items) |b| if (b.key_events.len == want.len) {
+        var matched = true;
+        for (b.key_events, want) |a, e| if (!Binding.keyevents_eql(a, e)) {
+            matched = false;
+            break;
+        };
+        if (matched) return b;
+    };
+    return error.BindingNotFound;
 }
 
 test "keybind custom namespace inheritance chain" {

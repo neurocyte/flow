@@ -158,6 +158,7 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
         const padding = max_prefix_len + 3;
 
         const description = blk: {
+            if (binding.description.len > 0) break :blk binding.description;
             const id = binding.commands[0].command_id orelse
                 command.get_id(binding.commands[0].command) orelse
                 break :blk binding.commands[0].command;
@@ -183,6 +184,10 @@ fn get_max_prefix_len(bindings: anytype) usize {
 fn get_max_description_len(bindings: anytype) usize {
     var max: usize = 0;
     for (bindings) |binding| {
+        if (binding.description.len > 0) {
+            max = @max(max, binding.description.len);
+            continue;
+        }
         const id = binding.commands[0].command_id orelse command.get_id(binding.commands[0].command) orelse continue;
         const description = command.get_description(id) orelse continue;
         const text = if (description.len > 0) description else binding.commands[0].command;
