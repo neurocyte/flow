@@ -1320,6 +1320,32 @@ const cmds = struct {
         .icon = "",
     };
 
+    pub fn open_terminal_profile(self: *Self, ctx: Ctx) Result {
+        var name: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&name)})) return error.InvalidOpenTerminalProfileArgument;
+        const file_name = Vt.Profile.file_path_for_name(self.allocator, name) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        defer self.allocator.free(file_name);
+
+        if (root.is_file(file_name)) {
+            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+            return;
+        }
+
+        var profile = (try Vt.find_profile(self.allocator, name)) orelse {
+            std.log.err("unknown terminal profile '{s}'", .{name});
+            return error.Stop;
+        };
+        defer profile.deinit(self.allocator);
+        var conf: std.Io.Writer.Allocating = .init(self.allocator);
+        defer conf.deinit();
+        root.write_config_to_writer(Vt.Profile, profile, &conf.writer) catch {};
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", command.fmt(.{ file_name, conf.written(), "conf" }));
+        if (self.get_active_buffer()) |buffer| self.buffer_manager.mark_not_ephemeral(buffer);
+        self.location_update_from_editor();
+    }
+    pub const open_terminal_profile_meta: Meta = .{ .description = "Edit terminal profile", .arguments = &.{.string} };
+
     pub fn terminal_next_vt(self: *Self, _: Ctx) Result {
         try self.switch_terminal_vt(.next);
     }

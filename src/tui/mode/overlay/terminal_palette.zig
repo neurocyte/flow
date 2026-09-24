@@ -224,6 +224,16 @@ fn render_colored_icon(plane: *@import("renderer").Plane, glyph: []const u8, gly
         plane.cursor_move_rel(0, 1) catch {};
 }
 
+pub fn edit_selected(palette: *Type, button: ?*Type.ButtonType) !void {
+    const button_ = button orelse return;
+    var entry: Entry = undefined;
+    var iter = button_.opts.label;
+    if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
+    const profile = entry.profile orelse return;
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
+}
+
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;

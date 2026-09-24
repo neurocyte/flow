@@ -175,6 +175,42 @@ pub fn write(profile: Profile, id: []const u8) WriteError!void {
     writer.interface.flush() catch return error.WriteFailed;
 }
 
+pub fn file_path_for_name(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    const dir_path = try get_profiles_dir(allocator);
+    defer allocator.free(dir_path);
+    const id = find_id_for_name(allocator, dir_path, name) orelse try id_from_name(allocator, name);
+    defer allocator.free(id);
+    return std.fs.path.join(allocator, &.{ dir_path, id });
+}
+
+fn find_id_for_name(allocator: std.mem.Allocator, dir_path: []const u8, name: []const u8) ?[]const u8 {
+    var ids = collect_ids(allocator, dir_path) catch return null;
+    defer {
+        for (ids.items) |id| allocator.free(id);
+        ids.deinit(allocator);
+    }
+    for (ids.items) |id| {
+        const file_path = std.fs.path.join(allocator, &.{ dir_path, id }) catch continue;
+        defer allocator.free(file_path);
+        var profile = read_file(allocator, id, file_path) catch continue;
+        defer profile.deinit(allocator);
+        if (std.mem.eql(u8, profile.name, name))
+            return allocator.dupe(u8, id) catch null;
+    }
+    return null;
+}
+
+fn id_from_name(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, name, default_profile.name)) return allocator.dupe(u8, default_id);
+    const id = try allocator.dupe(u8, name);
+    for (id) |*c| c.* = switch (c.*) {
+        'A'...'Z' => std.ascii.toLower(c.*),
+        'a'...'z', '0'...'9', '-', '_' => c.*,
+        else => '-',
+    };
+    return id;
+}
+
 pub fn is_profile_file(path: []const u8) bool {
     var buf: [std.posix.PATH_MAX]u8 = undefined;
     const dir = std.fmt.bufPrint(&buf, "{s}{c}{s}{c}", .{
