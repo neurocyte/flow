@@ -1315,10 +1315,12 @@ const cmds = struct {
         const have_name = (ctx.args.match(.{tp.extract(&profile_name)}) catch false) or
             (ctx.args.match(.{ tp.extract(&profile_name), tp.extract(&target) }) catch false);
 
+        var maximize: ?Vt.Profile.Maximize = null;
         const vt = if (have_name and profile_name.len > 0) blk: {
             if (try Vt.find_profile(self.allocator, profile_name)) |found| {
                 var profile = found;
                 defer profile.deinit(self.allocator);
+                maximize = profile.maximize;
                 break :blk try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
             }
             std.log.err("terminal_new: unknown profile '{s}'", .{profile_name});
@@ -1326,6 +1328,7 @@ const cmds = struct {
         } else try Vt.run_new_cmd(root.get_io(), self.allocator, .empty(), 24, 80);
 
         _ = try self.open_terminal_panel(vt, .{ .focus = true, .target = target });
+        if (maximize) |maximize_| self.bottom_area.set_maximized(maximize_ == .always);
     }
     pub const terminal_new_meta: Meta = .{
         .description = "Open a new terminal",

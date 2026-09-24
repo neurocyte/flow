@@ -13,6 +13,8 @@ const log = std.log.scoped(.terminal_profiles);
 
 const Profile = @This();
 
+pub const Maximize = enum { always, never };
+
 /// Display name. Empty means "use the file name".
 name: []const u8 = "",
 /// Command line to run.
@@ -27,6 +29,8 @@ cwd: []const u8 = "{{project}}",
 keybind: []const u8 = "",
 /// Config option terminal_on_exit override.
 on_exit: ?TerminalOnExit = null,
+/// Maximize state when this profile starts.
+maximize: ?Maximize = null,
 
 pub fn deinit(self: *Profile, allocator: std.mem.Allocator) void {
     allocator.free(self.name);
@@ -46,7 +50,7 @@ pub fn dupe(allocator: std.mem.Allocator, src: Profile) std.mem.Allocator.Error!
     const cwd = try allocator.dupe(u8, src.cwd);
     errdefer allocator.free(cwd);
     const keybind = try allocator.dupe(u8, src.keybind);
-    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd, .keybind = keybind, .on_exit = src.on_exit };
+    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd, .keybind = keybind, .on_exit = src.on_exit, .maximize = src.maximize };
 }
 
 pub fn free(allocator: std.mem.Allocator, profiles: []Profile) void {

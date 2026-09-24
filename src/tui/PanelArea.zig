@@ -649,10 +649,18 @@ pub fn toggle_maximize(self: *Self) void {
         if (!self.ensure_visible()) return;
         self.maximized = false;
     }
+    self.set_maximized(self.maximized_by_snap or !self.maximized);
+}
+
+pub fn set_maximized(self: *Self, maximized: bool) void {
+    if (!self.attached) {
+        if (!maximized) return;
+        if (!self.ensure_visible()) return;
+        self.maximized = false;
+    }
     const max_h = self.max_height();
-    const was_snap = self.maximized_by_snap;
     self.maximized_by_snap = false;
-    if (was_snap) {
+    if (maximized) {
         self.maximized = true;
         self.list.layout_ = .{ .static = max_h };
     } else if (self.maximized) {
@@ -663,10 +671,7 @@ pub fn toggle_maximize(self: *Self) void {
             self.height = h;
         }
         self.list.layout_ = .{ .static = h };
-    } else {
-        self.maximized = true;
-        self.list.layout_ = .{ .static = max_h };
-    }
+    } else return;
     tui.resize();
     if (self.maximized) self.focus_active();
 }
