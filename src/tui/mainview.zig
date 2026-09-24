@@ -2958,6 +2958,19 @@ fn close_filelist_by_id(self: *Self, list_id: FileList.Id) void {
     tui.need_render(@src());
 }
 
+fn may_activate_background_filelist(self: *Self, list_id: FileList.Id) bool {
+    if (!self.bottom_area.visible()) return true;
+    const group = if (self.filelist_panel(list_id)) |f|
+        f.group
+    else
+        self.bottom_area.focused_group() orelse return true;
+    const active = group.active() orelse return true;
+    const flv = active.cast(filelist_view) orelse return false;
+    if (flv.list_id == list_id) return true;
+    const fl = flv.list() orelse return false;
+    return fl.is_empty();
+}
+
 fn add_filelist_entry(
     self: *Self,
     list_id: FileList.Id,
@@ -2970,13 +2983,11 @@ fn add_filelist_entry(
     severity: ed.Diagnostic.Severity,
     stream_type: enum { background, foreground },
 ) tp.result {
-    const take_focus = if (stream_type == .foreground) true else blk: {
-        if (!self.is_panel_view_showing(filelist_view)) break :blk true;
-        const cur = self.active_filelist() orelse break :blk true;
-        if (cur.list_id == list_id) break :blk true;
-        break :blk cur.is_empty();
+    const activate = switch (stream_type) {
+        .foreground => true,
+        .background => self.may_activate_background_filelist(list_id),
     };
-    const flv = self.open_filelist_panel(list_id, .{ .activate = take_focus }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const flv = self.open_filelist_panel(list_id, .{ .activate = activate }) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const event = self.filelists.add_item(list_id, .{
         .path = path,
         .begin_line = @max(1, begin_line) - 1,

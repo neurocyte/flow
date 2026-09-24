@@ -138,7 +138,10 @@ pub fn activate(self: *Self, id: Panel.Id) void {
 }
 
 fn set_active(self: *Self, n: usize) void {
+    const prev = self.active();
     self.deck.set_active(n);
+    if (prev) |p| if (self.active()) |cur| if (cur.id != p.id)
+        tui.transfer_keyboard_focus(p.impl, cur.widget);
     self.notify_active();
 }
 
