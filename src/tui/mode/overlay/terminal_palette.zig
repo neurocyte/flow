@@ -96,7 +96,7 @@ pub fn load_entries(palette: *Type) !usize {
     defer Vt.free_profiles(palette.allocator, profiles);
     for (profiles) |profile| try add_profile_entry(palette, profile, &longest, &longest_hint);
 
-    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_insert", hints, "Edit profile", .describe));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_insert", hints, "Add or edit profile", .describe));
     return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
 
@@ -249,11 +249,18 @@ fn render_colored_icon(plane: *@import("renderer").Plane, glyph: []const u8, gly
 }
 
 pub fn edit_selected(palette: *Type, button: ?*Type.ButtonType) !void {
+    if (palette.inputbox.text.items.len > 0) return add_profile(palette);
     const button_ = button orelse return;
     var entry: Entry = undefined;
     var iter = button_.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
     const profile = entry.profile orelse return;
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
+}
+
+fn add_profile(palette: *Type) !void {
+    const profile = palette.inputbox.text.items;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
 }
@@ -271,7 +278,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     if (entry.command) |command_name| if (entry.command_action == .describe) {
         const hints = if (tui.input_mode()) |m| m.keybind_hints else return;
         if (hints.get(command_name)) |hint|
-            std.log.info("select a profile and press {s}", .{hint});
+            std.log.info("type a new profile name or select an existing profile and press {s}", .{hint});
         return;
     };
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);

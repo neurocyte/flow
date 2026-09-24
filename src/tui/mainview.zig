@@ -454,6 +454,19 @@ fn check_all_not_dirty(self: *const Self) command.Result {
         return tp.exit("unsaved changes");
 }
 
+fn open_profile_buffer(self: *Self, now: std.Io.Timestamp, file_name: []const u8, profile: Vt.Profile) command.Result {
+    var conf: std.Io.Writer.Allocating = .init(self.allocator);
+    defer conf.deinit();
+    root.write_config_to_writer_no_header(Vt.Profile, profile, &conf.writer) catch {};
+    try self.create_editor(now);
+    try command.executeName("open_scratch_buffer", command.fmt(.{ file_name, conf.written(), "conf" }));
+    if (self.get_active_buffer()) |buffer| {
+        self.buffer_manager.mark_not_ephemeral(buffer);
+        buffer.mark_dirty();
+    }
+    self.location_update_from_editor();
+}
+
 fn check_no_active_terminals(_: *const Self) command.Result {
     if (Vt.Manager.any_active_applications())
         return tp.exit("terminal application running");
@@ -1331,20 +1344,14 @@ const cmds = struct {
             return;
         }
 
-        var profile = (try Vt.find_profile(self.allocator, name)) orelse {
-            std.log.err("unknown terminal profile '{s}'", .{name});
-            return error.Stop;
-        };
-        defer profile.deinit(self.allocator);
-        var conf: std.Io.Writer.Allocating = .init(self.allocator);
-        defer conf.deinit();
-        root.write_config_to_writer(Vt.Profile, profile, &conf.writer) catch {};
-        try self.create_editor(ctx.now);
-        try command.executeName("open_scratch_buffer", command.fmt(.{ file_name, conf.written(), "conf" }));
-        if (self.get_active_buffer()) |buffer| self.buffer_manager.mark_not_ephemeral(buffer);
-        self.location_update_from_editor();
+        if (try Vt.find_profile(self.allocator, name)) |found| {
+            var profile = found;
+            defer profile.deinit(self.allocator);
+            return self.open_profile_buffer(ctx.now, file_name, profile);
+        }
+        return self.open_profile_buffer(ctx.now, file_name, .{ .name = name });
     }
-    pub const open_terminal_profile_meta: Meta = .{ .description = "Edit terminal profile", .arguments = &.{.string} };
+    pub const open_terminal_profile_meta: Meta = .{ .description = "Add or edit terminal profile", .arguments = &.{.string} };
 
     pub fn terminal_next_vt(self: *Self, _: Ctx) Result {
         try self.switch_terminal_vt(.next);

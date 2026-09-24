@@ -734,7 +734,7 @@ pub fn write_config(data: anytype, allocator: std.mem.Allocator) (ConfigDirError
         \\
     , .{});
 
-    write_config_to_writer_internal(T, data, &writer.interface) catch |e| {
+    write_config_to_writer_no_header(T, data, &writer.interface) catch |e| {
         std.log.err("write file failed with {any} for: {s}", .{ e, file_name });
         return error.WriteConfigFileFailed;
     };
@@ -768,10 +768,10 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer)
         \\
         \\
     , .{});
-    return write_config_to_writer_internal(T, data, writer);
+    return write_config_to_writer_no_header(T, data, writer);
 }
 
-fn write_config_to_writer_internal(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+pub fn write_config_to_writer_no_header(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const default: T = .{};
     inline for (@typeInfo(T).@"struct".fields) |field_info| {
         var is_default = false;

@@ -15,6 +15,7 @@ pub const root = struct {
     pub const get_state_dir = if (@hasDecl(hard_root, "get_state_dir")) hard_root.get_state_dir else dummy.get_state_dir;
     pub const get_config_dir = if (@hasDecl(hard_root, "get_config_dir")) hard_root.get_config_dir else dummy.get_config_dir;
     pub const write_config_to_writer = if (@hasDecl(hard_root, "write_config_to_writer")) hard_root.write_config_to_writer else dummy.write_config_to_writer;
+    pub const write_config_to_writer_no_header = if (@hasDecl(hard_root, "write_config_to_writer_no_header")) hard_root.write_config_to_writer_no_header else dummy.write_config_to_writer_no_header;
     pub const parse_text_config_file = if (@hasDecl(hard_root, "parse_text_config_file")) hard_root.parse_text_config_file else dummy.parse_text_config_file;
     pub const list_keybind_namespaces = if (@hasDecl(hard_root, "list_keybind_namespaces")) hard_root.list_keybind_namespaces else dummy.list_keybind_namespaces;
     pub const read_keybind_namespace = if (@hasDecl(hard_root, "read_keybind_namespace")) hard_root.read_keybind_namespace else dummy.read_keybind_namespace;
@@ -92,6 +93,9 @@ const dummy = struct {
 
     pub fn write_config_to_writer(comptime T: type, _: T, _: *std.Io.Writer) std.Io.Writer.Error!void {
         @panic("dummy write_config_to_writer call");
+    }
+    pub fn write_config_to_writer_no_header(comptime T: type, _: T, _: *std.Io.Writer) std.Io.Writer.Error!void {
+        @panic("dummy write_config_to_writer_no_header call");
     }
     pub fn parse_text_config_file(T: type, _: std.mem.Allocator, _: *T, _: *[][]const u8, _: []const u8, _: []const u8) !void {
         @panic("dummy parse_text_config_file call");
