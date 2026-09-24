@@ -556,6 +556,10 @@ pub fn scrollToBottom(self: *Terminal) void {
     self.markViewDirty();
 }
 
+pub fn isAltScreen(self: *const Terminal) bool {
+    return self.back_screen == &self.back_screen_alt;
+}
+
 pub fn shellState(self: *Terminal) Screen.ShellState {
     if (self.back_screen != &self.back_screen_pri)
         return .running;

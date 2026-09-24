@@ -181,11 +181,25 @@ fn strip_count(ctx: *anyopaque) usize {
 fn strip_info(ctx: *anyopaque, n: usize) TabStrip.TabInfo {
     const self: *Self = @ptrCast(@alignCast(ctx));
     const p = self.panels.items[n];
+    const visibility: Panel.Visibility = if (self.deck.active_index() == n) .visible else .hidden;
     return .{
         .id = p.id,
         .label = p.title(),
         .icon = p.icon(),
-        .active = self.deck.active_index() == n,
+        .active = visibility == .visible,
+        .indicator = strip_indicator(p, visibility),
+    };
+}
+
+fn strip_indicator(p: Panel, visibility: Panel.Visibility) TabStrip.Indicator {
+    return switch (p.indicator(visibility)) {
+        .none => .clean,
+        .alt_screen => .alt_screen,
+        .activity => .activity,
+        .bell => .bell,
+        .busy => .busy,
+        .exited => .exited,
+        .exited_error => .exited_error,
     };
 }
 

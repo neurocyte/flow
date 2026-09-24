@@ -14,6 +14,7 @@ const tui = @import("tui.zig");
 const Box = @import("Widget.zig").Box;
 const Pty = if (builtin.os.tag == .windows) @import("PtyWindows.zig") else @import("PtyPosix.zig");
 
+const Panel = @import("Panel.zig");
 const Terminal = @import("Terminal");
 const TerminalOnExit = @import("config").TerminalOnExit;
 
@@ -36,6 +37,10 @@ app_bg: ?[3]u8 = null,
 app_cursor: ?[3]u8 = null,
 pointer_shape: vaxis.Mouse.Shape = .default,
 process_exited: bool = false,
+exit_code: ?u8 = null,
+bell: bool = false,
+activity: bool = false,
+shell_state: ?Screen.ShellState = null,
 on_exit: TerminalOnExit,
 synthesize_marks: bool = false,
 started_at: i64 = 0,
@@ -96,6 +101,9 @@ fn respawn(self: *@This(), cmd_argv: []const []const u8) !void {
     const wd = if (project.len > 0) project else home;
     try self.vt.respawn(cmd_argv, &self.env, wd, &self.write_buf);
     self.process_exited = false;
+    self.exit_code = null;
+    self.shell_state = null;
+    self.clear_activity();
 }
 
 pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
@@ -162,6 +170,29 @@ pub fn get_title(self: *@This()) []const u8 {
     return self.get_command_name();
 }
 
+pub const State = enum { idle, alt_screen, activity, busy, bell, exited, exited_error };
+
+pub fn get_state(self: *const @This(), visibility: Panel.Visibility) State {
+    if (self.process_exited)
+        return if ((self.exit_code orelse 0) == 0) .exited else .exited_error;
+    if (self.bell) return .bell;
+    if (self.busy()) return .busy;
+    if (self.activity and visibility == .hidden) return .activity;
+    if (self.vt.isAltScreen()) return .alt_screen;
+    return .idle;
+}
+
+fn busy(self: *const @This()) bool {
+    if (self.vt.isAltScreen()) return false;
+    const shell_state = self.shell_state orelse return false;
+    return shell_state == .running;
+}
+
+pub fn clear_activity(self: *@This()) void {
+    self.bell = false;
+    self.activity = false;
+}
+
 pub fn get_command_name(self: *const @This()) []const u8 {
     const cmd_argv = self.vt.cmd.argv;
     return if (cmd_argv.len > 0) std.fs.path.basename(cmd_argv[0]) else "";
@@ -191,6 +222,7 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
     switch (event) {
         .exited => |code| {
             self.process_exited = true;
+            self.exit_code = code;
             if (self.pty_pid) |pid| {
                 pid.deinit();
                 self.pty_pid = null;
@@ -199,7 +231,12 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
             self.handle_child_exit(code);
             tui.need_render(@src());
         },
-        .redraw, .bell => {
+        .redraw => {
+            self.activity = true;
+            tui.need_render(@src());
+        },
+        .bell => {
+            self.bell = true;
             tui.need_render(@src());
         },
         .pwd_change => |path| {
@@ -242,7 +279,10 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
             // Terminal app requested the primary selection via OSC 52.
             .primary => tui.clipboard_forward_request(@intFromPtr(self), .primary),
         },
-        .shell_state_change => {},
+        .shell_state_change => |shell_state| {
+            self.shell_state = shell_state;
+            tui.need_render(@src());
+        },
         .pointer_shape_change => |shape| {
             self.pointer_shape = shape;
             tui.need_render(@src());

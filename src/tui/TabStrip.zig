@@ -11,12 +11,14 @@ const Tabs = @import("status/tabs.zig");
 const tab_render = @import("tab_render.zig");
 
 pub const Id = @import("Panel.zig").Id;
+pub const Indicator = tab_render.Indicator;
 
 pub const TabInfo = struct {
     id: Id,
     label: []const u8,
     icon: []const u8 = "",
     active: bool,
+    indicator: Indicator = .clean,
 };
 
 pub const Source = struct {
@@ -68,6 +70,7 @@ fn hash_tabs(self: *Self) u64 {
         const t = self.source.info(self.source.ctx, i);
         h.update(std.mem.asBytes(&t.id));
         h.update(std.mem.asBytes(&t.active));
+        h.update(std.mem.asBytes(&t.indicator));
         h.update(t.icon);
         h.update(&[_]u8{0});
         h.update(t.label);
@@ -143,7 +146,7 @@ const Tab = struct {
             .hover = btn.hover,
             .active = info.active,
             .focused = t.strip.source.focused(t.strip.source.ctx),
-        }, .{ .icon = icon(info), .label = info.label });
+        }, .{ .icon = icon(info), .label = info.label, .indicator = info.indicator });
         t.close_pos = hit.close_pos;
         return false;
     }
@@ -155,15 +158,18 @@ const Tab = struct {
         const icon_ = icon(info);
         const len_icon = if (icon_.len > 0) plane.egc_chunk_width(icon_, 0, 1) + 2 else 0;
         const len = plane.egc_chunk_width(info.label, 0, 1) + len_icon;
-        const len_indicator = @max(
-            plane.egc_chunk_width(s.close_icon, 0, 1),
-            plane.egc_chunk_width(s.clean_indicator, 0, 1),
-        );
-        return .{ .static = len + tab_render.chrome_width(plane, s, info.active, len_indicator) };
+        return .{ .static = len + tab_render.chrome_width(plane, s, info.active, indicator_width(plane, s)) };
     }
 
     fn icon(info: TabInfo) []const u8 {
         return if (tui.config().show_fileicons) info.icon else "";
+    }
+
+    fn indicator_width(plane: Plane, s: *const Tabs.Style) usize {
+        var width = plane.egc_chunk_width(s.close_icon, 0, 1);
+        for (std.enums.values(Indicator)) |indicator|
+            width = @max(width, plane.egc_chunk_width(tab_render.indicator_glyph(s, indicator).glyph, 0, 1));
+        return width;
     }
 
     fn on_click(t: *Tab, _: *ButtonType, pos: Widget.Pos) void {

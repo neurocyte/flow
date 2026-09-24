@@ -306,6 +306,10 @@ pub fn active_panel_plane(self: *const Self) ?Plane {
     return self.bottom_area.active_plane();
 }
 
+pub fn panel_tab_style(self: *const Self) *const @import("status/tabs.zig").Style {
+    return &self.bottom_area.tab_style;
+}
+
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
@@ -343,6 +347,12 @@ fn show_panel_view(self: *Self, comptime view: type, ctx: command.Context) !*vie
 
 fn terminal_panel(self: *Self, vt: *const Vt) ?PanelArea.Found {
     return self.bottom_area.find_panel_where(terminal_view, vt, terminal_view.is_vt);
+}
+
+pub fn is_terminal_visible(self: *Self, vt: *const Vt) bool {
+    if (!self.bottom_area.visible()) return false;
+    const f = self.terminal_panel(vt) orelse return false;
+    return f.group.is_active(f.panel.id);
 }
 
 fn current_terminal(self: *Self) ?*terminal_view {

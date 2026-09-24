@@ -38,6 +38,24 @@ const @"style.config" = struct {
     deleted_on_disk_indicator: []const u8 = "󱂥",
     deleted_on_disk_indicator_fg: ?colors = null,
     deleted_on_disk_indicator_fg_transparent: bool = false,
+    alt_screen_indicator: []const u8 = "󰣆",
+    alt_screen_indicator_fg: ?colors = null,
+    alt_screen_indicator_fg_transparent: bool = false,
+    activity_indicator: []const u8 = "•",
+    activity_indicator_fg: ?colors = null,
+    activity_indicator_fg_transparent: bool = false,
+    bell_indicator: []const u8 = "󰂚",
+    bell_indicator_fg: ?colors = .Warning,
+    bell_indicator_fg_transparent: bool = false,
+    busy_indicator: []const u8 = "",
+    busy_indicator_fg: ?colors = .Information,
+    busy_indicator_fg_transparent: bool = false,
+    exited_indicator: []const u8 = "✓",
+    exited_indicator_fg: ?colors = .Information,
+    exited_indicator_fg_transparent: bool = false,
+    exited_error_indicator: []const u8 = "",
+    exited_error_indicator_fg: ?colors = .Error,
+    exited_error_indicator_fg_transparent: bool = false,
     close_icon: []const u8 = "󰅖",
     close_icon_fg: colors = .Error,
     close_icon_fg_transparent: bool = false,
@@ -871,9 +889,7 @@ const Tab = struct {
         const len_close_icon = plane.egc_chunk_width(tab_style.close_icon, 0, 1);
         const len_indicator = switch (indicator) {
             .clean => 0,
-            .dirty => plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1),
-            .changed_on_disk => plane.egc_chunk_width(tab_style.changed_on_disk_indicator, 0, 1),
-            .deleted_on_disk => plane.egc_chunk_width(tab_style.deleted_on_disk_indicator, 0, 1),
+            else => plane.egc_chunk_width(tab_render.indicator_glyph(&tab_style, indicator).glyph, 0, 1),
         };
         return len_file_icon + tab_render.chrome_width(plane, &tab_style, active, @max(len_close_icon, len_indicator));
     }

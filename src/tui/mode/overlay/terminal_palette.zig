@@ -7,6 +7,7 @@ const tui = @import("../../tui.zig");
 const Widget = @import("../../Widget.zig");
 const Vt = @import("../../Vt.zig");
 const PanelArea = @import("../../PanelArea.zig");
+const tab_render = @import("../../tab_render.zig");
 const module_name = @typeName(@This());
 pub const Type = @import("palette.zig").Create(@This());
 
@@ -20,6 +21,7 @@ pub const modal_dim = false;
 pub const placement = .panel;
 
 const label_len = label.len + 3 + icon.len;
+const indicator_separator = 1;
 
 pub const Entry = struct {
     label: []const u8,
@@ -28,7 +30,13 @@ pub const Entry = struct {
     profile: ?[]const u8 = null,
     icon: []const u8 = "",
     color: u24 = 0,
+    state: Vt.State = .idle,
 };
+
+fn entry_state(vt: *Vt) Vt.State {
+    const mv = tui.mainview() orelse return vt.get_state(.hidden);
+    return vt.get_state(if (mv.is_terminal_visible(vt)) .visible else .hidden);
+}
 
 fn add_entry(palette: *Type, vt: *Vt, idx: usize, longest: *usize) !void {
     const title = try palette.allocator.dupe(u8, vt.get_title());
@@ -43,6 +51,7 @@ fn add_entry(palette: *Type, vt: *Vt, idx: usize, longest: *usize) !void {
         .idx = idx,
         .icon = entry_icon,
         .color = entry_color,
+        .state = entry_state(vt),
     };
     longest.* = @max(longest.*, title.len);
 }
@@ -79,7 +88,7 @@ pub fn load_entries(palette: *Type) !usize {
     defer Vt.free_profiles(palette.allocator, profiles);
     for (profiles) |profile| try add_profile_entry(palette, profile, &longest);
 
-    return longest_hint - @min(longest_hint, longest) + 3;
+    return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
 
 pub fn deinit(palette: *Type) void {
@@ -161,6 +170,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         render_colored_icon(&button.plane, profile_icon, entry.color, icon_width);
         _ = button.plane.print(" ", .{}) catch {};
         _ = button.plane.print("{s} ", .{entry.label}) catch {};
+        render_indicator(&button.plane, theme, entry.state, style_label);
     }
 
     const match_offset: usize = 2 + if (icon_width > 0) @as(usize, icon_width + 2) else 0;
@@ -172,6 +182,24 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         } else break;
     }
     return false;
+}
+
+fn render_indicator(plane: *@import("renderer").Plane, theme: *const Widget.Theme, state: Vt.State, style_label: Widget.Theme.Style) void {
+    const indicator: tab_render.Indicator = switch (state) {
+        .idle => return,
+        .alt_screen => .alt_screen,
+        .activity => .activity,
+        .busy => .busy,
+        .bell => .bell,
+        .exited => .exited,
+        .exited_error => .exited_error,
+    };
+    const mv = tui.mainview() orelse return;
+    const glyph = tab_render.indicator_glyph(mv.panel_tab_style(), indicator);
+    if (glyph.fg) |color|
+        plane.set_style(.{ .fg = color.from_theme(theme) });
+    _ = plane.print_aligned_right(0, " {s}\u{00A0}", .{glyph.glyph}) catch {};
+    plane.set_style(style_label);
 }
 
 fn render_colored_icon(plane: *@import("renderer").Plane, glyph: []const u8, glyph_color: u24, icon_width: usize) void {
