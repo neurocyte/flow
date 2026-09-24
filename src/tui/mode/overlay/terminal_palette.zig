@@ -132,6 +132,10 @@ fn add_palette_command(
     return width;
 }
 
+pub fn skip_entry(entry: *const Entry) bool {
+    return entry.command != null;
+}
+
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
