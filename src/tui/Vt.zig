@@ -14,6 +14,7 @@ const tui = @import("tui.zig");
 const Box = @import("Widget.zig").Box;
 const Pty = if (builtin.os.tag == .windows) @import("PtyWindows.zig") else @import("PtyPosix.zig");
 
+const keybind = @import("keybind");
 const Panel = @import("Panel.zig");
 const Terminal = @import("Terminal");
 const TerminalOnExit = @import("config").TerminalOnExit;
@@ -583,6 +584,31 @@ pub fn available_profiles(allocator: std.mem.Allocator) ![]Terminal.Profile {
 
 pub fn free_profiles(allocator: std.mem.Allocator, profiles: []Terminal.Profile) void {
     Terminal.Profile.free(allocator, profiles);
+}
+
+var profile_keybindings: std.ArrayListUnmanaged(keybind.GlobalId) = .empty;
+
+pub fn register_profile_keybindings() void {
+    const allocator = root.get_init().gpa;
+    for (profile_keybindings.items) |id| keybind.remove_global_binding(id);
+    profile_keybindings.clearRetainingCapacity();
+
+    const profiles = available_profiles(allocator) catch return;
+    defer free_profiles(allocator, profiles);
+    var buf: [tp.max_message_size]u8 = undefined;
+    for (profiles) |profile| {
+        if (profile.keybind.len == 0) continue;
+        const args = command.fmtbuf(&buf, .{profile.name}) catch continue;
+        const id = keybind.add_global_binding(profile.keybind, "terminal_new", args.args.buf) catch |e| {
+            std.log.warn("terminal: profile '{s}' keybind '{s}': {t}", .{ profile.name, profile.keybind, e });
+            continue;
+        };
+        profile_keybindings.append(allocator, id) catch {};
+    }
+}
+
+pub fn profile_config_changed(path: []const u8) void {
+    if (Terminal.Profile.is_profile_file(path)) register_profile_keybindings();
 }
 
 pub fn find_profile(allocator: std.mem.Allocator, name: []const u8) !?Terminal.Profile {

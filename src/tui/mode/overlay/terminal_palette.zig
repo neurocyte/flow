@@ -31,6 +31,7 @@ pub const Entry = struct {
     icon: []const u8 = "",
     color: u24 = 0,
     state: Vt.State = .idle,
+    keybind: []const u8 = "",
 };
 
 fn entry_state(vt: *Vt) Vt.State {
@@ -56,17 +57,21 @@ fn add_entry(palette: *Type, vt: *Vt, idx: usize, longest: *usize) !void {
     longest.* = @max(longest.*, title.len);
 }
 
-fn add_profile_entry(palette: *Type, profile: anytype, longest: *usize) !void {
+fn add_profile_entry(palette: *Type, profile: anytype, longest: *usize, longest_hint: *usize) !void {
     const profile_name = try palette.allocator.dupe(u8, profile.name);
     const entry_icon = try palette.allocator.dupe(u8, profile.icon);
+    const keybind = try palette.allocator.dupe(u8, profile.keybind);
     (try palette.entries.addOne(palette.allocator)).* = .{
         .label = profile_name,
         .idx = 0,
         .profile = profile_name, // aliases label; serialized separately, freed once via label
         .icon = entry_icon,
         .color = profile.color,
+        .keybind = keybind,
     };
     longest.* = @max(longest.*, profile_name.len);
+    if (keybind.len > 0)
+        longest_hint.* = @max(longest_hint.*, profile_name.len + tui.egc_chunk_width(keybind, 0, 1) + 1);
 }
 
 pub fn load_entries(palette: *Type) !usize {
@@ -86,7 +91,7 @@ pub fn load_entries(palette: *Type) !usize {
 
     const profiles = try Vt.available_profiles(palette.allocator);
     defer Vt.free_profiles(palette.allocator, profiles);
-    for (profiles) |profile| try add_profile_entry(palette, profile, &longest);
+    for (profiles) |profile| try add_profile_entry(palette, profile, &longest, &longest_hint);
 
     return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
@@ -95,6 +100,7 @@ pub fn deinit(palette: *Type) void {
     for (palette.entries.items) |entry| {
         palette.allocator.free(entry.label);
         palette.allocator.free(entry.icon);
+        palette.allocator.free(entry.keybind);
     }
 }
 
@@ -170,6 +176,11 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
         render_colored_icon(&button.plane, profile_icon, entry.color, icon_width);
         _ = button.plane.print(" ", .{}) catch {};
         _ = button.plane.print("{s} ", .{entry.label}) catch {};
+        if (entry.keybind.len > 0) {
+            button.plane.set_style(style_hint);
+            _ = button.plane.print_aligned_right(0, "{s} ", .{entry.keybind}) catch {};
+            button.plane.set_style(style_label);
+        }
         render_indicator(&button.plane, theme, entry.state, style_label);
     }
 

@@ -271,6 +271,7 @@ fn init(allocator: Allocator) InitError!*Self {
     try frame_clock.start();
     try self.commands.init(self);
     try keybind.init(self.config_.keybind_mode);
+    @import("Vt.zig").register_profile_keybindings();
     errdefer self.deinit();
     switch (builtin.os.tag) {
         .windows => {
@@ -1313,6 +1314,7 @@ fn config_file_changed(self: *Self, path: []const u8) void {
         self.reload_config();
     if (self.config_.desktop_theme_file.len > 0 and std.mem.eql(u8, self.config_.desktop_theme_file, path))
         self.read_desktop_theme_file() catch {};
+    @import("Vt.zig").profile_config_changed(path);
 }
 
 pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {

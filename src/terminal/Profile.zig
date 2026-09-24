@@ -22,12 +22,15 @@ icon: []const u8 = "",
 color: u24 = 0x000000,
 /// Working directory to start in.
 cwd: []const u8 = "{{project}}",
+/// Global keybinding (flow syntax).
+keybind: []const u8 = "",
 
 pub fn deinit(self: *Profile, allocator: std.mem.Allocator) void {
     allocator.free(self.name);
     allocator.free(self.command);
     allocator.free(self.icon);
     allocator.free(self.cwd);
+    allocator.free(self.keybind);
 }
 
 pub fn dupe(allocator: std.mem.Allocator, src: Profile) std.mem.Allocator.Error!Profile {
@@ -38,7 +41,9 @@ pub fn dupe(allocator: std.mem.Allocator, src: Profile) std.mem.Allocator.Error!
     const icon = try allocator.dupe(u8, src.icon);
     errdefer allocator.free(icon);
     const cwd = try allocator.dupe(u8, src.cwd);
-    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd };
+    errdefer allocator.free(cwd);
+    const keybind = try allocator.dupe(u8, src.keybind);
+    return .{ .name = name, .command = command, .icon = icon, .color = src.color, .cwd = cwd, .keybind = keybind };
 }
 
 pub fn free(allocator: std.mem.Allocator, profiles: []Profile) void {
@@ -165,6 +170,17 @@ pub fn write(profile: Profile, id: []const u8) WriteError!void {
     var writer = file.writer(io, &buf);
     root.write_config_to_writer(Profile, profile, &writer.interface) catch return error.WriteFailed;
     writer.interface.flush() catch return error.WriteFailed;
+}
+
+pub fn is_profile_file(path: []const u8) bool {
+    var buf: [std.posix.PATH_MAX]u8 = undefined;
+    const dir = std.fmt.bufPrint(&buf, "{s}{c}{s}{c}", .{
+        root.get_config_dir() catch return false,
+        std.fs.path.sep,
+        profiles_dir_name,
+        std.fs.path.sep,
+    }) catch return false;
+    return std.mem.startsWith(u8, path, dir);
 }
 
 pub fn write_default() WriteError!void {
