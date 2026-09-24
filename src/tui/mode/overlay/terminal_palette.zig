@@ -119,9 +119,9 @@ fn add_palette_command(
     var width: usize = 0;
     if (command.get_icon(id)) |icon_| width += tui.egc_chunk_width(icon_, 0, 1);
     if (label_override.len > 0)
-        width += tui.egc_chunk_width(label_override, 0, 1)
+        width += tui.egc_chunk_width(label_override, 0, 1) + 1
     else if (command.get_description(id)) |desc|
-        width += tui.egc_chunk_width(desc, 0, 1);
+        width += tui.egc_chunk_width(desc, 0, 1) + 1;
     if (hints.get(command_name)) |hint| width += tui.egc_chunk_width(hint, 0, 1);
     (try palette.entries.addOne(palette.allocator)).* = .{
         .label = try palette.allocator.dupe(u8, label_override),
@@ -182,7 +182,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
 
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon_|
-            label_.writer.print("{s} ", .{icon_}) catch {};
+            label_.writer.print("{s}  ", .{icon_}) catch {};
         if (entry.label.len > 0)
             label_.writer.print("{s}", .{entry.label}) catch {}
         else if (command.get_description(id)) |desc|
