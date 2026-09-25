@@ -134,6 +134,8 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.cursor_disable();
     }
 
+    const terminal_status = if (tui.mainview()) |mv| mv.active_terminal_title() else null;
+    self.render_terminal_title(if (terminal_status) |ts| ts.title else null);
     return false;
 }
 
@@ -267,6 +269,34 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_
         }
     }
     return;
+}
+
+fn render_terminal_title(self: *Self, terminal_title: ?[]const u8) void {
+    var project_name_buf: [512]u8 = undefined;
+    var new_title_buf: [512]u8 = undefined;
+
+    const project_path = tp.env.get().str("project");
+    const project_name = project_manager.abbreviate_home(&project_name_buf, project_path);
+
+    const file_name = if (self.name.len > 0 and self.name[0] == '*')
+        self.name
+    else if (std.mem.lastIndexOfScalar(u8, self.name, '/')) |pos|
+        self.name[pos + 1 ..]
+    else
+        self.name;
+    const edit_state = if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "";
+
+    const new_title = if (terminal_title) |t|
+        std.fmt.bufPrint(&new_title_buf, "{s} {s}", .{ t, root.application_name }) catch &new_title_buf
+    else if (self.file)
+        std.fmt.bufPrint(&new_title_buf, "{s}{s} {s} {s}", .{ edit_state, file_name, project_name, root.application_name }) catch &new_title_buf
+    else
+        std.fmt.bufPrint(&new_title_buf, "{s} {s}", .{ project_name, root.application_name }) catch &new_title_buf;
+
+    if (std.mem.eql(u8, self.previous_title, new_title)) return;
+    @memcpy(self.previous_title_buf[0..new_title.len], new_title);
+    self.previous_title = self.previous_title_buf[0..new_title.len];
+    tui.rdr().set_terminal_title(new_title);
 }
 
 pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
