@@ -54,6 +54,7 @@ content_h: u16 = 0,
 shift_x: i32 = 0,
 shift_y: i32 = 0,
 clip: ?Layer.Frame = null,
+layout_override: ?Widget.Layout = null,
 
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
@@ -94,6 +95,7 @@ pub fn set(self: *Self, w: Widget) void {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
+    if (self.layout_override) |layout_| return layout_;
     return if (self.inner) |w| w.layout() else .dynamic;
 }
 

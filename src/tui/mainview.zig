@@ -143,6 +143,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         self.bottom_bar = (try widgets.addP(bar_layer.widget())).*;
     }
     self.bottom_area = try PanelArea.create(allocator, widgets, .bottom);
+    self.bottom_area.on_maximize = .{ .ctx = self, .f = panel_maximized };
     if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
         self.toggle_keybindview_async();
@@ -308,6 +309,18 @@ pub fn active_panel_plane(self: *const Self) ?Plane {
 
 pub fn panel_tab_style(self: *const Self) *const @import("status/tabs.zig").Style {
     return &self.bottom_area.tab_style;
+}
+
+fn panel_maximized(ctx: *anyopaque, maximized: bool) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    set_bar_hidden(self.top_bar, maximized);
+    set_bar_hidden(self.bottom_bar, maximized);
+}
+
+fn set_bar_hidden(bar: ?Widget, hidden: bool) void {
+    const bar_ = bar orelse return;
+    const layer = bar_.dynamic_cast(tui.WidgetLayerBox) orelse return;
+    layer.layout_override = if (hidden) .{ .static = 0 } else null;
 }
 
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
