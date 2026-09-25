@@ -37,7 +37,10 @@ const default_backend: RasterizerBackend = switch (builtin.os.tag) {
     else => .freetype,
 };
 
-const default_window_transparency = builtin.os.tag != .macos;
+const default_window_transparency = switch (builtin.os.tag) {
+    .macos, .windows => false,
+    else => true,
+};
 
 pub const Hinting = enum {
     none,
