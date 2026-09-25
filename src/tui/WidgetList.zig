@@ -632,7 +632,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             self.get_size_b(&w_pos).* = perp;
             self.get_loc_b(&w_pos).* = 0;
             self.get_extra_b(&w_pos).* = extras_b;
-            if (idx == last_idx) self.get_extra_a(&w_pos).* = extras_a;
+            if (idx == last_idx and trailing_cells >= total) self.get_extra_a(&w_pos).* = extras_a;
             w.widget.resize(w_pos);
         }
     };
