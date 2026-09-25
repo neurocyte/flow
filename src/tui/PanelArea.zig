@@ -97,12 +97,20 @@ pub fn empty(self: *const Self) bool {
 }
 
 pub fn show(self: *Self) void {
+    self.unmaximize_for_mini_mode();
     if (self.attached or self.groups.items.len == 0) return;
     self.list.layout_ = .{ .static = if (self.maximized) self.max_height() else self.get_height() };
     self.host.add(self.list.widget()) catch return;
     self.attached = true;
     self.notify_maximized();
     tui.resize();
+}
+
+fn unmaximize_for_mini_mode(self: *Self) void {
+    if (!self.maximized or tui.mini_mode() == null) return;
+    if (self.attached) return self.set_maximized(false);
+    self.maximized = false;
+    self.maximized_by_snap = false;
 }
 
 pub fn hide(self: *Self) void {
