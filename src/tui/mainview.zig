@@ -427,6 +427,11 @@ fn focused_panel(self: *Self) ?Panel {
     return g.active();
 }
 
+fn leave_maximized_panel(self: *Self) void {
+    if (self.focused_panel() == null) return;
+    if (self.bottom_area.is_maximized()) self.bottom_area.hide();
+}
+
 fn scroll_focused_panel(self: *Self, action: Panel.ScrollAction) void {
     if (self.focused_panel()) |p| p.scroll(action);
 }
@@ -645,6 +650,7 @@ const cmds = struct {
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
+        self.leave_maximized_panel();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
         var file: ?[]const u8 = null;
