@@ -424,7 +424,11 @@ pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
                 }
             }.render,
             .resize = struct {
-                pub fn resize(_: *anyopaque, _: Box) void {}
+                pub fn resize(ctx: *anyopaque, pos: Box) void {
+                    const self: *child = @ptrCast(@alignCast(ctx));
+                    self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
+                    self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
+                }
             }.resize,
             .layout = struct {
                 pub fn layout(ctx: *anyopaque) Layout {
