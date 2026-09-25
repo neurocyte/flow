@@ -36,6 +36,7 @@ pub const exports = struct {
         pub const helix = @import("mode/helix.zig");
     };
     pub const editor = @import("editor.zig");
+    pub const jump_labels = @import("jump_labels.zig");
 };
 
 const Allocator = std.mem.Allocator;
@@ -2086,6 +2087,21 @@ const cmds = struct {
         return enter_mini_mode(self, @import("mode/mini/match.zig"), ctx);
     }
     pub const match_meta: Meta = .{ .description = "Match mode" };
+
+    pub fn goto_word(self: *Self, ctx: Ctx) Result {
+        const editor = get_active_editor() orelse return;
+        const labels = try editor.begin_jump_labels();
+        if (labels.len == 0) {
+            editor.clear_jump_labels();
+            editor.logger.print("goto word: no words in view", .{});
+            return;
+        }
+        enter_mini_mode(self, @import("mode/mini/jump.zig"), ctx) catch |e| {
+            editor.clear_jump_labels();
+            return e;
+        };
+    }
+    pub const goto_word_meta: Meta = .{ .description = "Go to word (jump labels)" };
 
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {
