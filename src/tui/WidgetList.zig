@@ -303,7 +303,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
             .{ .x = base_x + loc_a * cw, .y = base_y + loc_b * ch, .w = trailing_cells * cw, .h = size_b * ch },
         },
     };
-    const frame = switch (self.direction) {
+    const frame = if (trailing_cells >= size_a) content else switch (self.direction) {
         .vertical => content.align_bottom(list_frame),
         .horizontal => content.align_right(list_frame),
     };
