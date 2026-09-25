@@ -135,11 +135,11 @@ pub fn panel_set_current(self: *Self, current: bool) void {
 }
 
 pub fn panel_close(self: *Self) Panel.CloseResult {
-    if (self.vt.has_active_application()) {
+    if (self.vt.is_busy()) {
         const now = root.get_now().toMilliseconds();
         if (now - self.close_requested_ms > close_confirm_ms) {
             self.close_requested_ms = now;
-            std.log.info("terminal application running (close again to terminate it)", .{});
+            std.log.info("terminal is busy (close again to terminate it)", .{});
             return .vetoed;
         }
     }

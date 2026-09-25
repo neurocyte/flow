@@ -1527,15 +1527,15 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn restart(_: *Self, _: Ctx) Result {
-        if (@import("Vt.zig").Manager.any_active_applications())
-            return tp.exit("terminal application running");
+        if (@import("Vt.zig").Manager.any_busy_terminals())
+            return tp.exit("terminal is busy");
         try tp.self_pid().send("restart");
     }
     pub const restart_meta: Meta = .{ .description = "Restart session" };
 
     pub fn restart_with_sudo(_: *Self, _: Ctx) Result {
-        if (@import("Vt.zig").Manager.any_active_applications())
-            return tp.exit("terminal application running");
+        if (@import("Vt.zig").Manager.any_busy_terminals())
+            return tp.exit("terminal is busy");
         root.set_restart_with_sudo();
         try tp.self_pid().send("restart");
     }

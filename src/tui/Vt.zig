@@ -142,6 +142,36 @@ pub fn kill(self: *@This()) void {
     self.vt.killForeground();
 }
 
+pub fn snapshot_alt_screen(self: *@This()) void {
+    if (self.process_exited or !self.vt.isAltScreen()) return;
+    var snapshot: std.Io.Writer.Allocating = .init(self.vt.allocator);
+    defer snapshot.deinit();
+    {
+        const screen = &self.vt.back_screen_alt;
+        self.vt.back_mutex.lockUncancelable(self.vt.io);
+        defer self.vt.back_mutex.unlock(self.vt.io);
+        const first = screen.visible_top;
+        var last = first + screen.height;
+        while (last > first and screen.rowContentEnd(last - 1) == 0) last -= 1;
+        screen.encodeRows(&snapshot.writer, first, last) catch return;
+    }
+    self.stop_child();
+    self.inject("\x1b[?1049l\r\n");
+    self.inject(snapshot.written());
+    self.inject("\r\n");
+}
+
+fn stop_child(self: *@This()) void {
+    self.vt.killForeground();
+    self.vt.cmd.kill();
+    if (self.pty_pid) |pid| {
+        pid.send(.{"quit"}) catch {};
+        pid.deinit();
+        self.pty_pid = null;
+    }
+    self.process_exited = true;
+}
+
 fn inject(self: *@This(), bytes: []const u8) void {
     var parser: Pty.Parser = .{ .buf = .init(self.vt.allocator) };
     defer parser.buf.deinit();
@@ -178,13 +208,15 @@ pub fn get_state(self: *const @This(), visibility: Panel.Visibility) State {
     if (self.process_exited)
         return if ((self.exit_code orelse 0) == 0) .exited else .exited_error;
     if (self.bell) return .bell;
-    if (self.busy()) return .busy;
+    if (self.is_busy()) return .busy;
     if (self.activity and visibility == .hidden) return .activity;
     if (self.vt.isAltScreen()) return .alt_screen;
     return .idle;
 }
 
-fn busy(self: *const @This()) bool {
+/// command is running from the shell prompt
+pub fn is_busy(self: *const @This()) bool {
+    if (self.process_exited) return false;
     if (self.vt.isAltScreen()) return false;
     const shell_state = self.shell_state orelse return false;
     return shell_state == .running;
@@ -621,16 +653,6 @@ pub fn find_profile(allocator: std.mem.Allocator, name: []const u8) !?Terminal.P
     for (profiles) |p| if (std.mem.eql(u8, p.name, name))
         return try Terminal.Profile.dupe(allocator, p);
     return null;
-}
-
-/// True when this vt is running an application rather than sitting idle at
-/// a shell prompt (or having exited).
-pub fn has_active_application(self: *Vt) bool {
-    if (self.process_exited) return false;
-    return switch (self.vt.shellState()) {
-        .at_prompt, .at_prompt_with_input => false,
-        .running => true,
-    };
 }
 
 /// Argv of the shell to spawn when no command was given..
