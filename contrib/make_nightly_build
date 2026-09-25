@@ -9,6 +9,7 @@ for arg in "$@"; do
     --no-flowcontrol) NO_FLOWCONTROL=1 ;;
     --no-aur) NO_AUR=1 ;;
     --no-manifest) NO_MANIFEST=1 ;;
+    --no-build) NO_BUILD=1 ;;
     --allow-dirty)
         ALLOW_DIRTY=1
         NO_GITHUB=1
@@ -32,14 +33,16 @@ release_notes="$BASEDIR/$builddir-release-notes"
 
 cd "$BASEDIR"
 
-if [ -e "$DESTDIR" ]; then
-    echo directory \"$builddir\" already exists
-    exit 1
-fi
+if [ -z "$NO_BUILD" ]; then
+    if [ -e "$DESTDIR" ]; then
+        echo directory \"$builddir\" already exists
+        exit 1
+    fi
 
-if [ -e "$release_notes" ]; then
-    echo file \""$release_notes"\" already exists
-    exit 1
+    if [ -e "$release_notes" ]; then
+        echo file \""$release_notes"\" already exists
+        exit 1
+    fi
 fi
 
 DIFF="$(git diff --stat --patch HEAD)"
@@ -82,94 +85,102 @@ if [ "$1" != "--no-github" ]; then
     fi
 fi
 
-echo
-echo "building $title version $local_version... (previous $last_nightly_version)"
-echo
-git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
-echo
-echo running tests...
+if [ -z "$NO_BUILD" ]; then
 
-contrib/builder/build test
-
-if [ -n "$DRY_RUN" ] ; then
-    echo 'building (dry-run)...'
-    contrib/builder/build -Dall-targets --release
-    exit 0
-fi
-
-echo building...
-
-contrib/builder/build -Dall-targets --release --prefix "./$builddir/build"
-
-VERSION=$(/bin/cat "$DESTDIR/build/version")
-
-git archive --format=tar.gz --output="$DESTDIR/flow-$VERSION-source.tar.gz" HEAD
-git archive --format=zip --output="$DESTDIR/flow-$VERSION-source.zip" HEAD
-tar -zcf "$DESTDIR/flow-$VERSION-source-dependecies.tar.gz" zig-pkg/builder
-
-cd "$DESTDIR/build"
-
-TARGETS=$(/bin/ls)
-
-for target in $TARGETS; do
-    if [ -d "$target" ]; then
-        cd "$target"
-        if [ "${target:0:8}" == "windows-" ]; then
-            echo packing zip "$target"...
-            zip -r "../../${APPNAME}-${VERSION}-${target}.zip" ./*
-            cd ..
-        else
-            echo packing tar "$target"...
-            tar -czf "../../${APPNAME}-${VERSION}-${target}.tar.gz" -- *
-            cd ..
-        fi
-    fi
-done
-
-cd ..
-rm -r build
-
-if [ -n "$NO_CODEBERG" ] && [ -n "$NO_GITHUB" ]; then
-    echo "skipping version manifest: neither download mirror will be updated"
-    NO_MANIFEST=1
-fi
-if [ -z "$NO_MANIFEST" ]; then
-    "$BASEDIR/contrib/publish_version_manifest" sign --nightly "$VERSION"
-fi
-
-TARFILES=$(/bin/ls)
-
-for tarfile in $TARFILES; do
-    echo signing "$tarfile"...
-    gpg --local-user 4E6CF7234FFC4E14531074F98EB1E1BB660E3FB9 --detach-sig "$tarfile"
-    sha256sum -b "$tarfile" >"${tarfile}.sha256"
-done
-
-echo "done making $title $VERSION @ $DESTDIR"
-echo
-
-/bin/ls -lah
-
-cd ..
-
-{
-    echo "## commits in this build"
+    echo
+    echo "building $title version $local_version... (previous $last_nightly_version)"
     echo
     git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
     echo
+    echo running tests...
+
+    contrib/builder/build test
+
+    if [ -n "$DRY_RUN" ]; then
+        echo 'building (dry-run)...'
+        contrib/builder/build -Dall-targets --release
+        exit 0
+    fi
+
+    echo building...
+
+    contrib/builder/build -Dall-targets --release --prefix "./$builddir/build"
+
+    VERSION=$(/bin/cat "$DESTDIR/build/version")
+
+    git archive --format=tar.gz --output="$DESTDIR/flow-$VERSION-source.tar.gz" HEAD
+    git archive --format=zip --output="$DESTDIR/flow-$VERSION-source.zip" HEAD
+    tar -zcf "$DESTDIR/flow-$VERSION-source-dependecies.tar.gz" zig-pkg/builder
+
+    cd "$DESTDIR/build"
+
+    TARGETS=$(/bin/ls)
+
+    for target in $TARGETS; do
+        if [ -d "$target" ]; then
+            cd "$target"
+            if [ "${target:0:8}" == "windows-" ]; then
+                echo packing zip "$target"...
+                zip -r "../../${APPNAME}-${VERSION}-${target}.zip" ./*
+                cd ..
+            else
+                echo packing tar "$target"...
+                tar -czf "../../${APPNAME}-${VERSION}-${target}.tar.gz" -- *
+                cd ..
+            fi
+        fi
+    done
+
+    cd ..
+    rm -r build
+
+    if [ -n "$NO_CODEBERG" ] && [ -n "$NO_GITHUB" ]; then
+        echo "skipping version manifest: neither download mirror will be updated"
+        NO_MANIFEST=1
+    fi
+    if [ -z "$NO_MANIFEST" ]; then
+        "$BASEDIR/contrib/publish_version_manifest" sign --nightly "$VERSION"
+    fi
+
+    TARFILES=$(/bin/ls)
+
+    for tarfile in $TARFILES; do
+        echo signing "$tarfile"...
+        gpg --local-user 4E6CF7234FFC4E14531074F98EB1E1BB660E3FB9 --detach-sig "$tarfile"
+        sha256sum -b "$tarfile" >"${tarfile}.sha256"
+    done
+
+    echo "done making $title $VERSION @ $DESTDIR"
     echo
 
-    echo "## contributors"
-    git shortlog -s -n "${last_nightly_version}..HEAD" | cut -b 8-
-    echo
+    /bin/ls -lah
 
-    echo "## downloads"
-    echo "[flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION) (source only)"
-    echo "[github.com](https://github.com/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
-    echo "[codeberg.org](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
-} >"$release_notes"
+    cd ..
 
-cat "$release_notes"
+    {
+        echo "## commits in this build"
+        echo
+        git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
+        echo
+        echo
+
+        echo "## contributors"
+        git shortlog -s -n "${last_nightly_version}..HEAD" | cut -b 8-
+        echo
+
+        echo "## downloads"
+        echo "[flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION) (source only)"
+        echo "[github.com](https://github.com/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
+        echo "[codeberg.org](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
+    } >"$release_notes"
+
+    cat "$release_notes"
+
+else
+
+    VERSION=$(/bin/cat "$DESTDIR/version-manifest/version-latest-nightly")
+
+fi
 
 ASSETS=""
 
@@ -180,15 +191,19 @@ if [ -n "$ALLOW_DIRTY" ]; then
     exit 0
 fi
 
-if [ -z "$NO_AUR" ]; then
-    echo preparing upload to arch linux AUR
-    git clone ssh://aur@aur.archlinux.org/flow-control-nightly-bin
-    cd flow-control-nightly-bin
-    PKGVER=${VERSION#v}
-    sed -i "s/^pkgver=.*/pkgver=${PKGVER//-/.}/" PKGBUILD
-    makepkg --printsrcinfo >.SRCINFO
-    git commit -a -m "$title $VERSION"
-    cd ..
+if [ -z "$NO_BUILD" ]; then
+
+    if [ -z "$NO_AUR" ]; then
+        echo preparing upload to arch linux AUR
+        git clone ssh://aur@aur.archlinux.org/flow-control-nightly-bin
+        cd flow-control-nightly-bin
+        PKGVER=${VERSION#v}
+        sed -i "s/^pkgver=.*/pkgver=${PKGVER//-/.}/" PKGBUILD
+        makepkg --printsrcinfo >.SRCINFO
+        git commit -a -m "$title $VERSION"
+        cd ..
+    fi
+
 fi
 
 if [ -z "$NO_FLOWCONTROL" ]; then
