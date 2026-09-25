@@ -58,6 +58,7 @@ enable_prefix_keyhints: bool = true,
 enable_auto_find: bool = true,
 find_mode: FindMode = .auto,
 initial_find_query: InitialFindQuery = .selection,
+jump_label_alphabet: []const u8 = "abcdefghijklmnopqrstuvwxyz",
 ignore_filter_stderr: bool = false,
 
 auto_run_time_seconds: usize = 120, //seconds

@@ -14,6 +14,7 @@ const project_manager = @import("project_manager");
 const root_mod = @import("soft_root").root;
 const file_link = @import("file_link");
 const syntax_validator = @import("syntax_validator");
+const jump_labels = @import("jump_labels.zig");
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
@@ -369,6 +370,7 @@ pub const Editor = struct {
     highlight_references_state: enum { adding, done } = .done,
     highlight_references_pending: Match.List = .empty,
     cursor_focus_override: bool = false,
+    jump_labels_: []const jump_labels.Label = &.{},
 
     prefix_buf: [8]u8 = undefined,
     prefix: []const u8 = &[_]u8{},
@@ -677,6 +679,7 @@ pub const Editor = struct {
         self.cursels.deinit(self.allocator);
         self.matches.deinit(self.allocator);
         self.highlight_references_pending.deinit(self.allocator);
+        self.clear_jump_labels();
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| self.retire_buffer(p, meta.written());
@@ -1356,6 +1359,7 @@ pub const Editor = struct {
         if (tui.config().inline_vcs_blame and !pc_row_diag)
             self.render_blame(theme, hl_row, ctx_.cell_map, now) catch {};
         self.render_column_highlights() catch {};
+        self.render_jump_labels(theme);
         self.render_cursors(ctx_.cell_map, focused) catch {};
         self.render_file_link_highlight(theme);
         if (self.info_box_layer) |layer| _ = layer.widget().render(theme);
@@ -1405,6 +1409,29 @@ pub const Editor = struct {
     inline fn set_cell_map_cursor(cell_map: CellMap, y: usize, x: usize) void {
         const cell_type = cell_map.get_yx(y, x).cell_type;
         cell_map.set_yx(y, x, .{ .cursor = true, .cell_type = cell_type });
+    }
+
+    fn render_jump_labels(self: *Self, theme: *const Widget.Theme) void {
+        if (self.jump_labels_.len == 0) return;
+        const frame = tracy.initZone(@src(), .{ .name = "editor jump labels" });
+        defer frame.deinit();
+
+        const style: Widget.Theme.Style = .{ .fg = theme.editor_match.fg, .bg = theme.editor_match.bg, .fs = .bold };
+
+        for (self.jump_labels_) |label| render_jump_label(self, label, style);
+    }
+
+    fn render_jump_label(self: *Self, label: jump_labels.Label, style: Widget.Theme.Style) void {
+        const pos = self.screen_cursor(&label.pos) orelse return;
+        for (0..label.text.len) |i| {
+            const x = pos.col + i;
+            if (x >= self.view.cols) break;
+            self.plane.cursor_move_yx(@intCast(pos.row), @intCast(x));
+            var cell = self.plane.cell_init();
+            cell.set_style(style);
+            _ = self.plane.cell_load(&cell, &[_]u8{label.text[i]}) catch continue;
+            _ = self.plane.putc(&cell) catch {};
+        }
     }
 
     fn render_column_highlights(self: *Self) !void {
@@ -2395,6 +2422,161 @@ pub const Editor = struct {
             }
         }.less_fn;
         std.mem.sort(?Match, self.matches.items, {}, less_fn);
+    }
+
+    /// The visible words ordered by proximity to the cursor, skipping the word under it.
+    fn compute_jump_labels(
+        root: Buffer.Root,
+        cursor: Cursor,
+        view: View,
+        alphabet: []const u8,
+        metrics: Buffer.Metrics,
+        allocator: Allocator,
+    ) error{OutOfMemory}![]jump_labels.Label {
+        const alphabet_ = try jump_labels.sanitize_alphabet(allocator, alphabet);
+        defer allocator.free(alphabet_);
+        if (alphabet_.len == 0)
+            return allocator.alloc(jump_labels.Label, 0);
+
+        const cursor_word = cursor_word_bounds(root, cursor, metrics);
+        var scan: WordScan = .{
+            .root = root,
+            .view = view,
+            .cursor_word = cursor_word,
+            .metrics = metrics,
+            .allocator = allocator,
+        };
+        defer scan.deinit();
+        try scan.collect();
+        return assign_labels(alphabet_, scan.before.items, scan.after.items, allocator);
+    }
+
+    const CursorWord = struct { begin: Cursor, end: Cursor };
+
+    /// The bounds of the word under the cursor, or the cursor itself when it is not on a word.
+    fn cursor_word_bounds(root: Buffer.Root, cursor: Cursor, metrics: Buffer.Metrics) CursorWord {
+        if (!is_word_char_at_cursor(root, &cursor, metrics))
+            return .{ .begin = cursor, .end = cursor };
+
+        var begin = cursor;
+        move_cursor_left_until(root, &begin, is_word_boundary_left, metrics);
+        var end = cursor;
+        move_cursor_right_until(root, &end, is_word_boundary_right, metrics);
+        end.move_right(root, metrics) catch {};
+        return .{ .begin = begin, .end = end };
+    }
+
+    const WordScan = struct {
+        root: Buffer.Root,
+        view: View,
+        cursor_word: CursorWord,
+        metrics: Buffer.Metrics,
+        allocator: Allocator,
+        before: std.ArrayList(Cursor) = .empty,
+        after: std.ArrayList(Cursor) = .empty,
+
+        fn deinit(self: *WordScan) void {
+            self.before.deinit(self.allocator);
+            self.after.deinit(self.allocator);
+        }
+
+        fn collect(self: *WordScan) error{OutOfMemory}!void {
+            const row_end = @min(self.view.row + self.view.rows, self.root.lines());
+            for (self.view.row..row_end) |row| try self.collect_row(row);
+        }
+
+        fn collect_row(self: *WordScan, row: usize) error{OutOfMemory}!void {
+            const col_end = @min(self.view.col + self.view.cols, self.root.line_width(row, self.metrics) catch return);
+            var word = Cursor{ .row = row, .col = self.view.col };
+            while (word.col < col_end) {
+                try self.add_candidate(word);
+                const col = word.col;
+                word.move_right(self.root, self.metrics) catch break;
+                if (word.col == col) word.col = col + 1; // the cursor did not advance, step over the cell
+            }
+        }
+
+        fn add_candidate(self: *WordScan, word: Cursor) error{OutOfMemory}!void {
+            if (!self.is_label_word(&word)) return;
+            if (!self.cursor_word.begin.right_of(word) and !word.right_of(self.cursor_word.end)) return;
+            if (self.cursor_word.begin.right_of(word)) return self.before.append(self.allocator, word);
+            try self.after.append(self.allocator, word);
+        }
+
+        /// A word start with at least two word characters in the same row.
+        fn is_label_word(self: *WordScan, word: *const Cursor) bool {
+            if (!is_word_boundary_left(self.root, word, self.metrics)) return false;
+            if (!is_word_char_at_cursor(self.root, word, self.metrics)) return false;
+            var next = word.*;
+            next.move_right(self.root, self.metrics) catch return false;
+            if (next.row != word.row) return false;
+            return is_word_char_at_cursor(self.root, &next, self.metrics);
+        }
+    };
+
+    /// Alternates between the closest word after and the closest word before the cursor.
+    fn assign_labels(alphabet: []const u8, before: []const Cursor, after: []const Cursor, allocator: Allocator) error{OutOfMemory}![]jump_labels.Label {
+        const count = @min(before.len + after.len, alphabet.len * alphabet.len);
+        const labels = try allocator.alloc(jump_labels.Label, count);
+        var after_idx: usize = 0;
+        var before_idx = before.len;
+        for (labels, 0..) |*label, i| {
+            const take_after = after_idx < after.len and (i % 2 == 0 or before_idx == 0);
+            const pos = if (take_after) after[after_idx] else before[before_idx - 1];
+            if (take_after) after_idx += 1 else before_idx -= 1;
+            label.* = .{ .pos = pos, .text = jump_labels.label_text(alphabet, i) };
+        }
+        return labels;
+    }
+
+    pub fn begin_jump_labels(self: *Self) error{ Stop, OutOfMemory }![]const jump_labels.Label {
+        const root = try self.buf_root();
+        const alphabet = tui.config().jump_label_alphabet;
+        const labels = try compute_jump_labels(root, self.get_primary().cursor, self.view, alphabet, self.metrics, self.allocator);
+        self.clear_jump_labels();
+        self.jump_labels_ = labels;
+        self.need_render();
+        return labels;
+    }
+
+    pub fn get_jump_labels(self: *const Self) []const jump_labels.Label {
+        return self.jump_labels_;
+    }
+
+    pub fn clear_jump_labels(self: *Self) void {
+        self.allocator.free(self.jump_labels_);
+        self.jump_labels_ = &.{};
+    }
+
+    /// Extends the selection to the label when there is one.
+    pub fn jump_to_label(self: *Self, ctx: Context, label: jump_labels.Label) Result {
+        try self.send_editor_jump_source();
+        const root = self.buf_root() catch return;
+        var dest = label.pos;
+        dest.clamp_to_buffer(root, self.metrics);
+        dest.target = dest.col;
+
+        const primary = self.get_primary();
+        if (primary.selection) |_| extend_selection_to(primary, root, self.metrics, dest);
+        primary.cursor = dest;
+        primary.check_selection(root, self.metrics);
+        if (self.view.is_visible(&primary.cursor))
+            self.clamp(ctx.now)
+        else
+            try self.scroll_view_center(ctx);
+        try self.send_editor_jump_destination();
+        self.need_render();
+    }
+
+    /// The anchor of the selection stays in place.
+    fn extend_selection_to(primary: *CurSel, root: Buffer.Root, metrics: Buffer.Metrics, dest: Cursor) void {
+        const sel = primary.enable_selection(root, metrics);
+        var norm = sel.*;
+        norm.normalize();
+        if ((norm.begin.right_of(dest) and !sel.is_reversed()) or
+            (dest.right_of(norm.end) and sel.is_reversed()))
+            sel.reverse();
+        sel.end = dest;
     }
 
     fn with_cursor_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
@@ -8023,6 +8205,13 @@ pub const Editor = struct {
         try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc, auto_save);
         self.last = .{};
     }
+
+    const private = @This();
+
+    // exports for unittests
+    pub const test_internal = struct {
+        pub const compute_jump_labels = private.compute_jump_labels;
+    };
 };
 
 pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
