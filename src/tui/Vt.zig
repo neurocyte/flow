@@ -560,13 +560,28 @@ fn is_empty_args(args: []const u8) bool {
 }
 
 pub fn re_run_cmd(self: *@This()) !void {
-    return if (self.last_cmd) |cmd|
-        switch (try self.run_cmd(.init(.{ .buf = cmd.bytes }))) {
+    if (self.last_cmd) |cmd| if (!is_empty_args(cmd.bytes))
+        return switch (try self.run_cmd(.init(.{ .buf = cmd.bytes }))) {
             .busy => self.running_error(),
             else => {},
-        }
-    else
-        tp.exit("no command to re-run");
+        };
+    return self.re_run_argv();
+}
+
+fn re_run_argv(self: *@This()) !void {
+    if (!self.process_exited) return self.running_error();
+    const cmd_argv = self.vt.cmd.argv;
+    if (cmd_argv.len == 0) return tp.exit("no command to re-run");
+    const allocator = self.vt.allocator;
+    var argv_copy: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer {
+        for (argv_copy.items) |arg| allocator.free(arg);
+        argv_copy.deinit(allocator);
+    }
+    try argv_copy.ensureTotalCapacity(allocator, cmd_argv.len);
+    for (cmd_argv) |arg| argv_copy.appendAssumeCapacity(try allocator.dupe(u8, arg));
+    try self.respawn(argv_copy.items);
+    try self.start_reader(allocator);
 }
 
 fn running_error(self: *const @This()) error{Exit} {
