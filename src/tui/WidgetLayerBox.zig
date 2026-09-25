@@ -54,6 +54,7 @@ content_h: u16 = 0,
 shift_x: i32 = 0,
 shift_y: i32 = 0,
 clip: ?Layer.Frame = null,
+layout_override: ?Widget.Layout = null,
 
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
@@ -94,6 +95,7 @@ pub fn set(self: *Self, w: Widget) void {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
+    if (self.layout_override) |layout_| return layout_;
     return if (self.inner) |w| w.layout() else .dynamic;
 }
 
@@ -118,16 +120,7 @@ pub fn handle_resize(self: *Self, box_in: Widget.Box) void {
     const layer_h_pix: u16 = @as(u16, h_cells) * ch + box.extra_y;
     self.layer.resize(w_cells, h_cells, layer_w_pix, layer_h_pix) catch return;
 
-    const shift_x: i32 = switch (self.placement) {
-        .top_left, .center_left, .bottom_left => 0,
-        .top_center, .center, .bottom_center => @intCast(box.extra_x / 2),
-        .top_right, .center_right, .bottom_right => @intCast(box.extra_x),
-    };
-    const shift_y: i32 = switch (self.placement) {
-        .top_left, .top_center, .top_right => 0,
-        .center_left, .center, .center_right => @intCast(box.extra_y / 2),
-        .bottom_left, .bottom_center, .bottom_right => @intCast(box.extra_y),
-    };
+    const shift_x, const shift_y = self.placement_shift(@intCast(box.extra_x), @intCast(box.extra_y));
     const ox, const oy = self.plane.global_origin_px();
 
     self.shift_x = 0;
@@ -186,6 +179,21 @@ fn place_in_region(self: *Self, box: Widget.Box) void {
         w.resize(.{ .y = 0, .x = 0, .w = self.content_w, .h = self.content_h });
 }
 
+fn placement_shift(self: *const Self, extra_x: i32, extra_y: i32) struct { i32, i32 } {
+    return .{
+        switch (self.placement) {
+            .top_left, .center_left, .bottom_left => 0,
+            .top_center, .center, .bottom_center => @divFloor(extra_x, 2),
+            .top_right, .center_right, .bottom_right => extra_x,
+        },
+        switch (self.placement) {
+            .top_left, .top_center, .top_right => 0,
+            .center_left, .center, .center_right => @divFloor(extra_y, 2),
+            .bottom_left, .bottom_center, .bottom_right => extra_y,
+        },
+    };
+}
+
 fn fill_frame(self: *Self, box: Widget.Box) void {
     const root = tui.plane();
     const cw: i32 = root.cell_x();
@@ -201,10 +209,14 @@ fn fill_frame(self: *Self, box: Widget.Box) void {
     self.plane.resize_simple(@intCast(box.h), @intCast(box.w)) catch return;
     self.layer.resize(@intCast(box.w), @intCast(box.h), w_pix, h_pix) catch return;
 
-    self.shift_x = frame.x - lx - x_cell * cw;
-    self.shift_y = frame.y - ly - y_cell * ch;
-    self.layer.origin_px_x = frame.x;
-    self.layer.origin_px_y = frame.y;
+    const shift_x, const shift_y = self.placement_shift(
+        @as(i32, w_pix) - @as(i32, @intCast(box.w)) * cw,
+        @as(i32, h_pix) - @as(i32, @intCast(box.h)) * ch,
+    );
+    self.shift_x = frame.x - lx - x_cell * cw + shift_x;
+    self.shift_y = frame.y - ly - y_cell * ch + shift_y;
+    self.layer.origin_px_x = frame.x + shift_x;
+    self.layer.origin_px_y = frame.y + shift_y;
     self.layer.z_index = self.z_index;
 
     if (self.inner) |*w|

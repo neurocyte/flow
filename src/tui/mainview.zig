@@ -143,6 +143,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         self.bottom_bar = (try widgets.addP(bar_layer.widget())).*;
     }
     self.bottom_area = try PanelArea.create(allocator, widgets, .bottom);
+    self.bottom_area.on_maximize = .{ .ctx = self, .f = panel_maximized };
     if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
         self.toggle_keybindview_async();
@@ -310,6 +311,18 @@ pub fn panel_tab_style(self: *const Self) *const @import("status/tabs.zig").Styl
     return &self.bottom_area.tab_style;
 }
 
+fn panel_maximized(ctx: *anyopaque, maximized: bool) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    set_bar_hidden(self.top_bar, maximized);
+    set_bar_hidden(self.bottom_bar, maximized);
+}
+
+fn set_bar_hidden(bar: ?Widget, hidden: bool) void {
+    const bar_ = bar orelse return;
+    const layer = bar_.dynamic_cast(tui.WidgetLayerBox) orelse return;
+    layer.layout_override = if (hidden) .{ .static = 0 } else null;
+}
+
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
@@ -412,6 +425,11 @@ fn focused_panel(self: *Self) ?Panel {
     const g = self.bottom_area.focused_group() orelse return null;
     if (!g.is_focused()) return null;
     return g.active();
+}
+
+fn leave_maximized_panel(self: *Self) void {
+    if (self.focused_panel() == null) return;
+    if (self.bottom_area.is_maximized()) self.bottom_area.hide();
 }
 
 fn scroll_focused_panel(self: *Self, action: Panel.ScrollAction) void {
@@ -632,6 +650,7 @@ const cmds = struct {
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
+        self.leave_maximized_panel();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
         var file: ?[]const u8 = null;
@@ -1097,7 +1116,10 @@ const cmds = struct {
         if (self.bottom_area.visible() and !self.bottom_area.is_maximized())
             if (self.current_terminal()) |vt| if (self.is_panel_view_showing(terminal_view)) vt.unfocus();
     }
-    pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
+    pub const toggle_maximize_panel_meta: Meta = .{
+        .description = "Toggle maximize panel",
+        .icon = "",
+    };
 
     pub fn grow_panel(self: *Self, ctx: Ctx) Result {
         var n: usize = 1;

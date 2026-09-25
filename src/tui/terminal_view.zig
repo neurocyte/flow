@@ -78,7 +78,10 @@ pub const panel_tag = "terminal";
 const close_confirm_ms = 3000;
 
 pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
-    const layer = try tui.WidgetLayerBox.create(allocator, parent, .{ .name = "terminal.layer" });
+    const layer = try tui.WidgetLayerBox.create(allocator, parent, .{
+        .name = "terminal.layer",
+        .placement = .bottom_left,
+    });
     layer.prepare_resize = stack_above_parent;
     errdefer layer.deinit(allocator);
 

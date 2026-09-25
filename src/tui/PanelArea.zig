@@ -20,6 +20,11 @@ pub const GroupDirection = enum { left, right };
 pub const RemoveFocus = enum { never, if_focused, always };
 pub const RestoreFn = *const fn (allocator: Allocator, parent: Plane, tag: []const u8, state: []const u8) ?Panel;
 
+pub const MaximizeCallback = struct {
+    ctx: *anyopaque,
+    f: *const fn (ctx: *anyopaque, maximized: bool) void,
+};
+
 pub const Found = struct {
     group: *PanelGroup,
     panel: Panel,
@@ -46,6 +51,8 @@ mru: std.ArrayList(Panel.Id) = .empty, // least recently used first
 current: std.StringHashMapUnmanaged(Panel) = .empty, // by panel tag
 tab_style: Tabs.Style,
 tab_style_bufs: [][]const u8,
+
+on_maximize: ?MaximizeCallback = null,
 
 height: ?usize = null,
 maximized: bool = false,
@@ -90,11 +97,20 @@ pub fn empty(self: *const Self) bool {
 }
 
 pub fn show(self: *Self) void {
+    self.unmaximize_for_mini_mode();
     if (self.attached or self.groups.items.len == 0) return;
     self.list.layout_ = .{ .static = if (self.maximized) self.max_height() else self.get_height() };
     self.host.add(self.list.widget()) catch return;
     self.attached = true;
+    self.notify_maximized();
     tui.resize();
+}
+
+fn unmaximize_for_mini_mode(self: *Self) void {
+    if (!self.maximized or tui.mini_mode() == null) return;
+    if (self.attached) return self.set_maximized(false);
+    self.maximized = false;
+    self.maximized_by_snap = false;
 }
 
 pub fn hide(self: *Self) void {
@@ -102,6 +118,7 @@ pub fn hide(self: *Self) void {
     self.release_focus();
     _ = self.host.detach(self.list.widget());
     self.attached = false;
+    self.notify_maximized();
     tui.resize();
 }
 
@@ -576,6 +593,10 @@ fn total_height() usize {
 }
 
 fn max_height(_: *const Self) usize {
+    return total_height();
+}
+
+fn maximize_threshold(_: *const Self) usize {
     return total_height() -| 1;
 }
 
@@ -627,7 +648,7 @@ pub fn set_height_abs(self: *Self, y: usize) void {
     if (height == 1) {
         self.height = null;
         self.hide();
-    } else if (height >= max_h) {
+    } else if (height >= self.maximize_threshold()) {
         self.maximized = true;
         self.list.layout_ = .{ .static = max_h };
         self.height = null;
@@ -635,6 +656,7 @@ pub fn set_height_abs(self: *Self, y: usize) void {
     } else {
         save_height_ratio(height);
     }
+    self.notify_maximized();
 }
 
 pub fn set_height_rel(self: *Self, y: isize) void {
@@ -672,8 +694,13 @@ pub fn set_maximized(self: *Self, maximized: bool) void {
         }
         self.list.layout_ = .{ .static = h };
     } else return;
+    self.notify_maximized();
     tui.resize();
     if (self.maximized) self.focus_active();
+}
+
+fn notify_maximized(self: *Self) void {
+    if (self.on_maximize) |cb| cb.f(cb.ctx, self.maximized and self.attached);
 }
 
 pub fn update_layout_for_resize(self: *Self) void {
@@ -681,7 +708,7 @@ pub fn update_layout_for_resize(self: *Self) void {
     const max_h = self.max_height();
     if (self.maximized) {
         self.list.layout_ = .{ .static = max_h };
-        if (self.maximized_by_snap and self.snap_height < max_h) {
+        if (self.maximized_by_snap and self.snap_height < self.maximize_threshold()) {
             self.maximized = false;
             self.maximized_by_snap = false;
             self.list.layout_ = .{ .static = self.snap_height };
@@ -691,11 +718,12 @@ pub fn update_layout_for_resize(self: *Self) void {
             .static => |s| s,
             .dynamic => self.get_height(),
         };
-        if (cur_h >= max_h) {
+        if (cur_h >= self.maximize_threshold()) {
             self.maximized = true;
             self.maximized_by_snap = true;
             self.snap_height = cur_h;
             self.list.layout_ = .{ .static = max_h };
         }
     }
+    self.notify_maximized();
 }

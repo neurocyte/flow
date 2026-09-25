@@ -1539,7 +1539,12 @@ const cmds = struct {
         root.set_restart_with_sudo();
         try tp.self_pid().send("restart");
     }
-    pub const restart_with_sudo_meta: Meta = .{ .description = "Restart with sudo" };
+    pub const restart_with_sudo_meta: Meta = .{
+        .description = switch (builtin.os.tag) {
+            .windows, .macos => &.{},
+            else => "Restart with sudo",
+        },
+    };
 
     pub fn force_terminate(self: *Self, _: Ctx) Result {
         self.deinit();
@@ -2958,7 +2963,7 @@ fn render_file_item(
     _ = self.print("{s} ", .{file_path_}) catch {};
 
     self.set_style(style_hint);
-    _ = self.print_aligned_right(0, "{s} ", .{indicator}) catch {};
+    _ = self.print_aligned_right(0, "{s}\u{00A0}", .{indicator}) catch {};
 
     var iter = matches_cbor;
     var index: usize = 0;

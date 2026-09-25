@@ -303,7 +303,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
             .{ .x = base_x + loc_a * cw, .y = base_y + loc_b * ch, .w = trailing_cells * cw, .h = size_b * ch },
         },
     };
-    const frame = switch (self.direction) {
+    const frame = if (trailing_cells >= size_a) content else switch (self.direction) {
         .vertical => content.align_bottom(list_frame),
         .horizontal => content.align_right(list_frame),
     };
@@ -632,7 +632,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             self.get_size_b(&w_pos).* = perp;
             self.get_loc_b(&w_pos).* = 0;
             self.get_extra_b(&w_pos).* = extras_b;
-            if (idx == last_idx) self.get_extra_a(&w_pos).* = extras_a;
+            if (idx == last_idx and trailing_cells >= total) self.get_extra_a(&w_pos).* = extras_a;
             w.widget.resize(w_pos);
         }
     };
