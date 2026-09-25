@@ -265,7 +265,7 @@ pub fn build_exe(
     tracy_enabled: bool,
     use_tree_sitter: bool,
     strip: bool,
-    use_llvm_: ?bool,
+    use_llvm: ?bool,
     pie: ?bool,
     renderer: Renderer,
     version: []const u8,
@@ -273,7 +273,6 @@ pub fn build_exe(
     embed_emoji: bool,
     install_tests: bool,
 ) void {
-    const use_llvm = use_llvm_;
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
     const is_native = target.query.isNative();
     const options = b.addOptions();
@@ -371,7 +370,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
-        .@"use-llvm" = if (builtin.os.tag == .linux) true else use_llvm,
+        .@"use-llvm" = use_llvm,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
