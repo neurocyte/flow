@@ -20,9 +20,13 @@ pub fn any_terminals() bool {
     return false;
 }
 
-pub fn any_active_applications() bool {
-    for (vts.items) |vt| if (vt.has_active_application()) return true;
+pub fn any_busy_terminals() bool {
+    for (vts.items) |vt| if (vt.is_busy()) return true;
     return false;
+}
+
+pub fn snapshot_alt_screens() void {
+    for (vts.items) |vt| vt.snapshot_alt_screen();
 }
 
 pub fn all() []const *Vt {

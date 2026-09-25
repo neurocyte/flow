@@ -485,9 +485,9 @@ fn open_profile_buffer(self: *Self, now: std.Io.Timestamp, file_name: []const u8
     self.location_update_from_editor();
 }
 
-fn check_no_active_terminals(_: *const Self) command.Result {
-    if (Vt.Manager.any_active_applications())
-        return tp.exit("terminal application running");
+fn check_no_busy_terminals(_: *const Self) command.Result {
+    if (Vt.Manager.any_busy_terminals())
+        return tp.exit("terminal is busy");
 }
 
 fn open_style_config(self: *Self, Style: type, now: std.Io.Timestamp) command.Result {
@@ -519,7 +519,8 @@ const cmds = struct {
 
     pub fn quit(self: *Self, _: Ctx) Result {
         try self.check_all_not_dirty();
-        try self.check_no_active_terminals();
+        try self.check_no_busy_terminals();
+        Vt.Manager.snapshot_alt_screens();
         try tp.self_pid().send("quit");
     }
     pub const quit_meta: Meta = .{ .description = "Quit" };
@@ -544,6 +545,7 @@ const cmds = struct {
     pub const save_session_quiet_meta: Meta = .{};
 
     pub fn save_session_and_quit(self: *Self, _: Ctx) Result {
+        Vt.Manager.snapshot_alt_screens();
         try self.write_restore_info();
         try tp.self_pid().send("quit");
     }
@@ -592,7 +594,8 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
         try self.check_all_not_dirty();
-        try self.check_no_active_terminals();
+        try self.check_no_busy_terminals();
+        Vt.Manager.snapshot_alt_screens();
 
         {
             var state_writer: std.Io.Writer.Allocating = .init(self.allocator);
@@ -2627,6 +2630,7 @@ fn write_session_file(self: *Self, file_name: []const u8) !void {
 }
 
 pub fn write_restart_session(self: *Self) WriteStateError!void {
+    Vt.Manager.snapshot_alt_screens();
     self.write_restore_info() catch {};
     const handoff = root.get_restart_session_file_name(self.allocator) catch return;
     defer self.allocator.free(handoff);
