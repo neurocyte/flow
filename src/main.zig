@@ -1339,6 +1339,11 @@ fn restart() noreturn {
 
 fn restart_with_sudo() noreturn {
     if (builtin.os.tag == .windows) return restart_win32();
+    if (build_options.gui) switch (builtin.os.tag) {
+        .windows, .macos => {},
+        else => return restart_with_pkexec(),
+    };
+
     const sudo_executable = resolve_executable("sudo");
     const flow_executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
     const environ: [*:null]const ?[*:0]const u8 = @ptrCast(get_init().minimal.environ.block.slice.ptr);
@@ -1363,6 +1368,56 @@ fn restart_with_sudo() noreturn {
         };
         restart_failed(std.c.execve(sudo_executable, @ptrCast(&argv), environ));
     }
+}
+
+fn restart_with_pkexec() noreturn {
+    const allocator = get_init().gpa;
+    const pkexec_executable = resolve_executable("pkexec");
+    const env_executable = resolve_executable("env");
+    const flow_executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
+
+    var argv: std.ArrayList(?[*:0]const u8) = .empty;
+    argv.appendSlice(allocator, &.{ pkexec_executable.ptr, "--keep-cwd", env_executable.ptr }) catch
+        restart_failed(-1);
+    for (preserved_gui_environment) |name| append_environment_value(&argv, name);
+    append_xauthority(&argv);
+    argv.append(allocator, flow_executable.ptr) catch restart_failed(-1);
+    if (pending_restart_session_file()) |path| {
+        argv.appendSlice(allocator, &.{ "--restore-session-file", path.ptr, "--remove-session-file" }) catch
+            restart_failed(-1);
+    } else {
+        argv.append(allocator, "--restore-session") catch restart_failed(-1);
+    }
+    argv.append(allocator, null) catch restart_failed(-1);
+
+    const environ: [*:null]const ?[*:0]const u8 = @ptrCast(get_init().minimal.environ.block.slice.ptr);
+    restart_failed(std.c.execve(pkexec_executable, @ptrCast(argv.items.ptr), environ));
+}
+
+const preserved_gui_environment = [_][]const u8{
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_CACHE_HOME",
+    "WAYLAND_DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DISPLAY",
+};
+
+fn append_environment_value(argv: *std.ArrayList(?[*:0]const u8), name: []const u8) void {
+    const allocator = get_init().gpa;
+    const value = get_init().environ_map.get(name) orelse return;
+    const assignment = std.fmt.allocPrintSentinel(allocator, "{s}={s}", .{ name, value }, 0) catch return;
+    argv.append(allocator, assignment.ptr) catch {};
+}
+
+fn append_xauthority(argv: *std.ArrayList(?[*:0]const u8)) void {
+    const allocator = get_init().gpa;
+    if (get_init().environ_map.get("XAUTHORITY")) |_| return append_environment_value(argv, "XAUTHORITY");
+    const home = get_init().environ_map.get("HOME") orelse return;
+    const assignment = std.fmt.allocPrintSentinel(allocator, "XAUTHORITY={s}{c}.Xauthority", .{ home, sep }, 0) catch return;
+    argv.append(allocator, assignment.ptr) catch {};
 }
 
 fn restart_win32() noreturn {
