@@ -1110,7 +1110,10 @@ const cmds = struct {
         if (self.bottom_area.visible() and !self.bottom_area.is_maximized())
             if (self.current_terminal()) |vt| if (self.is_panel_view_showing(terminal_view)) vt.unfocus();
     }
-    pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
+    pub const toggle_maximize_panel_meta: Meta = .{
+        .description = "Toggle maximize panel",
+        .icon = "",
+    };
 
     pub fn grow_panel(self: *Self, ctx: Ctx) Result {
         var n: usize = 1;

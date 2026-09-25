@@ -97,6 +97,7 @@ pub fn load_entries(palette: *Type) !usize {
     for (profiles) |profile| try add_profile_entry(palette, profile, &longest, &longest_hint);
 
     longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_insert", hints, "Add or edit profile", .describe));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "toggle_maximize_panel", hints, "", .run));
     return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
 
