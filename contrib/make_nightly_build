@@ -47,7 +47,7 @@ fi
 
 DIFF="$(git diff --stat --patch HEAD)"
 
-if [ -z "$ALLOW_DIRTY" ]; then
+if [ -z "$ALLOW_DIRTY" ] && [ -z "$NO_BUILD" ]; then
     if [ -n "$DIFF" ]; then
         echo there are outstanding changes:
         echo "$DIFF"
@@ -176,22 +176,12 @@ if [ -z "$NO_BUILD" ]; then
 
     cat "$release_notes"
 
-else
-
-    VERSION=$(/bin/cat "$DESTDIR/version-manifest/version-latest-nightly")
-
-fi
-
-ASSETS=""
-
-if [ -n "$ALLOW_DIRTY" ]; then
-    ls -la "$DESTDIR"/*
-    echo
-    echo build complete, no uploading for --allow-dirty builds.
-    exit 0
-fi
-
-if [ -z "$NO_BUILD" ]; then
+    if [ -n "$ALLOW_DIRTY" ]; then
+        ls -la "$DESTDIR"/*
+        echo
+        echo build complete, no uploading for --allow-dirty builds.
+        exit 0
+    fi
 
     if [ -z "$NO_AUR" ]; then
         echo preparing upload to arch linux AUR
@@ -204,7 +194,13 @@ if [ -z "$NO_BUILD" ]; then
         cd ..
     fi
 
+else
+
+    VERSION=$(/bin/cat "$BASEDIR/version-manifest/version-latest-nightly")
+
 fi
+
+ASSETS=""
 
 if [ -z "$NO_FLOWCONTROL" ]; then
     ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz"
