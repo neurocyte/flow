@@ -1243,8 +1243,8 @@ pub fn namespace_config_exists(allocator: std.mem.Allocator, namespace_name: []c
     return false;
 }
 
-pub fn namespace_config_file_name(namespace_name: []const u8) ![]const u8 {
-    return try root.get_keybind_namespace_file_name(namespace_name);
+pub fn namespace_config_file_name(namespace_name: []const u8, buffer: []u8) ![]const u8 {
+    return try root.get_keybind_namespace_file_name(namespace_name, buffer);
 }
 
 pub fn create_inherit_namespace(allocator: std.mem.Allocator, name: []const u8) !void {

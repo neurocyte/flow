@@ -113,7 +113,7 @@ const dummy = struct {
     pub fn write_keybind_namespace(_: []const u8, _: []const u8) !void {
         @panic("dummy write_keybind_namespace call");
     }
-    pub fn get_keybind_namespace_file_name(_: []const u8) ![]const u8 {
+    pub fn get_keybind_namespace_file_name(_: []const u8, _: []u8) ![]const u8 {
         @panic("dummy get_keybind_namespace_file_name call");
     }
 
@@ -129,7 +129,7 @@ const dummy = struct {
     pub fn exists_config(_: type) bool {
         @panic("dummy exists_config call");
     }
-    pub fn get_config_file_name(_: type) ![]const u8 {
+    pub fn get_config_file_name(_: type, _: []u8) ![]const u8 {
         @panic("dummy get_config_file_name call");
     }
     pub fn get_restore_file_name() ![]const u8 {
@@ -155,7 +155,7 @@ const dummy = struct {
         @panic("dummy list_themes call");
     }
 
-    pub fn get_theme_file_name(_: []const u8) ![]const u8 {
+    pub fn get_theme_file_name(_: []const u8, _: []u8) ![]const u8 {
         @panic("dummy get_theme_file_name call");
     }
 

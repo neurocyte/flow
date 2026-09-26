@@ -491,7 +491,8 @@ fn check_no_busy_terminals(_: *const Self) command.Result {
 }
 
 fn open_style_config(self: *Self, Style: type, now: std.Io.Timestamp) command.Result {
-    const file_name = try root.get_config_file_name(Style);
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = try root.get_config_file_name(Style, &file_name_buffer);
     const style, const style_bufs: [][]const u8 = if (root.exists_config(Style)) blk: {
         const style, const style_bufs = root.read_config(Style, self.allocator);
         break :blk .{ style, style_bufs };
@@ -827,13 +828,15 @@ const cmds = struct {
     pub const open_version_info_meta: Meta = .{ .description = "Version" };
 
     pub fn open_config(_: *Self, _: Ctx) Result {
-        const file_name = try root.get_config_file_name(@import("config"));
+        var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        const file_name = try root.get_config_file_name(@import("config"), &file_name_buffer);
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
     pub const open_config_meta: Meta = .{ .description = "Edit configuration" };
 
     pub fn open_gui_config(_: *Self, _: Ctx) Result {
-        const file_name = try root.get_config_file_name(@import("gui_config"));
+        var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        const file_name = try root.get_config_file_name(@import("gui_config"), &file_name_buffer);
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
     pub const open_gui_config_meta: Meta = .{ .description = "Edit gui configuration" };
