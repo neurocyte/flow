@@ -75,6 +75,7 @@ quit_on_terminal_exit: bool = false,
 quit_on_document_close: bool = false,
 navigate_render_block: ?tui.RenderBlock = null,
 startup_render_block: ?tui.RenderBlock = null,
+quit_render_block: ?tui.RenderBlock = null,
 
 pub const CreateError = error{ OutOfMemory, ThespianSpawnFailed };
 
@@ -234,9 +235,24 @@ fn process_focus_out(self: *Self) error{OutOfMemory}!void {
     for (buffers) |b| ed.auto_save_buffer(b, .on_focus_change);
 }
 
+const quit_render_block_timeout_ms = 500;
+
+fn block_quit_render(self: *Self) void {
+    if (self.quit_render_block == null)
+        self.quit_render_block = tui.block_render(quit_render_block_timeout_ms);
+}
+
+fn terminal_close_will_quit(self: *const Self, closing: *const Vt) bool {
+    if (!self.quit_on_terminal_exit) return false;
+    if (self.buffer_manager.has_any_non_hidden_buffers()) return false;
+    for (Vt.Manager.all()) |vt| if (vt != closing) return false;
+    return true;
+}
+
 fn quit_if_idle(self: *Self) bool {
     if (self.buffer_manager.has_any_non_hidden_buffers()) return false;
     if (Vt.Manager.any_terminals()) return false;
+    self.block_quit_render();
     command.executeName("quit", .empty()) catch {};
     return true;
 }
@@ -1428,13 +1444,17 @@ const cmds = struct {
 
     pub fn close_terminal(self: *Self, ctx: Ctx) Result {
         var ref: usize = 0;
-        const f = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&ref)}))
-            self.terminal_panel(@ptrFromInt(ref))
+        const vt: ?*const Vt = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&ref)}))
+            @ptrFromInt(ref)
         else if (self.current_terminal()) |tv|
-            self.terminal_panel(tv.vt)
+            tv.vt
         else
             null;
-        if (f) |f_| self.bottom_area.close(f_.panel.id);
+        const f = if (vt) |vt_| self.terminal_panel(vt_) else null;
+        if (f) |f_| {
+            if (self.terminal_close_will_quit(vt.?)) self.block_quit_render();
+            self.bottom_area.close(f_.panel.id);
+        }
     }
     pub const close_terminal_meta: Meta = .{ .description = "Close terminal", .arguments = &.{.integer} };
 
@@ -1442,6 +1462,7 @@ const cmds = struct {
         var ref: usize = 0;
         if (!(cbor.match(ctx.args.buf, .{tp.extract(&ref)}) catch false and ref != 0)) return;
         for (Vt.Manager.all()) |vt| if (@intFromPtr(vt) == ref) {
+            if (self.terminal_close_will_quit(vt)) self.block_quit_render();
             if (self.terminal_panel(vt)) |f| return self.bottom_area.remove(f, .if_focused);
             break;
         };
