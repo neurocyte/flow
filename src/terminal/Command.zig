@@ -127,23 +127,23 @@ pub fn try_wait(self: *Command) ?u8 {
     return 0;
 }
 
-/// Reap the child process. Must be called after the pty EOF has been seen,
-/// so the child is guaranteed to have already exited. Uses WNOHANG in a loop
-/// to handle any remaining state. Returns the exit code (0-255).
+/// Reap the child process.
 pub fn wait(self: *Command) u8 {
     const pid = self.pid orelse return 0;
     self.pid = null;
     while (true) {
         var status: c_int = 0;
-        const wpid = std.c.waitpid(pid, &status, @intCast(posix.W.NOHANG));
-        if (wpid != 0) {
-            const us: u32 = @bitCast(status);
-            if (posix.W.IFEXITED(us))
-                return posix.W.EXITSTATUS(us);
-            return 0;
-        }
-        // pid == 0 means not yet exited — yield and retry
-        std.Thread.yield() catch {};
+        const wpid = std.c.waitpid(pid, &status, 0);
+        if (wpid < 0) switch (posix.errno(wpid)) {
+            .INTR => continue,
+            else => return 0,
+        };
+        const us: u32 = @bitCast(status);
+        if (posix.W.IFEXITED(us))
+            return posix.W.EXITSTATUS(us);
+        if (posix.W.IFSIGNALED(us))
+            return @truncate(@intFromEnum(posix.W.TERMSIG(us)));
+        return 0;
     }
 }
 
