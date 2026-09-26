@@ -78,7 +78,7 @@ fi
 }
 
 local_version="$(git --git-dir "$BASEDIR/.git" describe)"
-if [ "$1" != "--no-github" ]; then
+if [ -z "$NO_BUILD" ]; then
     if [ "$local_version" == "$last_nightly_version" ]; then
         echo "$title is already at version $last_nightly_version"
         exit 1

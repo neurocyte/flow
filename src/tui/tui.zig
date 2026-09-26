@@ -1309,7 +1309,8 @@ fn start_config_watcher(self: *Self) void {
 }
 
 fn config_file_changed(self: *Self, path: []const u8) void {
-    const config_file = root.get_config_file_name(@import("config")) catch return;
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const config_file = root.get_config_file_name(@import("config"), &file_name_buffer) catch return;
     if (std.mem.eql(u8, config_file, path))
         self.reload_config();
     if (self.config_.desktop_theme_file.len > 0 and std.mem.eql(u8, self.config_.desktop_theme_file, path))
@@ -2167,7 +2168,8 @@ const cmds = struct {
         const base = mode_parts.first();
         if (!keybind.namespace_config_exists(self.allocator, base))
             try keybind.create_inherit_namespace(self.allocator, base);
-        const file_name = try keybind.namespace_config_file_name(base);
+        var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        const file_name = try keybind.namespace_config_file_name(base, &file_name_buffer);
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
         try tp.self_pid().send(.{ "cmd", "open_keybind_reference", .{base} });
         self.logger.print("restart flow to use changed key bindings", .{});
@@ -2175,7 +2177,8 @@ const cmds = struct {
     pub const open_keybind_config_meta: Meta = .{ .description = "Edit key bindings" };
 
     pub fn open_custom_theme(self: *Self, _: Ctx) Result {
-        const file_name = try self.get_or_create_theme_file(self.allocator);
+        var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        const file_name = try self.get_or_create_theme_file(self.allocator, &file_name_buffer);
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
         self.logger.print("restart flow to use changed theme", .{});
     }
@@ -3121,7 +3124,7 @@ pub fn render_symbol(
     return false;
 }
 
-fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
+fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator, buffer: []u8) ![]const u8 {
     const theme_name = self.current_theme().name;
     if (root.read_theme(allocator, theme_name)) |content| {
         allocator.free(content);
@@ -3134,7 +3137,7 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
         try s.write(custom_theme);
         try root.write_theme(theme_name, buf.written());
     }
-    return try root.get_theme_file_name(theme_name);
+    return try root.get_theme_file_name(theme_name, buffer);
 }
 
 pub const WidgetType = @import("config").WidgetType;

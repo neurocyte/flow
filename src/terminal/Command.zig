@@ -29,6 +29,8 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     const envp = try createEnvironFromMap(arena, self.env_map);
 
+    const working_directory_z: ?[:0]const u8 = if (self.working_directory) |wd| try arena.dupeSentinel(u8, wd, 0) else null;
+
     const fork_ret = std.c.fork();
     if (fork_ret < 0) return error.ForkFailed;
     const pid: posix.pid_t = @intCast(fork_ret);
@@ -52,7 +54,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
             },
             else => 0,
         };
-        if (posix.system.ioctl(self.pty.tty.handle, TIOCSCTTY, tiocsctty_arg) != 0) std.c.exit(1);
+        if (posix.system.ioctl(self.pty.tty.handle, TIOCSCTTY, tiocsctty_arg) != 0) std.c._exit(1);
 
         // set up io
         _ = std.c.dup2(self.pty.tty.handle, posix.STDIN_FILENO);
@@ -64,21 +66,15 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
         // Close all fds > 2 so the child cannot access the parent's
         // terminal or other inherited file descriptors.
-        var fd: posix.fd_t = 3;
-        const max_fd: posix.fd_t = getdtablesize();
-        while (fd < max_fd) : (fd += 1) {
-            safe_close(fd);
-        }
+        close_fds_from(3);
 
-        if (self.working_directory) |wd| {
-            const wd_z = arena.dupeSentinel(u8, wd, 0) catch std.c.exit(1);
+        if (working_directory_z) |wd_z|
             _ = std.c.chdir(wd_z.ptr);
-        }
 
         // exec
         _ = posix.system.execve(argv_buf.ptr[0].?, argv_buf.ptr, @ptrCast(envp.ptr));
 
-        std.c.exit(127);
+        std.c._exit(127);
     }
 
     // we are the parent
@@ -86,6 +82,18 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 }
 
 extern fn getdtablesize() posix.fd_t;
+
+fn close_fds_from(first: posix.fd_t) void {
+    if (builtin.os.tag == .linux) {
+        const rc = std.os.linux.syscall3(.close_range, @intCast(first), std.math.maxInt(u32), 0);
+        if (std.os.linux.errno(rc) == .SUCCESS) return;
+    }
+    var fd: posix.fd_t = first;
+    const max_fd: posix.fd_t = getdtablesize();
+    while (fd < max_fd) : (fd += 1) {
+        safe_close(fd);
+    }
+}
 
 fn safe_close(fd: posix.fd_t) void {
     if (builtin.os.tag == .windows) {
@@ -119,23 +127,23 @@ pub fn try_wait(self: *Command) ?u8 {
     return 0;
 }
 
-/// Reap the child process. Must be called after the pty EOF has been seen,
-/// so the child is guaranteed to have already exited. Uses WNOHANG in a loop
-/// to handle any remaining state. Returns the exit code (0-255).
+/// Reap the child process.
 pub fn wait(self: *Command) u8 {
     const pid = self.pid orelse return 0;
     self.pid = null;
     while (true) {
         var status: c_int = 0;
-        const wpid = std.c.waitpid(pid, &status, @intCast(posix.W.NOHANG));
-        if (wpid != 0) {
-            const us: u32 = @bitCast(status);
-            if (posix.W.IFEXITED(us))
-                return posix.W.EXITSTATUS(us);
-            return 0;
-        }
-        // pid == 0 means not yet exited — yield and retry
-        std.Thread.yield() catch {};
+        const wpid = std.c.waitpid(pid, &status, 0);
+        if (wpid < 0) switch (posix.errno(wpid)) {
+            .INTR => continue,
+            else => return 0,
+        };
+        const us: u32 = @bitCast(status);
+        if (posix.W.IFEXITED(us))
+            return posix.W.EXITSTATUS(us);
+        if (posix.W.IFSIGNALED(us))
+            return @truncate(@backingInt(posix.W.TERMSIG(us)));
+        return 0;
     }
 }
 

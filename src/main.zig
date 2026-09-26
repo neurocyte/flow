@@ -535,7 +535,8 @@ var config_mutex: std.Io.Mutex = .init;
 pub fn exists_config(T: type) bool {
     config_mutex.lockUncancelable(global_init.io);
     defer config_mutex.unlock(global_init.io);
-    const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return false;
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = get_app_config_file_name(application_name, @typeName(T), &file_name_buffer) catch return false;
     var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return false;
     defer file.close(global_init.io);
     return true;
@@ -556,7 +557,8 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
     config_mutex.lockUncancelable(global_init.io);
     defer config_mutex.unlock(global_init.io);
     var bufs: [][]const u8 = &[_][]const u8{};
-    const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ get_default(T), bufs };
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = get_app_config_file_name(application_name, @typeName(T), &file_name_buffer) catch return .{ get_default(T), bufs };
     var conf: T = get_default(T);
     _ = read_config_file(T, allocator, &conf, &bufs, file_name);
     read_nested_include_files(T, allocator, &conf, &bufs);
@@ -713,7 +715,8 @@ pub fn write_config(data: anytype, allocator: std.mem.Allocator) (ConfigDirError
     config_mutex.lockUncancelable(global_init.io);
     defer config_mutex.unlock(global_init.io);
     _ = allocator;
-    const file_name = try get_app_config_file_name(application_name, @typeName(T));
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = try get_app_config_file_name(application_name, @typeName(T), &file_name_buffer);
     var atomic = create_config_file_atomic(file_name) catch |e| {
         std.log.err("createFileAtomic failed with {any} for: {s}", .{ e, file_name });
         return error.CreateConfigFileFailed;
@@ -909,7 +912,8 @@ fn config_eql(config_type: type, T: type, a: T, b: T) bool {
 }
 
 pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []const u8) ?[]const u8 {
-    const file_name = get_keybind_namespace_file_name(namespace_name) catch return null;
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = get_keybind_namespace_file_name(namespace_name, &file_name_buffer) catch return null;
     var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return null;
     defer file.close(global_init.io);
     const stat = file.stat(global_init.io) catch return null;
@@ -922,12 +926,14 @@ pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []co
 }
 
 pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) !void {
-    const file_name = try get_keybind_namespace_file_name(namespace_name);
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = try get_keybind_namespace_file_name(namespace_name, &file_name_buffer);
     return write_config_file_atomic(file_name, content);
 }
 
 pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
-    var dir = try std.Io.Dir.openDirAbsolute(global_init.io, try get_keybind_namespaces_directory(), .{ .iterate = true });
+    var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    var dir = try std.Io.Dir.openDirAbsolute(global_init.io, try get_keybind_namespaces_directory(&dir_buffer), .{ .iterate = true });
     defer dir.close(global_init.io);
     var result: std.ArrayList([]const u8) = .empty;
     var iter = dir.iterate();
@@ -941,7 +947,8 @@ pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8
 }
 
 pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const u8 {
-    const file_name = get_theme_file_name(theme_name) catch return null;
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = get_theme_file_name(theme_name, &file_name_buffer) catch return null;
     var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return null;
     defer file.close(global_init.io);
     const stat = file.stat(global_init.io) catch return null;
@@ -955,7 +962,8 @@ pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const
 }
 
 pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
-    const file_name = try get_theme_file_name(theme_name);
+    var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const file_name = try get_theme_file_name(theme_name, &file_name_buffer);
     return write_config_file_atomic(file_name, content);
 }
 
@@ -970,7 +978,8 @@ fn write_config_file_atomic(file_name: []const u8, content: []const u8) !void {
 }
 
 pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
-    const theme_directory = try get_theme_directory();
+    var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const theme_directory = try get_theme_directory(&dir_buffer);
     var dir = std.Io.Dir.openDirAbsolute(global_init.io, theme_directory, .{ .iterate = true }) catch |e| switch (e) {
         error.FileNotFound => return &.{},
         else => return e,
@@ -1113,19 +1122,16 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
     return state_dir;
 }
 
-fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8) ConfigDirError![]const u8 {
-    return get_app_config_dir_file_name(appname, base_name);
+fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8, buffer: []u8) ConfigDirError![]const u8 {
+    return get_app_config_dir_file_name(appname, base_name, buffer);
 }
 
-fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8) ConfigDirError![]const u8 {
-    const local = struct {
-        var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    };
-    return std.fmt.bufPrint(&local.config_file_buffer, "{s}{c}{s}", .{ try get_app_config_dir(appname), sep, config_file_name });
+fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8, buffer: []u8) ConfigDirError![]const u8 {
+    return std.fmt.bufPrint(buffer, "{s}{c}{s}", .{ try get_app_config_dir(appname), sep, config_file_name });
 }
 
-pub fn get_config_file_name(T: type) ![]const u8 {
-    return get_app_config_file_name(application_name, @typeName(T));
+pub fn get_config_file_name(T: type, buffer: []u8) ![]const u8 {
+    return get_app_config_file_name(application_name, @typeName(T), buffer);
 }
 
 pub fn get_restore_file_name() ![]const u8 {
@@ -1208,42 +1214,32 @@ fn pending_restart_session_file() ?[:0]const u8 {
 
 const keybind_dir = "keys";
 
-fn get_keybind_namespaces_directory() ![]const u8 {
-    const local = struct {
-        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    };
+fn get_keybind_namespaces_directory(buffer: []u8) ![]const u8 {
     if (get_init().environ_map.get("FLOW_KEYS_DIR")) |dir| {
-        return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
+        return try std.fmt.bufPrint(buffer, "{s}", .{dir});
     }
-    return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, keybind_dir });
+    return try std.fmt.bufPrint(buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, keybind_dir });
 }
 
-pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
-    const dir = try get_keybind_namespaces_directory();
-    const local = struct {
-        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    };
-    return try std.fmt.bufPrint(&local.file_buffer, "{s}{c}{s}.json", .{ dir, sep, namespace_name });
+pub fn get_keybind_namespace_file_name(namespace_name: []const u8, buffer: []u8) ![]const u8 {
+    var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const dir = try get_keybind_namespaces_directory(&dir_buffer);
+    return try std.fmt.bufPrint(buffer, "{s}{c}{s}.json", .{ dir, sep, namespace_name });
 }
 
 const theme_dir = "themes";
 
-fn get_theme_directory() ![]const u8 {
-    const local = struct {
-        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    };
+fn get_theme_directory(buffer: []u8) ![]const u8 {
     if (get_init().environ_map.get("FLOW_THEMES_DIR")) |dir| {
-        return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
+        return try std.fmt.bufPrint(buffer, "{s}", .{dir});
     }
-    return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, theme_dir });
+    return try std.fmt.bufPrint(buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, theme_dir });
 }
 
-pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
-    const dir = try get_theme_directory();
-    const local = struct {
-        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    };
-    return try std.fmt.bufPrint(&local.file_buffer, "{s}{c}{s}.json", .{ dir, sep, theme_name });
+pub fn get_theme_file_name(theme_name: []const u8, buffer: []u8) ![]const u8 {
+    var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const dir = try get_theme_directory(&dir_buffer);
+    return try std.fmt.bufPrint(buffer, "{s}{c}{s}.json", .{ dir, sep, theme_name });
 }
 
 fn resolve_executable(executable: [:0]const u8) [:0]const u8 {
