@@ -52,7 +52,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
             },
             else => 0,
         };
-        if (posix.system.ioctl(self.pty.tty.handle, TIOCSCTTY, tiocsctty_arg) != 0) std.c.exit(1);
+        if (posix.system.ioctl(self.pty.tty.handle, TIOCSCTTY, tiocsctty_arg) != 0) std.c._exit(1);
 
         // set up io
         _ = std.c.dup2(self.pty.tty.handle, posix.STDIN_FILENO);
@@ -78,7 +78,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
         // exec
         _ = posix.system.execve(argv_buf.ptr[0].?, argv_buf.ptr, @ptrCast(envp.ptr));
 
-        std.c.exit(127);
+        std.c._exit(127);
     }
 
     // we are the parent
