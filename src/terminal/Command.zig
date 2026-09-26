@@ -29,6 +29,8 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     const envp = try createEnvironFromMap(arena, self.env_map);
 
+    const working_directory_z: ?[:0]const u8 = if (self.working_directory) |wd| try arena.dupeZ(u8, wd) else null;
+
     const fork_ret = std.c.fork();
     if (fork_ret < 0) return error.ForkFailed;
     const pid: posix.pid_t = @intCast(fork_ret);
@@ -64,16 +66,10 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
         // Close all fds > 2 so the child cannot access the parent's
         // terminal or other inherited file descriptors.
-        var fd: posix.fd_t = 3;
-        const max_fd: posix.fd_t = getdtablesize();
-        while (fd < max_fd) : (fd += 1) {
-            safe_close(fd);
-        }
+        close_fds_from(3);
 
-        if (self.working_directory) |wd| {
-            const wd_z = arena.dupeZ(u8, wd) catch std.c.exit(1);
+        if (working_directory_z) |wd_z|
             _ = std.c.chdir(wd_z.ptr);
-        }
 
         // exec
         _ = posix.system.execve(argv_buf.ptr[0].?, argv_buf.ptr, @ptrCast(envp.ptr));
@@ -86,6 +82,18 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 }
 
 extern fn getdtablesize() posix.fd_t;
+
+fn close_fds_from(first: posix.fd_t) void {
+    if (builtin.os.tag == .linux) {
+        const rc = std.os.linux.syscall3(.close_range, @intCast(first), std.math.maxInt(u32), 0);
+        if (std.os.linux.errno(rc) == .SUCCESS) return;
+    }
+    var fd: posix.fd_t = first;
+    const max_fd: posix.fd_t = getdtablesize();
+    while (fd < max_fd) : (fd += 1) {
+        safe_close(fd);
+    }
+}
 
 fn safe_close(fd: posix.fd_t) void {
     if (builtin.os.tag == .windows) {
