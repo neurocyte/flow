@@ -251,6 +251,15 @@ pub const TabBar = struct {
         tui.refresh_hover(@src());
     }
 
+    fn drag_scroll(self: *Self, coord: MouseEvent.Coord) void {
+        for (self.splits_list.widgets.items) |*w|
+            if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll|
+                if (scroll.is_drag_scrolling()) return scroll.drag_scroll(coord);
+        for (self.splits_list.widgets.items) |*w|
+            if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll|
+                if (scroll.region.contains(coord.x, coord.y)) return scroll.drag_scroll(coord);
+    }
+
     fn scroll_active_into_view(self: *Self) void {
         const mv = tui.mainview() orelse return;
         const buffer_manager = tui.get_buffer_manager() orelse return;
@@ -258,7 +267,7 @@ pub const TabBar = struct {
             const buffer = buffer_manager.buffer_from_ref(tab.buffer_ref) orelse continue;
             if (mv.get_editor_for_buffer(buffer) == null) continue;
             const scroll = self.scroll_at(tab.view orelse 0) orelse continue;
-            scroll.scroll_into_view(tab.widget);
+            scroll.follow(@intFromEnum(tab.buffer_ref), tab.widget);
         }
     }
 
@@ -321,6 +330,9 @@ pub const TabBar = struct {
 
     fn handle_event(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         if (self.event_handler) |event_handler| try event_handler.send(from, m);
+        var coord: MouseEvent.Coord = undefined;
+        if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.middle, tp.extract(&coord), tp.any }))
+            return self.drag_scroll(coord);
         if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.more })) {
             const dragging = for (self.tabs, 0..) |*tab, idx| {
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|

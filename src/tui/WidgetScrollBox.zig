@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const build_options = @import("build_options");
 
 const tp = @import("thespian");
+const MouseEvent = @import("MouseEvent");
 
 const renderer = @import("renderer");
 const Plane = renderer.Plane;
@@ -29,6 +30,10 @@ box: Widget.Box = .{},
 region: Layer.Frame = .{},
 content_cells: usize = 0,
 scroll_px: i32 = 0,
+drag_anchor_px: ?i32 = null,
+drag_origin_px: i32 = 0,
+user_scrolled: bool = false,
+follow_token: u64 = 0,
 z_index: ?Layer.Level = null,
 layout_override: ?Widget.Layout = null,
 
@@ -203,7 +208,34 @@ pub fn scroll_to_px(self: *Self, px: i32) void {
 }
 
 pub fn scroll_by_px(self: *Self, delta: i32) void {
+    self.user_scrolled = true;
     self.scroll_to_px(self.scroll_px + delta);
+}
+
+pub fn is_drag_scrolling(self: *const Self) bool {
+    return self.drag_anchor_px != null;
+}
+
+pub fn drag_scroll(self: *Self, coord: MouseEvent.Coord) void {
+    const pos: i32 = switch (self.direction) {
+        .horizontal => coord.x,
+        .vertical => coord.y,
+    };
+    const anchor = self.drag_anchor_px orelse {
+        self.drag_anchor_px = pos;
+        self.drag_origin_px = self.scroll_px;
+        return;
+    };
+    self.user_scrolled = true;
+    self.scroll_to_px(self.drag_origin_px - (pos - anchor));
+}
+
+pub fn follow(self: *Self, token: u64, w: Widget) void {
+    if (token != self.follow_token) {
+        self.follow_token = token;
+        self.user_scrolled = false;
+    } else if (self.user_scrolled) return;
+    self.scroll_into_view(w);
 }
 
 pub fn scroll_cells(self: *const Self) i32 {
@@ -224,6 +256,11 @@ pub fn scroll_into_view(self: *Self, w: Widget) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    if (self.drag_anchor_px != null) {
+        const source, const button = tui.get_drag_source();
+        if (source == null or button != .middle) self.drag_anchor_px = null;
+    }
+
     const ox, const oy = self.origin_px();
     const z_index = self.z();
     self.layer.origin_px_x = ox;

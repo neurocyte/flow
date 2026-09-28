@@ -1,6 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const tp = @import("thespian");
 
+const EventHandler = @import("EventHandler");
+const MouseEvent = @import("MouseEvent");
 const Plane = @import("renderer").Plane;
 
 const tui = @import("tui.zig");
@@ -79,6 +82,7 @@ pub fn widget(self: *Self) Widget {
 }
 
 pub fn sync(self: *Self) void {
+    if (self.scroll.is_drag_scrolling()) return;
     const hash = self.hash_tabs();
     if (hash == self.hash) return;
     self.hash = hash;
@@ -104,6 +108,7 @@ fn hash_tabs(self: *Self) u64 {
 fn rebuild(self: *Self) void {
     self.tabs.remove_all();
     var active: ?Widget = null;
+    var active_id: Id = 0;
     const n = self.source.count(self.source.ctx);
     for (0..n) |i| {
         const t = self.source.info(self.source.ctx, i);
@@ -114,17 +119,27 @@ fn rebuild(self: *Self) void {
             .on_click2 = Tab.on_click2,
             .on_render = Tab.render,
             .on_layout = Tab.layout,
+            .on_event = EventHandler.bind(self, handle_event),
         }) catch continue;
         self.tabs.add(w) catch {
             w.deinit(self.allocator);
             continue;
         };
-        if (t.active) active = w;
+        if (t.active) {
+            active = w;
+            active_id = t.id;
+        }
     }
 
     self.list.resize(self.list.deco_box);
-    if (active) |w| self.scroll.scroll_into_view(w);
+    if (active) |w| self.scroll.follow(active_id, w);
     tui.refresh_hover(@src());
+}
+
+fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+    var coord: MouseEvent.Coord = undefined;
+    if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.middle, tp.extract(&coord), tp.any }))
+        self.scroll.drag_scroll(coord);
 }
 
 fn find(self: *Self, id: Id) ?TabInfo {
