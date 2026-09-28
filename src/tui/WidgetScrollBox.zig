@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const build_options = @import("build_options");
 
 const tp = @import("thespian");
+const root_mod = @import("soft_root").root;
 const MouseEvent = @import("MouseEvent");
 
 const renderer = @import("renderer");
@@ -31,6 +32,10 @@ region_w_px: i32 = 0,
 region_h_px: i32 = 0,
 content_cells: usize = 0,
 scroll_px: i32 = 0,
+scroll_dest_px: i32 = 0,
+animation_step: i32 = 0,
+animation_lag: f64 = 0,
+animation_last_time: i64 = 0,
 drag_anchor_px: ?i32 = null,
 drag_origin_px: i32 = 0,
 user_scrolled: bool = false,
@@ -141,12 +146,6 @@ fn origin_px(self: *const Self) struct { i32, i32 } {
     };
 }
 
-fn resolve_region_local(self: *const Self, box: Widget.Box, cw: i32, ch: i32) Layer.Frame {
-    if (!box.frame.is_set()) return box.resolve_frame(cw, ch);
-    const ox, const oy = self.parent_origin();
-    return .{ .x = box.frame.x - ox, .y = box.frame.y - oy, .w = box.frame.w, .h = box.frame.h };
-}
-
 pub fn handle_resize(self: *Self, box: Widget.Box) void {
     self.box = box;
     const root = tui.plane();
@@ -167,7 +166,8 @@ pub fn handle_resize(self: *Self, box: Widget.Box) void {
 
     self.layer.clip = self.region();
     self.layer.z_index = self.z();
-    self.scroll_px = std.math.clamp(self.scroll_px, 0, self.max_scroll_px());
+    self.scroll_px = self.clamp_scroll(self.scroll_px);
+    self.scroll_dest_px = self.clamp_scroll(self.scroll_dest_px);
     self.layout_inner();
 }
 
@@ -203,16 +203,62 @@ fn layout_inner(self: *Self) void {
     if (self.inner) |*w| w.resize(inner_box);
 }
 
-pub fn scroll_to_px(self: *Self, px: i32) void {
+fn clamp_scroll(self: *const Self, px: i32) i32 {
     var v = std.math.clamp(px, 0, self.max_scroll_px());
     if (!build_options.gui) {
         const cell = self.cell_a();
         v = @divFloor(v, cell) * cell;
     }
+    return v;
+}
+
+pub fn scroll_to_px(self: *Self, px: i32) void {
+    const v = self.clamp_scroll(px);
+    if (v == self.scroll_dest_px and v == self.scroll_px) return;
+    self.scroll_dest_px = v;
+    self.update_animation_step();
+    tui.need_render(@src());
+}
+
+pub fn scroll_to_px_now(self: *Self, px: i32) void {
+    const v = self.clamp_scroll(px);
+    self.scroll_dest_px = v;
     if (v == self.scroll_px) return;
     self.scroll_px = v;
     self.layout_inner();
     tui.need_render(@src());
+}
+
+fn animation_lag_bounds() struct { f64, f64 } {
+    const min_ms: f64 = @floatFromInt(tui.config().animation_min_lag);
+    const max_ms: f64 = @floatFromInt(tui.config().animation_max_lag);
+    return .{ @max(min_ms * 0.001, 0.001), @max(max_ms * 0.001, 0.001) };
+}
+
+fn update_animation_step(self: *Self) void {
+    const now = root_mod.get_now().toMicroseconds();
+    const min_lag, const max_lag = animation_lag_bounds();
+    const elapsed: f64 = @as(f64, @floatFromInt(now - self.animation_last_time)) / std.time.us_per_s;
+    self.animation_lag = @max(@min(elapsed, max_lag), min_lag);
+    self.animation_last_time = now;
+
+    const distance: f64 = @floatFromInt(@abs(self.scroll_dest_px - self.scroll_px));
+    const frame_rate: f64 = @floatFromInt(@max(1, tui.config().frame_rate));
+    const step_frames = @max(1.0, self.animation_lag * frame_rate);
+    self.animation_step = @intFromFloat(@max(1.0, distance / step_frames));
+}
+
+fn update_scroll(self: *Self) bool {
+    const dest = self.scroll_dest_px;
+    if (self.scroll_px == dest) return false;
+    const step = @max(1, self.animation_step);
+    const next = if (self.scroll_px < dest)
+        @min(dest, self.scroll_px + step)
+    else
+        @max(dest, self.scroll_px - step);
+    self.scroll_px = next;
+    self.layout_inner();
+    return self.scroll_px != dest;
 }
 
 pub fn clipped_head(self: *const Self) bool {
@@ -323,10 +369,11 @@ pub fn drag_scroll(self: *Self, coord: MouseEvent.Coord) void {
     const anchor = self.drag_anchor_px orelse {
         self.drag_anchor_px = pos;
         self.drag_origin_px = self.scroll_px;
+        self.scroll_dest_px = self.scroll_px;
         return;
     };
     self.user_scrolled = true;
-    self.scroll_to_px(self.drag_origin_px - (pos - anchor));
+    self.scroll_to_px_now(self.drag_origin_px - (pos - anchor));
 }
 
 pub fn follow(self: *Self, token: u64, w: Widget) void {
@@ -349,9 +396,10 @@ pub fn scroll_into_view(self: *Self, w: Widget) void {
     };
     const start = start_cells * cell;
     const end = start + len_cells * cell;
-    if (start < self.scroll_px) return self.scroll_to_px(start);
+    const from = self.scroll_dest_px;
+    if (start < from) return self.scroll_to_px(start);
     const view = self.viewport_px();
-    if (end > self.scroll_px + view) return self.scroll_to_px(end - view);
+    if (end > from + view) return self.scroll_to_px(end - view);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -360,13 +408,15 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         if (source == null or button != .middle) self.drag_anchor_px = null;
     }
 
+    const animating = self.update_scroll();
+
     const ox, const oy = self.origin_px();
     if (ox != self.layer.origin_px_x or oy != self.layer.origin_px_y) self.layout_inner();
     self.layer.clip = self.region();
     const z_index = self.z();
     self.layer.z_index = z_index;
 
-    var more = false;
+    var more = animating;
     if (self.inner) |*w| if (w.render(theme)) {
         more = true;
     };
