@@ -53,7 +53,6 @@ content_w: u16 = 0,
 content_h: u16 = 0,
 shift_x: i32 = 0,
 shift_y: i32 = 0,
-clip: ?Layer.Frame = null,
 layout_override: ?Widget.Layout = null,
 
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
@@ -102,6 +101,7 @@ pub fn layout(self: *Self) Widget.Layout {
 pub fn handle_resize(self: *Self, box_in: Widget.Box) void {
     const box = if (self.prepare_resize) |prepare| prepare(self.ctx, self, box_in) else box_in;
     self.box = box;
+    self.layer.clip = null;
 
     if (self.content_w != 0 and self.content_h != 0)
         return self.place_in_region(box);
@@ -145,7 +145,7 @@ fn place_in_region(self: *Self, box: Widget.Box) void {
     const cw: i32 = root.cell_x();
     const ch: i32 = root.cell_y();
     const region = box.resolve_frame(cw, ch);
-    self.clip = region;
+    self.layer.clip = region;
 
     const content_w_px: i32 = @as(i32, self.content_w) * cw;
     const content_h_px: i32 = @as(i32, self.content_h) * ch;
@@ -267,7 +267,7 @@ fn build_target(self: *Self) Layer.Target {
         .shadow = self.shadow,
         .dst_w = if (self.content_w != 0) @intCast(@as(i32, self.content_w) * cw) else 0,
         .dst_h = if (self.content_h != 0) @intCast(@as(i32, self.content_h) * ch) else 0,
-        .clip = self.clip,
+        .clip = self.layer.clip,
     };
 }
 

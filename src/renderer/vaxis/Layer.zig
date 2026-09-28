@@ -64,6 +64,7 @@ origin_px_x: i32 = 0,
 origin_px_y: i32 = 0,
 /// layer is composited fully transparent, regardless of gui_window_transparency
 transparent_bg: bool = false,
+clip: ?Frame = null,
 
 pub const Options = struct {
     h: u16 = 0,
@@ -161,6 +162,10 @@ pub const Frame = struct {
 
     pub fn right(self: Frame) i32 {
         return self.x + self.w;
+    }
+
+    pub fn contains(self: Frame, x: i32, y: i32) bool {
+        return x >= self.x and x < self.right() and y >= self.y and y < self.bottom();
     }
 
     pub fn bottom(self: Frame) i32 {
