@@ -257,7 +257,7 @@ pub const TabBar = struct {
                 if (scroll.is_drag_scrolling()) return scroll.drag_scroll(coord);
         for (self.splits_list.widgets.items) |*w|
             if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll|
-                if (scroll.region.contains(coord.x, coord.y)) return scroll.drag_scroll(coord);
+                if (scroll.region().contains(coord.x, coord.y)) return scroll.drag_scroll(coord);
     }
 
     fn scroll_active_into_view(self: *Self) void {

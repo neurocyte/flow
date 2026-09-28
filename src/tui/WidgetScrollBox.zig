@@ -27,7 +27,8 @@ layer: *Layer,
 inner: ?Widget = null,
 direction: Widget.Direction,
 box: Widget.Box = .{},
-region: Layer.Frame = .{},
+region_w_px: i32 = 0,
+region_h_px: i32 = 0,
 content_cells: usize = 0,
 scroll_px: i32 = 0,
 drag_anchor_px: ?i32 = null,
@@ -99,10 +100,15 @@ fn z(self: *const Self) Layer.Level {
         .main;
 }
 
+pub fn region(self: *const Self) Layer.Frame {
+    const ox, const oy = self.plane.global_origin_px();
+    return .{ .x = ox, .y = oy, .w = self.region_w_px, .h = self.region_h_px };
+}
+
 fn viewport_px(self: *const Self) i32 {
     return switch (self.direction) {
-        .horizontal => self.region.w,
-        .vertical => self.region.h,
+        .horizontal => self.region_w_px,
+        .vertical => self.region_h_px,
     };
 }
 
@@ -124,21 +130,17 @@ fn content_size(self: *Self) usize {
 }
 
 fn origin_px(self: *const Self) struct { i32, i32 } {
+    const r = self.region();
     return switch (self.direction) {
-        .horizontal => .{ self.region.x - self.scroll_px, self.region.y },
-        .vertical => .{ self.region.x, self.region.y - self.scroll_px },
+        .horizontal => .{ r.x - self.scroll_px, r.y },
+        .vertical => .{ r.x, r.y - self.scroll_px },
     };
 }
 
-fn resolve_region(self: *const Self, box: Widget.Box, cw: i32, ch: i32) Layer.Frame {
-    if (box.frame.is_set()) return box.frame;
-    var frame = box.resolve_frame(cw, ch);
-    if (self.plane.layer) |parent_layer| {
-        const ox, const oy = parent_layer.global_origin_px();
-        frame.x += ox;
-        frame.y += oy;
-    }
-    return frame;
+fn resolve_region_local(self: *const Self, box: Widget.Box, cw: i32, ch: i32) Layer.Frame {
+    if (!box.frame.is_set()) return box.resolve_frame(cw, ch);
+    const ox, const oy = self.parent_origin();
+    return .{ .x = box.frame.x - ox, .y = box.frame.y - oy, .w = box.frame.w, .h = box.frame.h };
 }
 
 pub fn handle_resize(self: *Self, box: Widget.Box) void {
@@ -146,7 +148,12 @@ pub fn handle_resize(self: *Self, box: Widget.Box) void {
     const root = tui.plane();
     const cw: i32 = root.cell_x();
     const ch: i32 = root.cell_y();
-    self.region = self.resolve_region(box, cw, ch);
+    self.plane.move_yx(@intCast(box.y), @intCast(box.x)) catch return;
+    self.plane.resize_simple(@intCast(box.h), @intCast(box.w)) catch return;
+
+    const size = box.resolve_frame(cw, ch);
+    self.region_w_px = size.w;
+    self.region_h_px = size.h;
 
     const viewport_cells = switch (self.direction) {
         .horizontal => box.w,
@@ -154,10 +161,7 @@ pub fn handle_resize(self: *Self, box: Widget.Box) void {
     };
     self.content_cells = @max(self.content_size(), viewport_cells);
 
-    self.plane.move_yx(@intCast(box.y), @intCast(box.x)) catch return;
-    self.plane.resize_simple(@intCast(box.h), @intCast(box.w)) catch return;
-
-    self.layer.clip = self.region;
+    self.layer.clip = self.region();
     self.layer.z_index = self.z();
     self.scroll_px = std.math.clamp(self.scroll_px, 0, self.max_scroll_px());
     self.layout_inner();
@@ -177,8 +181,8 @@ fn layout_inner(self: *Self) void {
         .vertical => .{ perp_cells, self.content_cells },
     };
     const w_px: i32, const h_px: i32 = switch (self.direction) {
-        .horizontal => .{ self.content_px(), self.region.h },
-        .vertical => .{ self.region.w, self.content_px() },
+        .horizontal => .{ self.content_px(), self.region_h_px },
+        .vertical => .{ self.region_w_px, self.content_px() },
     };
     self.layer.resize(
         @intCast(w_cells),
@@ -262,9 +266,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     }
 
     const ox, const oy = self.origin_px();
+    if (ox != self.layer.origin_px_x or oy != self.layer.origin_px_y) self.layout_inner();
+    self.layer.clip = self.region();
     const z_index = self.z();
-    self.layer.origin_px_x = ox;
-    self.layer.origin_px_y = oy;
     self.layer.z_index = z_index;
 
     var more = false;
