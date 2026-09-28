@@ -6,6 +6,7 @@ const Plane = @import("renderer").Plane;
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
+const WidgetScrollBox = @import("WidgetScrollBox.zig");
 const Button = @import("Button.zig");
 const Tabs = @import("status/tabs.zig");
 const tab_render = @import("tab_render.zig");
@@ -35,21 +36,42 @@ const Self = @This();
 
 allocator: Allocator,
 list: *WidgetList,
+scroll: *WidgetScrollBox,
+tabs: *WidgetList,
 source: Source,
 style: *const Tabs.Style,
 hash: u64 = 0,
 
 pub fn init(self: *Self, allocator: Allocator, parent: Plane, style: *const Tabs.Style, source: Source) error{OutOfMemory}!void {
     const list = try WidgetList.createH(allocator, parent, "tab_strip", .{ .static = 1 });
+    errdefer list.deinit(allocator);
+
+    const scroll = try WidgetScrollBox.create(allocator, list.plane, .{ .name = "tab_strip_scroll" });
+    {
+        errdefer scroll.deinit(allocator);
+        try list.add(scroll.widget());
+    }
+
+    const tabs = try WidgetList.createH(allocator, scroll.inner_plane(), "tab_strip_tabs", .dynamic);
+    scroll.set(tabs.widget());
+
     self.* = .{
         .allocator = allocator,
         .list = list,
+        .scroll = scroll,
+        .tabs = tabs,
         .source = source,
         .style = style,
     };
     list.ctx = self;
     list.on_render = render_bar;
     list.render_decoration = null;
+    tabs.ctx = self;
+    tabs.on_render = render_tabs_background;
+    tabs.render_decoration = null;
+
+    if (MenuButton.create(allocator, list.plane, self) catch null) |m|
+        list.add(m) catch m.deinit(allocator);
 }
 
 pub fn widget(self: *Self) Widget {
@@ -80,11 +102,12 @@ fn hash_tabs(self: *Self) u64 {
 }
 
 fn rebuild(self: *Self) void {
-    self.list.remove_all();
+    self.tabs.remove_all();
+    var active: ?Widget = null;
     const n = self.source.count(self.source.ctx);
     for (0..n) |i| {
         const t = self.source.info(self.source.ctx, i);
-        const w = Button.create_widget(Tab, self.allocator, self.list.plane, .{
+        const w = Button.create_widget(Tab, self.allocator, self.tabs.plane, .{
             .ctx = .{ .strip = self, .id = t.id },
             .label = t.label,
             .on_click = Tab.on_click,
@@ -92,21 +115,15 @@ fn rebuild(self: *Self) void {
             .on_render = Tab.render,
             .on_layout = Tab.layout,
         }) catch continue;
-        self.list.add(w) catch {
+        self.tabs.add(w) catch {
             w.deinit(self.allocator);
             continue;
         };
-    }
-    if (MenuButton.create(self.allocator, self.list.plane, self) catch null) |m| blk: {
-        var spacer = Widget.empty(self.allocator, self.list.plane, .dynamic) catch {
-            m.deinit(self.allocator);
-            break :blk;
-        };
-        self.list.add(spacer) catch spacer.deinit(self.allocator);
-        self.list.add(m) catch m.deinit(self.allocator);
+        if (t.active) active = w;
     }
 
     self.list.resize(self.list.deco_box);
+    if (active) |w| self.scroll.scroll_into_view(w);
     tui.refresh_hover(@src());
 }
 
@@ -119,9 +136,7 @@ fn find(self: *Self, id: Id) ?TabInfo {
     return null;
 }
 
-fn render_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
-    const self: *Self = @ptrCast(@alignCast(ctx orelse return));
-    const plane = &self.list.plane;
+fn fill_bar(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
     plane.set_base_style(theme.editor);
     plane.erase();
     plane.home();
@@ -131,6 +146,16 @@ fn render_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
     });
     plane.fill(" ");
     plane.home();
+}
+
+fn render_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
+    const self: *Self = @ptrCast(@alignCast(ctx orelse return));
+    self.fill_bar(&self.list.plane, theme);
+}
+
+fn render_tabs_background(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
+    const self: *Self = @ptrCast(@alignCast(ctx orelse return));
+    self.fill_bar(&self.tabs.plane, theme);
 }
 
 const Tab = struct {

@@ -29,9 +29,7 @@ box: Widget.Box = .{},
 region: Layer.Frame = .{},
 content_cells: usize = 0,
 scroll_px: i32 = 0,
-follow: ?Widget = null,
-follow_dirty: bool = false,
-z_index: Layer.Level = .main,
+z_index: ?Layer.Level = null,
 layout_override: ?Widget.Layout = null,
 
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
@@ -83,6 +81,14 @@ fn cell_a(self: *const Self) i32 {
     };
 }
 
+fn z(self: *const Self) Layer.Level {
+    if (self.z_index) |level| return level;
+    return if (self.plane.layer) |parent_layer|
+        @enumFromInt(@intFromEnum(parent_layer.z_index) + 1)
+    else
+        .main;
+}
+
 fn viewport_px(self: *const Self) i32 {
     return switch (self.direction) {
         .horizontal => self.region.w,
@@ -131,10 +137,9 @@ pub fn handle_resize(self: *Self, box: Widget.Box) void {
     self.plane.resize_simple(@intCast(box.h), @intCast(box.w)) catch return;
 
     self.layer.clip = self.region;
-    self.layer.z_index = self.z_index;
+    self.layer.z_index = self.z();
     self.scroll_px = std.math.clamp(self.scroll_px, 0, self.max_scroll_px());
     self.layout_inner();
-    if (self.follow_dirty) self.apply_follow();
 }
 
 fn layout_inner(self: *Self) void {
@@ -202,28 +207,12 @@ pub fn scroll_into_view(self: *Self, w: Widget) void {
     if (end > self.scroll_px + view) return self.scroll_to_px(end - view);
 }
 
-pub fn set_follow(self: *Self, w: ?Widget) void {
-    const same = if (self.follow) |f|
-        if (w) |n| f.ptr == n.ptr else false
-    else
-        w == null;
-    if (same) return;
-    self.follow = w;
-    self.follow_dirty = true;
-}
-
-fn apply_follow(self: *Self) void {
-    self.follow_dirty = false;
-    if (self.follow) |w| self.scroll_into_view(w);
-}
-
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    if (self.follow_dirty) self.apply_follow();
-
     const ox, const oy = self.origin_px();
+    const z_index = self.z();
     self.layer.origin_px_x = ox;
     self.layer.origin_px_y = oy;
-    self.layer.z_index = self.z_index;
+    self.layer.z_index = z_index;
 
     var more = false;
     if (self.inner) |*w| if (w.render(theme)) {
@@ -240,7 +229,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         .y = @divFloor(oy, ch),
         .xoffset = @intCast(@mod(ox, cw)),
         .yoffset = @intCast(@mod(oy, ch)),
-        .z_index = self.z_index,
+        .z_index = z_index,
         .blend = .replace,
         .clip = self.layer.clip,
     });
