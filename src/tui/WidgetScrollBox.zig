@@ -63,6 +63,11 @@ pub fn inner_plane(self: *Self) Plane {
     return self.layer.plane();
 }
 
+pub fn adopt(self: *Self, w: Widget) void {
+    w.plane.window.screen = &self.layer.screen;
+    w.plane.layer = self.layer;
+}
+
 pub fn set(self: *Self, w: Widget) void {
     std.debug.assert(self.inner == null);
     self.inner = w;
@@ -120,12 +125,23 @@ fn origin_px(self: *const Self) struct { i32, i32 } {
     };
 }
 
+fn resolve_region(self: *const Self, box: Widget.Box, cw: i32, ch: i32) Layer.Frame {
+    if (box.frame.is_set()) return box.frame;
+    var frame = box.resolve_frame(cw, ch);
+    if (self.plane.layer) |parent_layer| {
+        const ox, const oy = parent_layer.global_origin_px();
+        frame.x += ox;
+        frame.y += oy;
+    }
+    return frame;
+}
+
 pub fn handle_resize(self: *Self, box: Widget.Box) void {
     self.box = box;
     const root = tui.plane();
     const cw: i32 = root.cell_x();
     const ch: i32 = root.cell_y();
-    self.region = box.resolve_frame(cw, ch);
+    self.region = self.resolve_region(box, cw, ch);
 
     const viewport_cells = switch (self.direction) {
         .horizontal => box.w,
