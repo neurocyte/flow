@@ -150,6 +150,19 @@ fn count_trailing_statics(self: *const Self) usize {
     return if (saw_dynamic) count else 0;
 }
 
+pub fn natural_size_a(self: *const Self) usize {
+    var sum: usize = 0;
+    for (self.widgets.items) |*w| switch (w.widget.layout()) {
+        .static => |val| sum += val,
+        .dynamic => {},
+    };
+    const padding = tui.get_widget_style(self.widget_type).padding;
+    return sum + switch (self.direction) {
+        .horizontal => @as(usize, padding.left) + @as(usize, padding.right),
+        .vertical => @as(usize, padding.top) + @as(usize, padding.bottom),
+    };
+}
+
 pub fn get(self: *const Self, name_: []const u8) ?Widget {
     for (self.widgets.items) |*w|
         if (w.widget.get(name_)) |p|
