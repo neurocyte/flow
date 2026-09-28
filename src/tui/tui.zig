@@ -3144,6 +3144,7 @@ pub const WidgetType = @import("config").WidgetType;
 pub const ConfigWidgetStyle = @import("config").WidgetStyle;
 pub const WidgetStyle = @import("WidgetStyle.zig");
 pub const WidgetLayerBox = @import("WidgetLayerBox.zig");
+pub const WidgetScrollBox = @import("WidgetScrollBox.zig");
 
 pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
     const config_ = config();

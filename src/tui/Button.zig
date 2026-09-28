@@ -83,6 +83,8 @@ fn State(ctx_type: type) type {
         drag_anchor_offset: ?Widget.Pos = null,
         drag_pos: ?Widget.Pos = null,
         drag_pos_offset: ?Widget.Pos = null,
+        middle_press: ?MouseEvent.Coord = null,
+        middle_dragged: bool = false,
         opts: Options(ctx_type),
 
         const Self = @This();
@@ -128,6 +130,10 @@ fn State(ctx_type: type) type {
                         self.drag_anchor_offset = self.sub_cell_offset(coord);
                         tui.need_render(@src());
                     },
+                    .middle => {
+                        self.middle_press = coord;
+                        self.middle_dragged = false;
+                    },
                     .wheel_up, .wheel_down => {
                         self.call_click_handler(btn, self.to_rel_cursor(coord));
                         return true;
@@ -141,11 +147,26 @@ fn State(ctx_type: type) type {
                 self.drag_pos = null;
                 self.drag_pos_offset = null;
                 self.call_click_handler(btn, self.to_rel_cursor(coord));
+                self.middle_press = null;
+                self.middle_dragged = false;
                 tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ MouseEvent.Type.drag, tp.extract(&btn), tp.extract(&coord), tp.any })) {
-                self.drag_pos = self.to_abs_cursor(coord);
-                self.drag_pos_offset = self.sub_cell_offset(coord);
+                switch (btn) {
+                    .left => {
+                        self.drag_pos = self.to_abs_cursor(coord);
+                        self.drag_pos_offset = self.sub_cell_offset(coord);
+                    },
+                    .middle => if (self.middle_press) |press| {
+                        const dx = coord.x - press.x;
+                        const dy = coord.y - press.y;
+                        const cw: i32 = self.plane.cell_x();
+                        const ch: i32 = self.plane.cell_y();
+                        if (dx <= -cw or dx >= cw or dy <= -ch or dy >= ch)
+                            self.middle_dragged = true;
+                    },
+                    else => {},
+                }
                 if (self.opts.on_event) |h| {
                     self.active = false;
                     h.send(from, m) catch {};
@@ -186,7 +207,7 @@ fn State(ctx_type: type) type {
             if (!self.hover) return;
             switch (btn) {
                 .left => self.opts.on_click(&self.opts.ctx, self, pos),
-                .middle => self.opts.on_click2(&self.opts.ctx, self, pos),
+                .middle => if (!self.middle_dragged) self.opts.on_click2(&self.opts.ctx, self, pos),
                 .right => self.opts.on_click3(&self.opts.ctx, self, pos),
                 .wheel_up => self.opts.on_click4(&self.opts.ctx, self, pos),
                 .wheel_down => self.opts.on_click5(&self.opts.ctx, self, pos),

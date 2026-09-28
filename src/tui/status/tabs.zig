@@ -13,6 +13,7 @@ const MouseEvent = @import("MouseEvent");
 const tui = @import("../tui.zig");
 const Widget = @import("../Widget.zig");
 const WidgetList = @import("../WidgetList.zig");
+const WidgetScrollBox = @import("../WidgetScrollBox.zig");
 const Button = @import("../Button.zig");
 const tab_render = @import("../tab_render.zig");
 
@@ -62,8 +63,7 @@ const @"style.config" = struct {
     save_icon: []const u8 = "󰆓",
     save_icon_fg: ?colors = null,
     save_icon_fg_transparent: bool = false,
-    clipping_indicator: []const u8 = "»",
-    clipping_indicator_fg_transparent: bool = false,
+    clipping_fade_cells: usize = 5,
 
     spacer: []const u8 = "|",
     spacer_fg: colors = .active_bg,
@@ -170,6 +170,42 @@ pub const TabBar = struct {
         view: ?usize,
     };
 
+    fn split_of(w: Widget) ?*WidgetList {
+        const scroll = w.dynamic_cast(WidgetScrollBox) orelse return null;
+        const inner = scroll.inner orelse return null;
+        return inner.dynamic_cast(WidgetList);
+    }
+
+    fn scroll_at(self: *const Self, view: usize) ?*WidgetScrollBox {
+        if (view >= self.splits_list.widgets.items.len) return null;
+        return self.splits_list.widgets.items[view].widget.dynamic_cast(WidgetScrollBox);
+    }
+
+    fn split_at(self: *const Self, view: usize) ?*WidgetList {
+        if (view >= self.splits_list.widgets.items.len) return null;
+        return split_of(self.splits_list.widgets.items[view].widget);
+    }
+
+    fn fit_splits(self: *Self, views: usize) !void {
+        while (self.splits_list.widgets.items.len > views) {
+            const scroll_widget = self.splits_list.pop() orelse break;
+            if (split_of(scroll_widget)) |split|
+                while (split.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
+                    widget.deinit(self.allocator);
+            scroll_widget.deinit(self.allocator);
+        }
+        while (self.splits_list.widgets.items.len < views) {
+            const scroll = try WidgetScrollBox.create(self.allocator, self.splits_list.plane, .{ .name = "split_scroll" });
+            {
+                errdefer scroll.deinit(self.allocator);
+                try self.splits_list.add(scroll.widget());
+            }
+            const split = try WidgetList.createH(self.allocator, scroll.inner_plane(), "split", .dynamic);
+            split.render_decoration = null;
+            scroll.set(split.widget());
+        }
+    }
+
     fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, min_tabs: ?usize) !Self {
         var w = try WidgetList.createH(allocator, parent, "tabs", .dynamic);
         w.render_decoration = null;
@@ -206,11 +242,32 @@ pub const TabBar = struct {
         const tab_update = self.update_tabs(drag_source) catch true;
         self.splits_list_widget.resize(Widget.Box.from(self.plane));
         self.splits_list_widget.update();
+        self.scroll_active_into_view();
         if (!tab_update) return;
-        for (self.splits_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split|
+        for (self.splits_list.widgets.items) |*split_widgetstate| if (split_of(split_widgetstate.widget)) |split|
             for (split.widgets.items) |*widgetstate| if (widgetstate.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_|
                 tui.update_drag_source(widgetstate.widget, drag_btn);
         tui.refresh_hover(@src());
+    }
+
+    fn drag_scroll(self: *Self, coord: MouseEvent.Coord) void {
+        for (self.splits_list.widgets.items) |*w|
+            if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll|
+                if (scroll.is_drag_scrolling()) return scroll.drag_scroll(coord);
+        for (self.splits_list.widgets.items) |*w|
+            if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll|
+                if (scroll.region().contains(coord.x, coord.y)) return scroll.drag_scroll(coord);
+    }
+
+    fn scroll_active_into_view(self: *Self) void {
+        const mv = tui.mainview() orelse return;
+        const buffer_manager = tui.get_buffer_manager() orelse return;
+        for (self.tabs) |*tab| {
+            const buffer = buffer_manager.buffer_from_ref(tab.buffer_ref) orelse continue;
+            if (mv.get_editor_for_buffer(buffer) == null) continue;
+            const scroll = self.scroll_at(tab.view orelse 0) orelse continue;
+            scroll.follow(@backingInt(tab.buffer_ref), tab.widget);
+        }
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -223,38 +280,13 @@ pub const TabBar = struct {
         });
         self.plane.fill(" ");
         self.plane.home();
-        for (self.tabs) |*tab| {
-            const clipped, const clip_box = self.is_tab_clipped(tab);
-            if (clipped) {
-                if (clip_box) |box| self.render_clipping_indicator(box, theme);
-                continue;
-            }
-            _ = tab.widget.render(theme);
-        }
-        return false;
-    }
-
-    fn is_tab_clipped(self: *const Self, tab: *const TabBarTab) struct { bool, ?Widget.Box } {
-        const view = tab.view orelse return .{ true, null };
-        const split_idx = if (view < self.splits_list.widgets.items.len) view else return .{ true, null };
-        const split = self.splits_list.widgets.items[split_idx];
-        const split_box = Widget.Box.from(split.widget.plane.*);
-        const widget_box = tab.widget.box();
-        const dragging = if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_| true else false else false;
-        if (dragging) return .{ false, split_box };
-        if (split_box.y + split_box.h < widget_box.y + widget_box.h or
-            split_box.x + split_box.w < widget_box.x + widget_box.w)
-            return .{ true, split_box };
-        return .{ false, split_box };
-    }
-
-    fn render_clipping_indicator(self: *@This(), box: Widget.Box, theme: *const Widget.Theme) void {
-        self.plane.set_style(.{
-            .fg = self.tab_style.bar_fg.from_theme(theme),
-            .bg = self.tab_style.bar_bg.from_theme(theme),
-        });
-        self.plane.cursor_move_yx(0, @intCast(box.x + box.w -| 1));
-        self.plane.putchar(self.tab_style.clipping_indicator);
+        const fade_color = self.tab_style.bar_bg.from_theme(theme);
+        for (self.splits_list.widgets.items) |*w|
+            if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll| {
+                scroll.fade_cells = @intCast(self.tab_style.clipping_fade_cells);
+                scroll.fade_color = fade_color;
+            };
+        return self.splits_list_widget.render(theme);
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -303,6 +335,9 @@ pub const TabBar = struct {
 
     fn handle_event(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         if (self.event_handler) |event_handler| try event_handler.send(from, m);
+        var coord: MouseEvent.Coord = undefined;
+        if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.middle, tp.extract(&coord), tp.any }))
+            return self.drag_scroll(coord);
         if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.more })) {
             const dragging = for (self.tabs, 0..) |*tab, idx| {
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
@@ -323,7 +358,7 @@ pub const TabBar = struct {
     fn handle_event_drop_target(self: *Self, dragging: usize) tp.result {
         var hover_view: ?usize = null;
         for (self.splits_list.widgets.items, 0..) |*split_widgetstate, idx|
-            if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
+            if (split_of(split_widgetstate.widget)) |split| {
                 for (split.widgets.items) |*widgetstate|
                     if (widgetstate.widget.dynamic_cast(drop_target.ButtonType)) |btn| {
                         if (btn.hover)
@@ -347,15 +382,7 @@ pub const TabBar = struct {
 
     pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
         if (f(ctx, Widget.to(self), .begin)) return true;
-        for (self.tabs) |*tab| {
-            const clipped, _ = self.is_tab_clipped(tab);
-            if (!clipped)
-                if (tab.widget.walk(ctx, f)) return true;
-        }
-        for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
-            for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(drop_target.ButtonType)) |_| {
-                if (widget_state.widget.walk(ctx, f)) return true;
-            };
+        if (self.splits_list_widget.walk(ctx, f)) return true;
         return f(ctx, Widget.to(self), .end);
     }
 
@@ -380,22 +407,22 @@ pub const TabBar = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
 
         if (drag_source_) |drag_source|
-            for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split| {
+            for (self.splits_list.widgets.items) |*split_widget| if (split_of(split_widget.widget)) |split| {
                 for (split.widgets.items) |widget|
                     if (widget.widget.ptr == drag_source.ptr) tui.reset_drag_context();
             };
-        while (self.splits_list.pop()) |split_widget| if (split_widget.dynamic_cast(WidgetList)) |split| {
-            while (split.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
-                widget.deinit(self.splits_list.allocator);
-            split.deinit(self.splits_list.allocator);
-        };
-
         const views = mv.get_view_count();
+
+        try self.fit_splits(views);
+
+        for (0..views) |view| if (self.split_at(view)) |split|
+            while (split.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
+                widget.deinit(self.allocator);
 
         for (0..views) |view| {
             var first = true;
-            var view_widget_list = try WidgetList.createH(self.allocator, self.splits_list.plane, "split", .dynamic);
-            try self.splits_list.add(view_widget_list.widget());
+            const scroll = self.scroll_at(view) orelse continue;
+            const view_widget_list = self.split_at(view) orelse continue;
             for (self.tabs) |*tab| {
                 const tab_view = tab.view orelse 0;
                 if (tab_view != view) continue;
@@ -404,6 +431,7 @@ pub const TabBar = struct {
                 } else {
                     try view_widget_list.add(try self.make_spacer(view_widget_list.plane));
                 }
+                scroll.adopt(tab.widget);
                 try view_widget_list.add(tab.widget);
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                     if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer| {
@@ -412,7 +440,7 @@ pub const TabBar = struct {
                     }
                 }
             }
-            try view_widget_list.add(try self.make_drop_target(view));
+            try view_widget_list.add(try self.make_drop_target(view_widget_list.plane, view));
         }
     }
 
@@ -490,8 +518,8 @@ pub const TabBar = struct {
         );
     }
 
-    fn make_drop_target(self: *@This(), view: usize) !Widget {
-        return drop_target.create(self, view);
+    fn make_drop_target(self: *@This(), parent: Plane, view: usize) !Widget {
+        return drop_target.create(self, parent, view);
     }
 
     fn find_buffer_tab(self: *Self, buffer_ref: Buffer.Ref) struct { ?usize, usize } {
@@ -502,7 +530,7 @@ pub const TabBar = struct {
     }
 
     fn find_first_tab_buffer(self: *Self) ?Buffer.Ref {
-        for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
+        for (self.splits_list.widgets.items) |*split_widget| if (split_of(split_widget.widget)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn|
                 return btn.opts.ctx.buffer_ref;
         return null;
@@ -510,7 +538,7 @@ pub const TabBar = struct {
 
     fn find_last_tab_buffer(self: *Self) ?Buffer.Ref {
         var last: ?Buffer.Ref = null;
-        for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
+        for (self.splits_list.widgets.items) |*split_widget| if (split_of(split_widget.widget)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 last = btn.opts.ctx.buffer_ref;
             };
@@ -519,7 +547,7 @@ pub const TabBar = struct {
 
     fn find_next_tab_buffer(self: *Self) struct { ?Buffer.Ref, usize } {
         var found_active: bool = false;
-        for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
+        for (self.splits_list.widgets.items) |*split_widget| if (split_of(split_widget.widget)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 if (found_active)
                     return .{ btn.opts.ctx.buffer_ref, btn.opts.ctx.view };
@@ -532,7 +560,7 @@ pub const TabBar = struct {
     fn find_previous_tab_buffer(self: *Self) struct { ?Buffer.Ref, usize } {
         var previous: ?Buffer.Ref = null;
         var previous_view: usize = 0;
-        for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
+        for (self.splits_list.widgets.items) |*split_widget| if (split_of(split_widget.widget)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 if (btn.opts.ctx.buffer_ref == self.active_focused_buffer_ref)
                     return .{ previous, previous_view };
@@ -924,9 +952,10 @@ const drop_target = struct {
 
     fn create(
         tabbar: *TabBar,
+        parent: Plane,
         view: usize,
     ) !Widget {
-        return Button.create_widget(@This(), tabbar.allocator, tabbar.splits_list.plane, .{
+        return Button.create_widget(@This(), tabbar.allocator, parent, .{
             .ctx = .{ .tabbar = tabbar, .view = view },
             .label = &.{},
             .on_layout = @This().layout,
@@ -937,9 +966,16 @@ const drop_target = struct {
     }
 
     fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
-        _ = self;
-        _ = btn;
-        _ = theme;
+        const s = &self.tabbar.tab_style;
+        btn.plane.set_base_style(theme.editor);
+        btn.plane.erase();
+        btn.plane.home();
+        btn.plane.set_style(.{
+            .fg = s.bar_fg.from_theme(theme),
+            .bg = s.bar_bg.from_theme(theme),
+        });
+        btn.plane.fill(" ");
+        btn.plane.home();
         return false;
     }
 
