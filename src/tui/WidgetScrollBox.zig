@@ -35,6 +35,9 @@ drag_anchor_px: ?i32 = null,
 drag_origin_px: i32 = 0,
 user_scrolled: bool = false,
 follow_token: u64 = 0,
+fade_cells: u16 = 0,
+fade_color: ?Widget.Theme.Color = null,
+fade_layer: ?*Layer = null,
 z_index: ?Layer.Level = null,
 layout_override: ?Widget.Layout = null,
 
@@ -58,6 +61,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.inner) |*w| w.deinit(self.allocator);
     self.plane.deinit();
     self.layer.deinit();
+    if (self.fade_layer) |fade| fade.deinit();
     allocator.destroy(self);
 }
 
@@ -211,6 +215,97 @@ pub fn scroll_to_px(self: *Self, px: i32) void {
     tui.need_render(@src());
 }
 
+pub fn clipped_head(self: *const Self) bool {
+    return self.scroll_px > 0;
+}
+
+pub fn clipped_tail(self: *const Self) bool {
+    return self.scroll_px < self.max_scroll_px();
+}
+
+fn submit_fade(self: *Self, z_index: Layer.Level) void {
+    if (self.fade_cells == 0) return;
+    const color = self.fade_color orelse return;
+    const head = self.clipped_head();
+    const tail = self.clipped_tail();
+    if (!head and !tail) return;
+
+    const root = tui.plane();
+    const cw: i32 = root.cell_x();
+    const ch: i32 = root.cell_y();
+    const view = self.region();
+
+    const across_px: i32 = switch (self.direction) {
+        .horizontal => self.region_h_px,
+        .vertical => self.region_w_px,
+    };
+    if (across_px <= 0) return;
+    const w_px: u16 = @intCast(switch (self.direction) {
+        .horizontal => cw,
+        .vertical => across_px,
+    });
+    const h_px: u16 = @intCast(switch (self.direction) {
+        .horizontal => across_px,
+        .vertical => ch,
+    });
+    const across_cells: u16 = @intCast(@max(1, @divTrunc(across_px, switch (self.direction) {
+        .horizontal => ch,
+        .vertical => cw,
+    })));
+
+    const fade = self.fade_layer orelse blk: {
+        const new = Layer.init(self.allocator, .{ .h = 1, .w = 1 }) catch return;
+        self.fade_layer = new;
+        break :blk new;
+    };
+    fade.resize(
+        switch (self.direction) {
+            .horizontal => 1,
+            .vertical => across_cells,
+        },
+        switch (self.direction) {
+            .horizontal => across_cells,
+            .vertical => 1,
+        },
+        w_px,
+        h_px,
+    ) catch return;
+    var plane = fade.plane();
+    plane.set_base_style(.{ .bg = color });
+    plane.erase();
+
+    const steps: i32 = @intCast(self.fade_cells);
+    var i: i32 = 0;
+    while (i < steps) : (i += 1) {
+        const alpha: u8 = @intCast(@divTrunc(255 * (steps - i), steps + 1));
+        if (head) self.submit_sliver(fade, view, i, alpha, z_index, cw, ch);
+        if (tail) self.submit_sliver(fade, view, -(i + 1), alpha, z_index, cw, ch);
+    }
+}
+
+fn submit_sliver(self: *Self, fade: *Layer, view: Layer.Frame, slot: i32, alpha: u8, z_index: Layer.Level, cw: i32, ch: i32) void {
+    const along_px: i32 = switch (self.direction) {
+        .horizontal => if (slot >= 0) view.x + slot * cw else view.right() + slot * cw,
+        .vertical => if (slot >= 0) view.y + slot * ch else view.bottom() + slot * ch,
+    };
+    const px: i32, const py: i32 = switch (self.direction) {
+        .horizontal => .{ along_px, view.y },
+        .vertical => .{ view.x, along_px },
+    };
+    _ = tui.submit_layer(.{
+        .src = fade,
+        .dst = tui.plane().window,
+        .x = @divFloor(px, cw),
+        .y = @divFloor(py, ch),
+        .xoffset = @intCast(@mod(px, cw)),
+        .yoffset = @intCast(@mod(py, ch)),
+        .blend = .src_over,
+        .alpha = alpha,
+        .z_index = @enumFromInt(@intFromEnum(z_index) + 1),
+        .clip = view,
+    });
+}
+
 pub fn scroll_by_px(self: *Self, delta: i32) void {
     self.user_scrolled = true;
     self.scroll_to_px(self.scroll_px + delta);
@@ -290,6 +385,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         .blend = .replace,
         .clip = self.layer.clip,
     });
+    self.submit_fade(z_index);
     return more;
 }
 

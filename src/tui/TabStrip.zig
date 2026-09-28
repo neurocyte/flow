@@ -166,6 +166,8 @@ fn fill_bar(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
 fn render_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
     const self: *Self = @ptrCast(@alignCast(ctx orelse return));
     self.fill_bar(&self.list.plane, theme);
+    self.scroll.fade_cells = @intCast(self.style.clipping_fade_cells);
+    self.scroll.fade_color = self.style.bar_bg.from_theme(theme);
 }
 
 fn render_tabs_background(ctx: ?*anyopaque, theme: *const Widget.Theme) void {

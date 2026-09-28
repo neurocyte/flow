@@ -63,8 +63,7 @@ const @"style.config" = struct {
     save_icon: []const u8 = "󰆓",
     save_icon_fg: ?colors = null,
     save_icon_fg_transparent: bool = false,
-    clipping_indicator: []const u8 = "»",
-    clipping_indicator_fg_transparent: bool = false,
+    clipping_fade_cells: usize = 5,
 
     spacer: []const u8 = "|",
     spacer_fg: colors = .active_bg,
@@ -281,6 +280,12 @@ pub const TabBar = struct {
         });
         self.plane.fill(" ");
         self.plane.home();
+        const fade_color = self.tab_style.bar_bg.from_theme(theme);
+        for (self.splits_list.widgets.items) |*w|
+            if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll| {
+                scroll.fade_cells = @intCast(self.tab_style.clipping_fade_cells);
+                scroll.fade_color = fade_color;
+            };
         return self.splits_list_widget.render(theme);
     }
 
