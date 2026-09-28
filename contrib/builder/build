@@ -10,6 +10,8 @@ NAME="$APPNAME-builder-zig-0.17-dev"
 
 cd "$BASEDIR"
 
+ZIG_VERSION=$(grep 'minimum_zig_version' "$BASEDIR/build.zig.zon" | sed 's/.*"\(.*\)".*/\1/')
+
 mkdir -p "$BASEDIR/.zig-cache/builder/local"
 mkdir -p "$BASEDIR/.zig-cache/builder/global"
 mkdir -p "$BASEDIR/zig-pkg/builder"
@@ -18,6 +20,7 @@ docker pull archlinux:latest
 
 docker build \
     --build-context zig=../zig \
+    --build-arg ZIG_VERSION="$ZIG_VERSION" \
     -t "$IMAGE" \
     "$BUILDER"
 docker run --rm -ti \
