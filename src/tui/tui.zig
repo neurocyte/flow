@@ -10,7 +10,6 @@ const tracy = @import("tracy");
 const builtin = @import("builtin");
 const file_link = @import("file_link");
 const Buffer = @import("Buffer");
-const zeit = @import("zeit");
 
 pub const renderer = @import("renderer");
 const crash = @import("crash");
@@ -1523,40 +1522,6 @@ fn toggle_idle_action(self: *Self, action: IdleAction) !bool {
     return enable;
 }
 
-fn local_timezone(allocator: Allocator) !zeit.timezone.TimeZone {
-    const io = root.get_io();
-    if (builtin.os.tag == .windows) return zeit.local(allocator, io, .{});
-    const environ = root.get_init().environ_map;
-    const tzdir = environ.get("TZDIR");
-    const tz = environ.get("TZ") orelse return zeit.local(allocator, io, .{ .tzdir = tzdir });
-    return zeit.local(allocator, io, .{ .tz = tz, .tzdir = tzdir }) catch |e| switch (e) {
-        error.InvalidPosix => {
-            var name_buf: [256]u8 = undefined;
-            const name = std.fmt.bufPrint(&name_buf, ":{s}", .{tz}) catch return e;
-            return zeit.local(allocator, io, .{ .tz = name, .tzdir = tzdir });
-        },
-        else => e,
-    };
-}
-
-fn default_screenshot_path(allocator: Allocator, buf: []u8) ![]const u8 {
-    const environ = root.get_init().environ_map;
-    const home = environ.get("HOME") orelse environ.get("USERPROFILE") orelse return error.NoHomeDirectory;
-    var tz = try local_timezone(allocator);
-    defer tz.deinit();
-    const now = (try zeit.instant(root.get_io(), .{ .timezone = &tz })).time();
-    return std.fmt.bufPrint(buf, "{s}{c}screenshot-flow-{d}-{d:0>2}-{d:0>2}_{d:0>2}-{d:0>2}-{d:0>2}.png", .{
-        home,
-        std.fs.path.sep,
-        now.year,
-        @intFromEnum(now.month),
-        now.day,
-        now.hour,
-        now.minute,
-        now.second,
-    });
-}
-
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
@@ -2047,7 +2012,7 @@ const cmds = struct {
         if (try ctx.args.match(.{tp.extract(&path)}))
             return self.rdr_.save_screenshot(path);
         var path_buf: [std.posix.PATH_MAX]u8 = undefined;
-        self.rdr_.save_screenshot(try default_screenshot_path(self.allocator, &path_buf));
+        self.rdr_.save_screenshot(try root.default_screenshot_path(self.allocator, &path_buf));
     }
     pub const save_screenshot_meta: Meta = .{
         .description = if (@hasDecl(renderer, "save_screenshot")) "Save screenshot" else &.{},

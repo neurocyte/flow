@@ -1428,6 +1428,7 @@ pub fn build_exe(
     exe.root_module.addImport("crash", crash_mod);
     exe.root_module.addImport("file_link", file_link_mod);
     exe.root_module.addImport("flags", flags_dep.module("flags"));
+    exe.root_module.addImport("zeit", zeit_mod);
     exe.root_module.addImport("cbor", cbor_mod);
     exe.root_module.addImport("config", config_mod);
     exe.root_module.addImport("text_manip", text_manip_mod);
@@ -1519,6 +1520,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("soft_root", soft_root_mod);
     check_exe.root_module.addImport("crash", crash_mod);
     check_exe.root_module.addImport("flags", flags_dep.module("flags"));
+    check_exe.root_module.addImport("zeit", zeit_mod);
     check_exe.root_module.addImport("cbor", cbor_mod);
     check_exe.root_module.addImport("config", config_mod);
     check_exe.root_module.addImport("text_manip", text_manip_mod);

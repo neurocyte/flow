@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const thespian = @import("thespian");
 const color = @import("color");
 const flags = @import("flags");
+const zeit = @import("zeit");
 const builtin = @import("builtin");
 const bin_path = @import("bin_path");
 const sep = std.fs.path.sep;
@@ -1106,6 +1107,40 @@ pub fn get_io() std.Io {
 
 pub fn get_now() std.Io.Timestamp {
     return std.Io.Clock.real.now(get_io());
+}
+
+pub fn local_timezone(allocator: std.mem.Allocator) !zeit.timezone.TimeZone {
+    const io = get_io();
+    if (builtin.os.tag == .windows) return zeit.local(allocator, io, .{});
+    const environ = get_init().environ_map;
+    const tzdir = environ.get("TZDIR");
+    const tz = environ.get("TZ") orelse return zeit.local(allocator, io, .{ .tzdir = tzdir });
+    return zeit.local(allocator, io, .{ .tz = tz, .tzdir = tzdir }) catch |e| switch (e) {
+        error.InvalidPosix => {
+            var name_buf: [256]u8 = undefined;
+            const name = std.fmt.bufPrint(&name_buf, ":{s}", .{tz}) catch return e;
+            return zeit.local(allocator, io, .{ .tz = name, .tzdir = tzdir });
+        },
+        else => e,
+    };
+}
+
+pub fn default_screenshot_path(allocator: std.mem.Allocator, buf: []u8) ![]const u8 {
+    const environ = get_init().environ_map;
+    const home = environ.get("HOME") orelse environ.get("USERPROFILE") orelse return error.NoHomeDirectory;
+    var tz = try local_timezone(allocator);
+    defer tz.deinit();
+    const now = (try zeit.instant(get_io(), .{ .timezone = &tz })).time();
+    return std.fmt.bufPrint(buf, "{s}{c}screenshot-flow-{d}-{d:0>2}-{d:0>2}_{d:0>2}-{d:0>2}-{d:0>2}.png", .{
+        home,
+        sep,
+        now.year,
+        @intFromEnum(now.month),
+        now.day,
+        now.hour,
+        now.minute,
+        now.second,
+    });
 }
 
 pub fn get_state_dir() ![]const u8 {

@@ -27,17 +27,13 @@ const Self = @This();
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const style: ?DigitStyle = if (arg) |style| std.meta.stringToEnum(DigitStyle, style) orelse null else null;
 
-    const env: zeit.EnvConfig = .{
-        .tz = if (std.c.getenv("TZ")) |h| std.mem.span(h) else null,
-        .tzdir = if (std.c.getenv("TZDIR")) |h| std.mem.span(h) else null,
-    };
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .on_event = event_handler,
-        .tz = zeit.local(allocator, root.get_io(), env) catch |e| {
+        .tz = root.local_timezone(allocator) catch |e| {
             std.log.err("clock: zeit.local failed with {any}", .{e});
             return error.WidgetInitFailed;
         },
