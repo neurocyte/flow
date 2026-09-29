@@ -96,6 +96,7 @@
             ["ctrl+alt+shift+=", "adjust_background_opacity", 0.05],
             ["ctrl+alt+shift+minus", "adjust_background_opacity", -0.05],
             ["ctrl+alt+shift+9", "toggle_ignore_theme_alpha"],
+            ["ctrl+shift+f12", "save_screenshot"],
             ["ctrl+f5", "open_config"],
             [["ctrl+alt+n", "Open new window (gui)"], ["shell_execute_log", "flow-gui", "{{project}}"]],
             [["ctrl+alt+a ctrl+alt+e", "Open new window (gui)"], ["shell_execute_log", "flow-gui", "{{project}}"]],
