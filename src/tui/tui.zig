@@ -2005,6 +2005,20 @@ const cmds = struct {
         .description = if (@hasDecl(renderer, "get_fontfaces")) "Change font" else &.{},
     };
 
+    pub fn save_screenshot(self: *Self, ctx: Ctx) Result {
+        var path: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&path)}))
+            return error.InvalidSaveScreenshotArgument;
+        if (comptime @hasDecl(renderer, "save_screenshot"))
+            self.rdr_.save_screenshot(path)
+        else
+            self.logger.print("save_screenshot not supported", .{});
+    }
+    pub const save_screenshot_meta: Meta = .{
+        .description = if (@hasDecl(renderer, "save_screenshot")) "Save screenshot" else &.{},
+        .arguments = &.{.string},
+    };
+
     pub fn switch_terminals(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/terminal_palette.zig").Type, ctx);
     }

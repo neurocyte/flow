@@ -28,6 +28,7 @@ const vaxis = @import("vaxis");
 const MouseEvent = @import("MouseEvent");
 const uucode_utils = @import("uucode_utils");
 const nerd_font_attributes = @import("nerd_font_attributes");
+const z2d = @import("z2d");
 const RGBA = @import("color").RGBA;
 
 const input_translate = @import("input.zig");
@@ -111,6 +112,8 @@ const ScreenSnapshot = struct {
 var screen_mutex: std.Io.Mutex = .init;
 var screen_pending: std.atomic.Value(bool) = .init(false);
 var screen_snap: ?ScreenSnapshot = null;
+var screenshot_mutex: std.Io.Mutex = .init;
+var screenshot_path: ?[]const u8 = null;
 var tui_pid: thespian.pid = undefined;
 var render_pid: ?thespian.pid = null;
 var last_mods: input_translate.Mods = .{};
@@ -511,6 +514,44 @@ fn freeScreenSnapshot(allocator: std.mem.Allocator, snap: *ScreenSnapshot) void 
     for (snap.layers) |*ls| freeLayerSnapshot(allocator, ls);
     allocator.free(snap.layers);
     allocator.free(snap.targets);
+}
+
+pub fn requestScreenshot(path: []const u8) void {
+    const allocator = root.get_init().gpa;
+    const io = root.get_io();
+    const path_ = allocator.dupe(u8, path) catch |e| return log.err("screenshot: {t}", .{e});
+    screenshot_mutex.lockUncancelable(io);
+    const prev = screenshot_path;
+    screenshot_path = path_;
+    screenshot_mutex.unlock(io);
+    if (prev) |p| allocator.free(p);
+    requestRender();
+}
+
+fn saveScreenshot(ctx: *RenderCtx) void {
+    const allocator = root.get_init().gpa;
+    const io = root.get_io();
+    screenshot_mutex.lockUncancelable(io);
+    const path_ = screenshot_path;
+    screenshot_path = null;
+    screenshot_mutex.unlock(io);
+    const path = path_ orelse return;
+    defer allocator.free(path);
+    writeScreenshot(ctx, allocator, io, path) catch |e| return log.err("screenshot {s} failed: {t}", .{ path, e });
+    log.info("screenshot saved to {s}", .{path});
+}
+
+fn writeScreenshot(ctx: *RenderCtx, allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
+    const layer_id = ctx.root_layer orelse return error.NoFrame;
+    const layer_state = ctx.layers.getPtr(layer_id) orelse return error.NoFrame;
+    const pixels = try gpu.readbackLayer(allocator, layer_state);
+    defer allocator.free(pixels.data);
+    const surface: z2d.surface.ImageSurface(z2d.pixel.RGBA) = .{
+        .width = pixels.width,
+        .height = pixels.height,
+        .buf = @ptrCast(pixels.data),
+    };
+    try z2d.png_exporter.writeToPNGFile(io, surface.asSurfaceInterface(), path, .{});
 }
 
 pub fn requestRender() void {
@@ -1278,6 +1319,7 @@ const RenderCtx = struct {
     layers: std.AutoHashMapUnmanaged(Layer.Id, gpu.LayerGpuState) = .empty,
     frame_counter: u64 = 0,
     focused: bool,
+    root_layer: ?Layer.Id = null,
 };
 
 const layer_gc_grace_frames: u64 = 60;
@@ -1371,6 +1413,7 @@ pub fn renderActorTick(focused: bool, visible: bool) void {
 
     glLock();
     defer glUnlock();
+    defer saveScreenshot(ctx);
 
     // On Windows the wio thread can be parked inside DefWindowProc's modal
     // resize/move loop, so the ("resize", w, h) message from the wio thread
@@ -1677,6 +1720,7 @@ pub fn renderActorTick(focused: bool, visible: bool) void {
 
     // present the root offscreen pixel buffer to the swapchain
     const root_state = ctx.layers.getPtr(snap.layers[0].id) orelse return;
+    ctx.root_layer = snap.layers[0].id;
     const render_view: ?*const anyopaque = if (builtin.os.tag == .windows) ctx.swapchain.rtv else null;
     gpu.presentLayerToSwapchain(
         root_state,

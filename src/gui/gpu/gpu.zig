@@ -1093,6 +1093,70 @@ fn blitPageCpu(
     }
 }
 
+pub const Pixels = struct {
+    /// packed, top-down, premultiplied RGBA8
+    data: []u32,
+    width: u16,
+    height: u16,
+};
+
+pub const ReadbackError = error{ OutOfMemory, Unsupported, NoImage, IncompleteFramebuffer, ReadFailed };
+
+pub fn readbackLayer(allocator: std.mem.Allocator, layer_state: *const LayerGpuState) ReadbackError!Pixels {
+    if (layer_state.pixel_image.id == 0) return error.NoImage;
+    if (builtin.os.tag == .windows) return error.Unsupported;
+
+    const w = layer_state.pixel_size.x;
+    const h = layer_state.pixel_size.y;
+    const stride: usize = w;
+    const data = try allocator.alloc(u32, stride * h);
+    errdefer allocator.free(data);
+
+    const info = sg.glQueryImageInfo(layer_state.pixel_image);
+    defer sg.resetStateCache();
+
+    var fbo: u32 = 0;
+    gl.glGenFramebuffers(1, &fbo);
+    defer gl.glDeleteFramebuffers(1, &fbo);
+    gl.glBindFramebuffer(gl.FRAMEBUFFER, fbo);
+    defer gl.glBindFramebuffer(gl.FRAMEBUFFER, 0);
+    gl.glFramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, info.tex_target, info.tex[@intCast(info.active_slot)], 0);
+    if (gl.glCheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE) return error.IncompleteFramebuffer;
+    gl.glPixelStorei(gl.PACK_ALIGNMENT, 1);
+    gl.glReadPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data.ptr);
+    if (gl.glGetError() != 0) return error.ReadFailed;
+
+    if (!sg.queryFeatures().origin_top_left) {
+        var top: usize = 0;
+        var bottom: usize = h;
+        while (top + 1 < bottom) : (top += 1) {
+            bottom -= 1;
+            const a = data[top * stride ..][0..stride];
+            const b = data[bottom * stride ..][0..stride];
+            for (a, b) |*x, *y| std.mem.swap(u32, x, y);
+        }
+    }
+    return .{ .data = data, .width = w, .height = h };
+}
+
+const gl = struct {
+    const FRAMEBUFFER = 0x8D40;
+    const COLOR_ATTACHMENT0 = 0x8CE0;
+    const FRAMEBUFFER_COMPLETE = 0x8CD5;
+    const PACK_ALIGNMENT = 0x0D05;
+    const RGBA = 0x1908;
+    const UNSIGNED_BYTE = 0x1401;
+
+    extern fn glGenFramebuffers(n: i32, framebuffers: *u32) void;
+    extern fn glDeleteFramebuffers(n: i32, framebuffers: *const u32) void;
+    extern fn glBindFramebuffer(target: u32, framebuffer: u32) void;
+    extern fn glFramebufferTexture2D(target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) void;
+    extern fn glCheckFramebufferStatus(target: u32) u32;
+    extern fn glPixelStorei(pname: u32, param: i32) void;
+    extern fn glReadPixels(x: i32, y: i32, width: i32, height: i32, format: u32, type: u32, pixels: *anyopaque) void;
+    extern fn glGetError() u32;
+};
+
 fn oom(e: error{OutOfMemory}) noreturn {
     @panic(@errorName(e));
 }

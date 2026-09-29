@@ -713,6 +713,10 @@ pub fn build_exe(
                     .optimize = optimize_deps,
                 }) orelse break :blk tui_renderer_mod;
                 const flow_sprite_mod = flow_sprite_dep.module("sprite");
+                const z2d_mod = flow_sprite_dep.builder.dependency("z2d", .{
+                    .target = target,
+                    .optimize = optimize_deps,
+                }).module("z2d");
 
                 const uucode_utils_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/uucode_utils.zig"),
@@ -926,6 +930,7 @@ pub fn build_exe(
                         .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
+                        .{ .name = "z2d", .module = z2d_mod },
                     },
                 });
 
