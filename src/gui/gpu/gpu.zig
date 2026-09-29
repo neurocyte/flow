@@ -1104,13 +1104,17 @@ pub const ReadbackError = error{ OutOfMemory, Unsupported, NoImage, IncompleteFr
 
 pub fn readbackLayer(allocator: std.mem.Allocator, layer_state: *const LayerGpuState) ReadbackError!Pixels {
     if (layer_state.pixel_image.id == 0) return error.NoImage;
-    if (builtin.os.tag == .windows) return error.Unsupported;
 
     const w = layer_state.pixel_size.x;
     const h = layer_state.pixel_size.y;
     const stride: usize = w;
     const data = try allocator.alloc(u32, stride * h);
     errdefer allocator.free(data);
+
+    if (builtin.os.tag == .windows) {
+        try readbackD3D11(layer_state.pixel_image, w, h, data);
+        return .{ .data = data, .width = w, .height = h };
+    }
 
     const info = sg.glQueryImageInfo(layer_state.pixel_image);
     defer sg.resetStateCache();
@@ -1137,6 +1141,37 @@ pub fn readbackLayer(allocator: std.mem.Allocator, layer_state: *const LayerGpuS
         }
     }
     return .{ .data = data, .width = w, .height = h };
+}
+
+fn readbackD3D11(image: sg.Image, w: u16, h: u16, data: []u32) ReadbackError!void {
+    const win32 = @import("win32").everything;
+    const info = sg.d3d11QueryImageInfo(image);
+    const src: *win32.ID3D11Texture2D = @ptrCast(@alignCast(@constCast(info.tex2d orelse return error.NoImage)));
+    const device: *win32.ID3D11Device = @ptrCast(@alignCast(@constCast(sg.d3d11Device() orelse return error.Unsupported)));
+    const context: *win32.ID3D11DeviceContext = @ptrCast(@alignCast(@constCast(sg.d3d11DeviceContext() orelse return error.Unsupported)));
+
+    var desc: win32.D3D11_TEXTURE2D_DESC = undefined;
+    src.GetDesc(&desc);
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Usage = .STAGING;
+    desc.BindFlags = .{};
+    desc.CPUAccessFlags = .{ .READ = 1 };
+    desc.MiscFlags = .{};
+    var staging: *win32.ID3D11Texture2D = undefined;
+    if (device.CreateTexture2D(&desc, null, &staging) < 0) return error.ReadFailed;
+    defer _ = staging.IUnknown.Release();
+
+    context.CopyResource(&staging.ID3D11Resource, &src.ID3D11Resource);
+    var mapped: win32.D3D11_MAPPED_SUBRESOURCE = undefined;
+    if (context.Map(&staging.ID3D11Resource, 0, .READ, 0, &mapped) < 0) return error.ReadFailed;
+    defer context.Unmap(&staging.ID3D11Resource, 0);
+
+    const src_bytes: [*]const u8 = @ptrCast(mapped.pData orelse return error.ReadFailed);
+    const dst_bytes = std.mem.sliceAsBytes(data);
+    const row_bytes = @as(usize, w) * 4;
+    for (0..h) |y|
+        @memcpy(dst_bytes[y * row_bytes ..][0..row_bytes], src_bytes[y * mapped.RowPitch ..][0..row_bytes]);
 }
 
 const gl = struct {

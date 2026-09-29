@@ -900,6 +900,10 @@ pub fn build_exe(
                         .{ .name = "shader", .module = shader_mod },
                     },
                 });
+                if (target.result.os.tag == .windows) {
+                    const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
+                    gpu_mod.addImport("win32", win32_dep.module("win32"));
+                }
 
                 const nerd_font_attributes_mod = b.createModule(.{
                     .root_source_file = flow_sprite_dep.path("src/font/nerd_font_attributes.zig"),
