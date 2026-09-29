@@ -153,6 +153,7 @@
             ["ctrl+left", "move_word_left"],
             ["ctrl+right", "move_word_right"],
             ["ctrl+shift+\\", "goto_bracket"],
+            ["alt+/", "goto_word"],
             ["ctrl+backspace", "delete_word_left"],
             ["ctrl+delete", "delete_word_right"],
             ["ctrl+f10", "toggle_whitespace_mode"],
