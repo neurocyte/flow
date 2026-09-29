@@ -396,9 +396,10 @@ pub fn scroll_into_view(self: *Self, w: Widget) void {
     };
     const start = start_cells * cell;
     const end = start + len_cells * cell;
-    const from = self.scroll_dest_px;
-    if (start < from) return self.scroll_to_px(start);
     const view = self.viewport_px();
+    const from = self.scroll_dest_px;
+    if (end - start >= view) return self.scroll_to_px(start);
+    if (start < from) return self.scroll_to_px(start);
     if (end > from + view) return self.scroll_to_px(end - view);
 }
 
