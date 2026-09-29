@@ -10,16 +10,16 @@
             .hash = "flow_syntax-0.7.2-X8jOoZ-XAQAnOphSDTM5UtMUBbA-cNFWjRgFqN6gXhY_",
         },
         .flags = .{
-            .url = "git+https://github.com/neurocyte/flags?ref=main#e0c64fb3a15df4ff389d78ac5cc5beba1eca1b7e",
-            .hash = "flags-0.10.0-a_9h3h51AAA8V0wdRaEH4IIVh9BscpmIPYltPhz-sOoM",
+            .url = "git+https://github.com/neurocyte/flags?ref=main#02229fa0c5ee5f204c3041a8e446562860570cbf",
+            .hash = "flags-0.10.0-a_9h3mR1AAC-aEC2nCJaVHZjKaG5eiqrgAGJjXV_C3qr",
         },
         .dizzy = .{
             .url = "git+https://github.com/neurocyte/dizzy?ref=main#1ab5d293050a6ed9dfa02b44d0820e84a32f20b2",
             .hash = "dizzy-1.0.0-q40X4WiRAAAOV7thjG9ZJrb9GsXSGAcaUr6RHoHgQ2Kb",
         },
         .thespian = .{
-            .url = "git+https://github.com/neurocyte/thespian?ref=zig-0.17#fb6cd87b68a5770b693ab92f1ff93736c7a03cdf",
-            .hash = "thespian-0.0.1-owFOjo44CQBKqW9xt2p1BWvgTr8WfFrzA-fEp-hGO7af",
+            .url = "git+https://github.com/neurocyte/thespian?ref=zig-0.17#72a5ef397ed6efa40904d4eab6a150667f6230d1",
+            .hash = "thespian-0.0.1-owFOjv4eCgBrYp2oLl4f6ary-PZAoEoAiQE1r0L4yLMp",
         },
         .themes = .{
             .url = "https://github.com/neurocyte/flow-themes/releases/download/master-8149751a9bddbb48294c2787357b78e88efd9cb3/flow-themes.tar.gz",
@@ -73,8 +73,8 @@
             .lazy = true,
         },
         .flow_gui_headers = .{
-            .url = "git+https://github.com/neurocyte/flow-gui-headers?ref=master#b630d93ccf6bd3af69d045edf5f3f7ae3dc7f99d",
-            .hash = "flow_gui_headers-0.8.0-dev-SSnata-WAAD8YyhUzv3EJoYLH-cheKa4pWzvn1FXWzGi",
+            .url = "git+https://github.com/neurocyte/flow-gui-headers?ref=master#2ed0dd38ef6d9e2735f71bc2cd5bad562659c673",
+            .hash = "flow_gui_headers-0.8.0-dev-SSnatcOWAACx5I7ZRi5hfCXzxalQUzCqJ1XHCWX6XUUo",
             .lazy = true,
         },
         .diffz = .{

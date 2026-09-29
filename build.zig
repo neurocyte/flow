@@ -720,6 +720,10 @@ pub fn build_exe(
                     .optimize = optimize_deps,
                 }) orelse break :blk tui_renderer_mod;
                 const flow_sprite_mod = flow_sprite_dep.module("sprite");
+                const z2d_mod = flow_sprite_dep.builder.dependency("z2d", .{
+                    .target = target,
+                    .optimize = optimize_deps,
+                }).module("z2d");
 
                 const uucode_utils_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/uucode_utils.zig"),
@@ -918,6 +922,10 @@ pub fn build_exe(
                         .{ .name = "shader", .module = shader_mod },
                     },
                 });
+                if (target.result.os.tag == .windows) {
+                    const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
+                    gpu_mod.addImport("win32", win32_dep.module("win32"));
+                }
 
                 const nerd_font_attributes_mod = b.createModule(.{
                     .root_source_file = flow_sprite_dep.path("src/font/nerd_font_attributes.zig"),
@@ -948,6 +956,7 @@ pub fn build_exe(
                         .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
+                        .{ .name = "z2d", .module = z2d_mod },
                     },
                 });
 
@@ -1445,6 +1454,7 @@ pub fn build_exe(
     exe.root_module.addImport("crash", crash_mod);
     exe.root_module.addImport("file_link", file_link_mod);
     exe.root_module.addImport("flags", flags_dep.module("flags"));
+    exe.root_module.addImport("zeit", zeit_mod);
     exe.root_module.addImport("cbor", cbor_mod);
     exe.root_module.addImport("config", config_mod);
     exe.root_module.addImport("text_manip", text_manip_mod);
@@ -1534,6 +1544,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("soft_root", soft_root_mod);
     check_exe.root_module.addImport("crash", crash_mod);
     check_exe.root_module.addImport("flags", flags_dep.module("flags"));
+    check_exe.root_module.addImport("zeit", zeit_mod);
     check_exe.root_module.addImport("cbor", cbor_mod);
     check_exe.root_module.addImport("config", config_mod);
     check_exe.root_module.addImport("text_manip", text_manip_mod);

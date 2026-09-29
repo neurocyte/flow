@@ -1093,6 +1093,105 @@ fn blitPageCpu(
     }
 }
 
+pub const Pixels = struct {
+    /// packed, top-down, premultiplied RGBA8
+    data: []u32,
+    width: u16,
+    height: u16,
+};
+
+pub const ReadbackError = error{ OutOfMemory, Unsupported, NoImage, IncompleteFramebuffer, ReadFailed };
+
+pub fn readbackLayer(allocator: std.mem.Allocator, layer_state: *const LayerGpuState) ReadbackError!Pixels {
+    if (layer_state.pixel_image.id == 0) return error.NoImage;
+
+    const w = layer_state.pixel_size.x;
+    const h = layer_state.pixel_size.y;
+    const stride: usize = w;
+    const data = try allocator.alloc(u32, stride * h);
+    errdefer allocator.free(data);
+
+    if (builtin.os.tag == .windows) {
+        try readbackD3D11(layer_state.pixel_image, w, h, data);
+        return .{ .data = data, .width = w, .height = h };
+    }
+
+    const info = sg.glQueryImageInfo(layer_state.pixel_image);
+    defer sg.resetStateCache();
+
+    var fbo: u32 = 0;
+    gl.glGenFramebuffers(1, &fbo);
+    defer gl.glDeleteFramebuffers(1, &fbo);
+    gl.glBindFramebuffer(gl.FRAMEBUFFER, fbo);
+    defer gl.glBindFramebuffer(gl.FRAMEBUFFER, 0);
+    gl.glFramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, info.tex_target, info.tex[@intCast(info.active_slot)], 0);
+    if (gl.glCheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE) return error.IncompleteFramebuffer;
+    gl.glPixelStorei(gl.PACK_ALIGNMENT, 1);
+    gl.glReadPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data.ptr);
+    if (gl.glGetError() != 0) return error.ReadFailed;
+
+    if (!sg.queryFeatures().origin_top_left) {
+        var top: usize = 0;
+        var bottom: usize = h;
+        while (top + 1 < bottom) : (top += 1) {
+            bottom -= 1;
+            const a = data[top * stride ..][0..stride];
+            const b = data[bottom * stride ..][0..stride];
+            for (a, b) |*x, *y| std.mem.swap(u32, x, y);
+        }
+    }
+    return .{ .data = data, .width = w, .height = h };
+}
+
+fn readbackD3D11(image: sg.Image, w: u16, h: u16, data: []u32) ReadbackError!void {
+    const win32 = @import("win32").everything;
+    const info = sg.d3d11QueryImageInfo(image);
+    const src: *win32.ID3D11Texture2D = @ptrCast(@alignCast(@constCast(info.tex2d orelse return error.NoImage)));
+    const device: *win32.ID3D11Device = @ptrCast(@alignCast(@constCast(sg.d3d11Device() orelse return error.Unsupported)));
+    const context: *win32.ID3D11DeviceContext = @ptrCast(@alignCast(@constCast(sg.d3d11DeviceContext() orelse return error.Unsupported)));
+
+    var desc: win32.D3D11_TEXTURE2D_DESC = undefined;
+    src.GetDesc(&desc);
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Usage = .STAGING;
+    desc.BindFlags = .{};
+    desc.CPUAccessFlags = .{ .READ = 1 };
+    desc.MiscFlags = .{};
+    var staging: *win32.ID3D11Texture2D = undefined;
+    if (device.CreateTexture2D(&desc, null, &staging) < 0) return error.ReadFailed;
+    defer _ = staging.IUnknown.Release();
+
+    context.CopyResource(&staging.ID3D11Resource, &src.ID3D11Resource);
+    var mapped: win32.D3D11_MAPPED_SUBRESOURCE = undefined;
+    if (context.Map(&staging.ID3D11Resource, 0, .READ, 0, &mapped) < 0) return error.ReadFailed;
+    defer context.Unmap(&staging.ID3D11Resource, 0);
+
+    const src_bytes: [*]const u8 = @ptrCast(mapped.pData orelse return error.ReadFailed);
+    const dst_bytes = std.mem.sliceAsBytes(data);
+    const row_bytes = @as(usize, w) * 4;
+    for (0..h) |y|
+        @memcpy(dst_bytes[y * row_bytes ..][0..row_bytes], src_bytes[y * mapped.RowPitch ..][0..row_bytes]);
+}
+
+const gl = struct {
+    const FRAMEBUFFER = 0x8D40;
+    const COLOR_ATTACHMENT0 = 0x8CE0;
+    const FRAMEBUFFER_COMPLETE = 0x8CD5;
+    const PACK_ALIGNMENT = 0x0D05;
+    const RGBA = 0x1908;
+    const UNSIGNED_BYTE = 0x1401;
+
+    extern fn glGenFramebuffers(n: i32, framebuffers: *u32) void;
+    extern fn glDeleteFramebuffers(n: i32, framebuffers: *const u32) void;
+    extern fn glBindFramebuffer(target: u32, framebuffer: u32) void;
+    extern fn glFramebufferTexture2D(target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) void;
+    extern fn glCheckFramebufferStatus(target: u32) u32;
+    extern fn glPixelStorei(pname: u32, param: i32) void;
+    extern fn glReadPixels(x: i32, y: i32, width: i32, height: i32, format: u32, type: u32, pixels: *anyopaque) void;
+    extern fn glGetError() u32;
+};
+
 fn oom(e: error{OutOfMemory}) noreturn {
     @panic(@errorName(e));
 }

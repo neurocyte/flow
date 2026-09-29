@@ -33,10 +33,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .on_event = event_handler,
-        .tz = zeit.local(allocator, root.get_io(), .{
-            .tz = root.get_init().environ_map.get("TZ"),
-            .tzdir = root.get_init().environ_map.get("TZDIR"),
-        }) catch |e| {
+        .tz = root.local_timezone(allocator) catch |e| {
             std.log.err("clock: zeit.local failed with {any}", .{e});
             return error.WidgetInitFailed;
         },

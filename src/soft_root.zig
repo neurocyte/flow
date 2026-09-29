@@ -13,6 +13,8 @@ pub const root = struct {
     pub const get_io = if (@hasDecl(hard_root, "get_io")) hard_root.get_io else dummy.get_io;
     pub const get_now = if (@hasDecl(hard_root, "get_now")) hard_root.get_now else dummy.get_now;
     pub const get_state_dir = if (@hasDecl(hard_root, "get_state_dir")) hard_root.get_state_dir else dummy.get_state_dir;
+    pub const local_timezone = if (@hasDecl(hard_root, "local_timezone")) hard_root.local_timezone else dummy.local_timezone;
+    pub const default_screenshot_path = if (@hasDecl(hard_root, "default_screenshot_path")) hard_root.default_screenshot_path else dummy.default_screenshot_path;
     pub const get_config_dir = if (@hasDecl(hard_root, "get_config_dir")) hard_root.get_config_dir else dummy.get_config_dir;
     pub const write_config_to_writer = if (@hasDecl(hard_root, "write_config_to_writer")) hard_root.write_config_to_writer else dummy.write_config_to_writer;
     pub const write_config_to_writer_no_header = if (@hasDecl(hard_root, "write_config_to_writer_no_header")) hard_root.write_config_to_writer_no_header else dummy.write_config_to_writer_no_header;
@@ -85,6 +87,14 @@ const dummy = struct {
 
     pub fn get_state_dir() ![]const u8 {
         @panic("dummy get_state_dir call");
+    }
+
+    pub fn local_timezone(_: std.mem.Allocator) error{DummyRoot}!noreturn {
+        @panic("dummy local_timezone call");
+    }
+
+    pub fn default_screenshot_path(_: std.mem.Allocator, _: []u8) ![]const u8 {
+        @panic("dummy default_screenshot_path call");
     }
 
     pub fn get_config_dir() ConfigDirError![]const u8 {
