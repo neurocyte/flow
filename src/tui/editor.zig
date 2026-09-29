@@ -2474,6 +2474,10 @@ pub const Editor = struct {
         allocator: Allocator,
         before: std.ArrayList(Cursor) = .empty,
         after: std.ArrayList(Cursor) = .empty,
+        row: usize = 0,
+        col: usize = 0,
+        prev_is_word: bool = false,
+        start: ?usize = null,
 
         fn deinit(self: *WordScan) void {
             self.before.deinit(self.allocator);
@@ -2486,31 +2490,38 @@ pub const Editor = struct {
         }
 
         fn collect_row(self: *WordScan, row: usize) error{OutOfMemory}!void {
-            const col_end = @min(self.view.col + self.view.cols, self.root.line_width(row, self.metrics) catch return);
-            var word = Cursor{ .row = row, .col = self.view.col };
-            while (word.col < col_end) {
-                try self.add_candidate(word);
-                const col = word.col;
-                word.move_right(self.root, self.metrics) catch break;
-                if (word.col == col) word.col = col + 1; // the cursor did not advance, step over the cell
+            self.row = row;
+            self.col = 0;
+            self.prev_is_word = false;
+            self.start = null;
+            self.root.walk_egc_forward(row, walker, self, self.metrics) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => {},
+            };
+        }
+
+        fn walker(ctx: *anyopaque, egc: []const u8, wcwidth: usize, _: Buffer.Metrics) Buffer.Walker {
+            const self: *WordScan = @ptrCast(@alignCast(ctx));
+            if (egc[0] == '\n') return Buffer.Walker.stop;
+            const col = self.col;
+            self.col += wcwidth;
+            const is_word = is_word_char(egc);
+            defer self.prev_is_word = is_word;
+            if (self.start) |start| {
+                self.start = null;
+                if (is_word)
+                    self.add_candidate(.{ .row = self.row, .col = start }) catch |e| return .{ .err = e };
             }
+            if (col >= self.view.col + self.view.cols) return Buffer.Walker.stop;
+            if (is_word and !self.prev_is_word and col >= self.view.col)
+                self.start = col;
+            return Buffer.Walker.keep_walking;
         }
 
         fn add_candidate(self: *WordScan, word: Cursor) error{OutOfMemory}!void {
-            if (!self.is_label_word(&word)) return;
             if (!self.cursor_word.begin.right_of(word) and !word.right_of(self.cursor_word.end)) return;
             if (self.cursor_word.begin.right_of(word)) return self.before.append(self.allocator, word);
             try self.after.append(self.allocator, word);
-        }
-
-        /// A word start with at least two word characters in the same row.
-        fn is_label_word(self: *WordScan, word: *const Cursor) bool {
-            if (!is_word_boundary_left(self.root, word, self.metrics)) return false;
-            if (!is_word_char_at_cursor(self.root, word, self.metrics)) return false;
-            var next = word.*;
-            next.move_right(self.root, self.metrics) catch return false;
-            if (next.row != word.row) return false;
-            return is_word_char_at_cursor(self.root, &next, self.metrics);
         }
     };
 
