@@ -33,7 +33,10 @@ pub fn process_egc(self: *Type, egc: []const u8) command.Result {
     const editor = active_editor(self) orelse return exit();
     if (egc.len != 1) return exit();
     switch (self.value.state.input(egc[0])) {
-        .pending => |first| show_first(self, first),
+        .pending => |first| {
+            editor.set_jump_label_prefix(first);
+            show_first(self, first);
+        },
         .select => |label| {
             editor.jump_to_label(.empty(), label) catch {};
             return exit();

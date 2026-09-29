@@ -371,6 +371,7 @@ pub const Editor = struct {
     highlight_references_pending: Match.List = .empty,
     cursor_focus_override: bool = false,
     jump_labels_: []const jump_labels.Label = &.{},
+    jump_label_prefix: ?u8 = null,
 
     prefix_buf: [8]u8 = undefined,
     prefix: []const u8 = &[_]u8{},
@@ -1418,7 +1419,10 @@ pub const Editor = struct {
 
         const style: Widget.Theme.Style = .{ .fg = theme.editor_match.fg, .bg = theme.editor_match.bg, .fs = .bold };
 
-        for (self.jump_labels_) |label| render_jump_label(self, label, style);
+        for (self.jump_labels_) |label| {
+            if (self.jump_label_prefix) |prefix| if (label.text[0] != prefix) continue;
+            render_jump_label(self, label, style);
+        }
     }
 
     fn render_jump_label(self: *Self, label: jump_labels.Label, style: Widget.Theme.Style) void {
@@ -2554,9 +2558,15 @@ pub const Editor = struct {
         return self.jump_labels_;
     }
 
+    pub fn set_jump_label_prefix(self: *Self, prefix: u8) void {
+        self.jump_label_prefix = prefix;
+        self.need_render();
+    }
+
     pub fn clear_jump_labels(self: *Self) void {
         self.allocator.free(self.jump_labels_);
         self.jump_labels_ = &.{};
+        self.jump_label_prefix = null;
     }
 
     /// Extends the selection to the label when there is one.
