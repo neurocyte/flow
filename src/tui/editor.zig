@@ -1418,22 +1418,26 @@ pub const Editor = struct {
         defer frame.deinit();
 
         const style: Widget.Theme.Style = .{ .fg = theme.editor_match.fg, .bg = theme.editor_match.bg, .fs = .bold };
+        const typed_style: Widget.Theme.Style = .{ .fg = theme.editor.fg, .bg = theme.editor_match.bg };
 
         for (self.jump_labels_) |label| {
-            if (self.jump_label_prefix) |prefix| if (label.text[0] != prefix) continue;
-            render_jump_label(self, label, style);
+            const typed: usize = if (self.jump_label_prefix) |prefix| blk: {
+                if (label.text[0] != prefix) continue;
+                break :blk 1;
+            } else 0;
+            self.render_jump_label(label, typed, style, typed_style);
         }
     }
 
-    fn render_jump_label(self: *Self, label: jump_labels.Label, style: Widget.Theme.Style) void {
+    fn render_jump_label(self: *Self, label: jump_labels.Label, typed: usize, style: Widget.Theme.Style, typed_style: Widget.Theme.Style) void {
         const pos = self.screen_cursor(&label.pos) orelse return;
-        for (0..label.text.len) |i| {
+        for (label.text, 0..) |c, i| {
             const x = pos.col + i;
             if (x >= self.view.cols) break;
             self.plane.cursor_move_yx(@intCast(pos.row), @intCast(x));
             var cell = self.plane.cell_init();
-            cell.set_style(style);
-            _ = self.plane.cell_load(&cell, &[_]u8{label.text[i]}) catch continue;
+            cell.set_style(if (i < typed) typed_style else style);
+            _ = self.plane.cell_load(&cell, &.{c}) catch continue;
             _ = self.plane.putc(&cell) catch {};
         }
     }
