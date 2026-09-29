@@ -70,6 +70,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             .frame_rate = "Set target frame rate (default: 60)",
             .debug_wait = "Wait for key press before starting UI",
             .debug_dump_on_error = "Dump stack traces on errors",
+            .debug_socket = "Enable debug console on a unix socket",
             .no_sleep = "Do not sleep the main loop when idle",
             .no_alternate = "Do not use the alternate terminal screen",
             .trace_level = "Enable internal tracing (level of detail from 1-5)",
@@ -96,7 +97,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             .class = "Set window class",
         };
 
-        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .class = "name" };
+        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .class = "name", .debug_socket = "path" };
 
         pub const switches = .{
             .project = 'p',
@@ -116,6 +117,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         frame_rate: ?usize,
         debug_wait: bool,
         debug_dump_on_error: bool,
+        debug_socket: ?[]const u8,
         no_sleep: bool,
         no_alternate: bool,
         trace_level: u8 = 0,
@@ -195,6 +197,7 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     var ctx = try thespian.context.init(a, .{});
     defer ctx.deinit();
+    if (args.debug_socket) |_| thespian.debug.enable(&ctx);
 
     const env = thespian.env.init();
     defer env.deinit();
@@ -276,6 +279,11 @@ pub fn main(init: std.process.Init) anyerror!void {
     env.proc_set("log", log_proc.ref());
     if (args.language) |s| env.str_set("language", s);
     if (args.class) |s| env.str_set("window-class", s);
+
+    if (args.debug_socket) |path| {
+        const path_z = try init.arena.allocator().dupeZ(u8, path);
+        debug_console = try thespian.debug.unx_create(&ctx, path_z, .file, "flow> ");
+    }
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
     const tui_proc = try tui.spawn(a, &ctx, &eh, env);
@@ -434,12 +442,18 @@ fn run_context(ctx: *thespian.context) void {
 }
 
 var final_exit_status: u8 = 0;
+var debug_console: ?thespian.pid = null;
 var want_restart: bool = false;
 var want_restart_with_sudo: bool = false;
 var have_global_init = false;
 var global_init: std.process.Init = undefined;
 
 pub fn print_exit_status(_: void, msg: []const u8) void {
+    if (debug_console) |p| {
+        p.send(.{"shutdown"}) catch {};
+        p.deinit();
+        debug_console = null;
+    }
     if (std.mem.eql(u8, msg, "normal")) {
         return;
     } else if (std.mem.eql(u8, msg, "restart")) {
