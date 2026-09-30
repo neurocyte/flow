@@ -140,7 +140,9 @@ fn build_release(
         .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .gui },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .freebsd }, .terminal },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .freebsd }, .gui },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .freebsd }, .terminal },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .freebsd }, .gui },
     } else blk: {
         const maybe_triple = b.option(
             []const u8,
@@ -154,11 +156,7 @@ fn build_release(
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = .musl }, .terminal },
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = null }, .gui },
                 },
-                .windows => &.{
-                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
-                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .gui },
-                },
-                .macos => &.{
+                .windows, .macos, .freebsd => &.{
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .gui },
                 },
@@ -177,11 +175,7 @@ fn build_release(
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .musl }, .terminal },
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .gnu }, .gui },
             },
-            .windows => &.{
-                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
-                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .gui },
-            },
-            .macos => &.{
+            .windows, .macos, .freebsd => &.{
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .gui },
             },
