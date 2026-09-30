@@ -1,22 +1,26 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const linux = if (builtin.os.tag == .linux) @import("font_finder/linux.zig") else struct {};
+const use_fontconfig = switch (builtin.os.tag) {
+    .linux, .freebsd => true,
+    else => false,
+};
+const linux = if (use_fontconfig) @import("font_finder/linux.zig") else struct {};
 
-pub const FallbackCandidate = if (builtin.os.tag == .linux)
+pub const FallbackCandidate = if (use_fontconfig)
     linux.FallbackCandidate
 else
     struct { path: []u8, face_index: i32, has_color: bool };
 
 /// A resolved font file plus the subfont index.
-pub const FontMatch = if (builtin.os.tag == .linux)
+pub const FontMatch = if (use_fontconfig)
     linux.FontMatch
 else
     struct { path: []u8, face_index: i32 };
 
 pub fn findFont(allocator: std.mem.Allocator, name: []const u8) !FontMatch {
     return switch (builtin.os.tag) {
-        .linux => linux.find(allocator, name),
+        .linux, .freebsd => linux.find(allocator, name),
         else => error.FontFinderNotSupported,
     };
 }
@@ -29,7 +33,7 @@ pub fn findFontVariant(
     italic: bool,
 ) !FontMatch {
     return switch (builtin.os.tag) {
-        .linux => linux.findVariant(allocator, family, css_weight, italic),
+        .linux, .freebsd => linux.findVariant(allocator, family, css_weight, italic),
         else => error.FontFinderNotSupported,
     };
 }
@@ -38,7 +42,7 @@ pub fn findFontVariant(
 /// Caller owns the returned slice and each string within it.
 pub fn listFonts(allocator: std.mem.Allocator) ![][]u8 {
     return switch (builtin.os.tag) {
-        .linux => linux.list(allocator),
+        .linux, .freebsd => linux.list(allocator),
         else => error.FontFinderNotSupported,
     };
 }
@@ -52,7 +56,7 @@ pub fn findFallbackFonts(
     glyf_only: bool,
 ) ![]FallbackCandidate {
     return switch (builtin.os.tag) {
-        .linux => linux.findFallbackFonts(allocator, codepoint, prefer_color, glyf_only),
+        .linux, .freebsd => linux.findFallbackFonts(allocator, codepoint, prefer_color, glyf_only),
         else => allocator.alloc(FallbackCandidate, 0),
     };
 }

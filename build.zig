@@ -654,12 +654,15 @@ pub fn build_exe(
                 const wio_mod = wio_dep.module("wio");
                 const sokol_mod = sokol_dep.module("sokol");
 
-                const cross_linux = target.result.os.tag == .linux and !is_native;
-                const flow_gui_headers_dep = if (cross_linux)
+                const cross_unix = switch (target.result.os.tag) {
+                    .linux, .freebsd => !is_native,
+                    else => false,
+                };
+                const flow_gui_headers_dep = if (cross_unix)
                     b.lazyDependency("flow_gui_headers", .{}) orelse break :blk tui_renderer_mod
                 else
                     null;
-                if (cross_linux) {
+                if (cross_unix) {
                     const sokol_clib = sokol_dep.artifact("sokol_clib");
                     if (b.lazyDependency("wio_unix_headers", .{})) |unix_headers|
                         sokol_clib.root_module.addSystemIncludePath(unix_headers.path("."));
@@ -814,7 +817,7 @@ pub fn build_exe(
                         .root_source_file = b.path("src/gui/rasterizer/font_finder.zig"),
                         .target = target,
                     });
-                    if (target.result.os.tag == .linux) {
+                    if (target.result.os.tag == .linux or target.result.os.tag == .freebsd) {
                         if (is_native) {
                             font_finder_mod.linkSystemLibrary("fontconfig", .{});
                         } else {
@@ -872,7 +875,7 @@ pub fn build_exe(
                         if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
                         if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
                         add_iosevka(freetype_rasterizer_mod, iosevka_mods);
-                        if (cross_linux) {
+                        if (cross_unix) {
                             const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
                             freetype_rasterizer_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols).getEmittedBin());
                         } else {
@@ -1465,7 +1468,7 @@ pub fn build_exe(
     }
 
     if (renderer == .gui) switch (target.result.os.tag) {
-        .linux => if (is_native)
+        .linux, .freebsd => if (is_native)
             exe.root_module.linkSystemLibrary("GL", .{})
         else if (b.lazyImport(@This(), "flow_gui_headers")) |fv|
             exe.root_module.addObjectFile(fv.stubSharedLib(b, target, optimize, "GL", 1, &fv.gl_stub_symbols).getEmittedBin()),

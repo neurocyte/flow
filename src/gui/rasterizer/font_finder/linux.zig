@@ -1,5 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const fc = @cImport({
+    // avoid FreeBSD's inline bintime helpers
+    if (builtin.os.tag == .freebsd) @cDefine("_POSIX_C_SOURCE", "200809L");
     @cInclude("fontconfig/fontconfig.h");
 });
 
