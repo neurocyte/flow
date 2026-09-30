@@ -64,6 +64,15 @@ fn label_for(kind: Kind) []const u8 {
     };
 }
 
+const SortOrder = enum { path_line_sorted, submit_order };
+
+fn sort_order_for(kind: Kind) SortOrder {
+    return switch (kind) {
+        .diagnostics, .references, .find_in_files => .path_line_sorted,
+        .terminal_links => .submit_order,
+    };
+}
+
 pub fn init(allocator: std.mem.Allocator, list_id: Id, kind: Kind) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -125,7 +134,10 @@ pub fn add(self: *Self, entry_: Entry) !void {
     entry.* = entry_;
     entry.path = path;
     entry.lines = lines;
-    std.mem.sort(Entry, self.entries.items, {}, entry_less_than);
+    switch (sort_order_for(self.kind)) {
+        .path_line_sorted => std.mem.sort(Entry, self.entries.items, {}, entry_less_than),
+        .submit_order => {},
+    }
 }
 
 pub fn len(self: *const Self) usize {

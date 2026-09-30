@@ -790,6 +790,8 @@ const BindingSet = struct {
                 }
             }
         }
+        drop_unbound(&self.press);
+        drop_unbound(&self.release);
         self.build_hints(allocator) catch {};
         return self;
     }
@@ -873,6 +875,22 @@ const BindingSet = struct {
         for (fallback.release.items) |binding| try self.release.append(allocator, binding);
         self.build_hints(allocator) catch {};
         return self;
+    }
+
+    /// Bind a key to "unbind" instead of a command to remove it. The sequence is
+    /// claimed (and then dropped), so an inherited mode cannot supply it.
+    pub const unbind = "unbind";
+
+    fn is_unbind(binding: *const Binding) bool {
+        return binding.commands.len == 1 and std.mem.eql(u8, binding.commands[0].command, unbind);
+    }
+
+    fn drop_unbound(dest: *std.ArrayList(Binding)) void {
+        var i = dest.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (is_unbind(&dest.items[i])) _ = dest.orderedRemove(i);
+        }
     }
 
     fn append_if_not_match(
@@ -1706,4 +1724,40 @@ test "keybind <<builtin>> resolution and remove-to-inherit" {
     // a mode absent from the custom file is inherited wholesale from the builtin
     const project = custom.get_mode("project").?;
     try std.testing.expectEqualStrings("open_file", (try test_command_for(project, "ctrl+o")).?);
+}
+
+test "unbind drops an inherited binding and leaves the sequence free as a prefix" {
+    reset_namespaces_for_test();
+    const namespace = try load_test_namespace("tunbind",
+        \\{
+        \\  "settings": { "no_defaults": true },
+        \\  "normal": { "syntax": "flow", "press": [
+        \\    ["g", "open_gui_config"],
+        \\    ["c", "open_config"]
+        \\  ]},
+        \\  "derived": { "syntax": "flow", "inherit": "normal", "press": [
+        \\    ["g", "unbind"],
+        \\    ["g g", "home_menu_top"]
+        \\  ]}
+        \\}
+    );
+    const derived = namespace.get_mode("derived").?;
+    try std.testing.expect((try test_command_for(derived, "g")) == null);
+    try std.testing.expectEqualStrings("home_menu_top", (try test_command_for(derived, "g g")).?);
+    // unrelated inherited bindings are untouched
+    try std.testing.expectEqualStrings("open_config", (try test_command_for(derived, "c")).?);
+}
+
+test "unbind blocks a binding inherited from the builtin fallback" {
+    reset_namespaces_for_test();
+    const custom = try load_test_namespace("flow",
+        \\{
+        \\  "settings": { "inherit": "<<builtin>>" },
+        \\  "home": { "press": [["c", "unbind"]] }
+        \\}
+    );
+    const home = custom.get_mode("home").?;
+    try std.testing.expect((try test_command_for(home, "c")) == null);
+    // the rest of the builtin mode still comes through
+    try std.testing.expectEqualStrings("open_keybind_config", (try test_command_for(home, "k")).?);
 }

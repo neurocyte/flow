@@ -568,15 +568,17 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     }) - trailing_px;
     const main_last_idx: usize = if (main_end_for_count == 0) 0 else main_end_for_count - 1;
 
+    const main_limit_a: usize = self.get_loc_a_const(&client_box) + total;
+
     for (self.widgets.items[0..main_end_for_count], 0..) |*w, idx| {
         var w_pos: Box = .{};
-        const size = switch (w.layout) {
+        const size = @min(switch (w.layout) {
             .dynamic => if (first) val: {
                 first = false;
                 break :val dyn_size + rounded;
             } else dyn_size,
             .static => |val| val,
-        };
+        }, main_limit_a -| cur_loc);
         self.get_size_a(&w_pos).* = size;
         self.get_loc_a(&w_pos).* = cur_loc;
         const child_main0: i32 = main_start + (@as(i32, @intCast(cur_loc)) - loc_a0) * cell_a;

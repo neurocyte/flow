@@ -489,7 +489,6 @@
     "home": {
         "syntax": "vim",
         "on_match_failure": "ignore",
-        "inherit": "project",
         "press": [
             ["f", "find_file"],
             ["/", "find_in_files"],
@@ -501,6 +500,29 @@
             ["h", "open_help"],
             ["v", "open_version_info"],
             ["q", "quit"],
+            ["u", "open_gui_config"],
+
+            ["<Space>/", "find_in_files"],
+            ["<Space>'", "last_palette"],
+
+            ["<Space>f", "find_file"],
+            ["<Space>b", "switch_buffers"],
+            ["<Space>e", "open_file_tree"],
+
+            ["<Space>cd", "show_diagnostics"],
+            ["<Space>gs", "show_vcs_status"],
+            ["<Space>sd", "show_diagnostics"],
+
+            ["<Space>wd", "close_split"],
+            ["<Space>wm", "toggle_centered_view"],
+            ["<Space>wo", "close_splits"],
+            ["<Space>wq", "close_split"],
+            ["<Space>wv", "add_split"],
+
+            ["gg", "home_menu_top"],
+            ["<C-f>", "home_menu_pagedown"],
+            ["<C-b>", "home_menu_pageup"],
+            ["G", "home_menu_bottom"],
             ["<CR>", "home_menu_activate"]
         ]
     }

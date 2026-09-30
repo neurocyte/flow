@@ -330,8 +330,10 @@ pub fn main(init: std.process.Init) anyerror!void {
             .{ .file = .{ .path = arg } }
         else if (is_directory(arg))
             .{ .dir = .{ .path = arg } }
-        else
-            try file_link.parse(arg);
+        else switch (try file_link.parse(arg)) {
+            .url => .{ .file = .{ .path = arg } },
+            else => |link| link,
+        };
         prev = curr;
 
         if (line_next) |line| {

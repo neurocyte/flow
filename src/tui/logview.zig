@@ -12,10 +12,14 @@ const command = @import("command");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("Widget.zig");
+const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
+const scrollbar_v = @import("scrollbar_v.zig");
 const tui = @import("tui.zig");
 const MessageFilter = @import("MessageFilter.zig");
+const MouseEvent = @import("MouseEvent");
+const EventHandler = @import("EventHandler");
 
 const escape = @import("std").ascii.hexEscape;
 
@@ -23,6 +27,7 @@ pub const name = @typeName(Self);
 
 plane: Plane,
 panel_input: PanelInput,
+scrollbar: ?*scrollbar_v = null,
 top: ?usize = null,
 
 var persistent_buffer: ?Buffer = null;
@@ -48,13 +53,37 @@ pub const panel_tag = "log";
 pub const panel_singleton = true;
 
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
+    const container = try WidgetList.createH(allocator, parent, "log.container", .dynamic);
+    errdefer container.deinit(allocator);
+
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
-        .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
+        .plane = try Plane.init(&(Widget.Box{}).opts(name), container.plane),
         .panel_input = try PanelInput.init(allocator, "log"),
     };
-    return Panel.to(self);
+
+    const scrollbar: ?Widget = if (tui.config().show_scrollbars)
+        try scrollbar_v.create(allocator, container.plane, null, EventHandler.bind(self, handle_scroll))
+    else
+        null;
+    if (scrollbar) |sb| {
+        self.scrollbar = sb.dynamic_cast(scrollbar_v);
+        self.scrollbar.?.style_factory = scrollbar_style;
+    }
+
+    try container.add(Widget.to(self));
+    if (scrollbar) |sb| try container.add(sb);
+    return Panel.to_hosted(self, container.widget());
+}
+
+fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
+    return if (sb.active)
+        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
+    else if (sb.hover)
+        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
+    else
+        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
 }
 
 pub fn panel_title(_: *Self) []const u8 {
@@ -80,24 +109,70 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    var btn: MouseEvent.Button = .none;
+    if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more })) switch (btn) {
+        .wheel_up => {
+            self.mouse_scroll(.up);
+            return true;
+        },
+        .wheel_down => {
+            self.mouse_scroll(.down);
+            return true;
+        },
+        else => {},
+    };
     return self.panel_input.receive(from, m);
 }
 
+fn view_rows(self: *const Self) usize {
+    return @max(1, self.plane.dim_y());
+}
+
+fn last_top(self: *const Self) usize {
+    const buffer = if (persistent_buffer) |*p| p else return 0;
+    return buffer.items.len -| self.view_rows();
+}
+
+fn scroll_to(self: *Self, top: usize) void {
+    const last = self.last_top();
+    self.top = if (top >= last) null else top;
+    tui.need_render(@src());
+}
+
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
-    const buffer = if (persistent_buffer) |*p| p else return;
-    const height = self.plane.dim_y();
-    const last_top = buffer.items.len -| height;
-    const cur = self.top orelse last_top;
-    const new: usize = switch (action) {
+    const rows = self.view_rows();
+    const cur = self.top orelse self.last_top();
+    self.scroll_to(switch (action) {
         .line_up => cur -| 1,
         .line_down => cur + 1,
-        .page_up => cur -| height,
-        .page_down => cur + height,
+        .page_up => cur -| rows,
+        .page_down => cur + rows,
         .top => 0,
-        .bottom => last_top,
-    };
-    self.top = if (new >= last_top) null else new;
-    tui.need_render(@src());
+        .bottom => self.last_top(),
+    });
+}
+
+fn mouse_scroll(self: *Self, direction: enum { up, down }) void {
+    const rows = self.view_rows();
+    const step = if (tui.fast_scroll()) rows else @min(rows, tui.config().scroll_step_vertical);
+    const cur = self.top orelse self.last_top();
+    self.scroll_to(switch (direction) {
+        .up => cur -| step,
+        .down => cur + step,
+    });
+}
+
+fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+    var top: usize = 0;
+    if (try m.match(.{ "scroll_to", tp.extract(&top) }))
+        self.scroll_to(top);
+}
+
+fn update_scrollbar(self: *Self) void {
+    const scrollbar = self.scrollbar orelse return;
+    const buffer = if (persistent_buffer) |*p| p else return;
+    const last = self.last_top();
+    scrollbar.set(@intCast(buffer.items.len), @intCast(self.view_rows()), @intCast(@min(self.top orelse last, last)));
 }
 
 pub fn panel_copy(_: *Self) void {
@@ -128,6 +203,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(style_normal);
     self.plane.erase();
     self.plane.home();
+    self.update_scrollbar();
     const height = self.plane.dim_y();
     var first = true;
     const buffer = if (persistent_buffer) |*p| p else return false;

@@ -1,9 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const root = @import("soft_root").root;
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
 const command_line = @import("command_line");
+const bin_path = @import("bin_path");
 
 pid: ?tp.pid,
 stdin_behavior: tp.subprocess.StdIo,
@@ -55,6 +57,74 @@ pub fn execute(allocator: std.mem.Allocator, argv: tp.message, handlers: Handler
 pub fn execute_pipe(allocator: std.mem.Allocator, argv: tp.message, output_handler: ?OutputHandler, exit_handler: ?ExitHandler) Error!Self {
     const stdin_behavior = .pipe;
     return .{ .pid = try Process.create(allocator, argv, stdin_behavior, output_handler, exit_handler), .stdin_behavior = stdin_behavior };
+}
+
+pub const DetachedError = error{ OutOfMemory, ExecutableNotFound, SpawnFailed };
+
+pub fn execute_detached(allocator: std.mem.Allocator, argv: []const []const u8) DetachedError!void {
+    if (argv.len == 0) return error.ExecutableNotFound;
+    var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+    if (!bin_path.can_execute(arena, argv[0])) return error.ExecutableNotFound;
+    const argv_ = try arena.dupe([]const u8, argv);
+    argv_[0] = bin_path.resolve_executable(arena, try arena.dupeSentinel(u8, argv[0], 0));
+    return switch (builtin.os.tag) {
+        .windows => execute_detached_windows(argv_),
+        else => execute_detached_posix(arena, argv_),
+    };
+}
+
+fn execute_detached_windows(argv: []const []const u8) DetachedError!void {
+    const child = std.process.spawn(root.get_io(), .{
+        .argv = argv,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+        .create_no_window = true,
+    }) catch return error.SpawnFailed;
+    if (child.id) |id| std.os.windows.CloseHandle(id);
+    std.os.windows.CloseHandle(child.thread_handle);
+}
+
+fn execute_detached_posix(arena: std.mem.Allocator, argv: []const []const u8) DetachedError!void {
+    const argv_buf = try arena.allocSentinel(?[*:0]const u8, argv.len, null);
+    for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
+    const envp = root.get_init().minimal.environ.block.slice.ptr;
+
+    // double fork so the child is reparented to init and never becomes our zombie
+    const pid = std.c.fork();
+    if (pid < 0) return error.SpawnFailed;
+    if (pid == 0) {
+        _ = std.c.setsid();
+        const handler_pid = std.c.fork();
+        if (handler_pid != 0) std.c._exit(if (handler_pid < 0) 1 else 0);
+        const null_fd = std.c.open("/dev/null", .{ .ACCMODE = .RDWR });
+        if (null_fd >= 0) {
+            _ = std.c.dup2(null_fd, std.posix.STDIN_FILENO);
+            _ = std.c.dup2(null_fd, std.posix.STDOUT_FILENO);
+            _ = std.c.dup2(null_fd, std.posix.STDERR_FILENO);
+        }
+        close_fds_from(3);
+        _ = std.c.execve(argv_buf[0].?, argv_buf.ptr, @ptrCast(envp));
+        std.c._exit(127);
+    }
+    var status: c_int = 0;
+    while (std.c.waitpid(pid, &status, 0) < 0)
+        if (std.posix.errno(-1) != .INTR) return error.SpawnFailed;
+    if (status != 0) return error.SpawnFailed;
+}
+
+extern fn getdtablesize() c_int;
+
+fn close_fds_from(first: c_int) void {
+    if (builtin.os.tag == .linux) {
+        const rc = std.os.linux.syscall3(.close_range, @intCast(first), std.math.maxInt(u32), 0);
+        if (std.os.linux.errno(rc) == .SUCCESS) return;
+    }
+    var fd = first;
+    const max_fd = getdtablesize();
+    while (fd < max_fd) : (fd += 1) _ = std.c.close(fd);
 }
 
 pub fn deinit(self: *Self) void {

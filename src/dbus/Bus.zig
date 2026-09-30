@@ -133,7 +133,7 @@ fn connected(self: *Bus, fd: i32) !void {
     try w.writeByte(0);
     try w.writeAll("AUTH EXTERNAL ");
     var uid_buf: [16]u8 = undefined;
-    const uid_dec = std.fmt.bufPrint(&uid_buf, "{d}", .{std.os.linux.getuid()}) catch unreachable;
+    const uid_dec = std.fmt.bufPrint(&uid_buf, "{d}", .{std.posix.system.getuid()}) catch unreachable;
     for (uid_dec) |c| try w.print("{x:0>2}", .{c});
     try w.writeAll("\r\n");
 

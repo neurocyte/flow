@@ -9,6 +9,7 @@ const root = @import("soft_root").root;
 const tracy = @import("tracy");
 const builtin = @import("builtin");
 const file_link = @import("file_link");
+const shell = @import("shell");
 const Buffer = @import("Buffer");
 
 pub const renderer = @import("renderer");
@@ -976,6 +977,13 @@ fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
         ih.send(from, m) catch |e| self.logger.err("input handler", e);
 }
 
+/// copying is required so nested commands do not stomp on the event
+fn copy_input_event(buf: []u8, args: tp.message) error{InputEventTooLarge}!tp.message {
+    if (args.buf.len > buf.len) return error.InputEventTooLarge;
+    @memcpy(buf[0..args.buf.len], args.buf);
+    return .{ .buf = buf[0..args.buf.len] };
+}
+
 fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     self.update_mouse_idle_timer();
@@ -1562,6 +1570,59 @@ const cmds = struct {
         .description = if (builtin.mode == .debug) "Force a crash dump" else &.{},
     };
 
+    pub fn inject_input(self: *Self, ctx: Ctx) Result {
+        var buf: [tp.max_message_size]u8 = undefined;
+        const m = try copy_input_event(&buf, ctx.args);
+        var event: input.Event = 0;
+        var keypress: input.Key = 0;
+        var keypress_shifted: input.Key = 0;
+        var text: []const u8 = "";
+        var modifiers: input.Mods = 0;
+        if (!try m.match(.{
+            "I",
+            tp.extract(&event),
+            tp.extract(&keypress),
+            tp.extract(&keypress_shifted),
+            tp.extract(&text),
+            tp.extract(&modifiers),
+            tp.more,
+        }))
+            return error.NotAnInputEvent;
+        dispatch_input(self, m.buf);
+    }
+    pub const inject_input_meta: Meta = .{};
+
+    pub fn inject_mouse(self: *Self, ctx: Ctx) Result {
+        var buf: [tp.max_message_size]u8 = undefined;
+        const m = try copy_input_event(&buf, ctx.args);
+        var event_type: MouseEvent.Type = undefined;
+        var btn: MouseEvent.Button = .none;
+        var coord: MouseEvent.Coord = undefined;
+        var modifiers: MouseEvent.Modifiers = .{};
+        if (!try m.match(.{
+            tp.extract(&event_type),
+            tp.extract(&btn),
+            tp.extract(&coord),
+            tp.extract(&modifiers),
+        }))
+            return error.NotAMouseEvent;
+        switch (event_type) {
+            .drag => dispatch_mouse_drag(self, coord, m.buf),
+            else => dispatch_mouse(self, coord, m.buf),
+        }
+    }
+    pub const inject_mouse_meta: Meta = .{};
+
+    pub fn inject_flush_input(self: *Self, _: Ctx) Result {
+        return self.dispatch_flush_input_event();
+    }
+    pub const inject_flush_input_meta: Meta = .{};
+
+    pub fn inject_need_render(_: *Self, _: Ctx) Result {
+        need_render(@src());
+    }
+    pub const inject_need_render_meta: Meta = .{};
+
     pub fn set_tab_width(self: *Self, ctx: Ctx) Result {
         var tab_width: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&tab_width)}))
@@ -2127,17 +2188,16 @@ const cmds = struct {
             const link = try file_link.parse(file_path);
             switch (link) {
                 .file => |file| return probe_file_link(file.path, file_path),
-                else => {},
+                .url => |url| return Self.open_url(url.url),
+                .dir => {},
             }
         } else if (get_active_editor()) |editor| {
             if (editor.get_file_link_at_cursor(self.allocator, editor.get_primary().cursor)) |result| {
                 const link, _ = result;
-                defer switch (link) {
-                    .file => |f| self.allocator.free(f.path),
-                    .dir => |d| self.allocator.free(d.path),
-                };
+                defer link.deinit(self.allocator);
                 switch (link) {
                     .file => |file| return probe_file_link(file.path, file.path),
+                    .url => |url| return Self.open_url(url.url),
                     .dir => return,
                 }
             }
@@ -2159,6 +2219,31 @@ const cmds = struct {
         return file_link.navigate(tp.self_pid(), &link);
     }
     pub const navigate_file_link_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn open_url(self: *Self, ctx: Ctx) Result {
+        var url: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&url)}) catch false))
+            return error.InvalidOpenUrlArgument;
+        const handler = self.config_.url_handler;
+        if (handler.len == 0) return self.logger.print("no url_handler configured", .{});
+        var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+        const argv = try arena.alloc([]const u8, handler.len);
+        for (handler, argv) |arg, *expanded|
+            expanded.* = @import("expansion.zig").expand_vars(arena, arg, &.{
+                .{ .name = "url", .value = url },
+            }) catch |e| switch (e) {
+                error.NotFound => return error.Stop,
+                else => |e_| return e_,
+            };
+        self.logger.print("open url: {s}", .{url});
+        shell.execute_detached(self.allocator, argv) catch |e| switch (e) {
+            error.ExecutableNotFound => return self.logger.print_err("open_url", "'{s}' executable not found", .{argv[0]}),
+            else => |e_| return e_,
+        };
+    }
+    pub const open_url_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn save_as(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/save_as.zig"), ctx);
@@ -2503,6 +2588,10 @@ pub fn probe_async(file_path: []const u8) void {
     const self = current();
     const buffer_manager = get_buffer_manager() orelse return;
     self.file_probe.probe_async(buffer_manager, root.get_io(), file_path);
+}
+
+pub fn open_url(url: []const u8) void {
+    tp.self_pid().send(.{ "cmd", "open_url", .{url} }) catch |e| std.log.err("send open_url failed: {t}", .{e});
 }
 
 fn probe_file_link(file_path: []const u8, link_text: []const u8) void {

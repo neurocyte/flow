@@ -12,9 +12,16 @@
 /// {{indent_size}} - The current indent size (in columns)
 /// {{reflow_width}} - The current reflow width (in columns)
 /// {{blame_commit}} - The blame commit ID at the line number of the primary cursor
-/// {{env:VAR}} - The value of the environment variable VAR (empty if unset)
+/// {{env:VAR}} - The value of the environment variable VAR (left unexpanded if unset)
 /// {{shell}} - The default interactive shell (pwsh/powershell/%COMSPEC% on Windows, $SHELL otherwise)
+/// {{url}} - The url being opened (url_handler only)
 pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
+    return expand_vars(allocator, arg, &.{});
+}
+
+/// Expand variables in arg, with additional caller supplied variables that
+/// take precedence over the builtin ones
+pub fn expand_vars(allocator: Allocator, arg: []const u8, vars: []const Var) Error![]const u8 {
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
     var iter = arg;
@@ -34,18 +41,23 @@ pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
         const var_name = iter[0..pos_end];
         iter = iter[pos_end + var_end_mark.len ..];
 
+        if (find_var(vars, var_name)) |value| {
+            try result.writer.writeAll(value);
+            continue;
+        }
+
         if (std.mem.startsWith(u8, var_name, env_prefix)) {
             if (root.get_init().environ_map.get(var_name[env_prefix.len..])) |value|
                 try result.writer.writeAll(value)
             else {
                 std.log.info("expansion of variable '{s}' failed: env var not found", .{var_name});
-                try result.writer.writeAll(arg);
+                try result.writer.print("{s}{s}{s}", .{ var_begin_mark, var_name, var_end_mark });
             }
             continue;
         }
 
         const func = variables.get(var_name) orelse {
-            std.log.err("unknown variable '{s}'", .{arg});
+            std.log.err("unknown variable '{s}'", .{var_name});
             return error.NotFound;
         };
         const text = func(allocator) catch |e| {
@@ -57,6 +69,11 @@ pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
         try result.writer.writeAll(text);
     }
     return try result.toOwnedSlice();
+}
+
+fn find_var(vars: []const Var, name: []const u8) ?[]const u8 {
+    for (vars) |v| if (std.mem.eql(u8, v.name, name)) return v.value;
+    return null;
 }
 
 pub fn expand_cbor(allocator: Allocator, args_cbor: cbor.Raw) !cbor.Raw {
@@ -78,6 +95,8 @@ pub fn expand_cbor(allocator: Allocator, args_cbor: cbor.Raw) !cbor.Raw {
     }
     return .{ .bytes = try result.toOwnedSlice() };
 }
+
+pub const Var = struct { name: []const u8, value: []const u8 };
 
 const var_begin_mark = "{{";
 const var_end_mark = "}}";

@@ -142,7 +142,9 @@ fn build_release(
         .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .gui },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .freebsd }, .terminal },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .freebsd }, .gui },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .freebsd }, .terminal },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .freebsd }, .gui },
     } else blk: {
         const maybe_triple = b.option(
             []const u8,
@@ -156,11 +158,7 @@ fn build_release(
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = .musl }, .terminal },
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = null }, .gui },
                 },
-                .windows => &.{
-                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
-                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .gui },
-                },
-                .macos => &.{
+                .windows, .macos, .freebsd => &.{
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .gui },
                 },
@@ -179,11 +177,7 @@ fn build_release(
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .musl }, .terminal },
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .gnu }, .gui },
             },
-            .windows => &.{
-                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
-                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .gui },
-            },
-            .macos => &.{
+            .windows, .macos, .freebsd => &.{
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .gui },
             },
@@ -658,12 +652,15 @@ pub fn build_exe(
                 const wio_mod = wio_dep.module("wio");
                 const sokol_mod = sokol_dep.module("sokol");
 
-                const cross_linux = target.result.os.tag == .linux and !is_native;
-                const flow_gui_headers_dep = if (cross_linux)
+                const cross_unix = switch (target.result.os.tag) {
+                    .linux, .freebsd => !is_native,
+                    else => false,
+                };
+                const flow_gui_headers_dep = if (cross_unix)
                     b.lazyDependency("flow_gui_headers", .{}) orelse break :blk tui_renderer_mod
                 else
                     null;
-                if (cross_linux) {
+                if (cross_unix) {
                     const sokol_clib = sokol_dep.artifact("sokol_clib");
                     if (b.lazyDependency("wio_unix_headers", .{})) |unix_headers|
                         sokol_clib.root_module.addSystemIncludePath(unix_headers.path("."));
@@ -821,12 +818,16 @@ pub fn build_exe(
                         .root_source_file = b.path("src/gui/rasterizer/font_finder.zig"),
                         .target = target,
                     });
-                    if (target.result.os.tag == .linux) {
+                    if (target.result.os.tag == .linux or target.result.os.tag == .freebsd) {
                         const fontconfig_c_step: Translator = .init(translate_c, .{
                             .c_source_file = b.path("src/gui/rasterizer/font_finder/fontconfig_c.h"),
                             .target = target,
                             .optimize = optimize,
                         });
+                        if (target.result.os.tag == .freebsd) {
+                            // avoid FreeBSD's inline bintime helpers
+                            fontconfig_c_step.defineCMacro("_POSIX_C_SOURCE", "200809L");
+                        }
                         if (is_native) {
                             font_finder_mod.linkSystemLibrary("fontconfig", .{});
                         } else {
@@ -886,7 +887,7 @@ pub fn build_exe(
                         if (nerd_font_mod) |m| freetype_rasterizer_mod.addImport("nerd_font", m);
                         if (noto_emoji_font_mod) |m| freetype_rasterizer_mod.addImport("noto_emoji_font", m);
                         add_iosevka(freetype_rasterizer_mod, iosevka_mods);
-                        if (cross_linux) {
+                        if (cross_unix) {
                             const fv = b.lazyImport(@This(), "flow_gui_headers") orelse break :blk tui_renderer_mod;
                             freetype_rasterizer_mod.addObjectFile(fv.stubSharedLib(b, target, optimize, "freetype", 6, &fv.freetype_stub_symbols).getEmittedBin());
                         } else {
@@ -1292,6 +1293,7 @@ pub fn build_exe(
             .{ .name = "log", .module = log_mod },
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "command_line", .module = command_line_mod },
+            .{ .name = "bin_path", .module = bin_path_mod },
         },
     });
 
@@ -1486,7 +1488,7 @@ pub fn build_exe(
     }
 
     if (renderer == .gui) switch (target.result.os.tag) {
-        .linux => if (is_native)
+        .linux, .freebsd => if (is_native)
             exe.root_module.linkSystemLibrary("GL", .{})
         else if (b.lazyImport(@This(), "flow_gui_headers")) |fv|
             exe.root_module.addObjectFile(fv.stubSharedLib(b, target, optimize, "GL", 1, &fv.gl_stub_symbols).getEmittedBin()),

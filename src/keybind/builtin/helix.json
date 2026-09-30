@@ -567,7 +567,7 @@
         "on_match_failure": "ignore",
         "press": [
             ["f", "find_file"],
-            ["g", "find_in_files"],
+            ["/", "find_in_files"],
             [":", "open_command_palette"],
             ["b", "open_keybind_config"],
             ["j", "home_menu_down"],
@@ -576,7 +576,52 @@
             ["h", "open_help"],
             ["v", "open_version_info"],
             ["q", "quit"],
-            ["space", "home_menu_activate"]
+            ["u", "open_gui_config"],
+            ["g g", "home_menu_top"],
+            ["g e", "home_menu_bottom"],
+            ["ctrl+f", "home_menu_pagedown"],
+            ["ctrl+b", "home_menu_pageup"],
+
+            ["ctrl+i", "jump_forward"],
+            ["ctrl+o", "jump_back"],
+
+            ["ctrl+^", "open_previous_file"],
+            ["ctrl+w v", "add_split"],
+            ["ctrl+w c", "toggle_centered_view"],
+            ["ctrl+w h", "goto_left_split"],
+            ["ctrl+w l", "goto_right_split"],
+            ["ctrl+w H", "swap_left_split"],
+            ["ctrl+w L", "swap_right_split"],
+            ["ctrl+w F", "goto_file_split"],
+            ["ctrl+w q", "close_split"],
+            ["ctrl+w o", "close_other_splits"],
+
+            ["g f", "goto_file"],
+            ["g a", "open_previous_file"],
+            ["g m", "open_most_recent_file"],
+            ["g n", "goto_next_buffer"],
+            ["g p", "goto_previous_buffer"],
+            ["g k", "goto_previous_buffer"],
+            ["g .", "goto_last_modification"],
+
+            ["[ D", "goto_first_diag"],
+            ["[ d", "goto_prev_diagnostic"],
+
+            ["] D", "goto_last_diag"],
+            ["] d", "goto_next_diagnostic"],
+
+            ["space F", "find_file"],
+            ["space e", "open_file_tree"],
+            ["space S", "workspace_symbol_picker"],
+            ["space D", "workspace_diagnostics_picker"],
+            ["space ?", "open_command_palette"],
+            ["space f", "find_file"],
+            ["space g", "show_vcs_status"],
+            ["space b", "switch_buffers"],
+            ["space j", "jumplist_picker"],
+            ["space d", "show_diagnostics"],
+            ["space '", "last_palette"],
+            ["space /", "find_in_files"]
         ]
     } 
 }
