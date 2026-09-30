@@ -119,7 +119,7 @@ fn clamp_row(self: *Self, cursor: *const Cursor, abs: bool, bottom_offset: usize
 fn clamp_col(self: *Self, cursor: *const Cursor, _: bool) void {
     if (cursor.col < self.col) {
         self.col = cursor.col;
-    } else if (cursor.col > self.col + self.cols - 1) {
+    } else if (cursor.col > self.col + self.cols -| 1) {
         self.col = cursor.col - self.cols + 1;
     }
 }
