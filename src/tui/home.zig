@@ -80,10 +80,17 @@ commands: Commands = undefined,
 focused: bool = false,
 menu: *Menu.State(*Self),
 menu_w: usize = 0,
+menu_desc_w: usize = 0,
 menu_label_max: usize = 0,
+menu_desc_max: usize = 0,
 menu_count: usize = 0,
 menu_len: usize = 0,
 max_desc_len: usize = 0,
+menu_items: std.ArrayList([]const u8) = .empty,
+menu_view_pos: usize = 0,
+menu_rows: usize = 0,
+menu_hidden: bool = true,
+menu_hints: bool = true,
 input_namespace: []const u8,
 root_mode: bool = false,
 
@@ -167,7 +174,8 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         var hints = std.mem.splitScalar(u8, keybind_mode.keybind_hints.get(command_name) orelse "", ',');
         const hint = hints.first();
         self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
-        try self.add_menu_command(command_name, description, hint, self.menu);
+        self.menu_desc_max = @max(self.menu_desc_max, description.len);
+        try self.add_menu_command(command_name, description, hint);
     }
     const padding = tui.get_widget_style(widget_type).padding;
     self.menu_len = self.menu_count + padding.top + padding.bottom;
@@ -177,6 +185,8 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     root.free_config(self.allocator, self.home_style_bufs);
+    for (self.menu_items.items) |item| self.allocator.free(item);
+    self.menu_items.deinit(self.allocator);
     self.menu.widget().deinit(allocator);
     if (self.focused) self.commands.deinit();
     self.info.deinit(allocator);
@@ -201,7 +211,7 @@ pub fn unfocus(self: *Self) void {
     self.menu.selected = null;
 }
 
-fn add_menu_command(self: *Self, command_name: []const u8, description: []const u8, hint: []const u8, menu: anytype) !void {
+fn add_menu_command(self: *Self, command_name: []const u8, description: []const u8, hint: []const u8) !void {
     const label_len = description.len + hint.len;
     var buf: [64]u8 = undefined;
     {
@@ -218,6 +228,7 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
         const padding = tui.get_widget_style(widget_type).padding;
         self.menu_label_max = @max(self.menu_label_max, label.len);
         self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
+        self.menu_desc_w = self.menu_desc_max + 2 + padding.left + padding.right;
     }
 
     var value: std.Io.Writer.Allocating = .init(self.allocator);
@@ -227,7 +238,47 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
     try cbor.writeValue(writer, hint);
     try cbor.writeValue(writer, command_name);
 
-    try menu.add_item_with_handler(value.written(), menu_action);
+    (try self.menu_items.addOne(self.allocator)).* = try self.allocator.dupe(u8, value.written());
+}
+
+fn rebuild_menu(self: *Self) void {
+    self.menu.reset_items();
+    const first = @min(self.menu_view_pos, self.menu_items.items.len);
+    const last = @min(self.menu_items.items.len, first + self.menu_rows);
+    for (self.menu_items.items[first..last]) |label|
+        self.menu.add_item_with_handler(label, menu_action) catch return;
+    if (self.menu.count() == 0) {
+        self.menu.selected = null;
+    } else if (self.menu.selected) |selected| {
+        if (selected >= self.menu.count()) self.menu.selected = self.menu.count() - 1;
+    } else if (self.focused) {
+        // focus may have landed before the first window was built
+        self.menu.selected = 0;
+    }
+}
+
+fn scroll_menu(self: *Self, direction: enum { up, down }) void {
+    defer tui.need_render(@src());
+    switch (direction) {
+        .down => {
+            if (self.menu.selected) |selected|
+                if (selected + 1 >= self.menu_rows and self.menu_view_pos + self.menu_rows < self.menu_items.items.len) {
+                    self.menu_view_pos += 1;
+                    self.rebuild_menu();
+                    return self.menu.select_last();
+                };
+            self.menu.select_down();
+        },
+        .up => {
+            if (self.menu.selected) |selected|
+                if (selected == 0 and self.menu_view_pos > 0) {
+                    self.menu_view_pos -= 1;
+                    self.rebuild_menu();
+                    return self.menu.select_first();
+                };
+            self.menu.select_up();
+        },
+    }
 }
 
 pub fn update(self: *Self) void {
@@ -236,7 +287,8 @@ pub fn update(self: *Self) void {
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(walk_ctx, Widget.to(self), .begin)) return true;
-    return self.menu.walk(walk_ctx, f) or f(walk_ctx, Widget.to(self), .end);
+    if (!self.menu_hidden and self.menu.walk(walk_ctx, f)) return true;
+    return f(walk_ctx, Widget.to(self), .end);
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -268,6 +320,7 @@ fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, 
     if (!(cbor.matchString(&iter, &command_name) catch false))
         command_name = "";
 
+    if (!self.menu_hints) hint = "";
     const label_len = description.len + hint.len;
     var buf: [64]u8 = undefined;
     const leader = blk: {
@@ -388,8 +441,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         _ = self.plane.print("{s}", .{title}) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
-        self.plane.cursor_move_yx(3, self.centerI(6, subtext.len));
-        _ = self.plane.print(" {s}", .{subtext}) catch {};
+        self.plane.cursor_move_yx(3, self.centerI(7, subtext.len));
+        _ = self.plane.print("{s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);
@@ -407,7 +460,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     self.render_info(theme, style_subtext);
 
-    const more = self.menu.container.render(theme);
+    const more = if (self.menu_hidden) false else self.menu.container.render(theme);
     return more or self.fire != null;
 }
 
@@ -437,21 +490,30 @@ fn render_info(self: *Self, theme: *const Widget.Theme, style_subtext: Widget.Th
 fn position_menu(self: *Self, y: usize, x: usize) void {
     const box = Widget.Box.from(self.plane);
     const padding = tui.get_widget_style(widget_type).padding;
-    const min_h = @as(usize, padding.top) + @as(usize, padding.bottom) + 1;
-    const min_w = @as(usize, padding.left) + @as(usize, padding.right) + 1;
-    const y_ = @min(y, box.h -| min_h);
-    const x_ = @min(x, box.w -| min_w);
-    self.menu.resize(.{
-        .y = box.y + y_,
-        .x = box.x + x_,
-        .w = @max(min_w, @min(self.menu_w, box.w -| x_)),
-        .h = @max(min_h, @min(self.menu_len, box.h -| y_)),
-    });
+    const deco_h: usize = @as(usize, padding.top) + @as(usize, padding.bottom);
+
+    const avail_rows = (box.h -| y) -| deco_h;
+    self.menu_hidden = avail_rows == 0;
+    if (self.menu_hidden) return;
+
+    const hints = box.w >= self.menu_w;
+    const want_w = if (hints) self.menu_w else self.menu_desc_w;
+    const x_ = @min(x, box.w -| want_w);
+    const w = @min(want_w, box.w -| x_);
+
+    const rows = @min(avail_rows, self.menu_items.items.len);
+    if (rows != self.menu_rows or hints != self.menu_hints) {
+        self.menu_rows = rows;
+        self.menu_hints = hints;
+        self.menu_view_pos = @min(self.menu_view_pos, self.menu_items.items.len -| rows);
+        self.rebuild_menu();
+    }
+    self.menu.resize(.{ .y = box.y + y, .x = box.x + x_, .w = w, .h = rows + deco_h });
 }
 
 fn center(self: *Self, non_centered: usize, w: usize) usize {
-    if (!self.home_style.centered) return non_centered;
     const box = Widget.Box.from(self.plane);
+    if (!self.home_style.centered) return @min(non_centered, box.w -| w);
     return if (box.w > w) (box.w - w) / 2 else 0;
 }
 
@@ -502,12 +564,12 @@ const cmds = struct {
     pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
-        self.menu.select_down();
+        self.scroll_menu(.down);
     }
     pub const home_menu_down_meta: Meta = .{};
 
     pub fn home_menu_up(self: *Self, _: Ctx) Result {
-        self.menu.select_up();
+        self.scroll_menu(.up);
     }
     pub const home_menu_up_meta: Meta = .{};
 
@@ -521,6 +583,7 @@ const cmds = struct {
         const padding = tui.get_widget_style(widget_type).padding;
         self.menu_len = self.menu_count + padding.top + padding.bottom;
         self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
+        self.menu_desc_w = self.menu_desc_max + 2 + padding.left + padding.right;
         tui.need_render(@src());
         try tui.save_config();
     }
