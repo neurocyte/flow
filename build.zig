@@ -1270,6 +1270,7 @@ pub fn build_exe(
             .{ .name = "log", .module = log_mod },
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "command_line", .module = command_line_mod },
+            .{ .name = "bin_path", .module = bin_path_mod },
         },
     });
 

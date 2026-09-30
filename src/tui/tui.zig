@@ -2226,24 +2226,22 @@ const cmds = struct {
             return error.InvalidOpenUrlArgument;
         const handler = self.config_.url_handler;
         if (handler.len == 0) return self.logger.print("no url_handler configured", .{});
-        var argv: std.Io.Writer.Allocating = .init(self.allocator);
-        defer argv.deinit();
-        try cbor.writeArrayHeader(&argv.writer, handler.len);
-        for (handler) |arg| {
-            const expanded = @import("expansion.zig").expand_vars(self.allocator, arg, &.{
+        var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+        const argv = try arena.alloc([]const u8, handler.len);
+        for (handler, argv) |arg, *expanded|
+            expanded.* = @import("expansion.zig").expand_vars(arena, arg, &.{
                 .{ .name = "url", .value = url },
             }) catch |e| switch (e) {
                 error.NotFound => return error.Stop,
                 else => |e_| return e_,
             };
-            defer self.allocator.free(expanded);
-            try cbor.writeValue(&argv.writer, expanded);
-        }
-        try shell.execute(self.allocator, .{ .buf = argv.written() }, .{
-            .out = shell.log_handler,
-            .err = shell.log_err_handler,
-            .exit = shell.log_exit_err_handler,
-        });
+        self.logger.print("open url: {s}", .{url});
+        shell.execute_detached(self.allocator, argv) catch |e| switch (e) {
+            error.ExecutableNotFound => return self.logger.print_err("open_url", "'{s}' executable not found", .{argv[0]}),
+            else => |e_| return e_,
+        };
     }
     pub const open_url_meta: Meta = .{ .arguments = &.{.string} };
 
