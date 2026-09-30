@@ -824,10 +824,6 @@ pub fn build_exe(
                             .target = target,
                             .optimize = optimize,
                         });
-                        if (target.result.os.tag == .freebsd) {
-                            // avoid FreeBSD's inline bintime helpers
-                            fontconfig_c_step.defineCMacro("_POSIX_C_SOURCE", "200809L");
-                        }
                         if (is_native) {
                             font_finder_mod.linkSystemLibrary("fontconfig", .{});
                         } else {
