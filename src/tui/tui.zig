@@ -9,6 +9,7 @@ const root = @import("soft_root").root;
 const tracy = @import("tracy");
 const builtin = @import("builtin");
 const file_link = @import("file_link");
+const shell = @import("shell");
 const Buffer = @import("Buffer");
 
 pub const renderer = @import("renderer");
@@ -2187,17 +2188,16 @@ const cmds = struct {
             const link = try file_link.parse(file_path);
             switch (link) {
                 .file => |file| return probe_file_link(file.path, file_path),
-                else => {},
+                .url => |url| return Self.open_url(url.url),
+                .dir => {},
             }
         } else if (get_active_editor()) |editor| {
             if (editor.get_file_link_at_cursor(self.allocator, editor.get_primary().cursor)) |result| {
                 const link, _ = result;
-                defer switch (link) {
-                    .file => |f| self.allocator.free(f.path),
-                    .dir => |d| self.allocator.free(d.path),
-                };
+                defer link.deinit(self.allocator);
                 switch (link) {
                     .file => |file| return probe_file_link(file.path, file.path),
+                    .url => |url| return Self.open_url(url.url),
                     .dir => return,
                 }
             }
@@ -2219,6 +2219,33 @@ const cmds = struct {
         return file_link.navigate(tp.self_pid(), &link);
     }
     pub const navigate_file_link_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn open_url(self: *Self, ctx: Ctx) Result {
+        var url: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&url)}) catch false))
+            return error.InvalidOpenUrlArgument;
+        const handler = self.config_.url_handler;
+        if (handler.len == 0) return self.logger.print("no url_handler configured", .{});
+        var argv: std.Io.Writer.Allocating = .init(self.allocator);
+        defer argv.deinit();
+        try cbor.writeArrayHeader(&argv.writer, handler.len);
+        for (handler) |arg| {
+            const expanded = @import("expansion.zig").expand_vars(self.allocator, arg, &.{
+                .{ .name = "url", .value = url },
+            }) catch |e| switch (e) {
+                error.NotFound => return error.Stop,
+                else => |e_| return e_,
+            };
+            defer self.allocator.free(expanded);
+            try cbor.writeValue(&argv.writer, expanded);
+        }
+        try shell.execute(self.allocator, .{ .buf = argv.written() }, .{
+            .out = shell.log_handler,
+            .err = shell.log_err_handler,
+            .exit = shell.log_exit_err_handler,
+        });
+    }
+    pub const open_url_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn save_as(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/save_as.zig"), ctx);
@@ -2563,6 +2590,10 @@ pub fn probe_async(file_path: []const u8) void {
     const self = current();
     const buffer_manager = get_buffer_manager() orelse return;
     self.file_probe.probe_async(buffer_manager, root.get_io(), file_path);
+}
+
+pub fn open_url(url: []const u8) void {
+    tp.self_pid().send(.{ "cmd", "open_url", .{url} }) catch |e| std.log.err("send open_url failed: {t}", .{e});
 }
 
 fn probe_file_link(file_path: []const u8, link_text: []const u8) void {

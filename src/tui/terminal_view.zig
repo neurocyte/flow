@@ -189,10 +189,14 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
             if (tui.jump_mode()) if (self.file_link_) |*link| switch (link.*) {
                 .file => |*fl| {
-                    navigate_to_file_link(fl);
+                    if (is_press) navigate_to_file_link(fl);
                     return true;
                 },
-                else => {},
+                .url => |url| {
+                    if (is_press) tui.open_url(url.url);
+                    return true;
+                },
+                .dir => {},
             };
 
             if (button == .left) {
@@ -398,22 +402,14 @@ pub fn unfocus(self: *Self) void {
     self.panel_input.unfocus(Widget.to(self));
 }
 
-fn set_file_link(self: *Self, link_: file_link.Dest, hl: FileLinkHighlight) error{OutOfMemory}!void {
+fn set_file_link(self: *Self, link: file_link.Dest, hl: FileLinkHighlight) error{OutOfMemory}!void {
     self.reset_file_link();
-    var link: file_link.Dest = link_;
-    switch (link) {
-        .file => |*p| p.path = try self.allocator.dupe(u8, p.path),
-        .dir => |*p| p.path = try self.allocator.dupe(u8, p.path),
-    }
-    self.file_link_ = link;
+    self.file_link_ = try link.dupe(self.allocator);
     self.file_link_highlight = hl;
 }
 
 fn reset_file_link(self: *Self) void {
-    if (self.file_link_) |link| switch (link) {
-        .file => |f| self.allocator.free(f.path),
-        .dir => |d| self.allocator.free(d.path),
-    };
+    if (self.file_link_) |link| link.deinit(self.allocator);
     self.file_link_ = null;
     self.file_link_highlight = null;
 }
@@ -532,7 +528,7 @@ fn probe_file_links(self: *Self, screen: *const Vt.Screen, range: anytype) bool 
             const link = file_link.parse(slice) catch continue;
             const f = switch (link) {
                 .file => |f| f,
-                .dir => continue,
+                .dir, .url => continue,
             };
             if (tui.probed(f.path)) |_| continue;
             const path = self.allocator.dupe(u8, f.path) catch continue;
@@ -590,6 +586,7 @@ fn update_file_link_highlight(self: *Self) void {
             },
             .other => return,
         },
+        .url => {},
         .dir => return,
     }
     const start_col = col_at_byte.items[range.start];
@@ -621,6 +618,7 @@ fn try_set_osc8_highlight(self: *Self, screen: *const Vt.Screen, screen_row: usi
             },
             .other => return false,
         },
+        .url => {},
         .dir => return false,
     }
 
@@ -1062,7 +1060,7 @@ const cmds = struct {
                 const link = file_link.parse(slice) catch continue;
                 const f = switch (link) {
                     .file => |f| f,
-                    .dir => continue,
+                    .dir, .url => continue,
                 };
                 const info = tui.probed(f.path) orelse continue;
                 if (!info.is_text_file()) continue;

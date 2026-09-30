@@ -2267,12 +2267,10 @@ pub const Editor = struct {
 
         if (self.get_file_link_at_cursor(self.allocator, cursor)) |result| {
             const link, const sel = result;
-            defer switch (link) {
-                .file => |f| self.allocator.free(f.path),
-                .dir => |d| self.allocator.free(d.path),
-            };
+            defer link.deinit(self.allocator);
             switch (link) {
                 .dir => {},
+                .url => self.file_link_highlight = Match.from_selection(sel),
                 .file => |f| switch (tui.probe_link(f.path)) {
                     .text_file => self.file_link_highlight = Match.from_selection(sel),
                     .unknown => retry = true,
@@ -3217,8 +3215,20 @@ pub const Editor = struct {
         self.collapse_cursors();
         self.clamp_mouse(root_mod.get_now());
         try self.send_editor_jump_destination();
-        if (tui.jump_mode()) try self.goto_definition(.empty());
+        if (tui.jump_mode()) try self.open_link_or_goto_definition();
         tui.reset_input_idle_timer();
+    }
+
+    fn open_link_or_goto_definition(self: *Self) Result {
+        if (self.get_file_link_at_cursor(self.allocator, self.get_primary().cursor)) |result| {
+            const link, _ = result;
+            defer link.deinit(self.allocator);
+            switch (link) {
+                .url => |url| return tui.open_url(url.url),
+                .file, .dir => {},
+            }
+        }
+        return self.goto_definition(.empty());
     }
 
     pub fn primary_double_click(self: *Self, y: c_int, x: c_int) !void {
@@ -3532,12 +3542,8 @@ pub const Editor = struct {
             .begin = .{ .row = cursor.row, .col = range.start },
             .end = .{ .row = cursor.row, .col = range.end },
         }, root_, self.metrics);
-        var dest = file_link.parse(line_text[range.start..range.end]) catch return null;
-        switch (dest) {
-            .file => |*f| f.path = allocator.dupe(u8, f.path) catch return null,
-            .dir => |*d| d.path = allocator.dupe(u8, d.path) catch return null,
-        }
-        return .{ dest, sel };
+        const dest = file_link.parse(line_text[range.start..range.end]) catch return null;
+        return .{ dest.dupe(allocator) catch return null, sel };
     }
 
     fn copy_word_at_cursor(self: *Self, text_allocator: Allocator) ![]const u8 {
@@ -3746,7 +3752,7 @@ pub const Editor = struct {
                 const link = file_link.parse(slice) catch continue;
                 const f = switch (link) {
                     .file => |f| f,
-                    .dir => continue,
+                    .dir, .url => continue,
                 };
                 const info = tui.probed(f.path) orelse continue;
                 if (!info.is_text_file()) continue;
@@ -3792,7 +3798,7 @@ pub const Editor = struct {
                 const link = file_link.parse(slice) catch continue;
                 const f = switch (link) {
                     .file => |f| f,
-                    .dir => continue,
+                    .dir, .url => continue,
                 };
                 if (tui.probed(f.path)) |_| continue;
                 const path = self.allocator.dupe(u8, f.path) catch continue;
@@ -7392,8 +7398,8 @@ pub const Editor = struct {
 
         const alt_dest: ?file_link.FileDest = if (self.get_file_link_at_cursor(self.allocator, self.get_primary().cursor)) |result| switch (result.@"0") {
             .file => |file| file,
-            .dir => |dir| blk: {
-                self.allocator.free(dir.path);
+            .dir, .url => blk: {
+                result.@"0".deinit(self.allocator);
                 break :blk null;
             },
         } else null;

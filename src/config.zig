@@ -122,6 +122,12 @@ enable_file_watcher: bool = true,
 
 desktop_theme_file: []const u8 = &.{},
 
+url_handler: []const []const u8 = switch (builtin.os.tag) {
+    .windows => &.{ "rundll32", "url.dll,FileProtocolHandler", "{{url}}" },
+    .macos => &.{ "open", "{{url}}" },
+    else => &.{ "xdg-open", "{{url}}" },
+},
+
 non_indexed_projects: []const []const u8 = switch (builtin.os.tag) {
     .windows => &.{
         "{{env:SystemDrive}}",       "{{env:SystemRoot}}",  "{{env:ProgramFiles}}",

@@ -4,6 +4,25 @@ const tp = @import("thespian");
 pub const Dest = union(enum) {
     file: FileDest,
     dir: DirDest,
+    url: UrlDest,
+
+    pub fn dupe(self: @This(), allocator: std.mem.Allocator) error{OutOfMemory}!@This() {
+        var dest = self;
+        switch (dest) {
+            .file => |*f| f.path = try allocator.dupe(u8, f.path),
+            .dir => |*d| d.path = try allocator.dupe(u8, d.path),
+            .url => |*u| u.url = try allocator.dupe(u8, u.url),
+        }
+        return dest;
+    }
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        switch (self) {
+            .file => |f| allocator.free(f.path),
+            .dir => |d| allocator.free(d.path),
+            .url => |u| allocator.free(u.url),
+        }
+    }
 };
 
 pub const FileDest = struct {
@@ -20,6 +39,10 @@ pub const DirDest = struct {
     path: []const u8,
 };
 
+pub const UrlDest = struct {
+    url: []const u8,
+};
+
 pub const FileSrc = struct {
     path: []const u8,
     line: usize,
@@ -28,6 +51,13 @@ pub const FileSrc = struct {
 
 pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
     if (link.len == 0) return error.InvalidFileLink;
+
+    if (find_url_start(link) == 0) {
+        if (!std.mem.startsWith(u8, link, "file://")) return .{ .url = .{ .url = link } };
+        const after_scheme = link["file://".len..];
+        const path_start = std.mem.indexOfScalar(u8, after_scheme, '/') orelse return error.InvalidFileLink;
+        return parse(after_scheme[path_start..]);
+    }
 
     if (std.mem.lastIndexOfScalar(u8, link, '(')) |pos| blk: {
         for (link[pos + 1 ..]) |c| switch (c) {
@@ -72,7 +102,7 @@ pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
                 }
             };
         },
-        .dir => {},
+        .dir, .url => {},
     }
     return dest;
 }
@@ -98,7 +128,7 @@ pub fn parse_bracket_link(link: []const u8) error{InvalidFileLink}!Dest {
                 file.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
             };
         },
-        .dir => {},
+        .dir, .url => {},
     }
     return dest;
 }
@@ -108,7 +138,10 @@ pub fn url_parse(
     out_path: *std.ArrayList(u8),
     allocator: std.mem.Allocator,
 ) error{ InvalidFileLink, OutOfMemory }!Dest {
-    if (!std.mem.startsWith(u8, uri, "file://")) return error.InvalidFileLink;
+    if (!std.mem.startsWith(u8, uri, "file://")) {
+        if (find_url_start(uri) != 0) return error.InvalidFileLink;
+        return .{ .url = .{ .url = uri } };
+    }
     const after_scheme = uri["file://".len..];
     // Skip the hostname: everything up to the first '/' that begins the
     // absolute path. RFC 8089 file URIs may include a hostname (or empty
@@ -224,7 +257,53 @@ fn looks_like_path(token: []const u8) bool {
     return false;
 }
 
+fn is_scheme_char(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '+' or c == '-' or c == '.';
+}
+
+fn find_url_start(token: []const u8) ?usize {
+    var search: usize = 0;
+    while (std.mem.indexOfPos(u8, token, search, "://")) |sep| {
+        var start = sep;
+        while (start > 0 and is_scheme_char(token[start - 1])) start -= 1;
+        while (start < sep and !std.ascii.isAlphabetic(token[start])) start += 1;
+        if (start < sep and sep + 3 < token.len) return start;
+        search = sep + 3;
+    }
+    return null;
+}
+
+fn is_url_terminator(c: u8) bool {
+    return switch (c) {
+        '"', '\'', '`', '<', '>', '{', '}', '|', '\\', '^' => true,
+        else => c <= ' ',
+    };
+}
+
+fn is_url_trailing_trim(c: u8) bool {
+    return c == '.' or c == ',' or c == ';' or c == ':' or c == '!' or c == '?' or c == '*';
+}
+
+fn find_url_end(text: []const u8) usize {
+    var end: usize = 0;
+    while (end < text.len and !is_url_terminator(text[end])) end += 1;
+    while (end > 0) : (end -= 1) {
+        const c = text[end - 1];
+        if (is_url_trailing_trim(c)) continue;
+        if (c == ')' and std.mem.count(u8, text[0..end], "(") < std.mem.count(u8, text[0..end], ")")) continue;
+        if (c == ']' and std.mem.count(u8, text[0..end], "[") < std.mem.count(u8, text[0..end], "]")) continue;
+        break;
+    }
+    const sep = std.mem.indexOf(u8, text[0..end], "://") orelse return 0;
+    return if (sep + 3 < end) end else 0;
+}
+
 fn try_parse_token(line: []const u8, raw_start: usize, raw_end: usize) ?Range {
+    if (find_url_start(line[raw_start..raw_end])) |offset| {
+        const start = raw_start + offset;
+        const len = find_url_end(line[start..raw_end]);
+        if (len > 0) return .{ .start = start, .end = start + len };
+    }
     var start = raw_start;
     var end = raw_end;
     while (start < end and is_link_leading_trim(line[start])) start += 1;
