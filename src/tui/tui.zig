@@ -976,6 +976,13 @@ fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
         ih.send(from, m) catch |e| self.logger.err("input handler", e);
 }
 
+/// copying is required so nested commands do not stomp on the event
+fn copy_input_event(buf: []u8, args: tp.message) error{InputEventTooLarge}!tp.message {
+    if (args.buf.len > buf.len) return error.InputEventTooLarge;
+    @memcpy(buf[0..args.buf.len], args.buf);
+    return .{ .buf = buf[0..args.buf.len] };
+}
+
 fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     self.update_mouse_idle_timer();
@@ -1561,6 +1568,59 @@ const cmds = struct {
     pub const force_crash_dump_meta: Meta = .{
         .description = if (builtin.mode == .Debug) "Force a crash dump" else &.{},
     };
+
+    pub fn inject_input(self: *Self, ctx: Ctx) Result {
+        var buf: [tp.max_message_size]u8 = undefined;
+        const m = try copy_input_event(&buf, ctx.args);
+        var event: input.Event = 0;
+        var keypress: input.Key = 0;
+        var keypress_shifted: input.Key = 0;
+        var text: []const u8 = "";
+        var modifiers: input.Mods = 0;
+        if (!try m.match(.{
+            "I",
+            tp.extract(&event),
+            tp.extract(&keypress),
+            tp.extract(&keypress_shifted),
+            tp.extract(&text),
+            tp.extract(&modifiers),
+            tp.more,
+        }))
+            return error.NotAnInputEvent;
+        dispatch_input(self, m.buf);
+    }
+    pub const inject_input_meta: Meta = .{};
+
+    pub fn inject_mouse(self: *Self, ctx: Ctx) Result {
+        var buf: [tp.max_message_size]u8 = undefined;
+        const m = try copy_input_event(&buf, ctx.args);
+        var event_type: MouseEvent.Type = undefined;
+        var btn: MouseEvent.Button = .none;
+        var coord: MouseEvent.Coord = undefined;
+        var modifiers: MouseEvent.Modifiers = .{};
+        if (!try m.match(.{
+            tp.extract(&event_type),
+            tp.extract(&btn),
+            tp.extract(&coord),
+            tp.extract(&modifiers),
+        }))
+            return error.NotAMouseEvent;
+        switch (event_type) {
+            .drag => dispatch_mouse_drag(self, coord, m.buf),
+            else => dispatch_mouse(self, coord, m.buf),
+        }
+    }
+    pub const inject_mouse_meta: Meta = .{};
+
+    pub fn inject_flush_input(self: *Self, _: Ctx) Result {
+        return self.dispatch_flush_input_event();
+    }
+    pub const inject_flush_input_meta: Meta = .{};
+
+    pub fn inject_need_render(_: *Self, _: Ctx) Result {
+        need_render(@src());
+    }
+    pub const inject_need_render_meta: Meta = .{};
 
     pub fn set_tab_width(self: *Self, ctx: Ctx) Result {
         var tab_width: usize = 0;
