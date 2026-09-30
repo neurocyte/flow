@@ -436,7 +436,17 @@ fn render_info(self: *Self, theme: *const Widget.Theme, style_subtext: Widget.Th
 
 fn position_menu(self: *Self, y: usize, x: usize) void {
     const box = Widget.Box.from(self.plane);
-    self.menu.resize(.{ .y = box.y + y, .x = box.x + x, .w = self.menu_w, .h = self.menu_len });
+    const padding = tui.get_widget_style(widget_type).padding;
+    const min_h = @as(usize, padding.top) + @as(usize, padding.bottom) + 1;
+    const min_w = @as(usize, padding.left) + @as(usize, padding.right) + 1;
+    const y_ = @min(y, box.h -| min_h);
+    const x_ = @min(x, box.w -| min_w);
+    self.menu.resize(.{
+        .y = box.y + y_,
+        .x = box.x + x_,
+        .w = @max(min_w, @min(self.menu_w, box.w -| x_)),
+        .h = @max(min_h, @min(self.menu_len, box.h -| y_)),
+    });
 }
 
 fn center(self: *Self, non_centered: usize, w: usize) usize {
