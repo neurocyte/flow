@@ -567,7 +567,7 @@
         "on_match_failure": "ignore",
         "press": [
             ["f", "find_file"],
-            ["g", "find_in_files"],
+            ["/", "find_in_files"],
             [":", "open_command_palette"],
             ["b", "open_keybind_config"],
             ["j", "home_menu_down"],
@@ -576,6 +576,11 @@
             ["h", "open_help"],
             ["v", "open_version_info"],
             ["q", "quit"],
+            ["u", "open_gui_config"],
+            ["g g", "home_menu_top"],
+            ["g e", "home_menu_bottom"],
+            ["ctrl+f", "home_menu_pagedown"],
+            ["ctrl+b", "home_menu_pageup"],
             ["space", "home_menu_activate"]
         ]
     } 

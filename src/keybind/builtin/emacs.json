@@ -133,6 +133,10 @@
             ["ctrl+c ctrl+o", "open_recent_project"],
             ["ctrl+c g", "find_in_files"],
             ["alt+x", "open_command_palette"],
+            ["ctrl+v", "home_menu_pagedown"],
+            ["alt+v", "home_menu_pageup"],
+            ["alt+<", "home_menu_top"],
+            ["alt+>", "home_menu_bottom"],
             ["ctrl+x ctrl+c", "quit"]
         ]
     }

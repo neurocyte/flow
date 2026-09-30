@@ -501,6 +501,11 @@
             ["h", "open_help"],
             ["v", "open_version_info"],
             ["q", "quit"],
+            ["u", "open_gui_config"],
+            ["gg", "home_menu_top"],
+            ["<C-f>", "home_menu_pagedown"],
+            ["<C-b>", "home_menu_pageup"],
+            ["G", "home_menu_bottom"],
             ["<CR>", "home_menu_activate"]
         ]
     }
