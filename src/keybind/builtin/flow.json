@@ -376,6 +376,10 @@
             ["q", "quit"],
             ["up", "home_menu_up"],
             ["down", "home_menu_down"],
+            ["page_up", "home_menu_pageup"],
+            ["page_down", "home_menu_pagedown"],
+            ["home", "home_menu_top"],
+            ["end", "home_menu_bottom"],
             ["enter", "home_menu_activate"]
         ]
     },

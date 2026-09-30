@@ -257,28 +257,38 @@ fn rebuild_menu(self: *Self) void {
     }
 }
 
-fn scroll_menu(self: *Self, direction: enum { up, down }) void {
+fn select_menu_item(self: *Self, item: usize) void {
     defer tui.need_render(@src());
-    switch (direction) {
-        .down => {
-            if (self.menu.selected) |selected|
-                if (selected + 1 >= self.menu_rows and self.menu_view_pos + self.menu_rows < self.menu_items.items.len) {
-                    self.menu_view_pos += 1;
-                    self.rebuild_menu();
-                    return self.menu.select_last();
-                };
-            self.menu.select_down();
-        },
-        .up => {
-            if (self.menu.selected) |selected|
-                if (selected == 0 and self.menu_view_pos > 0) {
-                    self.menu_view_pos -= 1;
-                    self.rebuild_menu();
-                    return self.menu.select_first();
-                };
-            self.menu.select_up();
-        },
+    const count = self.menu_items.items.len;
+    if (count == 0 or self.menu_rows == 0) return;
+    const idx = @min(item, count - 1);
+    const view_pos = if (idx < self.menu_view_pos)
+        idx
+    else if (idx >= self.menu_view_pos + self.menu_rows)
+        idx + 1 - self.menu_rows
+    else
+        self.menu_view_pos;
+    if (view_pos != self.menu_view_pos) {
+        self.menu_view_pos = view_pos;
+        self.rebuild_menu();
     }
+    self.menu.selected = idx - self.menu_view_pos;
+}
+
+fn selected_menu_item(self: *Self) ?usize {
+    return self.menu_view_pos + (self.menu.selected orelse return null);
+}
+
+fn move_menu_selection(self: *Self, direction: enum { up, down, page_up, page_down, top, bottom }) void {
+    const item = self.selected_menu_item() orelse return self.select_menu_item(0);
+    self.select_menu_item(switch (direction) {
+        .up => item -| 1,
+        .down => item + 1,
+        .page_up => item -| self.menu_rows,
+        .page_down => item + self.menu_rows,
+        .top => 0,
+        .bottom => self.menu_items.items.len -| 1,
+    });
 }
 
 pub fn update(self: *Self) void {
@@ -564,14 +574,34 @@ const cmds = struct {
     pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
-        self.scroll_menu(.down);
+        self.move_menu_selection(.down);
     }
     pub const home_menu_down_meta: Meta = .{};
 
     pub fn home_menu_up(self: *Self, _: Ctx) Result {
-        self.scroll_menu(.up);
+        self.move_menu_selection(.up);
     }
     pub const home_menu_up_meta: Meta = .{};
+
+    pub fn home_menu_pagedown(self: *Self, _: Ctx) Result {
+        self.move_menu_selection(.page_down);
+    }
+    pub const home_menu_pagedown_meta: Meta = .{};
+
+    pub fn home_menu_pageup(self: *Self, _: Ctx) Result {
+        self.move_menu_selection(.page_up);
+    }
+    pub const home_menu_pageup_meta: Meta = .{};
+
+    pub fn home_menu_top(self: *Self, _: Ctx) Result {
+        self.move_menu_selection(.top);
+    }
+    pub const home_menu_top_meta: Meta = .{};
+
+    pub fn home_menu_bottom(self: *Self, _: Ctx) Result {
+        self.move_menu_selection(.bottom);
+    }
+    pub const home_menu_bottom_meta: Meta = .{};
 
     pub fn home_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
