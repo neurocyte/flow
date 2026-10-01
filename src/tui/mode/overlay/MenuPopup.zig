@@ -97,7 +97,6 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     layer.z_index = @enumFromInt(@intFromEnum(Layer.Level.overlay) + @as(i32, @intCast(self.levels.items.len)));
     level.* = .{
         .popup = self,
-        .menu = menu,
         .layer = layer,
         .list_box = try ListBox.create(*Level, self.allocator, layer.inner_plane(), .{
             .ctx = level,
@@ -109,9 +108,12 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     layer.ctx = level;
     layer.prepare_resize = Level.prepare_resize_layer;
     layer.set(level.list_box.container_widget);
-    for (0..menu.items.len) |idx| {
+    errdefer level.items.deinit(self.allocator);
+    var it = menu.visible();
+    while (it.next()) |item| try level.items.append(self.allocator, item);
+    for (0..level.items.items.len) |pos| {
         var buf: [16]u8 = undefined;
-        try level.list_box.add_item_with_handler(cbor.fmt(&buf, idx), Level.on_click);
+        try level.list_box.add_item_with_handler(cbor.fmt(&buf, pos), Level.on_click);
     }
     level.measure();
     level.select_first();
@@ -124,6 +126,7 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
 fn close_level(self: *Self) void {
     const level = self.levels.pop() orelse return;
     if (tui.mainview()) |mv| mv.floating_views.remove(level.layer.widget());
+    level.items.deinit(self.allocator);
     self.allocator.destroy(level);
 }
 
@@ -138,25 +141,25 @@ fn top(self: *Self) *Level {
 fn open_submenu(self: *Self, level_idx: usize) !void {
     self.close_levels_above(level_idx);
     const level = self.levels.items[level_idx];
-    const idx = level.list_box.selected orelse return;
-    const submenu = switch (level.menu.items[idx]) {
+    const pos = level.list_box.selected orelse return;
+    const submenu = switch (level.items.items[pos].*) {
         .submenu => |submenu| submenu,
         else => return,
     };
     const box = level.layer.box;
     try self.open_level(submenu, .{
-        .y = @intCast(box.y + idx),
+        .y = @intCast(box.y + pos),
         .x = @intCast(box.x + box.w),
         .flip_x = @intCast(box.x),
     });
 }
 
-fn activate(self: *Self, level_idx: usize, idx: usize) !void {
+fn activate(self: *Self, level_idx: usize, pos: usize) !void {
     if (level_idx >= self.levels.items.len) return;
     const level = self.levels.items[level_idx];
-    if (idx >= level.menu.items.len) return;
-    level.list_box.selected = idx;
-    switch (level.menu.items[idx]) {
+    if (pos >= level.items.items.len) return;
+    level.list_box.selected = pos;
+    switch (level.items.items[pos].*) {
         .separator => self.close_levels_above(level_idx),
         .submenu => {
             try self.open_submenu(level_idx);
@@ -181,10 +184,10 @@ fn get_hint(hints: ?*const tui.KeybindHints, command_name: []const u8) []const u
 
 const Level = struct {
     popup: *Self,
-    menu: *const Menu,
     layer: *tui.WidgetLayerBox,
     list_box: *ListBox.State(*Level),
     anchor: Anchor,
+    items: std.ArrayList(*const Menu.Item) = .empty,
     width: usize = 0,
     has_icons: bool = false,
 
@@ -195,16 +198,16 @@ const Level = struct {
         return std.mem.indexOfScalar(*Level, self.popup.levels.items, @constCast(self)) orelse 0;
     }
 
-    fn item_index(button: *ButtonType) ?usize {
-        var idx: usize = undefined;
-        return if (cbor.match(button.opts.label, cbor.extract(&idx)) catch false) idx else null;
+    fn item_pos(button: *ButtonType) ?usize {
+        var pos: usize = undefined;
+        return if (cbor.match(button.opts.label, cbor.extract(&pos)) catch false) pos else null;
     }
 
     fn measure(self: *Level) void {
         const hints = get_hints();
         var label_w: usize = 0;
         var hint_w: usize = 0;
-        for (self.menu.items) |*item| switch (item.*) {
+        for (self.items.items) |item| switch (item.*) {
             .separator => {},
             .command => |*cmd| {
                 label_w = @max(label_w, tui.egc_chunk_width(cmd.get_label(), 0, 1));
@@ -221,62 +224,62 @@ const Level = struct {
         self.width = 1 + icon_w + label_w + hint_gap + hint_w + 1;
     }
 
-    fn selectable(self: *const Level, idx: usize) bool {
-        return self.menu.items[idx] != .separator;
+    fn selectable(self: *const Level, pos: usize) bool {
+        return self.items.items[pos].* != .separator;
     }
 
     fn select_first(self: *Level) void {
         self.list_box.selected = null;
-        for (0..self.menu.items.len) |idx| if (self.selectable(idx)) {
-            self.list_box.selected = idx;
+        for (0..self.items.items.len) |pos| if (self.selectable(pos)) {
+            self.list_box.selected = pos;
             return;
         };
     }
 
     fn select_last(self: *Level) void {
         self.list_box.selected = null;
-        var idx = self.menu.items.len;
-        while (idx > 0) {
-            idx -= 1;
-            if (self.selectable(idx)) {
-                self.list_box.selected = idx;
+        var pos = self.items.items.len;
+        while (pos > 0) {
+            pos -= 1;
+            if (self.selectable(pos)) {
+                self.list_box.selected = pos;
                 return;
             }
         }
     }
 
     fn select_next(self: *Level, direction: enum { up, down }) void {
-        const len = self.menu.items.len;
+        const len = self.items.items.len;
         if (len == 0) return;
-        var idx = self.list_box.selected orelse return switch (direction) {
+        var pos = self.list_box.selected orelse return switch (direction) {
             .down => self.select_first(),
             .up => self.select_last(),
         };
         for (0..len) |_| {
-            idx = switch (direction) {
-                .down => (idx + 1) % len,
-                .up => (idx + len - 1) % len,
+            pos = switch (direction) {
+                .down => (pos + 1) % len,
+                .up => (pos + len - 1) % len,
             };
-            if (self.selectable(idx)) {
-                self.list_box.selected = idx;
+            if (self.selectable(pos)) {
+                self.list_box.selected = pos;
                 return;
             }
         }
     }
 
     fn select_by_prefix(self: *Level, text: []const u8) void {
-        const len = self.menu.items.len;
+        const len = self.items.items.len;
         if (len == 0 or text.len == 0) return;
         const start = if (self.list_box.selected) |selected| selected + 1 else 0;
         for (0..len) |i| {
-            const idx = (start + i) % len;
-            const label = switch (self.menu.items[idx]) {
+            const pos = (start + i) % len;
+            const label = switch (self.items.items[pos].*) {
                 .separator => continue,
                 .command => |*cmd| cmd.get_label(),
                 .submenu => |submenu| submenu.label,
             };
             if (label.len >= text.len and std.ascii.eqlIgnoreCase(label[0..text.len], text)) {
-                self.list_box.selected = idx;
+                self.list_box.selected = pos;
                 return;
             }
         }
@@ -299,7 +302,7 @@ const Level = struct {
         const pt: i32 = @intCast(padding.top);
         const pb: i32 = @intCast(padding.bottom);
         const w: i32 = @intCast(@min(self.width, screen.w -| (padding.left + padding.right)));
-        const h: i32 = @intCast(@min(self.menu.items.len, screen.h -| (padding.top + padding.bottom)));
+        const h: i32 = @intCast(@min(self.items.items.len, screen.h -| (padding.top + padding.bottom)));
         const screen_w: i32 = @intCast(screen.w);
         const screen_h: i32 = @intCast(screen.h);
         var x = self.anchor.x + pl;
@@ -314,19 +317,19 @@ const Level = struct {
 
     fn on_click(list_box: **ListBoxType, button: *ButtonType, _: Widget.Pos) void {
         const self = list_box.*.opts.ctx;
-        const idx = item_index(button) orelse return;
-        tp.self_pid().send(.{ "cmd", "menu_activate_item", .{ self.index(), idx } }) catch |e|
+        const pos = item_pos(button) orelse return;
+        tp.self_pid().send(.{ "cmd", "menu_activate_item", .{ self.index(), pos } }) catch |e|
             self.popup.logger.err("click", e);
     }
 
     fn on_render(self: *Level, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
-        const idx = item_index(button) orelse return false;
-        if (idx >= self.menu.items.len) return false;
+        const pos = item_pos(button) orelse return false;
+        if (pos >= self.items.items.len) return false;
         const style_base = theme.editor_widget;
         button.plane.set_base_style(style_base);
         button.plane.erase();
         button.plane.home();
-        const label, const icon, const hint = switch (self.menu.items[idx]) {
+        const label, const icon, const hint = switch (self.items.items[pos].*) {
             .separator => {
                 button.plane.set_style(.{ .fg = theme.editor_widget_border.fg, .bg = style_base.bg });
                 button.plane.fill("─");
@@ -382,9 +385,9 @@ const cmds = struct {
 
     pub fn menu_open_submenu(self: *Self, _: Ctx) Result {
         const level_idx = self.levels.items.len - 1;
-        const idx = self.top().list_box.selected orelse return;
-        if (self.top().menu.items[idx] == .submenu)
-            try self.activate(level_idx, idx)
+        const pos = self.top().list_box.selected orelse return;
+        if (self.top().items.items[pos].* == .submenu)
+            try self.activate(level_idx, pos)
         else if (self.owner) |owner|
             owner.on_cycle(owner.ctx, .next);
     }
@@ -399,17 +402,17 @@ const cmds = struct {
     pub const menu_close_submenu_meta: Meta = .{};
 
     pub fn menu_activate(self: *Self, _: Ctx) Result {
-        const idx = self.top().list_box.selected orelse return;
-        try self.activate(self.levels.items.len - 1, idx);
+        const pos = self.top().list_box.selected orelse return;
+        try self.activate(self.levels.items.len - 1, pos);
     }
     pub const menu_activate_meta: Meta = .{};
 
     pub fn menu_activate_item(self: *Self, ctx: Ctx) Result {
         var level_idx: usize = 0;
-        var idx: usize = 0;
-        if (!try ctx.args.match(.{ tp.extract(&level_idx), tp.extract(&idx) }))
+        var pos: usize = 0;
+        if (!try ctx.args.match(.{ tp.extract(&level_idx), tp.extract(&pos) }))
             return error.InvalidMenuActivateItemArgument;
-        try self.activate(level_idx, idx);
+        try self.activate(level_idx, pos);
     }
     pub const menu_activate_item_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 

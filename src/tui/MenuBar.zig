@@ -87,9 +87,15 @@ fn next_submenu(self: *const Self, from: usize, direction: MenuPopup.Direction) 
             .next => (idx + 1) % len,
             .prev => (idx + len - 1) % len,
         };
-        if (self.menu.items[idx] == .submenu) return idx;
+        if (self.menu.items[idx] == .submenu and self.is_shown(idx)) return idx;
     }
     return null;
+}
+
+fn is_shown(self: *const Self, idx: usize) bool {
+    var it = self.menu.visible();
+    while (it.next()) |item| if (item == &self.menu.items[idx]) return true;
+    return false;
 }
 
 fn button(self: *const Self, idx: usize) ?*ButtonType {
@@ -145,6 +151,7 @@ fn on_popup_cycle(ctx: *anyopaque, direction: MenuPopup.Direction) void {
 
 fn on_click(item: *Item, _: *ButtonType, _: Widget.Pos) void {
     const self = item.bar;
+    if (!self.is_shown(item.idx)) return;
     switch (self.menu.items[item.idx]) {
         .separator => {},
         .submenu => if (self.open_idx == item.idx)
@@ -168,6 +175,7 @@ fn label(self: *const Self, idx: usize) []const u8 {
 
 fn layout(item: *Item, _: *ButtonType) Widget.Layout {
     const self = item.bar;
+    if (!self.is_shown(item.idx)) return .{ .static = 0 };
     return .{ .static = tui.egc_chunk_width(self.label(item.idx), 0, 1) + 2 };
 }
 
@@ -182,6 +190,7 @@ fn render_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
 
 fn render(item: *Item, btn: *ButtonType, theme: *const Widget.Theme) bool {
     const self = item.bar;
+    if (!self.is_shown(item.idx)) return false;
     const is_open = self.open_idx == item.idx;
     if (self.open_idx) |open_idx| if (btn.hover and open_idx != item.idx and
         self.menu.items[item.idx] == .submenu and self.pending_idx != item.idx)
@@ -218,7 +227,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&idx)}))
             return error.InvalidMenuBarOpenArgument;
         self.pending_idx = null;
-        if (idx >= self.menu.items.len or self.open_idx == idx) return;
+        if (idx >= self.menu.items.len or self.open_idx == idx or !self.is_shown(idx)) return;
         self.open(idx);
     }
     pub const menu_bar_open_meta: Meta = .{ .arguments = &.{.integer} };
