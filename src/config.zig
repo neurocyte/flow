@@ -105,7 +105,7 @@ info_box_width_limit: usize = 80,
 palette_placement: PalettePlacement = .top_center,
 palette_opacity: f32 = 0.75,
 
-menu_button_placement: MenuButtonPlacement = .left,
+show_menu: ShowMenu = .left,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,
@@ -317,9 +317,11 @@ pub const PalettePlacement = enum {
     center,
 };
 
-pub const MenuButtonPlacement = enum {
+pub const ShowMenu = enum {
+    bar,
     left,
     right,
+    none,
 };
 
 pub const TaskRunner = enum {

@@ -142,7 +142,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
     errdefer allocator.destroy(self);
     self.* = try TabBar.init(allocator, parent, event_handler, min_tabs);
     self.splits_list.ctx = self;
-    self.splits_list.after_resize = TabBar.place_menu_button;
+    self.splits_list.prepare_resize = TabBar.prepare_splits_resize;
     return Widget.to(self);
 }
 
@@ -230,33 +230,27 @@ pub const TabBar = struct {
         };
     }
 
-    fn place_menu_button(ctx: ?*anyopaque, splits_list: *WidgetList, box: Widget.Box) void {
+    fn prepare_splits_resize(ctx: ?*anyopaque, splits_list: *WidgetList, box: Widget.Box) Widget.Box {
         const self: *Self = @ptrCast(@alignCast(ctx.?));
-        const button_w: usize = @min(MenuButton.width, box.w);
-        const placement = tui.config().menu_button_placement;
+        const show_menu = tui.config().show_menu;
+        const button_w: usize = switch (show_menu) {
+            .left, .right => @min(MenuButton.width, box.w),
+            .bar, .none => 0,
+        };
         var button_box = box;
         button_box.w = button_w;
         button_box.frame = .{};
-        if (placement == .right) button_box.x = box.x + box.w - button_w;
+        if (show_menu == .right) button_box.x = box.x + box.w - button_w;
         self.menu_button.resize(button_box);
 
         const items = splits_list.widgets.items;
-        if (items.len == 0) return;
-        const edge = switch (placement) {
-            .left => items[0].widget,
-            .right => items[items.len - 1].widget,
+        for (items, 0..) |*w, idx| if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll| {
+            scroll.inset = .{
+                .head = if (show_menu == .left and idx == 0) button_w else 0,
+                .tail = if (show_menu == .right and idx == items.len - 1) button_w else 0,
+            };
         };
-        const scroll = edge.dynamic_cast(WidgetScrollBox) orelse return;
-        var scroll_box = scroll.box;
-        const shrink = @min(button_w, scroll_box.w);
-        scroll_box.w -= shrink;
-        if (placement == .left) scroll_box.x += shrink;
-        if (scroll_box.frame.is_set()) {
-            const shrink_px: i32 = @as(i32, @intCast(shrink)) * self.plane.cell_x();
-            scroll_box.frame.w -= shrink_px;
-            if (placement == .left) scroll_box.frame.x += shrink_px;
-        }
-        scroll.handle_resize(scroll_box);
+        return box;
     }
 
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
@@ -420,8 +414,8 @@ pub const TabBar = struct {
 
     pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
         if (f(ctx, Widget.to(self), .begin)) return true;
-        if (self.splits_list_widget.walk(ctx, f)) return true;
         if (self.menu_button.walk(ctx, f)) return true;
+        if (self.splits_list_widget.walk(ctx, f)) return true;
         return f(ctx, Widget.to(self), .end);
     }
 

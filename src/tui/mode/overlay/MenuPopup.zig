@@ -25,6 +25,15 @@ commands: command.Collection(cmds) = undefined,
 modal: *ModalBackground.State(*Self),
 levels: std.ArrayList(*Level) = .empty,
 logger: log.Logger,
+owner: ?Owner,
+
+pub const Owner = struct {
+    ctx: *anyopaque,
+    on_close: *const fn (ctx: *anyopaque) void,
+    on_cycle: *const fn (ctx: *anyopaque, direction: Direction) void,
+};
+
+pub const Direction = enum { prev, next };
 
 pub const Anchor = struct {
     y: i32,
@@ -36,7 +45,7 @@ pub const Anchor = struct {
     }
 };
 
-pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor) !tui.Mode {
+pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, owner: ?Owner) !tui.Mode {
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -50,6 +59,7 @@ pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor) !
             .effect = .none,
         }),
         .logger = log.logger(module_name),
+        .owner = owner,
     };
     try self.commands.init(self);
     errdefer self.commands.deinit();
@@ -66,6 +76,7 @@ pub fn deinit(self: *Self) void {
     self.levels.deinit(self.allocator);
     if (tui.mainview()) |mv| mv.floating_views.remove(self.modal.widget());
     self.logger.deinit();
+    if (self.owner) |owner| owner.on_close(owner.ctx);
     self.allocator.destroy(self);
 }
 
@@ -153,10 +164,7 @@ fn activate(self: *Self, level_idx: usize, idx: usize) !void {
         },
         .command => |*cmd| {
             try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
-            if (cmd.args.len > 0)
-                try tp.self_pid().send(.{ "cmd", cmd.command, cbor.Raw{ .bytes = cmd.args } })
-            else
-                try tp.self_pid().send(.{ "cmd", cmd.command });
+            try cmd.send();
         },
     }
 }
@@ -376,12 +384,17 @@ const cmds = struct {
         const level_idx = self.levels.items.len - 1;
         const idx = self.top().list_box.selected orelse return;
         if (self.top().menu.items[idx] == .submenu)
-            try self.activate(level_idx, idx);
+            try self.activate(level_idx, idx)
+        else if (self.owner) |owner|
+            owner.on_cycle(owner.ctx, .next);
     }
     pub const menu_open_submenu_meta: Meta = .{};
 
     pub fn menu_close_submenu(self: *Self, _: Ctx) Result {
-        if (self.levels.items.len > 1) self.close_level();
+        if (self.levels.items.len > 1)
+            self.close_level()
+        else if (self.owner) |owner|
+            owner.on_cycle(owner.ctx, .prev);
     }
     pub const menu_close_submenu_meta: Meta = .{};
 

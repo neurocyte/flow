@@ -1,3 +1,4 @@
+const tp = @import("thespian");
 const cbor = @import("cbor");
 const command = @import("command");
 
@@ -14,11 +15,15 @@ pub const Item = union(enum) {
 
 pub const Command = struct {
     command: []const u8,
-    args: []const u8 = &.{},
+    args: []const u8 = args(.{}),
     label: []const u8 = "",
 
     pub fn id(self: *const Command) ?command.ID {
         return command.get_id(self.command);
+    }
+
+    pub fn send(self: *const Command) tp.result {
+        return tp.self_pid().send(.{ "cmd", self.command, cbor.Raw{ .bytes = self.args } });
     }
 
     pub fn get_label(self: *const Command) []const u8 {

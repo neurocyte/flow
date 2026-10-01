@@ -70,6 +70,7 @@
             ["f9", "theme_next"],
             ["shift+f9", "theme_prev"],
             ["f10", "open_main_menu"],
+            ["ctrl+shift+f10", "toggle_menu"],
             ["f11", "toggle_fullscreen"],
             ["alt+enter", "toggle_fullscreen"],
             ["ctrl+f11", "toggle_logview"],
@@ -463,6 +464,7 @@
         ]
     },
     "overlay/menu": {
+        "inherit": "project",
         "press": [
             ["alt+f9", "menu_next_widget_style"],
             ["ctrl+p", "menu_up"],
@@ -689,6 +691,8 @@
             ["alt+p", "goto_prev_file"],
             ["alt+shift+l", "focus_filelist"],
             ["ctrl+w", "filelist_close"],
+            ["ctrl+d", "filelist_close"],
+            ["q", "filelist_close"],
             ["escape", "unfocus_filelist"]
         ]
     },

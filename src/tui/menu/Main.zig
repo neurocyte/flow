@@ -6,11 +6,7 @@ pub const menu: Menu = .{ .label = "Menu", .items = &.{
     .{ .submenu = &view },
     .{ .submenu = &terminal },
     .{ .submenu = &settings },
-    .separator,
-    .{ .command = .{ .command = "open_command_palette" } },
-    .{ .command = .{ .command = "open_help" } },
-    .separator,
-    .{ .command = .{ .command = "quit" } },
+    .{ .submenu = &about },
 } };
 
 const file: Menu = .{ .label = "File", .items = &.{
@@ -24,6 +20,7 @@ const file: Menu = .{ .label = "File", .items = &.{
     .{ .command = .{ .command = "save_all" } },
     .separator,
     .{ .command = .{ .command = "close_file" } },
+    .{ .command = .{ .command = "quit" } },
 } };
 
 const edit: Menu = .{ .label = "Edit", .items = &.{
@@ -41,10 +38,12 @@ const edit: Menu = .{ .label = "Edit", .items = &.{
 } };
 
 const view: Menu = .{ .label = "View", .items = &.{
+    .{ .command = .{ .command = "open_command_palette" } },
     .{ .command = .{ .command = "switch_buffers" } },
     .{ .command = .{ .command = "add_split" } },
     .{ .command = .{ .command = "close_split" } },
     .separator,
+    .{ .command = .{ .command = "toggle_menu" } },
     .{ .command = .{ .command = "toggle_panel" } },
     .{ .command = .{ .command = "toggle_maximize_panel" } },
     .{ .command = .{ .command = "show_logview" } },
@@ -59,15 +58,12 @@ const terminal: Menu = .{ .label = "Terminal", .items = &.{
     .{ .command = .{ .command = "switch_terminals" } },
     .separator,
     .{ .command = .{ .command = "run_task" } },
-    .{ .command = .{ .command = "add_task" } },
 } };
 
 const settings: Menu = .{ .label = "Settings", .items = &.{
     .{ .submenu = &theme },
     .{ .command = .{ .command = "open_config" } },
     .{ .command = .{ .command = "open_keybind_config" } },
-    .separator,
-    .{ .command = .{ .command = "open_version_info" } },
 } };
 
 const theme: Menu = .{ .label = "Theme", .items = &.{
@@ -75,4 +71,9 @@ const theme: Menu = .{ .label = "Theme", .items = &.{
     .separator,
     .{ .command = .{ .command = "theme_next" } },
     .{ .command = .{ .command = "theme_prev" } },
+} };
+
+const about: Menu = .{ .label = "About", .items = &.{
+    .{ .command = .{ .command = "open_version_info" } },
+    .{ .command = .{ .command = "open_help" } },
 } };

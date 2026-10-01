@@ -38,15 +38,11 @@ const style = struct {
         \\open_command_palette
         \\open_terminal
         \\run_task
-        \\add_task
         \\open_config
         \\open_gui_config
         \\change_fontface
-        \\open_keybind_config
         \\toggle_input_mode
-        \\change_theme
-        \\open_help
-        \\open_version_info
+        \\open_main_menu
         \\quit
     else
         \\find_file
@@ -57,13 +53,9 @@ const style = struct {
         \\open_command_palette
         \\open_terminal
         \\run_task
-        \\add_task
         \\open_config
-        \\open_keybind_config
         \\toggle_input_mode
-        \\change_theme
-        \\open_help
-        \\open_version_info
+        \\open_main_menu
         \\quit
     ),
 
@@ -566,12 +558,6 @@ const cmds = struct {
         try command.executeName("close_split", ctx);
     }
     pub const close_file_meta: Meta = .{};
-
-    pub fn save_all(_: *Self, _: Ctx) Result {
-        if (tui.get_buffer_manager()) |bm|
-            bm.save_all(.{}) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
-    pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.down);
