@@ -22,9 +22,15 @@ pub const File = struct {
     icon: []const u8 = "",
     color: u24 = 0,
     mtime: i128 = 0,
+    /// Whether `mtime` is recency rather than the placeholder above.
+    mtime_known: bool = false,
+    /// The stat request allowed to update or remove this entry.
+    stat_generation: usize = 0,
     /// Reported as used by the owner, and therefore kept when a later
     /// enumeration of the project no longer lists it.
     used: bool = false,
+    /// Retained despite being absent from the latest enumeration.
+    needs_stat: bool = false,
     meta_resolved: bool = false,
 };
 
@@ -81,25 +87,37 @@ pub fn is_used(self: *const Self, path: []const u8) bool {
 pub fn update_mru(self: *Self, path: []const u8, mtime: i128) OutOfMemoryError!void {
     if (self.index.get(path)) |i| {
         const file = &self.files.items[i];
-        file.mtime = @max(file.mtime, mtime);
+        const was_known = file.mtime_known;
+        _ = set_mtime(file, mtime);
+        file.stat_generation = 0;
         file.used = true;
-        return self.reorder(i);
+        self.reorder_after_mtime(i, was_known, mtime);
+        return;
     }
     return self.append_owned(try self.allocator.dupe(u8, path), mtime, true);
 }
 
-/// The file's modification time on disk. Only moves it forward in the order.
-pub fn set_fs_mtime(self: *Self, path: []const u8, mtime: i128) void {
+/// Apply the result of the current stat request.
+pub fn stat_succeeded(self: *Self, path: []const u8, generation: usize, mtime: i128) void {
     const i = self.index.get(path) orelse return;
     const file = &self.files.items[i];
-    if (mtime <= file.mtime) return;
-    file.mtime = mtime;
-    self.reorder(i);
+    if (file.stat_generation != generation) return;
+    file.stat_generation = 0;
+    const was_known = file.mtime_known;
+    if (!set_mtime(file, mtime)) return;
+    self.reorder_after_mtime(i, was_known, mtime);
+}
+
+/// Clear a failed stat request without changing the file.
+pub fn stat_errored(self: *Self, path: []const u8, generation: usize) void {
+    const i = self.index.get(path) orelse return;
+    const file = &self.files.items[i];
+    if (file.stat_generation == generation) file.stat_generation = 0;
 }
 
 /// A file was created at `mtime`.
 pub fn add(self: *Self, path: []const u8, mtime: i128) OutOfMemoryError!void {
-    if (self.contains(path)) return;
+    if (self.contains(path)) return self.modified(path, mtime);
     return self.append_owned(try self.allocator.dupe(u8, path), mtime, false);
 }
 
@@ -107,14 +125,23 @@ pub fn add(self: *Self, path: []const u8, mtime: i128) OutOfMemoryError!void {
 pub fn modified(self: *Self, path: []const u8, mtime: i128) void {
     const i = self.index.get(path) orelse return;
     const file = &self.files.items[i];
-    if (mtime <= file.mtime) return;
-    file.mtime = mtime;
-    self.reorder(i);
+    file.stat_generation = 0;
+    const was_known = file.mtime_known;
+    if (!set_mtime(file, mtime)) return;
+    self.reorder_after_mtime(i, was_known, mtime);
 }
 
 /// A file was deleted. Returns whether it was listed.
 pub fn remove(self: *Self, path: []const u8) bool {
     const i = self.index.get(path) orelse return false;
+    self.remove_at(i);
+    return true;
+}
+
+/// Remove a file when its current stat request reports that it is missing.
+pub fn stat_failed(self: *Self, path: []const u8, generation: usize) bool {
+    const i = self.index.get(path) orelse return false;
+    if (self.files.items[i].stat_generation != generation) return false;
     self.remove_at(i);
     return true;
 }
@@ -126,10 +153,13 @@ pub fn rename(self: *Self, from_path: []const u8, to_path: []const u8, mtime: i1
     const source_i = self.index.get(from_path);
     const source_used = if (source_i) |i| self.files.items[i].used else false;
     const source_mtime = if (source_i) |i| self.files.items[i].mtime else 0;
+    const source_mtime_known = if (source_i) |i| self.files.items[i].mtime_known else false;
     if (self.get(to_path)) |replaced| {
         // Update before removing, which may move entries. The destination was
         // modified by the replacement and inherits the source's recency.
-        replaced.mtime = @max(replaced.mtime, @max(source_mtime, mtime));
+        _ = set_mtime(replaced, mtime);
+        if (source_mtime_known) _ = set_mtime(replaced, source_mtime);
+        replaced.stat_generation = 0;
         replaced.used = replaced.used or source_used;
         replaced.meta_resolved = false;
         self.unsorted = true;
@@ -148,11 +178,12 @@ pub fn rename(self: *Self, from_path: []const u8, to_path: []const u8, mtime: i1
     _ = self.index.remove(file.path);
     self.allocator.free(file.path);
     file.path = new_path;
-    file.mtime = @max(file.mtime, mtime);
+    _ = set_mtime(file, mtime);
+    file.stat_generation = 0;
     file.meta_resolved = false;
     self.index.putAssumeCapacity(file.path, @intCast(i));
     self.longest = @max(self.longest, new_path.len);
-    self.reorder(i);
+    self.reorder_after_mtime(i, source_mtime_known, mtime);
     return true;
 }
 
@@ -196,6 +227,7 @@ pub fn rename_subtree(self: *Self, from_path: []const u8, to_path: []const u8) O
         if (!is_in_subtree(file.path, from_path)) continue;
         self.allocator.free(file.path);
         file.path = new_paths.items[next];
+        file.stat_generation = 0;
         next += 1;
         self.longest = @max(self.longest, file.path.len);
     }
@@ -208,7 +240,11 @@ pub fn rename_subtree(self: *Self, from_path: []const u8, to_path: []const u8) O
         const entry = self.index.getOrPutAssumeCapacity(file.path);
         if (entry.found_existing) {
             const first = &self.files.items[entry.value_ptr.*];
-            first.mtime = @max(first.mtime, file.mtime);
+            if (file.mtime_known) {
+                if (!first.mtime_known and file.mtime < 0) self.unsorted = true;
+                _ = set_mtime(first, file.mtime);
+            }
+            first.stat_generation = 0;
             first.used = first.used or file.used;
             first.meta_resolved = false;
             self.allocator.free(file.path);
@@ -225,8 +261,7 @@ pub fn rename_subtree(self: *Self, from_path: []const u8, to_path: []const u8) O
 /// Replace the list with a fresh enumeration of the project, carrying the
 /// recency of files that are still listed over. `listed` maps every unique
 /// pending path to its first position. Takes ownership of the paths in
-/// `pending` and leaves it empty. On error, the list and `pending` are
-/// unchanged.
+/// `pending` and leaves both inputs empty. On error, all are unchanged.
 pub fn merge(
     self: *Self,
     pending: *std.ArrayList([]const u8),
@@ -265,6 +300,8 @@ pub fn merge(
         if (listed.get(file.path)) |i| {
             const listed_file = &fresh.items[i];
             listed_file.mtime = file.mtime;
+            listed_file.mtime_known = file.mtime_known;
+            listed_file.stat_generation = file.stat_generation;
             listed_file.used = file.used;
             listed_file.type = file.type;
             listed_file.icon = file.icon;
@@ -272,7 +309,9 @@ pub fn merge(
             listed_file.meta_resolved = file.meta_resolved;
             self.allocator.free(file.path);
         } else if (unlisted == .keep_all or file.used) {
-            fresh.appendAssumeCapacity(file);
+            var retained = file;
+            retained.needs_stat = true;
+            fresh.appendAssumeCapacity(retained);
             longest = @max(longest, file.path.len);
         } else {
             self.allocator.free(file.path);
@@ -284,6 +323,7 @@ pub fn merge(
     self.longest = longest;
     self.reindex();
     self.unsorted = true;
+    listed.clearRetainingCapacity();
 }
 
 /// The path of the `n`th most recent file.
@@ -408,7 +448,7 @@ fn append_owned(self: *Self, owned_path: []const u8, mtime: i128, used: bool) Ou
     errdefer self.allocator.free(owned_path);
     try self.files.ensureUnusedCapacity(self.allocator, 1);
     try self.index.put(self.allocator, owned_path, @intCast(self.files.items.len));
-    self.files.appendAssumeCapacity(.{ .path = owned_path, .mtime = mtime, .used = used });
+    self.files.appendAssumeCapacity(.{ .path = owned_path, .mtime = mtime, .mtime_known = true, .used = used });
     self.longest = @max(self.longest, owned_path.len);
     self.reorder(self.files.items.len - 1);
 }
@@ -436,6 +476,20 @@ fn reorder(self: *Self, i: usize) void {
     items[to] = file;
     for (items[to .. i + 1], to..) |moved, position|
         self.index.getPtr(moved.path).?.* = @intCast(position);
+}
+
+fn set_mtime(file: *File, mtime: i128) bool {
+    if (file.mtime_known and mtime <= file.mtime) return false;
+    file.mtime = mtime;
+    file.mtime_known = true;
+    return true;
+}
+
+fn reorder_after_mtime(self: *Self, i: usize, was_known: bool, mtime: i128) void {
+    if (!was_known and mtime < 0)
+        self.unsorted = true
+    else
+        self.reorder(i);
 }
 
 fn remove_at(self: *Self, i: usize) void {
@@ -517,15 +571,55 @@ test "FileList orders by the newer of use and disk modification" {
     try list.update_mru("b", 20);
     try expect_order(&list, &.{ "b", "a" });
 
-    list.set_fs_mtime("a", 30);
+    list.get("a").?.stat_generation = 1;
+    list.stat_succeeded("a", 1, 30);
     try expect_order(&list, &.{ "a", "b" });
-    list.set_fs_mtime("a", 5); // older times never move a file back
+    list.get("a").?.stat_generation = 2;
+    list.stat_succeeded("a", 2, 5); // older times never move a file back
     try expect_order(&list, &.{ "a", "b" });
+    try list.add("a", 35); // a create event also refreshes an existing path
+    try expect_order(&list, &.{ "a", "b" });
+
+    try list.add("missing", 0);
+    list.get("missing").?.stat_generation = 3;
+    try testing.expect(list.stat_failed("missing", 3));
+    try list.add("created", 0);
+    list.get("created").?.stat_generation = 4;
+    try list.add("created", 1);
+    try testing.expect(!list.stat_failed("created", 4));
+    list.stat_succeeded("created", 4, 100); // the stale success is ignored too
+    try testing.expectEqual(@as(i128, 1), list.get("created").?.mtime);
+    try testing.expect(list.remove("created"));
+
+    try list.add("old", -10);
+    list.get("old").?.stat_generation = 5;
+    list.stat_errored("old", 5);
+    try testing.expectEqual(@as(i128, -10), list.get("old").?.mtime);
+    try testing.expectEqual(@as(usize, 0), list.get("old").?.stat_generation);
+    try testing.expect(list.remove("old"));
 
     try list.update_mru("b", 40);
     try testing.expectEqualStrings("b", list.nth_most_recent(0).?);
     try testing.expectEqualStrings("a", list.nth_most_recent(1).?);
     try testing.expectEqual(@as(?[]const u8, null), list.nth_most_recent(2));
+}
+
+test "FileList records zero and negative stat mtimes" {
+    var list: Self = .init(testing.allocator, ".");
+    defer list.deinit();
+    var pending = try pending_list(&.{ "zero", "negative" });
+    defer pending.deinit(testing.allocator);
+    try merge_pending(&list, &pending, .keep_all);
+    try expect_order(&list, &.{ "zero", "negative" });
+
+    list.get("zero").?.stat_generation = 1;
+    list.stat_succeeded("zero", 1, 0);
+    list.get("negative").?.stat_generation = 1;
+    list.stat_succeeded("negative", 1, -1);
+    try testing.expect(list.get("zero").?.mtime_known);
+    try testing.expect(list.get("negative").?.mtime_known);
+    try testing.expectEqual(@as(i128, -1), list.get("negative").?.mtime);
+    try expect_order(&list, &.{ "zero", "negative" });
 }
 
 test "FileList merge carries recency and keeps unlisted files as asked" {
@@ -620,7 +714,8 @@ test "FileList keeps its order on updates without sorting it again" {
     try list.update_mru("a", 40);
     try testing.expect(!list.unsorted);
     try expect_order(&list, &.{ "a", "c", "b" });
-    list.set_fs_mtime("b", 35);
+    list.get("b").?.stat_generation = 5;
+    list.stat_succeeded("b", 5, 35);
     try testing.expect(!list.unsorted);
     try expect_order(&list, &.{ "a", "b", "c" });
     // of equal recency, the file that was first stays first
