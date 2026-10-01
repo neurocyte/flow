@@ -251,7 +251,7 @@ pub fn load_entries(palette: *Type) !usize {
     return max_entry_overhead(palette);
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     const style_base = theme.editor_widget;
     const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
@@ -295,8 +295,8 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     return false;
 }
 
-fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
-    const palette = menu.*.opts.ctx;
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
+    const palette = list_box.*.opts.ctx;
 
     var label_str: []const u8 = undefined;
     var entry_idx: usize = undefined;
@@ -341,7 +341,7 @@ fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void 
     }
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
@@ -354,7 +354,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     try cbor.writeValue(writer, entry.file_icon);
     try cbor.writeValue(writer, entry.file_color);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 

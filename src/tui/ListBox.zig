@@ -21,8 +21,8 @@ pub fn Options(context: type) type {
         on_click5: ButtonClickHandler = do_nothing_click,
         on_render: *const fn (ctx: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool = on_render_default,
         on_layout: *const fn (ctx: context, button: *ButtonType) Widget.Layout = on_layout_default,
-        prepare_resize: *const fn (ctx: context, menu: *ListBoxType, box: Widget.Box) Widget.Box = prepare_resize_default,
-        after_resize: *const fn (ctx: context, menu: *ListBoxType, box: Widget.Box) void = after_resize_default,
+        prepare_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) Widget.Box = prepare_resize_default,
+        after_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) void = after_resize_default,
         on_scroll: ?EventHandler = null,
 
         pub const Context = context;
@@ -54,7 +54,7 @@ pub fn Options(context: type) type {
 
         pub fn prepare_resize_default(_: context, state: *ListBoxType, box_: Widget.Box) Widget.Box {
             var box = box_;
-            box.h = if (box_.h == 0) state.menu.widgets.items.len else box_.h;
+            box.h = if (box_.h == 0) state.list.widgets.items.len else box_.h;
             return box;
         }
 
@@ -68,7 +68,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
     const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, opts.style);
     self.* = .{
         .allocator = allocator,
-        .menu = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
+        .list = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
         .container = container,
         .container_widget = container.widget(),
         .frame_widget = null,
@@ -78,13 +78,13 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
             null,
         .opts = opts,
     };
-    self.menu.ctx = self;
-    self.menu.on_render = State(ctx_type).on_render_menu;
+    self.list.ctx = self;
+    self.list.on_render = State(ctx_type).on_render_list;
     container.ctx = self;
     container.on_deinit = State(ctx_type).free_from_container;
     container.prepare_resize = State(ctx_type).prepare_resize;
     container.after_resize = State(ctx_type).after_resize;
-    try container.add(self.menu.widget());
+    try container.add(self.list.widget());
     if (self.scrollbar) |sb| try container.add(sb.widget());
     return self;
 }
@@ -92,7 +92,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
 pub fn State(ctx_type: type) type {
     return struct {
         allocator: std.mem.Allocator,
-        menu: *WidgetList,
+        list: *WidgetList,
         container: *WidgetList,
         container_widget: Widget,
         frame_widget: ?Widget,
@@ -108,7 +108,7 @@ pub fn State(ctx_type: type) type {
         pub const ButtonType = Button.Options(*Self).ButtonType;
 
         pub fn deinit(_: *Self, _: std.mem.Allocator) void {
-            @compileError("do not deinit ListBox.State directly; free it via menu.widget().deinit() or the widget tree");
+            @compileError("do not deinit ListBox.State directly; free it via list_box.widget().deinit() or the widget tree");
         }
 
         pub fn widget(self: *Self) Widget {
@@ -122,12 +122,12 @@ pub fn State(ctx_type: type) type {
 
         pub fn add_header(self: *Self, w_: Widget) !*Widget {
             self.header_count += 1;
-            try self.menu.add(w_);
-            return &self.menu.widgets.items[self.menu.widgets.items.len - 1].widget;
+            try self.list.add(w_);
+            return &self.list.widgets.items[self.list.widgets.items.len - 1].widget;
         }
 
         pub fn add_item(self: *Self, label: []const u8) !void {
-            try self.menu.add(try Button.create(*Self, self.allocator, self.menu.parent, .{
+            try self.list.add(try Button.create(*Self, self.allocator, self.list.parent, .{
                 .ctx = self,
                 .on_layout = self.opts.on_layout,
                 .label = label,
@@ -139,7 +139,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: OptionsType.ButtonClickHandler) !void {
-            try self.menu.add(try Button.create_widget(*Self, self.allocator, self.menu.parent, .{
+            try self.list.add(try Button.create_widget(*Self, self.allocator, self.list.parent, .{
                 .ctx = self,
                 .on_layout = on_layout,
                 .label = label,
@@ -151,17 +151,17 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn reset_items(self: *Self) void {
-            for (self.menu.widgets.items, 0..) |*w, i|
+            for (self.list.widgets.items, 0..) |*w, i|
                 if (i >= self.header_count)
                     w.widget.deinit(self.allocator);
-            self.menu.widgets.shrinkRetainingCapacity(self.header_count);
+            self.list.widgets.shrinkRetainingCapacity(self.header_count);
         }
 
         pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-            return self.menu.render(theme);
+            return self.list.render(theme);
         }
 
-        fn on_render_menu(ctx: ?*anyopaque, _: *const Widget.Theme) void {
+        fn on_render_list(ctx: ?*anyopaque, _: *const Widget.Theme) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.render_idx = 0;
         }
@@ -182,7 +182,7 @@ pub fn State(ctx_type: type) type {
 
         pub fn on_render(self: **Self, button: *ButtonType, theme: *const Widget.Theme) bool {
             defer self.*.render_idx += 1;
-            std.debug.assert(self.*.render_idx < self.*.menu.widgets.items.len);
+            std.debug.assert(self.*.render_idx < self.*.list.widgets.items.len);
             return self.*.opts.on_render(self.*.opts.ctx, button, theme, self.*.render_idx == self.*.selected);
         }
 
@@ -191,11 +191,11 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn update(self: *Self) void {
-            self.menu.update();
+            self.list.update();
         }
 
         pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-            for (self.menu.widgets.items) |*w|
+            for (self.list.widgets.items) |*w|
                 if (w.widget.walk(walk_ctx, f))
                     return true;
 
@@ -206,7 +206,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn count(self: *Self) usize {
-            return self.menu.widgets.items.len;
+            return self.list.widgets.items.len;
         }
 
         pub fn select_down(self: *Self) void {
@@ -244,8 +244,8 @@ pub fn State(ctx_type: type) type {
             const selected = self.selected orelse return null;
             self.selected_active = true;
             const pos = selected + self.header_count;
-            return if (pos < self.menu.widgets.items.len)
-                self.menu.widgets.items[pos].widget.dynamic_cast(ButtonType)
+            return if (pos < self.list.widgets.items.len)
+                self.list.widgets.items[pos].widget.dynamic_cast(ButtonType)
             else
                 null;
         }

@@ -28,7 +28,7 @@ pub const ValueType = struct {
 pub const defaultValue: ValueType = .{};
 
 pub const Entry = struct { label: []const u8 };
-pub fn add_menu_entry(_: *Type, _: *Entry, _: ?[]const usize) !void {}
+pub fn add_list_box_entry(_: *Type, _: *Entry, _: ?[]const usize) !void {}
 
 pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
     palette.longest = label.len;
@@ -87,7 +87,7 @@ pub fn cancel(palette: *Type, _: command.Context) !void {
     save(palette);
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
@@ -150,8 +150,8 @@ fn reset_results(palette: *Type) void {
     palette.value.need_reset = false;
     palette.items = 0;
     palette.total_items = 0;
-    palette.menu.reset_items();
-    palette.menu.selected = null;
+    palette.list_box.reset_items();
+    palette.list_box.selected = null;
 }
 
 fn add_item(
@@ -176,12 +176,12 @@ fn add_item(
 }
 
 fn store_item(palette: *Type, item: []const u8) !void {
-    try palette.append_async_item(item, menu_action_open_file);
+    try palette.append_async_item(item, list_box_action_open_file);
     (try palette.value.restore_info.addOne(palette.allocator)).* = item;
 }
 
-fn menu_action_open_file(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
-    const palette = menu.*.opts.ctx;
+fn list_box_action_open_file(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
+    const palette = list_box.*.opts.ctx;
     save(palette);
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
@@ -202,7 +202,7 @@ fn save(palette: *Type) void {
     cbor.writeArrayHeader(writer, 4) catch return;
     cbor.writeValue(writer, palette.inputbox.text.items) catch return;
     cbor.writeValue(writer, palette.longest) catch return;
-    cbor.writeValue(writer, palette.menu.selected) catch return;
+    cbor.writeValue(writer, palette.list_box.selected) catch return;
     cbor.writeArrayHeader(writer, palette.value.restore_info.items.len) catch return;
     for (palette.value.restore_info.items) |item| cbor.writeValue(writer, item) catch return;
 
@@ -242,9 +242,9 @@ fn restore(palette: *Type, ctx: command.Context) !void {
 fn finish_restore(palette: *Type) void {
     palette.refresh_layout();
     if (palette.value.restore_selected) |idx| {
-        palette.menu.select_first();
+        palette.list_box.select_first();
         var i = idx;
-        while (i > 0) : (i -= 1) palette.menu.select_down();
+        while (i > 0) : (i -= 1) palette.list_box.select_down();
     }
     palette.value.need_reset = true;
 }

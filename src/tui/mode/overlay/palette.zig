@@ -19,7 +19,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 
 pub const ListBox = @import("../../ListBox.zig");
 
-const max_menu_width = 80;
+const max_list_box_width = 80;
 const default_widget_type: Widget.Type = .palette;
 
 pub const Placement = enum {
@@ -44,8 +44,8 @@ pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
         modal: *ModalBackground.State(*Self),
-        menu_layer: *tui.WidgetLayerBox,
-        menu: *ListBox.State(*Self),
+        list_box_layer: *tui.WidgetLayerBox,
+        list_box: *ListBox.State(*Self),
         mode: keybind.Mode,
         inputbox: *InputBox.State(*Self),
         logger: log.Logger,
@@ -94,13 +94,13 @@ pub fn Create(options: type) type {
             const mv = tui.mainview() orelse return error.NotFound;
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
-            const menu_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = "palette.layer" });
-            menu_layer.blend = .src_over_blur;
-            menu_layer.alpha = tui.palette_opacity();
-            menu_layer.radius = 8;
-            menu_layer.corners = .bottom;
-            menu_layer.shadow = .{};
-            errdefer menu_layer.deinit(allocator);
+            const list_box_layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = "palette.layer" });
+            list_box_layer.blend = .src_over_blur;
+            list_box_layer.alpha = tui.palette_opacity();
+            list_box_layer.radius = 8;
+            list_box_layer.corners = .bottom;
+            list_box_layer.shadow = .{};
+            errdefer list_box_layer.deinit(allocator);
             self.* = .{
                 .allocator = allocator,
                 .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{
@@ -108,18 +108,18 @@ pub fn Create(options: type) type {
                     .on_click = mouse_palette_menu_cancel,
                     .effect = if (@hasDecl(options, "modal_dim") and !options.modal_dim) .none else .dim,
                 }),
-                .menu_layer = menu_layer,
-                .menu = try ListBox.create(*Self, allocator, menu_layer.inner_plane(), .{
+                .list_box_layer = list_box_layer,
+                .list_box = try ListBox.create(*Self, allocator, list_box_layer.inner_plane(), .{
                     .ctx = self,
                     .style = widget_type,
-                    .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
-                    .after_resize = after_resize_menu,
+                    .on_render = if (@hasDecl(options, "on_render_list_box")) options.on_render_list_box else on_render_list_box,
+                    .after_resize = after_resize_list_box,
                     .on_scroll = EventHandler.bind(self, Self.on_scroll),
                     .on_click4 = mouse_click_button4,
                     .on_click5 = mouse_click_button5,
                 }),
                 .logger = log.logger(@typeName(Self)),
-                .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
+                .inputbox = (try self.list_box.add_header(try InputBox.create(*Self, self.allocator, self.list_box.list.parent, .{
                     .ctx = self,
                     .label = options.label,
                     .padding = 2,
@@ -139,10 +139,10 @@ pub fn Create(options: type) type {
             errdefer self.commands.deinit();
             self.mode.event_handler = EventHandler.to_owned(self);
             self.mode.name = options.name;
-            self.menu_layer.ctx = self;
-            self.menu_layer.prepare_resize = prepare_resize_layer;
-            self.menu_layer.set(self.menu.container_widget);
-            if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+            self.list_box_layer.ctx = self;
+            self.list_box_layer.prepare_resize = prepare_resize_layer;
+            self.list_box_layer.set(self.list_box.container_widget);
+            if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
                 try options.load_entries_with_args(self, ctx)
             else
@@ -157,7 +157,7 @@ pub fn Create(options: type) type {
             }
             try self.start_query(0);
             try mv.floating_views.add(self.modal.widget());
-            try mv.floating_views.add(self.menu_layer.widget());
+            try mv.floating_views.add(self.list_box_layer.widget());
             return self.mode;
         }
 
@@ -168,7 +168,7 @@ pub fn Create(options: type) type {
             self.entries.deinit(self.allocator);
             tui.message_filters().remove_ptr(self);
             if (tui.mainview()) |mv| {
-                mv.floating_views.remove(self.menu_layer.widget());
+                mv.floating_views.remove(self.list_box_layer.widget());
                 mv.floating_views.remove(self.modal.widget());
             }
             self.logger.deinit();
@@ -184,7 +184,7 @@ pub fn Create(options: type) type {
                 .{ .fg = theme.scrollbar.fg, .bg = theme.editor_widget.bg };
         }
 
-        fn on_render_menu(_: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+        fn on_render_list_box(_: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
             const style_base = theme.editor_widget;
             const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
             const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
@@ -239,7 +239,7 @@ pub fn Create(options: type) type {
         }
 
         fn prepare_width(self: *Self, screen: Widget.Box) usize {
-            return @min(screen.w -| 2, @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2));
+            return @min(screen.w -| 2, @max(@min(self.longest + 3, max_list_box_width) + 2 + self.longest_hint, options.label.len + 2));
         }
 
         fn prepare_resize_at_x(self: *Self, screen: Widget.Box, w: usize, x: usize) Widget.Box {
@@ -248,11 +248,11 @@ pub fn Create(options: type) type {
 
         fn prepare_resize_at_y_x(self: *Self, screen: Widget.Box, w: usize, y: usize, x: usize) Widget.Box {
             if (async_query) {
-                const h = @min(self.items + self.menu.header_count, screen.h -| y);
+                const h = @min(self.items + self.list_box.header_count, screen.h -| y);
                 return .{ .y = y, .x = x, .w = w, .h = h };
             }
             self.view_rows = get_view_rows(screen) -| y;
-            const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
+            const h = @min(self.items + self.list_box.header_count, self.view_rows + self.list_box.header_count);
             return .{ .y = y, .x = x, .w = w, .h = h };
         }
 
@@ -287,11 +287,11 @@ pub fn Create(options: type) type {
 
             const content_top_row: usize = @intCast(@max(0, @divFloor(content_top_px, ch)));
             const avail_rows = screen.h -| content_top_row;
-            self.view_rows = avail_rows -| self.menu.header_count;
+            self.view_rows = avail_rows -| self.list_box.header_count;
             const content_rows: usize = if (async_query)
                 avail_rows
             else
-                @min(self.items + self.menu.header_count, avail_rows);
+                @min(self.items + self.list_box.header_count, avail_rows);
 
             const pad_l: i32 = @intCast(padding.left);
             const pad_r: i32 = @intCast(padding.right);
@@ -321,13 +321,13 @@ pub fn Create(options: type) type {
 
         fn prepare_resize_center(self: *Self, screen: Widget.Box, w: usize) Widget.Box {
             const x = if (screen.w > w) (screen.w - w) / 2 else 0;
-            const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
+            const h = @min(self.items + self.list_box.header_count, self.view_rows + self.list_box.header_count);
             const y = if (screen.h > h) (screen.h - h) / 2 else 0;
             self.view_rows = get_view_rows(screen) -| y;
             return .{ .y = y, .x = x, .w = w, .h = h };
         }
 
-        fn after_resize_menu(self: *Self, _: *ListBox.State(*Self), _: Widget.Box) void {
+        fn after_resize_list_box(self: *Self, _: *ListBox.State(*Self), _: Widget.Box) void {
             return self.after_resize();
         }
 
@@ -338,7 +338,7 @@ pub fn Create(options: type) type {
 
         fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             const box = self.prepare_resize(padding);
-            self.menu_layer.handle_resize(box.to_client_box(padding));
+            self.list_box_layer.handle_resize(box.to_client_box(padding));
             self.after_resize();
         }
 
@@ -356,12 +356,12 @@ pub fn Create(options: type) type {
         }
 
         fn update_scrollbar(self: *Self) void {
-            if (self.menu.scrollbar) |scrollbar|
+            if (self.list_box.scrollbar) |scrollbar|
                 scrollbar.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
-        fn mouse_click_button4(menu: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
-            const self = &menu.*.opts.ctx.*;
+        fn mouse_click_button4(list_box: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
+            const self = &list_box.*.opts.ctx.*;
             if (async_query) return;
             if (self.view_pos < ListBox.scroll_lines) {
                 self.view_pos = 0;
@@ -372,8 +372,8 @@ pub fn Create(options: type) type {
             self.start_query(0) catch {};
         }
 
-        fn mouse_click_button5(menu: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
-            const self = &menu.*.opts.ctx.*;
+        fn mouse_click_button5(list_box: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
+            const self = &list_box.*.opts.ctx.*;
             if (async_query) return;
             if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
                 self.view_pos += ListBox.scroll_lines;
@@ -406,11 +406,11 @@ pub fn Create(options: type) type {
         }
 
         pub fn append_async_item(self: *Self, label: []const u8, on_click: ListBox.Options(*Self).ButtonClickHandler) !void {
-            try self.menu.add_item_with_handler(label, on_click);
+            try self.list_box.add_item_with_handler(label, on_click);
             self.items += 1;
             self.total_items = self.items;
             self.refresh_layout();
-            if (self.menu.selected == null) self.menu.select_down();
+            if (self.list_box.selected == null) self.list_box.select_down();
         }
 
         pub fn start_query(self: *Self, n: usize) !void {
@@ -418,8 +418,8 @@ pub fn Create(options: type) type {
             defer tui.reset_hover(@src());
             defer self.update_count_hint();
             self.items = 0;
-            self.menu.reset_items();
-            self.menu.selected = null;
+            self.list_box.reset_items();
+            self.list_box.selected = null;
             self.longest = self.inputbox.text.items.len;
             for (self.entries.items) |entry|
                 self.longest = @max(self.longest, entry.label.len);
@@ -432,7 +432,7 @@ pub fn Create(options: type) type {
                     defer pos += 1;
                     if (pos < self.view_pos) continue;
                     if (self.items < self.view_rows)
-                        try options.add_menu_entry(self, entry, null);
+                        try options.add_list_box_entry(self, entry, null);
                 }
             } else {
                 _ = try self.query_entries(self.inputbox.text.items);
@@ -441,10 +441,10 @@ pub fn Create(options: type) type {
                 self.initial_selected = null;
                 self.select(idx);
             } else {
-                self.menu.select_down();
+                self.list_box.select_down();
                 var i = n;
                 while (i > 0) : (i -= 1)
-                    self.menu.select_down();
+                    self.list_box.select_down();
                 const padding = tui.get_widget_style(widget_type).padding;
                 self.do_resize(padding);
                 tui.refresh_hover(@src());
@@ -502,7 +502,7 @@ pub fn Create(options: type) type {
                 defer pos += 1;
                 if (pos < self.view_pos) continue;
                 if (self.items < self.view_rows)
-                    try options.add_menu_entry(self, match.entry, match.matches);
+                    try options.add_list_box_entry(self, match.entry, match.matches);
             }
             return matches.items.len;
         }
@@ -557,7 +557,7 @@ pub fn Create(options: type) type {
 
         fn selection_updated(self: *Self) void {
             if (@hasDecl(options, "updated"))
-                options.updated(self, self.menu.get_selected()) catch {};
+                options.updated(self, self.list_box.get_selected()) catch {};
         }
 
         fn select(self: *Self, idx: usize) void {
@@ -607,33 +607,33 @@ pub fn Create(options: type) type {
             pub const palette_if_match_meta: Meta = .{};
 
             pub fn palette_menu_down(self: *Self, _: Ctx) Result {
-                if (!async_query) if (self.menu.selected) |selected| {
+                if (!async_query) if (self.list_box.selected) |selected| {
                     if (selected == self.view_rows - 1 and
                         self.view_pos + self.view_rows < self.total_items)
                     {
                         self.view_pos += 1;
                         try self.start_query(0);
-                        self.menu.select_last();
+                        self.list_box.select_last();
                         self.selection_updated();
                         return;
                     }
                 };
-                self.menu.select_down();
+                self.list_box.select_down();
                 self.selection_updated();
             }
             pub const palette_menu_down_meta: Meta = .{};
 
             pub fn palette_menu_up(self: *Self, _: Ctx) Result {
-                if (!async_query) if (self.menu.selected) |selected| {
+                if (!async_query) if (self.list_box.selected) |selected| {
                     if (selected == 0 and self.view_pos > 0) {
                         self.view_pos -= 1;
                         try self.start_query(0);
-                        self.menu.select_first();
+                        self.list_box.select_first();
                         self.selection_updated();
                         return;
                     }
                 };
-                self.menu.select_up();
+                self.list_box.select_up();
                 self.selection_updated();
             }
             pub const palette_menu_up_meta: Meta = .{};
@@ -657,7 +657,7 @@ pub fn Create(options: type) type {
                     }
                     try self.start_query(0);
                 }
-                self.menu.select_last();
+                self.list_box.select_last();
                 self.selection_updated();
             }
             pub const palette_menu_pagedown_meta: Meta = .{};
@@ -670,7 +670,7 @@ pub fn Create(options: type) type {
                         self.view_pos = 0;
                     try self.start_query(0);
                 }
-                self.menu.select_first();
+                self.list_box.select_first();
                 self.selection_updated();
             }
             pub const palette_menu_pageup_meta: Meta = .{};
@@ -682,7 +682,7 @@ pub fn Create(options: type) type {
                     }
                     try self.start_query(0);
                 }
-                self.menu.select_last();
+                self.list_box.select_last();
                 self.selection_updated();
             }
             pub const palette_menu_bottom_meta: Meta = .{};
@@ -692,21 +692,21 @@ pub fn Create(options: type) type {
                     self.view_pos = 0;
                     try self.start_query(0);
                 }
-                self.menu.select_first();
+                self.list_box.select_first();
                 self.selection_updated();
             }
             pub const palette_menu_top_meta: Meta = .{};
 
             pub fn palette_menu_delete_item(self: *Self, ctx: Ctx) Result {
                 if (@hasDecl(options, "delete_item")) {
-                    const button = self.menu.get_selected() orelse return;
-                    const refresh = options.delete_item(self.menu, button);
+                    const button = self.list_box.get_selected() orelse return;
+                    const refresh = options.delete_item(self.list_box, button);
                     if (refresh) {
                         if (@hasDecl(options, "load_entries")) {
                             options.clear_entries(self);
                             self.longest_hint = try options.load_entries(self);
                             if (self.entries.items.len > 0)
-                                self.initial_selected = self.menu.selected;
+                                self.initial_selected = self.list_box.selected;
                             try self.start_query(0);
                         } else {
                             return palette_menu_cancel(self, ctx);
@@ -721,7 +721,7 @@ pub fn Create(options: type) type {
 
             pub fn palette_menu_complete(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "complete"))
-                    options.complete(self, self.menu.get_selected()) catch {};
+                    options.complete(self, self.list_box.get_selected()) catch {};
             }
             pub const palette_menu_complete_meta: Meta = .{};
 
@@ -731,7 +731,7 @@ pub fn Create(options: type) type {
                     self.activate = .normal;
                     return options.activate_query(activate, self.inputbox.text.items);
                 }
-                self.menu.activate_selected();
+                self.list_box.activate_selected();
             }
             pub const palette_menu_activate_meta: Meta = .{};
 
@@ -745,7 +745,7 @@ pub fn Create(options: type) type {
                 const activate = self.activate;
                 self.activate = .normal;
                 if (@hasDecl(options, "edit_selected"))
-                    return options.edit_selected(self, self.menu.get_selected());
+                    return options.edit_selected(self, self.list_box.get_selected());
                 if (has_insert and self.inputbox.text.items.len > 0)
                     return options.insert(activate, self.inputbox.text.items);
             }
@@ -759,7 +759,7 @@ pub fn Create(options: type) type {
 
             pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
                 if (!self.quick_activate_enabled) return;
-                if (self.menu.selected orelse 0 > 0) self.menu.activate_selected();
+                if (self.list_box.selected orelse 0 > 0) self.list_box.activate_selected();
                 self.quick_activate_enabled = false;
             }
             pub const palette_menu_activate_quick_meta: Meta = .{};

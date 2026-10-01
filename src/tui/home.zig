@@ -78,19 +78,19 @@ info: *WidgetLayerBox,
 fire: ?Fire = null,
 commands: Commands = undefined,
 focused: bool = false,
-menu: *ListBox.State(*Self),
-menu_w: usize = 0,
-menu_desc_w: usize = 0,
-menu_label_max: usize = 0,
-menu_desc_max: usize = 0,
-menu_count: usize = 0,
-menu_len: usize = 0,
+list_box: *ListBox.State(*Self),
+list_box_w: usize = 0,
+list_box_desc_w: usize = 0,
+list_box_label_max: usize = 0,
+list_box_desc_max: usize = 0,
+list_box_count: usize = 0,
+list_box_len: usize = 0,
 max_desc_len: usize = 0,
-menu_items: std.ArrayList([]const u8) = .empty,
-menu_view_pos: usize = 0,
-menu_rows: usize = 0,
-menu_hidden: bool = true,
-menu_hints: bool = true,
+list_box_items: std.ArrayList([]const u8) = .empty,
+list_box_view_pos: usize = 0,
+list_box_rows: usize = 0,
+list_box_hidden: bool = true,
+list_box_hints: bool = true,
 input_namespace: []const u8,
 root_mode: bool = false,
 
@@ -147,10 +147,10 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .parent = parent.plane.*,
         .plane = n,
         .info = info,
-        .menu = try ListBox.create(*Self, allocator, w.plane.*, .{
+        .list_box = try ListBox.create(*Self, allocator, w.plane.*, .{
             .ctx = self,
             .style = widget_type,
-            .on_render = menu_on_render,
+            .on_render = list_box_on_render,
         }),
         .input_namespace = keybind.get_namespace(),
         .home_style = home_style,
@@ -170,24 +170,24 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
             logger.print("{s} has no description", .{command_name});
             continue;
         };
-        self.menu_count += 1;
+        self.list_box_count += 1;
         var hints = std.mem.splitScalar(u8, keybind_mode.keybind_hints.get(command_name) orelse "", ',');
         const hint = hints.first();
         self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
-        self.menu_desc_max = @max(self.menu_desc_max, description.len);
+        self.list_box_desc_max = @max(self.list_box_desc_max, description.len);
         try self.add_menu_command(command_name, description, hint);
     }
     const padding = tui.get_widget_style(widget_type).padding;
-    self.menu_len = self.menu_count + padding.top + padding.bottom;
-    self.position_menu(15, 9);
+    self.list_box_len = self.list_box_count + padding.top + padding.bottom;
+    self.position_list_box(15, 9);
     return w;
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     root.free_config(self.allocator, self.home_style_bufs);
-    for (self.menu_items.items) |item| self.allocator.free(item);
-    self.menu_items.deinit(self.allocator);
-    self.menu.widget().deinit(allocator);
+    for (self.list_box_items.items) |item| self.allocator.free(item);
+    self.list_box_items.deinit(self.allocator);
+    self.list_box.widget().deinit(allocator);
     if (self.focused) self.commands.deinit();
     self.info.deinit(allocator);
     self.plane.deinit();
@@ -200,15 +200,15 @@ pub fn focus(self: *Self) void {
     self.commands.register() catch @panic("home.commands.register");
     self.focused = true;
     command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
-    if (self.menu.selected == null)
-        self.menu.select_down();
+    if (self.list_box.selected == null)
+        self.list_box.select_down();
 }
 
 pub fn unfocus(self: *Self) void {
     if (self.focused) self.commands.unregister();
     self.focused = false;
     command.executeName("enter_mode_default", .empty()) catch {};
-    self.menu.selected = null;
+    self.list_box.selected = null;
 }
 
 fn add_menu_command(self: *Self, command_name: []const u8, description: []const u8, hint: []const u8) !void {
@@ -226,9 +226,9 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
         try fis.print(" :{s}", .{hint});
         const label = fis.buffered();
         const padding = tui.get_widget_style(widget_type).padding;
-        self.menu_label_max = @max(self.menu_label_max, label.len);
-        self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
-        self.menu_desc_w = self.menu_desc_max + 2 + padding.left + padding.right;
+        self.list_box_label_max = @max(self.list_box_label_max, label.len);
+        self.list_box_w = self.list_box_label_max + 2 + padding.left + padding.right;
+        self.list_box_desc_w = self.list_box_desc_max + 2 + padding.left + padding.right;
     }
 
     var value: std.Io.Writer.Allocating = .init(self.allocator);
@@ -238,66 +238,66 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
     try cbor.writeValue(writer, hint);
     try cbor.writeValue(writer, command_name);
 
-    (try self.menu_items.addOne(self.allocator)).* = try self.allocator.dupe(u8, value.written());
+    (try self.list_box_items.addOne(self.allocator)).* = try self.allocator.dupe(u8, value.written());
 }
 
-fn rebuild_menu(self: *Self) void {
-    self.menu.reset_items();
-    const first = @min(self.menu_view_pos, self.menu_items.items.len);
-    const last = @min(self.menu_items.items.len, first + self.menu_rows);
-    for (self.menu_items.items[first..last]) |label|
-        self.menu.add_item_with_handler(label, menu_action) catch return;
-    if (self.menu.count() == 0) {
-        self.menu.selected = null;
-    } else if (self.menu.selected) |selected| {
-        if (selected >= self.menu.count()) self.menu.selected = self.menu.count() - 1;
+fn rebuild_list_box(self: *Self) void {
+    self.list_box.reset_items();
+    const first = @min(self.list_box_view_pos, self.list_box_items.items.len);
+    const last = @min(self.list_box_items.items.len, first + self.list_box_rows);
+    for (self.list_box_items.items[first..last]) |label|
+        self.list_box.add_item_with_handler(label, list_box_action) catch return;
+    if (self.list_box.count() == 0) {
+        self.list_box.selected = null;
+    } else if (self.list_box.selected) |selected| {
+        if (selected >= self.list_box.count()) self.list_box.selected = self.list_box.count() - 1;
     } else if (self.focused) {
         // focus may have landed before the first window was built
-        self.menu.selected = 0;
+        self.list_box.selected = 0;
     }
 }
 
-fn select_menu_item(self: *Self, item: usize) void {
+fn select_list_box_item(self: *Self, item: usize) void {
     defer tui.need_render(@src());
-    const count = self.menu_items.items.len;
-    if (count == 0 or self.menu_rows == 0) return;
+    const count = self.list_box_items.items.len;
+    if (count == 0 or self.list_box_rows == 0) return;
     const idx = @min(item, count - 1);
-    const view_pos = if (idx < self.menu_view_pos)
+    const view_pos = if (idx < self.list_box_view_pos)
         idx
-    else if (idx >= self.menu_view_pos + self.menu_rows)
-        idx + 1 - self.menu_rows
+    else if (idx >= self.list_box_view_pos + self.list_box_rows)
+        idx + 1 - self.list_box_rows
     else
-        self.menu_view_pos;
-    if (view_pos != self.menu_view_pos) {
-        self.menu_view_pos = view_pos;
-        self.rebuild_menu();
+        self.list_box_view_pos;
+    if (view_pos != self.list_box_view_pos) {
+        self.list_box_view_pos = view_pos;
+        self.rebuild_list_box();
     }
-    self.menu.selected = idx - self.menu_view_pos;
+    self.list_box.selected = idx - self.list_box_view_pos;
 }
 
-fn selected_menu_item(self: *Self) ?usize {
-    return self.menu_view_pos + (self.menu.selected orelse return null);
+fn selected_list_box_item(self: *Self) ?usize {
+    return self.list_box_view_pos + (self.list_box.selected orelse return null);
 }
 
-fn move_menu_selection(self: *Self, direction: enum { up, down, page_up, page_down, top, bottom }) void {
-    const item = self.selected_menu_item() orelse return self.select_menu_item(0);
-    self.select_menu_item(switch (direction) {
+fn move_list_box_selection(self: *Self, direction: enum { up, down, page_up, page_down, top, bottom }) void {
+    const item = self.selected_list_box_item() orelse return self.select_list_box_item(0);
+    self.select_list_box_item(switch (direction) {
         .up => item -| 1,
         .down => item + 1,
-        .page_up => item -| self.menu_rows,
-        .page_down => item + self.menu_rows,
+        .page_up => item -| self.list_box_rows,
+        .page_down => item + self.list_box_rows,
         .top => 0,
-        .bottom => self.menu_items.items.len -| 1,
+        .bottom => self.list_box_items.items.len -| 1,
     });
 }
 
 pub fn update(self: *Self) void {
-    self.menu.update();
+    self.list_box.update();
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(walk_ctx, Widget.to(self), .begin)) return true;
-    if (!self.menu_hidden and self.menu.walk(walk_ctx, f)) return true;
+    if (!self.list_box_hidden and self.list_box.walk(walk_ctx, f)) return true;
     return f(walk_ctx, Widget.to(self), .end);
 }
 
@@ -318,7 +318,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+fn list_box_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var description: []const u8 = undefined;
     var hint: []const u8 = undefined;
     var command_name: []const u8 = undefined;
@@ -330,7 +330,7 @@ fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, 
     if (!(cbor.matchString(&iter, &command_name) catch false))
         command_name = "";
 
-    if (!self.menu_hints) hint = "";
+    if (!self.list_box_hints) hint = "";
     const label_len = description.len + hint.len;
     var buf: [64]u8 = undefined;
     const leader = blk: {
@@ -387,7 +387,7 @@ fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, 
     return false;
 }
 
-fn menu_action(_: **ListBox.State(*Self), button: *ButtonType, _: Widget.Pos) void {
+fn list_box_action(_: **ListBox.State(*Self), button: *ButtonType, _: Widget.Pos) void {
     _ = tui.set_focus_by_mouse_event();
     var description: []const u8 = undefined;
     var hint: []const u8 = undefined;
@@ -434,7 +434,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.cursor_move_yx(10, self.centerI(8, subtext.len * 4));
         fonts.print_string_medium(&self.plane, subtext, style_subtext) catch return false;
 
-        self.position_menu(self.v_center(15, self.menu_len, 15), self.center(10, self.menu_w));
+        self.position_list_box(self.v_center(15, self.list_box_len, 15), self.center(10, self.list_box_w));
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
         self.plane.cursor_move_yx(2, self.centerI(4, title.len * 4));
         fonts.print_string_medium(&self.plane, title, style_title) catch return false;
@@ -444,7 +444,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         _ = self.plane.print("{s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
 
-        self.position_menu(self.v_center(9, self.menu_len, 9), self.center(8, self.menu_w));
+        self.position_list_box(self.v_center(9, self.list_box_len, 9), self.center(8, self.list_box_w));
     } else if (self.plane.dim_y() > 2) {
         self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(1, self.centerI(4, title.len));
@@ -456,7 +456,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);
-        self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
+        self.position_list_box(self.v_center(5, self.list_box_len, 5), self.center(x, self.list_box_w));
     } else {
         self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(0, self.centerI(2, title.len));
@@ -465,12 +465,12 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         _ = self.plane.print(" {s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
         const x = @min(self.plane.dim_x() -| 32, 8);
-        self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
+        self.position_list_box(self.v_center(5, self.list_box_len, 5), self.center(x, self.list_box_w));
     }
 
     self.render_info(theme, style_subtext);
 
-    const more = if (self.menu_hidden) false else self.menu.container.render(theme);
+    const more = if (self.list_box_hidden) false else self.list_box.container.render(theme);
     return more or self.fire != null;
 }
 
@@ -497,28 +497,28 @@ fn render_info(self: *Self, theme: *const Widget.Theme, style_subtext: Widget.Th
     _ = self.info.render(theme);
 }
 
-fn position_menu(self: *Self, y: usize, x: usize) void {
+fn position_list_box(self: *Self, y: usize, x: usize) void {
     const box = Widget.Box.from(self.plane);
     const padding = tui.get_widget_style(widget_type).padding;
     const deco_h: usize = @as(usize, padding.top) + @as(usize, padding.bottom);
 
     const avail_rows = (box.h -| y) -| deco_h;
-    self.menu_hidden = avail_rows == 0;
-    if (self.menu_hidden) return;
+    self.list_box_hidden = avail_rows == 0;
+    if (self.list_box_hidden) return;
 
-    const hints = box.w >= self.menu_w;
-    const want_w = if (hints) self.menu_w else self.menu_desc_w;
+    const hints = box.w >= self.list_box_w;
+    const want_w = if (hints) self.list_box_w else self.list_box_desc_w;
     const x_ = @min(x, box.w -| want_w);
     const w = @min(want_w, box.w -| x_);
 
-    const rows = @min(avail_rows, self.menu_items.items.len);
-    if (rows != self.menu_rows or hints != self.menu_hints) {
-        self.menu_rows = rows;
-        self.menu_hints = hints;
-        self.menu_view_pos = @min(self.menu_view_pos, self.menu_items.items.len -| rows);
-        self.rebuild_menu();
+    const rows = @min(avail_rows, self.list_box_items.items.len);
+    if (rows != self.list_box_rows or hints != self.list_box_hints) {
+        self.list_box_rows = rows;
+        self.list_box_hints = hints;
+        self.list_box_view_pos = @min(self.list_box_view_pos, self.list_box_items.items.len -| rows);
+        self.rebuild_list_box();
     }
-    self.menu.resize(.{ .y = box.y + y, .x = box.x + x_, .w = w, .h = rows + deco_h });
+    self.list_box.resize(.{ .y = box.y + y, .x = box.x + x_, .w = w, .h = rows + deco_h });
 }
 
 fn center(self: *Self, non_centered: usize, w: usize) usize {
@@ -574,46 +574,46 @@ const cmds = struct {
     pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
-        self.move_menu_selection(.down);
+        self.move_list_box_selection(.down);
     }
     pub const home_menu_down_meta: Meta = .{};
 
     pub fn home_menu_up(self: *Self, _: Ctx) Result {
-        self.move_menu_selection(.up);
+        self.move_list_box_selection(.up);
     }
     pub const home_menu_up_meta: Meta = .{};
 
     pub fn home_menu_pagedown(self: *Self, _: Ctx) Result {
-        self.move_menu_selection(.page_down);
+        self.move_list_box_selection(.page_down);
     }
     pub const home_menu_pagedown_meta: Meta = .{};
 
     pub fn home_menu_pageup(self: *Self, _: Ctx) Result {
-        self.move_menu_selection(.page_up);
+        self.move_list_box_selection(.page_up);
     }
     pub const home_menu_pageup_meta: Meta = .{};
 
     pub fn home_menu_top(self: *Self, _: Ctx) Result {
-        self.move_menu_selection(.top);
+        self.move_list_box_selection(.top);
     }
     pub const home_menu_top_meta: Meta = .{};
 
     pub fn home_menu_bottom(self: *Self, _: Ctx) Result {
-        self.move_menu_selection(.bottom);
+        self.move_list_box_selection(.bottom);
     }
     pub const home_menu_bottom_meta: Meta = .{};
 
     pub fn home_menu_activate(self: *Self, _: Ctx) Result {
-        self.menu.activate_selected();
+        self.list_box.activate_selected();
     }
     pub const home_menu_activate_meta: Meta = .{};
 
     pub fn home_next_widget_style(self: *Self, _: Ctx) Result {
         tui.set_next_style(widget_type);
         const padding = tui.get_widget_style(widget_type).padding;
-        self.menu_len = self.menu_count + padding.top + padding.bottom;
-        self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
-        self.menu_desc_w = self.menu_desc_max + 2 + padding.left + padding.right;
+        self.list_box_len = self.list_box_count + padding.top + padding.bottom;
+        self.list_box_w = self.list_box_label_max + 2 + padding.left + padding.right;
+        self.list_box_desc_w = self.list_box_desc_max + 2 + padding.left + padding.right;
         tui.need_render(@src());
         try tui.save_config();
     }

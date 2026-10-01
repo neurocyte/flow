@@ -57,7 +57,7 @@ pub fn load_entries(palette: *Type) !usize {
     return longest_hint;
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
@@ -65,11 +65,11 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     try cbor.writeValue(writer, entry.hint);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try cbor.writeValue(writer, entry.id);
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var unused: []const u8 = undefined;
     var command_id: command.ID = undefined;
     var iter = button.opts.label;
@@ -79,6 +79,6 @@ fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void 
     while (len > 0) : (len -= 1)
         cbor.skipValue(&iter) catch break;
     if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("command_palette", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err("command_palette", e);
     tp.self_pid().send(.{ "cmd", "paste", .{command.get_name(command_id) orelse return} }) catch {};
 }

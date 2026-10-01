@@ -50,7 +50,7 @@ pub fn score_bonus(entry: *const Entry, query: []const u8) i32 {
     return if (std.ascii.eqlIgnoreCase(entry.name, query)) 1000 else 0;
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
@@ -58,11 +58,11 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     try cbor.writeValue(writer, entry.hint);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try cbor.writeValue(writer, entry.id);
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var unused: []const u8 = undefined;
     var command_id: command.ID = undefined;
     var iter = button.opts.label;
@@ -72,9 +72,9 @@ fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void 
     while (len > 0) : (len -= 1)
         cbor.skipValue(&iter) catch break;
     if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false)) return;
-    update_used_time(menu.*.opts.ctx, command_id);
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("command_palette", e);
-    tp.self_pid().send(.{ "cmd", command_id, .{} }) catch |e| menu.*.opts.ctx.logger.err("command_palette", e);
+    update_used_time(list_box.*.opts.ctx, command_id);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err("command_palette", e);
+    tp.self_pid().send(.{ "cmd", command_id, .{} }) catch |e| list_box.*.opts.ctx.logger.err("command_palette", e);
 }
 
 fn sort_by_used_time(palette: *Type) void {

@@ -71,17 +71,17 @@ pub fn clear_entries(palette: *Type) void {
     palette.entries.clearRetainingCapacity();
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
     try writer.writeAll(entry.cbor);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var item_cbor: []const u8 = undefined;
     var matches_cbor: []const u8 = undefined;
 
@@ -150,17 +150,17 @@ fn find_closest(palette: *Type) ?usize {
     return null;
 }
 
-fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
-    const self = menu.*.opts.ctx;
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
+    const self = list_box.*.opts.ctx;
     const editor = tui.get_active_editor() orelse return;
     editor.clear_matches();
     _, _, _, const sel, _ = get_values(button.opts.label);
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     switch (self.activate) {
         .normal => tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{
             sel.begin.row + 1,
             sel.begin.col + 1,
-        } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e),
+        } }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e),
         .alternate => tp.self_pid().send(.{ "cmd", "select_range", .{
             sel.begin.row,
             sel.begin.col,
