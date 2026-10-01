@@ -583,6 +583,29 @@ pub fn Create(options: type) type {
             const Meta = command.Metadata;
             const Result = command.Result;
 
+            pub fn palette_if_match(_: *Self, ctx: Ctx) Result {
+                const type_name = @typeName(options);
+                const self_base_name = if (std.mem.lastIndexOf(u8, type_name, ".")) |idx|
+                    type_name[idx + 1 ..]
+                else
+                    type_name;
+                var type_base_name: []const u8 = undefined;
+                var if_command_name: []const u8 = undefined;
+                var else_command_name: []const u8 = undefined;
+                if (!try ctx.args.match(.{
+                    tp.extract(&type_base_name),
+                    tp.extract(&if_command_name),
+                    tp.extract(&else_command_name),
+                }))
+                    return error.InvalidPaletteIfMatchArgument;
+                const command_name = if (std.mem.eql(u8, type_base_name, self_base_name))
+                    if_command_name
+                else
+                    else_command_name;
+                try command.executeName(command_name, .empty_from(ctx));
+            }
+            pub const palette_if_match_meta: Meta = .{};
+
             pub fn palette_menu_down(self: *Self, _: Ctx) Result {
                 if (!async_query) if (self.menu.selected) |selected| {
                     if (selected == self.view_rows - 1 and

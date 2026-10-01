@@ -134,7 +134,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{ "PRJ", "path_error", tp.any, tp.any, tp.any })) {
         palette.value.pending_node = null;
-    }
+    } else return false;
 
     return true;
 }

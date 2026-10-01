@@ -153,10 +153,8 @@ pub fn Create(options: type) type {
                     self.try_complete_file() catch {};
                 return true;
             }
-            if (try cbor.match(m.buf, .{ "PRJ", tp.more })) {
-                try self.process_project_manager(m);
-                return true;
-            }
+            if (try cbor.match(m.buf, .{ "PRJ", tp.more }))
+                return self.process_project_manager(m);
             if (try cbor.match(m.buf, .{ "exit", "error.FileNotFound" })) {
                 message("path not found", .{});
                 return true;
@@ -164,16 +162,16 @@ pub fn Create(options: type) type {
             return false;
         }
 
-        fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
-            defer self.update_mini_mode_text();
+        fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!bool {
             var count: usize = undefined;
             if (try cbor.match(m.buf, .{ "PRJ", "path_entry", tp.more })) {
-                return self.process_path_entry(m);
+                defer self.update_mini_mode_text();
+                try self.process_path_entry(m);
             } else if (try cbor.match(m.buf, .{ "PRJ", "path_done", tp.any, tp.any, tp.extract(&count) })) {
+                defer self.update_mini_mode_text();
                 try self.do_complete();
-            } else {
-                log.logger("file_browser").err("receive", tp.unexpected(m));
-            }
+            } else return false;
+            return true;
         }
 
         fn process_path_entry(self: *Self, m: tp.message) MessageFilter.Error!void {
