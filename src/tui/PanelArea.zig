@@ -618,10 +618,11 @@ pub fn is_maximized(self: *const Self) bool {
 fn save_height_ratio(height: usize) void {
     const total = total_height();
     if (total == 0) return;
-    if (rows_for_ratio(total, tui.config().panel_height_ratio) == height) return;
     const total_f: f32 = @floatFromInt(total);
     const floor = @as(f32, @floatFromInt(height_min_rows)) / total_f;
-    tui.config_mut().panel_height_ratio = std.math.clamp(@as(f32, @floatFromInt(height)) / total_f, floor, height_ratio_max);
+    const ratio = std.math.clamp(@as(f32, @floatFromInt(height)) / total_f, floor, height_ratio_max);
+    if (ratio == tui.config().panel_height_ratio) return;
+    tui.config_mut().panel_height_ratio = ratio;
     tui.save_config() catch {};
 }
 
