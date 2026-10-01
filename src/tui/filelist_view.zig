@@ -424,13 +424,13 @@ const cmds = struct {
         self.select_next(.up);
         self.list_box.activate_selected();
     }
-    pub const goto_prev_file_meta: Meta = .{ .description = "Navigate to previous file in the file list" };
+    pub const goto_prev_file_meta: Meta = .{ .description = "Go to previous file in the file list" };
 
     pub fn goto_next_file(self: *Self, _: Ctx) Result {
         self.select_next(.down);
         self.list_box.activate_selected();
     }
-    pub const goto_next_file_meta: Meta = .{ .description = "Navigate to next file in the file list" };
+    pub const goto_next_file_meta: Meta = .{ .description = "Go to next file in the file list" };
 
     pub fn select_prev_file(self: *Self, _: Ctx) Result {
         self.select_next(.up);

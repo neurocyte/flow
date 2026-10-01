@@ -3630,7 +3630,7 @@ pub const Editor = struct {
         try self.update_buf(root, ctx.now);
         self.clamp(ctx.now);
     }
-    pub const cut_internal_vim_meta: Meta = .{ .description = "Cut selection or current line to internal clipboard (vim)" };
+    pub const cut_internal_vim_meta: Meta = .{ .description = "Cut selection or current line (internal)" };
 
     pub fn cut(self: *Self, ctx: Context) Result {
         const b = self.buf_for_update() catch return;
@@ -3646,7 +3646,7 @@ pub const Editor = struct {
         self.clamp(ctx.now);
         try tui.clipboard_send_to_system();
     }
-    pub const cut_meta: Meta = .{ .description = "Cut selection or current line to clipboard" };
+    pub const cut_meta: Meta = .{ .description = "Cut selection or current line" };
 
     pub fn copy(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
@@ -3821,7 +3821,7 @@ pub const Editor = struct {
         return tui.clipboard_send_to_system();
     }
     pub const copy_file_name_meta: Meta = .{
-        .description = "Copy file name and location to clipboard",
+        .description = "Copy file name and location",
     };
 
     pub fn copy_internal_vim(self: *Self, _: Context) Result {
@@ -6797,7 +6797,7 @@ pub const Editor = struct {
         defer self.allocator.free(query);
         try self.find_in_buffer(query, .find, self.find_mode orelse .auto, ctx);
     }
-    pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for the word under the cursor" };
+    pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for word at cursor" };
 
     fn find_in(self: *Self, query: []const u8, comptime find_f: ripgrep.FindF, write_buffer: bool) !void {
         const root = try self.buf_root();
@@ -7459,7 +7459,7 @@ pub const Editor = struct {
         mv.clear_symbols(file_path);
         return project_manager.symbols(file_path);
     }
-    pub const show_symbols_meta: Meta = .{ .description = "Language: Show available symbols on current file" };
+    pub const show_symbols_meta: Meta = .{ .description = "Language: Show symbols in file" };
 
     pub fn rename_symbol(self: *Self, _: Context) Result {
         return self.pm_with_primary_cursor_pos(project_manager.rename_symbol);

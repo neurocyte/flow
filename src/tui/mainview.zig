@@ -1519,14 +1519,14 @@ const cmds = struct {
         _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
         try self.location_history_.back(if (same_file) self.get_active_file_path() else null, location_jump);
     }
-    pub const jump_back_meta: Meta = .{ .description = "Navigate back to previous history location" };
+    pub const jump_back_meta: Meta = .{ .description = "Go back to previous location" };
 
     pub fn jump_forward(self: *Self, ctx: Ctx) Result {
         var same_file: bool = false;
         _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
         try self.location_history_.forward(if (same_file) self.get_active_file_path() else null, location_jump);
     }
-    pub const jump_forward_meta: Meta = .{ .description = "Navigate forward to next history location" };
+    pub const jump_forward_meta: Meta = .{ .description = "Go forward to next location" };
 
     pub fn show_home(self: *Self, _: Ctx) Result {
         if (self.quit_on_document_close and self.quit_if_idle()) return;
@@ -1648,7 +1648,7 @@ const cmds = struct {
             try command.executeName("goto_next_diagnostic", ctx);
         }
     }
-    pub const goto_next_file_or_diagnostic_meta: Meta = .{ .description = "Navigate to next file or diagnostic location" };
+    pub const goto_next_file_or_diagnostic_meta: Meta = .{ .description = "Go to next file or diagnostic" };
 
     pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.has_panel_view(filelist_view)) {
@@ -1658,7 +1658,7 @@ const cmds = struct {
             try command.executeName("goto_prev_diagnostic", ctx);
         }
     }
-    pub const goto_prev_file_or_diagnostic_meta: Meta = .{ .description = "Navigate to previous file or diagnostic location" };
+    pub const goto_prev_file_or_diagnostic_meta: Meta = .{ .description = "Go to previous file or diagnostic" };
 
     pub fn add_diagnostic(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
