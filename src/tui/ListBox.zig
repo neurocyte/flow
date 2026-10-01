@@ -1,0 +1,253 @@
+const std = @import("std");
+const EventHandler = @import("EventHandler");
+
+const Widget = @import("Widget.zig");
+const WidgetList = @import("WidgetList.zig");
+const Button = @import("Button.zig");
+const scrollbar_v = @import("scrollbar_v.zig");
+const Plane = @import("renderer").Plane;
+const tui = @import("tui.zig");
+
+pub const Container = WidgetList;
+pub const scroll_lines = 3;
+
+pub fn Options(context: type) type {
+    return struct {
+        ctx: Context,
+        style: Widget.Type,
+
+        on_click: ClickHandler = do_nothing,
+        on_click4: ButtonClickHandler = do_nothing_click,
+        on_click5: ButtonClickHandler = do_nothing_click,
+        on_render: *const fn (ctx: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool = on_render_default,
+        on_layout: *const fn (ctx: context, button: *ButtonType) Widget.Layout = on_layout_default,
+        prepare_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) Widget.Box = prepare_resize_default,
+        after_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) void = after_resize_default,
+        on_scroll: ?EventHandler = null,
+
+        pub const Context = context;
+        pub const ListBoxType = State(Context);
+        pub const ButtonType = Button.Options(*ListBoxType).ButtonType;
+        pub const ButtonClickHandler = Button.Options(*ListBoxType).ClickHandler;
+        pub const ClickHandler = *const fn (ctx: context, button: *ButtonType) void;
+        pub fn do_nothing(_: context, _: *ButtonType) void {}
+        pub fn do_nothing_click(_: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {}
+
+        pub fn on_render_default(_: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+            const style_base = theme.editor;
+            const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
+            button.plane.set_base_style(style_base);
+            button.plane.erase();
+            button.plane.home();
+            if (button.active or button.hover or selected) {
+                button.plane.set_style(style_label);
+                button.plane.fill(" ");
+                button.plane.home();
+            }
+            _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};
+            return false;
+        }
+
+        pub fn on_layout_default(_: context, _: *ButtonType) Widget.Layout {
+            return .{ .static = 1 };
+        }
+
+        pub fn prepare_resize_default(_: context, state: *ListBoxType, box_: Widget.Box) Widget.Box {
+            var box = box_;
+            box.h = if (box_.h == 0) state.list.widgets.items.len else box_.h;
+            return box;
+        }
+
+        pub fn after_resize_default(_: context, _: *ListBoxType, _: Widget.Box) void {}
+    };
+}
+
+pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
+    const self = try allocator.create(State(ctx_type));
+    errdefer allocator.destroy(self);
+    const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, opts.style);
+    self.* = .{
+        .allocator = allocator,
+        .list = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
+        .container = container,
+        .container_widget = container.widget(),
+        .frame_widget = null,
+        .scrollbar = if (tui.config().show_scrollbars)
+            if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null
+        else
+            null,
+        .opts = opts,
+    };
+    self.list.ctx = self;
+    self.list.on_render = State(ctx_type).on_render_list;
+    container.ctx = self;
+    container.on_deinit = State(ctx_type).free_from_container;
+    container.prepare_resize = State(ctx_type).prepare_resize;
+    container.after_resize = State(ctx_type).after_resize;
+    try container.add(self.list.widget());
+    if (self.scrollbar) |sb| try container.add(sb.widget());
+    return self;
+}
+
+pub fn State(ctx_type: type) type {
+    return struct {
+        allocator: std.mem.Allocator,
+        list: *WidgetList,
+        container: *WidgetList,
+        container_widget: Widget,
+        frame_widget: ?Widget,
+        scrollbar: ?*scrollbar_v,
+        opts: OptionsType,
+        selected: ?usize = null,
+        render_idx: usize = 0,
+        selected_active: bool = false,
+        header_count: usize = 0,
+
+        const Self = @This();
+        pub const OptionsType = Options(ctx_type);
+        pub const ButtonType = Button.Options(*Self).ButtonType;
+
+        pub fn deinit(_: *Self, _: std.mem.Allocator) void {
+            @compileError("do not deinit ListBox.State directly; free it via list_box.widget().deinit() or the widget tree");
+        }
+
+        pub fn widget(self: *Self) Widget {
+            return self.container_widget;
+        }
+
+        fn free_from_container(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
+            self.allocator.destroy(self);
+        }
+
+        pub fn add_header(self: *Self, w_: Widget) !*Widget {
+            self.header_count += 1;
+            try self.list.add(w_);
+            return &self.list.widgets.items[self.list.widgets.items.len - 1].widget;
+        }
+
+        pub fn add_item(self: *Self, label: []const u8) !void {
+            try self.list.add(try Button.create(*Self, self.allocator, self.list.parent, .{
+                .ctx = self,
+                .on_layout = self.opts.on_layout,
+                .label = label,
+                .on_click = self.opts.on_click,
+                .on_click4 = self.opts.on_click4,
+                .on_click5 = self.opts.on_click5,
+                .on_render = self.opts.on_render,
+            }));
+        }
+
+        pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: OptionsType.ButtonClickHandler) !void {
+            try self.list.add(try Button.create_widget(*Self, self.allocator, self.list.parent, .{
+                .ctx = self,
+                .on_layout = on_layout,
+                .label = label,
+                .on_click = on_click,
+                .on_click4 = self.opts.on_click4,
+                .on_click5 = self.opts.on_click5,
+                .on_render = on_render,
+            }));
+        }
+
+        pub fn reset_items(self: *Self) void {
+            for (self.list.widgets.items, 0..) |*w, i|
+                if (i >= self.header_count)
+                    w.widget.deinit(self.allocator);
+            self.list.widgets.shrinkRetainingCapacity(self.header_count);
+        }
+
+        pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+            return self.list.render(theme);
+        }
+
+        fn on_render_list(ctx: ?*anyopaque, _: *const Widget.Theme) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.render_idx = 0;
+        }
+
+        fn prepare_resize(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) Widget.Box {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.opts.prepare_resize(self.*.opts.ctx, self, box);
+        }
+
+        fn after_resize(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.opts.after_resize(self.*.opts.ctx, self, box);
+        }
+
+        pub fn on_layout(self: **Self, button: *ButtonType) Widget.Layout {
+            return self.*.opts.on_layout(self.*.opts.ctx, button);
+        }
+
+        pub fn on_render(self: **Self, button: *ButtonType, theme: *const Widget.Theme) bool {
+            defer self.*.render_idx += 1;
+            std.debug.assert(self.*.render_idx < self.*.list.widgets.items.len);
+            return self.*.opts.on_render(self.*.opts.ctx, button, theme, self.*.render_idx == self.*.selected);
+        }
+
+        pub fn resize(self: *Self, box: Widget.Box) void {
+            self.container.resize(box);
+        }
+
+        pub fn update(self: *Self) void {
+            self.list.update();
+        }
+
+        pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
+            for (self.list.widgets.items) |*w|
+                if (w.widget.walk(walk_ctx, f))
+                    return true;
+
+            return if (self.frame_widget) |frame|
+                frame.walk(walk_ctx, f)
+            else
+                self.container_widget.walk(walk_ctx, f);
+        }
+
+        pub fn count(self: *Self) usize {
+            return self.list.widgets.items.len;
+        }
+
+        pub fn select_down(self: *Self) void {
+            const current = self.selected orelse {
+                if (self.count() > 0)
+                    self.selected = 0;
+                return;
+            };
+            self.selected = if (self.count() < self.header_count + 1)
+                null
+            else
+                @min(current + 1, self.count() - self.header_count - 1);
+        }
+
+        pub fn select_up(self: *Self) void {
+            if (self.selected) |current| {
+                self.selected = if (self.count() > 0) @min(self.count() - 1, @max(current, 1) - 1) else null;
+            }
+        }
+
+        pub fn select_first(self: *Self) void {
+            self.selected = if (self.count() > 0) 0 else null;
+        }
+
+        pub fn select_last(self: *Self) void {
+            self.selected = if (self.count() > 0) self.count() - self.header_count - 1 else null;
+        }
+
+        pub fn activate_selected(self: *Self) void {
+            const button = self.get_selected() orelse return;
+            button.opts.on_click(&button.opts.ctx, button, .{});
+        }
+
+        pub fn get_selected(self: *Self) ?*ButtonType {
+            const selected = self.selected orelse return null;
+            self.selected_active = true;
+            const pos = selected + self.header_count;
+            return if (pos < self.list.widgets.items.len)
+                self.list.widgets.items[pos].widget.dynamic_cast(ButtonType)
+            else
+                null;
+        }
+    };
+}

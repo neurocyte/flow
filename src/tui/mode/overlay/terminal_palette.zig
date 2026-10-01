@@ -137,17 +137,17 @@ pub fn skip_entry(entry: *const Entry) bool {
     return entry.command != null;
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
     try cbor.writeValue(writer, entry);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(palette: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var entry: Entry = undefined;
     var iter = button.opts.label; // label contains cbor entry object and matches
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false))
@@ -266,12 +266,12 @@ fn add_profile(palette: *Type) !void {
     tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
-    const activate = menu.*.opts.ctx.activate;
-    menu.*.opts.ctx.activate = .normal;
+    const activate = list_box.*.opts.ctx.activate;
+    list_box.*.opts.ctx.activate = .normal;
     const target: PanelArea.Target = switch (activate) {
         .normal => .focused_group,
         .alternate => .new_group,
@@ -282,12 +282,12 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
             std.log.info("type a new profile name or select an existing profile and press {s}", .{hint});
         return;
     };
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     if (entry.command) |command_name| {
-        tp.self_pid().send(.{ "cmd", command_name, .{ "", target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", command_name, .{ "", target } }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     } else if (entry.profile) |profile_name| {
-        tp.self_pid().send(.{ "cmd", "terminal_new", .{ profile_name, target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", "terminal_new", .{ profile_name, target } }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     } else {
-        tp.self_pid().send(.{ "cmd", "terminal_select", .{ entry.idx, target } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", "terminal_select", .{ entry.idx, target } }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     }
 }

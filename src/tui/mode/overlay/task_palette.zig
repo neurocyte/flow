@@ -75,17 +75,17 @@ pub fn score_bonus(entry: *const Entry, query: []const u8) i32 {
     return if (std.ascii.eqlIgnoreCase(entry.label, query)) 1000 else 0;
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
     try cbor.writeValue(writer, entry);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(palette: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var entry: Entry = undefined;
     var iter = button.opts.label; // label contains cbor entry object and matches
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false))
@@ -146,12 +146,12 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     return false;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
-    const activate = menu.*.opts.ctx.activate;
-    menu.*.opts.ctx.activate = .normal;
+    const activate = list_box.*.opts.ctx.activate;
+    list_box.*.opts.ctx.activate = .normal;
     if (entry.command) |command_name| {
         const hints = if (tui.input_mode()) |m| m.keybind_hints else return;
         if (hints.get(command_name)) |hint| {
@@ -161,9 +161,9 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
                 std.log.info("select task and press {s}", .{hint});
         }
     } else {
-        tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
         project_manager.add_task(entry.label) catch {};
-        run_task(activate, entry.label) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        run_task(activate, entry.label) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     }
 }
 
@@ -191,10 +191,10 @@ pub fn call_runner(runner: TaskRunner, task: []const u8) !void {
     };
 }
 
-pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
+pub fn delete_item(list_box: *Type.ListBoxType, button: *Type.ButtonType) bool {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return false;
-    command.executeName("delete_task", command.fmt(.{entry.label})) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    command.executeName("delete_task", command.fmt(.{entry.label})) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     return true; //refresh list
 }

@@ -55,14 +55,14 @@ pub fn clear_entries(palette: *Type) void {
     palette.entries.clearRetainingCapacity();
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
     try cbor.writeValue(writer, if (entry.open) "-" else "");
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
@@ -85,18 +85,18 @@ pub fn complete(palette: *Type, button_: ?*Type.ButtonType) !void {
     return palette.start_query(0);
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var name_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &name_) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
-    tp.self_pid().send(.{ "cmd", "change_project", .{name_} }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err("open_recent_project", e);
+    tp.self_pid().send(.{ "cmd", "change_project", .{name_} }) catch |e| list_box.*.opts.ctx.logger.err("open_recent_project", e);
 }
 
-pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
+pub fn delete_item(list_box: *Type.ListBoxType, button: *Type.ButtonType) bool {
     var name_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &name_) catch false)) return false;
-    command.executeName("close_project", command.fmt(.{name_})) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    command.executeName("close_project", command.fmt(.{name_})) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     return true; //refresh list
 }

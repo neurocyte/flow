@@ -15,12 +15,12 @@ const Widget = @import("../Widget.zig");
 const WidgetList = @import("../WidgetList.zig");
 const WidgetScrollBox = @import("../WidgetScrollBox.zig");
 const Button = @import("../Button.zig");
+const MenuButton = @import("../MenuButton.zig");
+const main_menu = @import("../menu/Main.zig");
 const tab_render = @import("../tab_render.zig");
 
-const default_min_tabs = 2;
-
 const @"style.config" = struct {
-    default_minimum_tabs_shown: usize = 2,
+    default_minimum_tabs_shown: usize = 1,
 
     padding: []const u8 = "\u{00A0}", // nbsp
     padding_fg_transparent: bool = true,
@@ -139,6 +139,8 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
     const self = try allocator.create(TabBar);
     errdefer allocator.destroy(self);
     self.* = try TabBar.init(allocator, parent, event_handler, min_tabs);
+    self.splits_list.ctx = self;
+    self.splits_list.prepare_resize = TabBar.prepare_splits_resize;
     return Widget.to(self);
 }
 
@@ -147,6 +149,7 @@ pub const TabBar = struct {
     plane: Plane,
     splits_list: *WidgetList,
     splits_list_widget: Widget,
+    menu_button: Widget,
     event_handler: ?EventHandler,
     tabs: []TabBarTab = &[_]TabBarTab{},
     active_focused_buffer_ref: ?Buffer.Ref = null,
@@ -207,15 +210,17 @@ pub const TabBar = struct {
     }
 
     fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, min_tabs: ?usize) !Self {
-        var w = try WidgetList.createH(allocator, parent, "tabs", .dynamic);
-        w.render_decoration = null;
-        w.ctx = w;
         const tab_style, const tab_style_bufs = root.read_config(Style, allocator);
+        errdefer root.free_config(allocator, tab_style_bufs);
+        var w = try WidgetList.createH(allocator, parent, "tabs", .dynamic);
+        errdefer w.deinit(allocator);
+        w.render_decoration = null;
         return .{
             .allocator = allocator,
             .plane = w.plane,
             .splits_list = w,
             .splits_list_widget = w.widget(),
+            .menu_button = try MenuButton.create(allocator, w.plane, &main_menu.menu),
             .event_handler = event_handler,
             .tab_style = tab_style,
             .tab_style_bufs = tab_style_bufs,
@@ -223,9 +228,33 @@ pub const TabBar = struct {
         };
     }
 
+    fn prepare_splits_resize(ctx: ?*anyopaque, splits_list: *WidgetList, box: Widget.Box) Widget.Box {
+        const self: *Self = @ptrCast(@alignCast(ctx.?));
+        const show_menu = tui.config().show_menu;
+        const button_w: usize = switch (show_menu) {
+            .left, .right => @min(MenuButton.width, box.w),
+            .bar, .none => 0,
+        };
+        var button_box = box;
+        button_box.w = button_w;
+        button_box.frame = .{};
+        if (show_menu == .right) button_box.x = box.x + box.w - button_w;
+        self.menu_button.resize(button_box);
+
+        const items = splits_list.widgets.items;
+        for (items, 0..) |*w, idx| if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll| {
+            scroll.inset = .{
+                .head = if (show_menu == .left and idx == 0) button_w else 0,
+                .tail = if (show_menu == .right and idx == items.len - 1) button_w else 0,
+            };
+        };
+        return box;
+    }
+
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         root.free_config(self.allocator, self.tab_style_bufs);
         self.allocator.free(self.tabs);
+        self.menu_button.deinit(allocator);
         self.splits_list_widget.deinit(allocator);
         allocator.destroy(self);
     }
@@ -286,7 +315,8 @@ pub const TabBar = struct {
                 scroll.fade_cells = @intCast(self.tab_style.clipping_fade_cells);
                 scroll.fade_color = fade_color;
             };
-        return self.splits_list_widget.render(theme);
+        const more = self.splits_list_widget.render(theme);
+        return self.menu_button.render(theme) or more;
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -382,12 +412,13 @@ pub const TabBar = struct {
 
     pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
         if (f(ctx, Widget.to(self), .begin)) return true;
+        if (self.menu_button.walk(ctx, f)) return true;
         if (self.splits_list_widget.walk(ctx, f)) return true;
         return f(ctx, Widget.to(self), .end);
     }
 
     pub fn hover(self: *Self) bool {
-        return self.splits_list_widget.hover();
+        return self.splits_list_widget.hover() or self.menu_button.hover();
     }
 
     fn update_tabs(self: *Self, drag_source: ?Widget) !bool {

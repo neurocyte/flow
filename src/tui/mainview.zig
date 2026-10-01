@@ -42,6 +42,7 @@ const PanelArea = @import("PanelArea.zig");
 const panel_registry = @import("panel_registry.zig");
 const Panel = @import("Panel.zig");
 const Vt = @import("Vt.zig");
+const MenuBar = @import("MenuBar.zig");
 
 const Self = @This();
 const Commands = command.Collection(cmds);
@@ -52,6 +53,9 @@ widgets: *WidgetList,
 widgets_widget: Widget,
 floating_views: WidgetStack,
 commands: Commands = undefined,
+menu_bar: ?*MenuBar = null,
+menu_bar_layer: ?Widget = null,
+bars_hidden: bool = false,
 top_bar: ?Widget = null,
 bottom_bar: ?Widget = null,
 views: *WidgetList,
@@ -107,6 +111,17 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     widgets.trailing_z_index = .panel;
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
+
+    {
+        const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, .{ .name = "menu_bar.layer" });
+        bar_layer.z_index = .topbar;
+        const bar = try MenuBar.create(allocator, bar_layer.inner_plane(), &@import("menu/Main.zig").menu);
+        bar.layer = bar_layer;
+        bar_layer.set(bar.widget());
+        self.menu_bar = bar;
+        self.menu_bar_layer = (try widgets.addP(bar_layer.widget())).*;
+        self.update_menu_bar_visibility();
+    }
 
     if (tui.config().top_bar.len > 0) {
         const bar_layer = try tui.WidgetLayerBox.create(allocator, widgets.plane, .{ .name = "top_bar.layer" });
@@ -329,8 +344,14 @@ pub fn panel_tab_style(self: *const Self) *const @import("status/tabs.zig").Styl
 
 fn panel_maximized(ctx: *anyopaque, maximized: bool) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
+    self.bars_hidden = maximized;
+    self.update_menu_bar_visibility();
     set_bar_hidden(self.top_bar, maximized);
     set_bar_hidden(self.bottom_bar, maximized);
+}
+
+pub fn update_menu_bar_visibility(self: *Self) void {
+    set_bar_hidden(self.menu_bar_layer, self.bars_hidden or tui.config().show_menu != .bar);
 }
 
 fn set_bar_hidden(bar: ?Widget, hidden: bool) void {
@@ -540,6 +561,12 @@ const cmds = struct {
     const Ctx = command.Context;
     const Meta = command.Metadata;
     const Result = command.Result;
+
+    pub fn save_all(_: *Self, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm|
+            bm.save_all(.{}) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 
     pub fn quit(self: *Self, _: Ctx) Result {
         try self.check_all_not_dirty();
@@ -1492,14 +1519,14 @@ const cmds = struct {
         _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
         try self.location_history_.back(if (same_file) self.get_active_file_path() else null, location_jump);
     }
-    pub const jump_back_meta: Meta = .{ .description = "Navigate back to previous history location" };
+    pub const jump_back_meta: Meta = .{ .description = "Go back to previous location" };
 
     pub fn jump_forward(self: *Self, ctx: Ctx) Result {
         var same_file: bool = false;
         _ = ctx.args.match(.{tp.extract(&same_file)}) catch false;
         try self.location_history_.forward(if (same_file) self.get_active_file_path() else null, location_jump);
     }
-    pub const jump_forward_meta: Meta = .{ .description = "Navigate forward to next history location" };
+    pub const jump_forward_meta: Meta = .{ .description = "Go forward to next location" };
 
     pub fn show_home(self: *Self, _: Ctx) Result {
         if (self.quit_on_document_close and self.quit_if_idle()) return;
@@ -1621,7 +1648,7 @@ const cmds = struct {
             try command.executeName("goto_next_diagnostic", ctx);
         }
     }
-    pub const goto_next_file_or_diagnostic_meta: Meta = .{ .description = "Navigate to next file or diagnostic location" };
+    pub const goto_next_file_or_diagnostic_meta: Meta = .{ .description = "Go to next file or diagnostic" };
 
     pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.has_panel_view(filelist_view)) {
@@ -1631,7 +1658,7 @@ const cmds = struct {
             try command.executeName("goto_prev_diagnostic", ctx);
         }
     }
-    pub const goto_prev_file_or_diagnostic_meta: Meta = .{ .description = "Navigate to previous file or diagnostic location" };
+    pub const goto_prev_file_or_diagnostic_meta: Meta = .{ .description = "Go to previous file or diagnostic" };
 
     pub fn add_diagnostic(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;

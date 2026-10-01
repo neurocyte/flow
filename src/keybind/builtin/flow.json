@@ -46,6 +46,7 @@
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_split"],
             ["ctrl+o", "open_file"],
+            ["ctrl+k s", "save_all"],
             ["ctrl+e", "open_recent"],
             ["ctrl+shift+e", "open_file_tree"],
             ["alt+o", "open_previous_file"],
@@ -67,8 +68,10 @@
             ["ctrl+f2", "insert_command_name"],
             ["ctrl+k ctrl+s", "insert_command_name"],
             ["ctrl+k ctrl+shift+space", "terminal_open_file_links"],
-            ["f9", "theme_prev"],
-            ["f10", "theme_next"],
+            ["f9", "theme_next"],
+            ["shift+f9", "theme_prev"],
+            ["f10", "open_main_menu"],
+            ["ctrl+shift+f10", "toggle_menu"],
             ["f11", "toggle_fullscreen"],
             ["alt+enter", "toggle_fullscreen"],
             ["ctrl+f11", "toggle_logview"],
@@ -238,8 +241,6 @@
             ["f2", "rename_symbol"],
             ["f3", "goto_next_match"],
             ["f15", "goto_prev_match"],
-            ["f9", "theme_prev"],
-            ["f10", "theme_next"],
             ["shift+f11", "toggle_highlight_columns"],
             ["f12", "goto_definition"],
             ["ctrl+shift+o", "show_symbols"],
@@ -463,6 +464,29 @@
             ["tab", "palette_menu_complete"]
         ]
     },
+    "overlay/menu": {
+        "inherit": "project",
+        "press": [
+            ["alt+f9", "menu_next_widget_style"],
+            ["ctrl+p", "menu_up"],
+            ["ctrl+n", "menu_down"],
+            ["ctrl+b", "menu_close_submenu"],
+            ["ctrl+f", "menu_open_submenu"],
+            ["ctrl+c", "menu_cancel"],
+            ["ctrl+g", "menu_cancel"],
+            ["escape", "menu_cancel"],
+            ["up", "menu_up"],
+            ["down", "menu_down"],
+            ["left", "menu_close_submenu"],
+            ["right", "menu_open_submenu"],
+            ["home", "menu_first"],
+            ["end", "menu_last"],
+            ["page_up", "menu_first"],
+            ["page_down", "menu_last"],
+            ["enter", "menu_activate"],
+            ["space", "menu_activate"]
+        ]
+    },
     "mini/numeric": {
         "inherit": "project",
         "press": [
@@ -668,6 +692,8 @@
             ["alt+p", "goto_prev_file"],
             ["alt+shift+l", "focus_filelist"],
             ["ctrl+w", "filelist_close"],
+            ["ctrl+d", "filelist_close"],
+            ["q", "filelist_close"],
             ["escape", "unfocus_filelist"]
         ]
     },

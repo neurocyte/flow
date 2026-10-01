@@ -1,253 +1,108 @@
 const std = @import("std");
-const EventHandler = @import("EventHandler");
+const tp = @import("thespian");
+const cbor = @import("cbor");
+const command = @import("command");
 
-const Widget = @import("Widget.zig");
-const WidgetList = @import("WidgetList.zig");
-const Button = @import("Button.zig");
-const scrollbar_v = @import("scrollbar_v.zig");
-const Plane = @import("renderer").Plane;
-const tui = @import("tui.zig");
+const Menu = @This();
 
-pub const Container = WidgetList;
-pub const scroll_lines = 3;
+label: []const u8 = "",
+items: []const Item,
 
-pub fn Options(context: type) type {
-    return struct {
-        ctx: Context,
-        style: Widget.Type,
+pub const Item = union(enum) {
+    command: Command,
+    separator,
+    submenu: *const Menu,
 
-        on_click: ClickHandler = do_nothing,
-        on_click4: ButtonClickHandler = do_nothing_click,
-        on_click5: ButtonClickHandler = do_nothing_click,
-        on_render: *const fn (ctx: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool = on_render_default,
-        on_layout: *const fn (ctx: context, button: *ButtonType) Widget.Layout = on_layout_default,
-        prepare_resize: *const fn (ctx: context, menu: *MenuType, box: Widget.Box) Widget.Box = prepare_resize_default,
-        after_resize: *const fn (ctx: context, menu: *MenuType, box: Widget.Box) void = after_resize_default,
-        on_scroll: ?EventHandler = null,
+    pub fn is_visible(self: *const Item) bool {
+        return switch (self.*) {
+            .command => |*cmd| cmd.is_visible(),
+            .separator => true,
+            .submenu => |submenu| submenu.has_visible_items(),
+        };
+    }
+};
 
-        pub const Context = context;
-        pub const MenuType = State(Context);
-        pub const ButtonType = Button.Options(*MenuType).ButtonType;
-        pub const ButtonClickHandler = Button.Options(*MenuType).ClickHandler;
-        pub const ClickHandler = *const fn (ctx: context, button: *ButtonType) void;
-        pub fn do_nothing(_: context, _: *ButtonType) void {}
-        pub fn do_nothing_click(_: **MenuType, _: *ButtonType, _: Widget.Pos) void {}
-
-        pub fn on_render_default(_: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
-            const style_base = theme.editor;
-            const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
-            button.plane.set_base_style(style_base);
-            button.plane.erase();
-            button.plane.home();
-            if (button.active or button.hover or selected) {
-                button.plane.set_style(style_label);
-                button.plane.fill(" ");
-                button.plane.home();
-            }
-            _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};
-            return false;
-        }
-
-        pub fn on_layout_default(_: context, _: *ButtonType) Widget.Layout {
-            return .{ .static = 1 };
-        }
-
-        pub fn prepare_resize_default(_: context, state: *MenuType, box_: Widget.Box) Widget.Box {
-            var box = box_;
-            box.h = if (box_.h == 0) state.menu.widgets.items.len else box_.h;
-            return box;
-        }
-
-        pub fn after_resize_default(_: context, _: *MenuType, _: Widget.Box) void {}
-    };
+pub fn visible(self: *const Menu) VisibleIterator {
+    return .{ .items = self.items };
 }
 
-pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
-    const self = try allocator.create(State(ctx_type));
-    errdefer allocator.destroy(self);
-    const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, opts.style);
-    self.* = .{
-        .allocator = allocator,
-        .menu = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
-        .container = container,
-        .container_widget = container.widget(),
-        .frame_widget = null,
-        .scrollbar = if (tui.config().show_scrollbars)
-            if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null
-        else
-            null,
-        .opts = opts,
-    };
-    self.menu.ctx = self;
-    self.menu.on_render = State(ctx_type).on_render_menu;
-    container.ctx = self;
-    container.on_deinit = State(ctx_type).free_from_container;
-    container.prepare_resize = State(ctx_type).prepare_resize;
-    container.after_resize = State(ctx_type).after_resize;
-    try container.add(self.menu.widget());
-    if (self.scrollbar) |sb| try container.add(sb.widget());
-    return self;
+pub fn has_visible_items(self: *const Menu) bool {
+    var it = self.visible();
+    return it.next() != null;
 }
 
-pub fn State(ctx_type: type) type {
-    return struct {
-        allocator: std.mem.Allocator,
-        menu: *WidgetList,
-        container: *WidgetList,
-        container_widget: Widget,
-        frame_widget: ?Widget,
-        scrollbar: ?*scrollbar_v,
-        opts: OptionsType,
-        selected: ?usize = null,
-        render_idx: usize = 0,
-        selected_active: bool = false,
-        header_count: usize = 0,
+pub const VisibleIterator = struct {
+    items: []const Item,
+    idx: usize = 0,
+    separator: ?*const Item = null,
+    started: bool = false,
 
-        const Self = @This();
-        pub const OptionsType = Options(ctx_type);
-        pub const ButtonType = Button.Options(*Self).ButtonType;
-
-        pub fn deinit(_: *Self, _: std.mem.Allocator) void {
-            @compileError("do not deinit Menu.State directly; free it via menu.widget().deinit() or the widget tree");
-        }
-
-        pub fn widget(self: *Self) Widget {
-            return self.container_widget;
-        }
-
-        fn free_from_container(ctx: ?*anyopaque) void {
-            const self: *Self = @ptrCast(@alignCast(ctx.?));
-            self.allocator.destroy(self);
-        }
-
-        pub fn add_header(self: *Self, w_: Widget) !*Widget {
-            self.header_count += 1;
-            try self.menu.add(w_);
-            return &self.menu.widgets.items[self.menu.widgets.items.len - 1].widget;
-        }
-
-        pub fn add_item(self: *Self, label: []const u8) !void {
-            try self.menu.add(try Button.create(*Self, self.allocator, self.menu.parent, .{
-                .ctx = self,
-                .on_layout = self.opts.on_layout,
-                .label = label,
-                .on_click = self.opts.on_click,
-                .on_click4 = self.opts.on_click4,
-                .on_click5 = self.opts.on_click5,
-                .on_render = self.opts.on_render,
-            }));
-        }
-
-        pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: OptionsType.ButtonClickHandler) !void {
-            try self.menu.add(try Button.create_widget(*Self, self.allocator, self.menu.parent, .{
-                .ctx = self,
-                .on_layout = on_layout,
-                .label = label,
-                .on_click = on_click,
-                .on_click4 = self.opts.on_click4,
-                .on_click5 = self.opts.on_click5,
-                .on_render = on_render,
-            }));
-        }
-
-        pub fn reset_items(self: *Self) void {
-            for (self.menu.widgets.items, 0..) |*w, i|
-                if (i >= self.header_count)
-                    w.widget.deinit(self.allocator);
-            self.menu.widgets.shrinkRetainingCapacity(self.header_count);
-        }
-
-        pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-            return self.menu.render(theme);
-        }
-
-        fn on_render_menu(ctx: ?*anyopaque, _: *const Widget.Theme) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            self.render_idx = 0;
-        }
-
-        fn prepare_resize(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) Widget.Box {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            return self.opts.prepare_resize(self.*.opts.ctx, self, box);
-        }
-
-        fn after_resize(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            self.opts.after_resize(self.*.opts.ctx, self, box);
-        }
-
-        pub fn on_layout(self: **Self, button: *ButtonType) Widget.Layout {
-            return self.*.opts.on_layout(self.*.opts.ctx, button);
-        }
-
-        pub fn on_render(self: **Self, button: *ButtonType, theme: *const Widget.Theme) bool {
-            defer self.*.render_idx += 1;
-            std.debug.assert(self.*.render_idx < self.*.menu.widgets.items.len);
-            return self.*.opts.on_render(self.*.opts.ctx, button, theme, self.*.render_idx == self.*.selected);
-        }
-
-        pub fn resize(self: *Self, box: Widget.Box) void {
-            self.container.resize(box);
-        }
-
-        pub fn update(self: *Self) void {
-            self.menu.update();
-        }
-
-        pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-            for (self.menu.widgets.items) |*w|
-                if (w.widget.walk(walk_ctx, f))
-                    return true;
-
-            return if (self.frame_widget) |frame|
-                frame.walk(walk_ctx, f)
-            else
-                self.container_widget.walk(walk_ctx, f);
-        }
-
-        pub fn count(self: *Self) usize {
-            return self.menu.widgets.items.len;
-        }
-
-        pub fn select_down(self: *Self) void {
-            const current = self.selected orelse {
-                if (self.count() > 0)
-                    self.selected = 0;
-                return;
-            };
-            self.selected = if (self.count() < self.header_count + 1)
-                null
-            else
-                @min(current + 1, self.count() - self.header_count - 1);
-        }
-
-        pub fn select_up(self: *Self) void {
-            if (self.selected) |current| {
-                self.selected = if (self.count() > 0) @min(self.count() - 1, @max(current, 1) - 1) else null;
+    pub fn next(self: *VisibleIterator) ?*const Item {
+        while (self.idx < self.items.len) {
+            const item = &self.items[self.idx];
+            if (item.* == .separator) {
+                self.idx += 1;
+                if (self.started) self.separator = item;
+                continue;
             }
+            if (!item.is_visible()) {
+                self.idx += 1;
+                continue;
+            }
+            if (self.separator) |separator| {
+                self.separator = null;
+                return separator;
+            }
+            self.idx += 1;
+            self.started = true;
+            return item;
         }
+        return null;
+    }
+};
 
-        pub fn select_first(self: *Self) void {
-            self.selected = if (self.count() > 0) 0 else null;
-        }
+pub const Command = struct {
+    command: []const u8,
+    args: []const u8 = args(.{}),
+    label: []const u8 = "",
+    on_activate: enum { close_menu, keep_open } = .close_menu,
 
-        pub fn select_last(self: *Self) void {
-            self.selected = if (self.count() > 0) self.count() - self.header_count - 1 else null;
-        }
+    pub fn id(self: *const Command) ?command.ID {
+        return command.get_id(self.command);
+    }
 
-        pub fn activate_selected(self: *Self) void {
-            const button = self.get_selected() orelse return;
-            button.opts.on_click(&button.opts.ctx, button, .{});
-        }
+    pub fn is_visible(self: *const Command) bool {
+        const id_ = self.id() orelse return false;
+        const description = command.get_description(id_) orelse return false;
+        return description.len > 0;
+    }
 
-        pub fn get_selected(self: *Self) ?*ButtonType {
-            const selected = self.selected orelse return null;
-            self.selected_active = true;
-            const pos = selected + self.header_count;
-            return if (pos < self.menu.widgets.items.len)
-                self.menu.widgets.items[pos].widget.dynamic_cast(ButtonType)
-            else
-                null;
-        }
+    pub fn has_args(self: *const Command) bool {
+        return !std.mem.eql(u8, self.args, args(.{}));
+    }
+
+    pub fn send(self: *const Command) tp.result {
+        try tp.self_pid().send(.{ "cmd", self.command, cbor.Raw{ .bytes = self.args } });
+        return tp.self_pid().send(.{"flush_input"});
+    }
+
+    pub fn get_label(self: *const Command) []const u8 {
+        if (self.label.len > 0) return self.label;
+        const id_ = self.id() orelse return self.command;
+        const description = command.get_description(id_) orelse return self.command;
+        return if (description.len > 0) description else self.command;
+    }
+
+    pub fn get_icon(self: *const Command) ?[]const u8 {
+        return command.get_icon(self.id() orelse return null);
+    }
+};
+
+pub fn args(comptime value: anytype) []const u8 {
+    const encoded = comptime blk: {
+        var buf: [4096]u8 = undefined;
+        const bytes = cbor.fmt(&buf, value);
+        break :blk bytes[0..bytes.len].*;
     };
+    return &encoded;
 }

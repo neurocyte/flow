@@ -93,17 +93,17 @@ pub fn clear_entries(palette: *Type) void {
     palette.entries.clearRetainingCapacity();
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
     try writer.writeAll(entry.cbor);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var item_cbor: []const u8 = undefined;
     var matches_cbor: []const u8 = undefined;
 
@@ -135,10 +135,10 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
 }
 
 pub fn complete(palette: *Type, _: ?*Type.ButtonType) !void {
-    palette.menu.activate_selected();
+    palette.list_box.activate_selected();
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const values = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return;
     const text = if (values.insertText.len > 0)
@@ -148,10 +148,10 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     else
         values.label;
     const ctx: command.Context = .empty();
-    editor.insert_completion_at_cursor(text, values.insertTextFormat, ctx.now) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    editor.insert_completion_at_cursor(text, values.insertTextFormat, ctx.now) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {

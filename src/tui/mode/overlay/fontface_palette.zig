@@ -49,22 +49,22 @@ pub fn load_entries(palette: *Type) !usize {
     return 0;
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var label_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &label_) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("fontface_palette", e);
-    tp.self_pid().send(.{ "cmd", "set_fontface", .{label_} }) catch |e| menu.*.opts.ctx.logger.err("fontface_palette", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err("fontface_palette", e);
+    tp.self_pid().send(.{ "cmd", "set_fontface", .{label_} }) catch |e| list_box.*.opts.ctx.logger.err("fontface_palette", e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {

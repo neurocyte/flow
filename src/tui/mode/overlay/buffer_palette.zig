@@ -42,7 +42,7 @@ pub fn clear_entries(palette: *Type) void {
     palette.entries.clearRetainingCapacity();
 }
 
-pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
@@ -51,30 +51,30 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     try cbor.writeValue(writer, entry.color);
     try cbor.writeValue(writer, entry.indicator);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.written(), select);
+    try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    const cmd_ = switch (menu.*.opts.ctx.activate) {
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
+    const cmd_ = switch (list_box.*.opts.ctx.activate) {
         .normal => "navigate",
         .alternate => "navigate_split_vertical",
     };
-    tp.self_pid().send(.{ "cmd", cmd_, .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", cmd_, .{ .file = file_path } }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
 }
 
-pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
+pub fn delete_item(list_box: *Type.ListBoxType, button: *Type.ButtonType) bool {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return false;
-    command.executeName("delete_buffer", command.fmt(.{file_path})) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    command.executeName("delete_buffer", command.fmt(.{file_path})) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     return true; //refresh list
 }

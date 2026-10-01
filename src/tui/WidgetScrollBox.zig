@@ -45,6 +45,12 @@ fade_color: ?Widget.Theme.Color = null,
 fade_layer: ?*Layer = null,
 z_index: ?Layer.Level = null,
 layout_override: ?Widget.Layout = null,
+inset: Inset = .{},
+
+pub const Inset = struct {
+    head: usize = 0,
+    tail: usize = 0,
+};
 
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
@@ -146,11 +152,12 @@ fn origin_px(self: *const Self) struct { i32, i32 } {
     };
 }
 
-pub fn handle_resize(self: *Self, box: Widget.Box) void {
-    self.box = box;
+pub fn handle_resize(self: *Self, box_: Widget.Box) void {
     const root = tui.plane();
     const cw: i32 = root.cell_x();
     const ch: i32 = root.cell_y();
+    const box = self.apply_inset(box_, cw, ch);
+    self.box = box;
     self.plane.move_yx(@intCast(box.y), @intCast(box.x)) catch return;
     self.plane.resize_simple(@intCast(box.h), @intCast(box.w)) catch return;
 
@@ -169,6 +176,40 @@ pub fn handle_resize(self: *Self, box: Widget.Box) void {
     self.scroll_px = self.clamp_scroll(self.scroll_px);
     self.scroll_dest_px = self.clamp_scroll(self.scroll_dest_px);
     self.layout_inner();
+}
+
+fn apply_inset(self: *const Self, box_: Widget.Box, cw: i32, ch: i32) Widget.Box {
+    var box = box_;
+    const size = switch (self.direction) {
+        .horizontal => &box.w,
+        .vertical => &box.h,
+    };
+    const head = @min(self.inset.head, size.*);
+    const tail = @min(self.inset.tail, size.* - head);
+    size.* -= head + tail;
+    switch (self.direction) {
+        .horizontal => box.x += head,
+        .vertical => box.y += head,
+    }
+    if (box.frame.is_set()) {
+        const cell: i32 = switch (self.direction) {
+            .horizontal => cw,
+            .vertical => ch,
+        };
+        const head_px: i32 = @as(i32, @intCast(head)) * cell;
+        const total_px: i32 = @as(i32, @intCast(head + tail)) * cell;
+        switch (self.direction) {
+            .horizontal => {
+                box.frame.x += head_px;
+                box.frame.w -= total_px;
+            },
+            .vertical => {
+                box.frame.y += head_px;
+                box.frame.h -= total_px;
+            },
+        }
+    }
+    return box;
 }
 
 fn layout_inner(self: *Self) void {

@@ -27,6 +27,9 @@ const syntax = @import("syntax");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
+pub const Menu = @import("Menu.zig");
+pub const MenuPopup = @import("mode/overlay/MenuPopup.zig");
+const MenuButton = @import("MenuButton.zig");
 const IdleAction = @import("config").IdleAction;
 const DbusClient = @import("DbusClient.zig");
 const Terminal = @import("Terminal");
@@ -532,6 +535,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render(@src());
+        return;
+    }
+
+    if (try m.match(.{"flush_input"})) {
+        try self.dispatch_flush_input_event();
+        need_render(@src());
         return;
     }
 
@@ -1374,6 +1383,10 @@ pub fn is_mainview_focused() bool {
 }
 
 fn enter_overlay_mode(self: *Self, mode: type, ctx: command.Context) command.Result {
+    return self.enter_overlay_mode_create(mode, ctx, .{});
+}
+
+fn enter_overlay_mode_create(self: *Self, mode: type, ctx: command.Context, args: anytype) command.Result {
     self.keyboard_focus_outer = self.keyboard_focus;
     clear_keyboard_focus();
     command.executeName("disable_fast_scroll", ctx) catch {};
@@ -1381,7 +1394,7 @@ fn enter_overlay_mode(self: *Self, mode: type, ctx: command.Context) command.Res
     command.executeName("disable_jump_mode", ctx) catch {};
     if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, ctx);
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, ctx);
-    const new_mode = try mode.create(self.allocator);
+    const new_mode = try @call(.auto, mode.create, .{self.allocator} ++ args);
     self.input_mode_outer_ = self.input_mode_;
     self.input_mode_ = new_mode;
     if (self.input_mode_) |*m| m.run_init();
@@ -1808,6 +1821,28 @@ const cmds = struct {
         };
     }
     pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints" };
+
+    pub fn open_main_menu(_: *Self, _: Ctx) Result {
+        if (mainview()) |mv| if (mv.menu_bar) |bar| if (bar.is_visible())
+            return bar.open_first();
+        const anchor: MenuPopup.Anchor = if (MenuButton.find_visible(null)) |btn| MenuButton.anchor(btn) else .at(.{});
+        return open_menu(&@import("menu/Main.zig").menu, anchor, null);
+    }
+    pub const open_main_menu_meta: Meta = .{ .description = "Open menu" };
+
+    pub fn toggle_menu(self: *Self, _: Ctx) Result {
+        self.config_.show_menu = switch (self.config_.show_menu) {
+            .none => .left,
+            .left => .right,
+            .right => .bar,
+            .bar => .none,
+        };
+        defer self.logger.print("show menu {t}", .{self.config_.show_menu});
+        if (mainview()) |mv| mv.update_menu_bar_visibility();
+        try save_config();
+        resize();
+    }
+    pub const toggle_menu_meta: Meta = .{ .description = "Toggle menu" };
 
     pub fn toggle_command_logging(_: *Self, _: Ctx) Result {
         command.log_execute = !command.log_execute;
@@ -2423,6 +2458,13 @@ const cmds = struct {
     }
     pub const dropdown_next_widget_style_meta: Meta = .{};
 
+    pub fn menu_next_widget_style(_: *Self, _: Ctx) Result {
+        set_next_style(.menu);
+        need_render(@src());
+        try save_config();
+    }
+    pub const menu_next_widget_style_meta: Meta = .{};
+
     pub fn info_box_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.info_box);
         need_render(@src());
@@ -2505,6 +2547,14 @@ pub fn mini_mode() ?*MiniMode {
 
 pub fn open_overlay(mode: type, ctx: command.Context) command.Result {
     return current().enter_overlay_mode(mode, ctx);
+}
+
+pub fn open_overlay_create(mode: type, ctx: command.Context, args: anytype) command.Result {
+    return current().enter_overlay_mode_create(mode, ctx, args);
+}
+
+pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor, owner: ?MenuPopup.Owner) command.Result {
+    return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor, owner });
 }
 
 pub fn query_cache() *syntax.QueryCache {
@@ -3272,6 +3322,7 @@ pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
         .none => WidgetStyle.from_tag(config_.widget_style),
         .palette => WidgetStyle.from_tag(config_.palette_style),
         .dropdown => WidgetStyle.from_tag(config_.dropdown_style),
+        .menu => WidgetStyle.from_tag(config_.menu_style),
         .panel => WidgetStyle.from_tag(config_.panel_style),
         .home => WidgetStyle.from_tag(config_.home_style),
         .pane_left => WidgetStyle.from_tag(config_.pane_left_style),
@@ -3302,6 +3353,7 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
         .none => &config_.widget_style,
         .palette => &config_.palette_style,
         .dropdown => &config_.dropdown_style,
+        .menu => &config_.menu_style,
         .panel => &config_.panel_style,
         .home => &config_.home_style,
         .pane_left => &config_.pane_left_style,

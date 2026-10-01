@@ -27,13 +27,13 @@ pub const builtin_fontface = "Iosevka (built-in)";
 
 pub const RasterizerBackend = switch (builtin.os.tag) {
     .windows => enum { dwrite },
-    .macos => enum { truetype },
+    .macos => enum { coretext, truetype },
     else => enum { truetype, freetype },
 };
 
-const default_backend: RasterizerBackend = switch (builtin.os.tag) {
+pub const default_backend: RasterizerBackend = switch (builtin.os.tag) {
     .windows => .dwrite,
-    .macos => .truetype,
+    .macos => .coretext,
     else => .freetype,
 };
 

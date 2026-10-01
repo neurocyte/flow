@@ -179,17 +179,17 @@ pub fn clear_entries(self: *Type) void {
     self.entries.clearRetainingCapacity();
 }
 
-pub fn add_menu_entry(self: *Type, entry: *Entry, matches: ?[]const usize) !void {
+pub fn add_list_box_entry(self: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(self.allocator);
     defer value.deinit();
     const writer = &value.writer;
     try writer.writeAll(entry.cbor);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try self.menu.add_item_with_handler(value.written(), select);
+    try self.list_box.add_item_with_handler(value.written(), select);
     self.items += 1;
 }
 
-pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_list_box(self: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var item_cbor: []const u8 = undefined;
     var matches_cbor: []const u8 = undefined;
 
@@ -346,11 +346,11 @@ fn get_insert_selection(editor: *ed.Editor, values: Values, query: ?Selection) S
 }
 
 pub fn complete(self: *Type, _: ?*Type.ButtonType) !void {
-    self.menu.activate_selected();
+    self.list_box.activate_selected();
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
-    const self = menu.*.opts.ctx;
+fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
+    const self = list_box.*.opts.ctx;
     const values = get_values(button.opts.label);
     const sel = get_insert_selection(self.value.editor, values, self.value.query);
     const text = if (values.insertText.len > 0)
@@ -360,7 +360,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     else
         values.label;
     const ctx: command.Context = .empty();
-    self.value.editor.insert_completion(sel, text, values.insertTextFormat, ctx.now) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    self.value.editor.insert_completion(sel, text, values.insertTextFormat, ctx.now) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| self.logger.err(module_name, e);

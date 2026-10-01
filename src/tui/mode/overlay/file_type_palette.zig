@@ -58,7 +58,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             return longest_hint;
         }
 
-        pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
+        pub fn add_list_box_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
             var value: std.Io.Writer.Allocating = .init(palette.allocator);
             defer value.deinit();
             const writer = &value.writer;
@@ -67,11 +67,11 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             try cbor.writeValue(writer, entry.color);
             try cbor.writeValue(writer, entry.name);
             try cbor.writeValue(writer, matches orelse &[_]usize{});
-            try palette.menu.add_item_with_handler(value.written(), select);
+            try palette.list_box.add_item_with_handler(value.written(), select);
             palette.items += 1;
         }
 
-        pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+        pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
             const style_base = theme.editor_widget;
             const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
             const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
@@ -116,7 +116,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             return false;
         }
 
-        fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+        fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
             var description_: []const u8 = undefined;
             var icon_: []const u8 = undefined;
             var color: u24 = undefined;
@@ -128,8 +128,8 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             if (!(cbor.matchString(&iter, &name_) catch false)) return;
             if (!allow_previous) if (previous_file_type) |prev| if (std.mem.eql(u8, prev, name_))
                 return;
-            tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("file_type_palette", e);
-            tp.self_pid().send(.{ "cmd", command, .{name_} }) catch |e| menu.*.opts.ctx.logger.err("file_type_palette", e);
+            tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err("file_type_palette", e);
+            tp.self_pid().send(.{ "cmd", command, .{name_} }) catch |e| list_box.*.opts.ctx.logger.err("file_type_palette", e);
         }
     };
 }

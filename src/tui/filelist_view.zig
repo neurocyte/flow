@@ -12,7 +12,7 @@ const keybind = @import("keybind");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const Menu = @import("Menu.zig");
+const ListBox = @import("ListBox.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor = @import("editor.zig");
 const FileList = @import("FileList.zig");
@@ -29,7 +29,7 @@ pub const ActivateMode = FileList.ActivateMode;
 
 allocator: std.mem.Allocator,
 plane: Plane,
-menu: *MenuType,
+list_box: *ListBoxType,
 logger: log.Logger,
 commands: Commands = undefined,
 current: bool = false,
@@ -42,8 +42,8 @@ view_rows: usize = 0,
 view_cols: usize = 0,
 box: Widget.Box = .{},
 
-const MenuType = Menu.Options(*Self).MenuType;
-const ButtonType = MenuType.ButtonType;
+const ListBoxType = ListBox.Options(*Self).ListBoxType;
+const ButtonType = ListBoxType.ButtonType;
 const path_column_ratio = 4;
 const widget_type: Widget.Type = .none;
 
@@ -59,36 +59,36 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
     var panel_input = try PanelInput.init(allocator, "filelist");
     errdefer panel_input.mode.deinit();
 
-    const menu = try Menu.create(*Self, allocator, plane, .{
+    const list_box = try ListBox.create(*Self, allocator, plane, .{
         .ctx = self,
         .style = widget_type,
-        .on_render = handle_render_menu,
+        .on_render = handle_render_list_box,
         .on_scroll = EventHandler.bind(self, Self.handle_scroll),
         .on_click4 = mouse_click_button4,
         .on_click5 = mouse_click_button5,
     });
-    errdefer menu.widget().deinit(allocator);
+    errdefer list_box.widget().deinit(allocator);
 
     self.* = .{
         .allocator = allocator,
         .plane = plane,
         .logger = log.logger(@typeName(Self)),
         .panel_input = panel_input,
-        .menu = menu,
+        .list_box = list_box,
         .manager = manager,
         .list_id = list_id,
     };
-    if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
-    self.menu.container.render_decoration = null;
+    if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+    self.list_box.container.render_decoration = null;
     self.commands.init_unregistered(self);
-    self.rebuild_menu();
+    self.rebuild_list_box();
     return Panel.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     self.panel_input.deinit(Widget.to(self));
     if (self.current) self.commands.unregister();
-    self.menu.widget().deinit(allocator);
+    self.list_box.widget().deinit(allocator);
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -159,9 +159,9 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.box = pos;
-    self.menu.container.plane.layer = self.plane.layer;
-    self.menu.container.plane.window.screen = self.plane.window.screen;
-    self.menu.container.resize(self.box);
+    self.list_box.container.plane.layer = self.plane.layer;
+    self.list_box.container.plane.window.screen = self.plane.window.screen;
+    self.list_box.container.resize(self.box);
     const client_box = self.box.to_client_box(padding);
     self.view_rows = client_box.h;
     self.view_cols = client_box.w;
@@ -170,21 +170,21 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(walk_ctx, Widget.to(self), .begin)) return true;
-    return self.menu.container_widget.walk(walk_ctx, f) or
+    return self.list_box.container_widget.walk(walk_ctx, f) or
         f(walk_ctx, Widget.to(self), .end);
 }
 
-fn rebuild_menu(self: *Self) void {
-    self.menu.reset_items();
-    self.menu.selected = null;
+fn rebuild_list_box(self: *Self) void {
+    self.list_box.reset_items();
+    self.list_box.selected = null;
     if (self.list()) |fl| {
         for (0..fl.entries.items.len) |i| {
             var label: std.Io.Writer.Allocating = .init(self.allocator);
             defer label.deinit();
             cbor.writeValue(&label.writer, i) catch continue;
-            self.menu.add_item_with_handler(label.written(), handle_menu_action) catch continue;
+            self.list_box.add_item_with_handler(label.written(), handle_list_box_action) catch continue;
         }
-        self.menu.resize(self.box);
+        self.list_box.resize(self.box);
         self.update_selected();
     }
     self.update_scrollbar();
@@ -197,31 +197,31 @@ fn append_button(self: *Self) void {
     var label: std.Io.Writer.Allocating = .init(self.allocator);
     defer label.deinit();
     cbor.writeValue(&label.writer, idx) catch return;
-    self.menu.add_item_with_handler(label.written(), handle_menu_action) catch return;
-    self.menu.resize(self.box);
+    self.list_box.add_item_with_handler(label.written(), handle_list_box_action) catch return;
+    self.list_box.resize(self.box);
     self.update_scrollbar();
 }
 
 pub fn handle_filelist_event(self: *Self, event: FileList.Event) void {
     switch (event) {
         .none => tui.need_render(@src()),
-        .rebuild => self.rebuild_menu(),
+        .rebuild => self.rebuild_list_box(),
         .append_one => self.append_button(),
     }
 }
 
 pub fn refresh(self: *Self) void {
-    self.rebuild_menu();
+    self.rebuild_list_box();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(theme.panel);
     self.plane.erase();
     self.plane.home();
-    return self.menu.container_widget.render(theme);
+    return self.list_box.container_widget.render(theme);
 }
 
-fn handle_render_menu(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+fn handle_render_list_box(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     const fl = self.list() orelse return false;
     const view_pos = fl.view_pos;
     const style_base = theme.panel;
@@ -305,32 +305,32 @@ fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
 }
 
 fn update_scrollbar(self: *Self) void {
-    const scrollbar = self.menu.scrollbar orelse return;
+    const scrollbar = self.list_box.scrollbar orelse return;
     if (self.list()) |fl|
         scrollbar.set(@intCast(fl.entries.items.len), @intCast(self.view_rows), @intCast(fl.view_pos))
     else
         scrollbar.set(0, @intCast(self.view_rows), 0);
 }
 
-fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
-    const self = &menu.*.opts.ctx.*;
+fn mouse_click_button4(list_box: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {
+    const self = &list_box.*.opts.ctx.*;
     const fl = self.list() orelse return;
-    fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
-    if (fl.view_pos < Menu.scroll_lines) {
+    fl.selected = if (self.list_box.selected) |sel_| sel_ + fl.view_pos else fl.selected;
+    if (fl.view_pos < ListBox.scroll_lines) {
         fl.view_pos = 0;
     } else {
-        fl.view_pos -= Menu.scroll_lines;
+        fl.view_pos -= ListBox.scroll_lines;
     }
     self.update_selected();
     self.update_scrollbar();
 }
 
-fn mouse_click_button5(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
-    const self = &menu.*.opts.ctx.*;
+fn mouse_click_button5(list_box: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {
+    const self = &list_box.*.opts.ctx.*;
     const fl = self.list() orelse return;
-    fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
+    fl.selected = if (self.list_box.selected) |sel_| sel_ + fl.view_pos else fl.selected;
     if (fl.view_pos < @max(fl.entries.items.len, self.view_rows) - self.view_rows)
-        fl.view_pos += Menu.scroll_lines;
+        fl.view_pos += ListBox.scroll_lines;
     self.update_selected();
     self.update_scrollbar();
 }
@@ -339,15 +339,15 @@ fn update_selected(self: *Self) void {
     const fl = self.list() orelse return;
     if (fl.selected) |sel| {
         if (sel >= fl.view_pos and sel < fl.view_pos + self.view_rows) {
-            self.menu.selected = sel - fl.view_pos;
+            self.list_box.selected = sel - fl.view_pos;
         } else {
-            self.menu.selected = null;
+            self.list_box.selected = null;
         }
     }
 }
 
-fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {
-    const self = menu.*.opts.ctx;
+fn handle_list_box_action(list_box: **ListBoxType, button: *ButtonType, _: Widget.Pos) void {
+    const self = list_box.*.opts.ctx;
     const fl = self.list() orelse return;
     var idx: usize = undefined;
     var iter = button.opts.label;
@@ -385,7 +385,7 @@ fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void
 fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end }) void {
     const fl = self.list() orelse return;
     if (fl.entries.items.len == 0) return;
-    fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
+    fl.selected = if (self.list_box.selected) |sel_| sel_ + fl.view_pos else fl.selected;
     const sel_ = fl.selected orelse 0;
     const sel = switch (dir) {
         .up => if (sel_ > 0) sel_ - 1 else fl.entries.items.len - 1,
@@ -422,15 +422,15 @@ const cmds = struct {
 
     pub fn goto_prev_file(self: *Self, _: Ctx) Result {
         self.select_next(.up);
-        self.menu.activate_selected();
+        self.list_box.activate_selected();
     }
-    pub const goto_prev_file_meta: Meta = .{ .description = "Navigate to previous file in the file list" };
+    pub const goto_prev_file_meta: Meta = .{ .description = "Go to previous file in the file list" };
 
     pub fn goto_next_file(self: *Self, _: Ctx) Result {
         self.select_next(.down);
-        self.menu.activate_selected();
+        self.list_box.activate_selected();
     }
-    pub const goto_next_file_meta: Meta = .{ .description = "Navigate to next file in the file list" };
+    pub const goto_next_file_meta: Meta = .{ .description = "Go to next file in the file list" };
 
     pub fn select_prev_file(self: *Self, _: Ctx) Result {
         self.select_next(.up);
@@ -463,15 +463,15 @@ const cmds = struct {
     pub const select_file_end_meta: Meta = .{ .description = "Select end of the file list" };
 
     pub fn goto_selected_file(self: *Self, _: Ctx) Result {
-        if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
-        self.menu.activate_selected();
+        if (self.list_box.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
+        self.list_box.activate_selected();
     }
     pub const goto_selected_file_meta: Meta = .{};
 
     pub fn goto_selected_file_alternate(self: *Self, _: Ctx) Result {
-        if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
+        if (self.list_box.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
         self.activate = .alternate;
-        self.menu.activate_selected();
+        self.list_box.activate_selected();
     }
     pub const goto_selected_file_alternate_meta: Meta = .{};
 
