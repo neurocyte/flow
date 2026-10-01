@@ -344,6 +344,8 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         const cell = coord.to_cell(self.plane.mouse_geometry());
         self.bottom_bar_primary_drag(@intCast(std.math.clamp(cell.row, 0, std.math.maxInt(i32))));
+    } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) {
+        self.bottom_area.save_height();
     }
 }
 

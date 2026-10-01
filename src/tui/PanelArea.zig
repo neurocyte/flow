@@ -55,6 +55,7 @@ tab_style_bufs: [][]const u8,
 on_maximize: ?MaximizeCallback = null,
 
 height: ?usize = null,
+unsaved_height: ?usize = null,
 maximized: bool = false,
 maximized_by_snap: bool = false,
 snap_height: usize = 0,
@@ -646,6 +647,7 @@ pub fn set_height_abs(self: *Self, y: usize) void {
     self.maximized = false;
     self.maximized_by_snap = false;
     self.list.layout_ = .{ .static = height };
+    self.unsaved_height = null;
     if (height == 1) {
         self.height = null;
         self.hide();
@@ -655,9 +657,15 @@ pub fn set_height_abs(self: *Self, y: usize) void {
         self.height = null;
         self.focus_active();
     } else {
-        save_height_ratio(height);
+        self.unsaved_height = height;
     }
     self.notify_maximized();
+}
+
+pub fn save_height(self: *Self) void {
+    const height = self.unsaved_height orelse return;
+    self.unsaved_height = null;
+    save_height_ratio(height);
 }
 
 pub fn set_height_rel(self: *Self, y: isize) void {
@@ -665,6 +673,7 @@ pub fn set_height_rel(self: *Self, y: isize) void {
     if (self.maximized and y > 0) return;
     const h: isize = @intCast(self.get_height());
     self.set_height_abs(@intCast(@max(1, h +| y)));
+    self.save_height();
 }
 
 pub fn toggle_maximize(self: *Self) void {
