@@ -1825,7 +1825,7 @@ const cmds = struct {
     pub fn open_main_menu(_: *Self, _: Ctx) Result {
         if (mainview()) |mv| if (mv.menu_bar) |bar| if (bar.is_visible())
             return bar.open_first();
-        const anchor: MenuPopup.Anchor = if (MenuButton.find_visible()) |btn| MenuButton.anchor(btn) else .at(.{});
+        const anchor: MenuPopup.Anchor = if (MenuButton.find_visible(null)) |btn| MenuButton.anchor(btn) else .at(.{});
         return open_menu(&@import("menu/Main.zig").menu, anchor, null);
     }
     pub const open_main_menu_meta: Meta = .{ .description = "Open menu" };

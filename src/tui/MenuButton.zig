@@ -37,20 +37,22 @@ pub fn anchor(btn: *const ButtonType) tui.MenuPopup.Anchor {
     };
 }
 
-pub fn find_visible() ?*ButtonType {
+pub fn find_visible(exclude: ?*const ButtonType) ?*ButtonType {
     const mv = tui.mainview() orelse return null;
-    var ctx: FindVisible = .{};
+    var ctx: FindVisible = .{ .exclude = exclude };
     _ = mv.walk(&ctx, FindVisible.walk);
     return ctx.found;
 }
 
 const FindVisible = struct {
     found: ?*ButtonType = null,
+    exclude: ?*const ButtonType,
 
     fn walk(ctx_: *anyopaque, w: Widget, _: Widget.WalkEvent) bool {
         const btn = w.dynamic_cast(ButtonType) orelse return false;
         if (btn.plane.dim_x() == 0 or btn.plane.dim_y() == 0) return false;
         const ctx: *FindVisible = @ptrCast(@alignCast(ctx_));
+        if (ctx.exclude == btn) return false;
         ctx.found = btn;
         return true;
     }

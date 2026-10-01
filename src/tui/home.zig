@@ -14,6 +14,7 @@ const Widget = @import("Widget.zig");
 const WidgetLayerBox = @import("WidgetLayerBox.zig");
 const Button = @import("Button.zig");
 const ListBox = @import("ListBox.zig");
+const MenuButton = @import("MenuButton.zig");
 const tui = @import("tui.zig");
 const command = @import("command");
 const keybind = @import("keybind");
@@ -71,6 +72,7 @@ fire: ?Fire = null,
 commands: Commands = undefined,
 focused: bool = false,
 list_box: *ListBox.State(*Self),
+menu_button: Widget,
 list_box_w: usize = 0,
 list_box_desc_w: usize = 0,
 list_box_label_max: usize = 0,
@@ -144,6 +146,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
             .style = widget_type,
             .on_render = list_box_on_render,
         }),
+        .menu_button = try MenuButton.create(allocator, n, &@import("menu/Main.zig").menu),
         .input_namespace = keybind.get_namespace(),
         .home_style = home_style,
         .home_style_bufs = home_style_bufs,
@@ -180,6 +183,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     for (self.list_box_items.items) |item| self.allocator.free(item);
     self.list_box_items.deinit(self.allocator);
     self.list_box.widget().deinit(allocator);
+    self.menu_button.deinit(allocator);
     if (self.focused) self.commands.deinit();
     self.info.deinit(allocator);
     self.plane.deinit();
@@ -289,6 +293,7 @@ pub fn update(self: *Self) void {
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(walk_ctx, Widget.to(self), .begin)) return true;
+    if (self.menu_button.walk(walk_ctx, f)) return true;
     if (!self.list_box_hidden and self.list_box.walk(walk_ctx, f)) return true;
     return f(walk_ctx, Widget.to(self), .end);
 }
@@ -463,7 +468,23 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.render_info(theme, style_subtext);
 
     const more = if (self.list_box_hidden) false else self.list_box.container.render(theme);
+    self.place_menu_button();
+    _ = self.menu_button.render(theme);
     return more or self.fire != null;
+}
+
+fn place_menu_button(self: *Self) void {
+    const box = Widget.Box.from(self.plane);
+    const screen = tui.screen();
+    const button: ?*const MenuButton.ButtonType = self.menu_button.dynamic_cast(MenuButton.ButtonType);
+    const show = switch (tui.config().show_menu) {
+        .left => box.x == 0,
+        .right => box.x + box.w == screen.w,
+        .bar, .none => false,
+    } and MenuButton.find_visible(button) == null;
+    const w: usize = if (show) @min(MenuButton.width, box.w) else 0;
+    const x = if (tui.config().show_menu == .right) box.x + box.w - w else box.x;
+    self.menu_button.resize(.{ .y = box.y, .x = x, .w = w, .h = 1 });
 }
 
 fn render_info(self: *Self, theme: *const Widget.Theme, style_subtext: Widget.Theme.Style) void {
