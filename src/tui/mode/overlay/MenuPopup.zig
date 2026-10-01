@@ -98,6 +98,7 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     level.* = .{
         .popup = self,
         .layer = layer,
+        .label = menu.label,
         .list_box = try ListBox.create(*Level, self.allocator, layer.inner_plane(), .{
             .ctx = level,
             .style = widget_type,
@@ -177,8 +178,9 @@ fn get_hints() ?*const tui.KeybindHints {
     return mode.keybind_hints;
 }
 
-fn get_hint(hints: ?*const tui.KeybindHints, command_name: []const u8) []const u8 {
-    const hint = (hints orelse return "").get(command_name) orelse return "";
+fn get_hint(hints: ?*const tui.KeybindHints, cmd: *const Menu.Command) []const u8 {
+    if (cmd.has_args()) return "";
+    const hint = (hints orelse return "").get(cmd.command) orelse return "";
     return hint[0 .. std.mem.indexOf(u8, hint, ", ") orelse hint.len];
 }
 
@@ -187,6 +189,7 @@ const Level = struct {
     layer: *tui.WidgetLayerBox,
     list_box: *ListBox.State(*Level),
     anchor: Anchor,
+    label: []const u8,
     items: std.ArrayList(*const Menu.Item) = .empty,
     width: usize = 0,
     has_icons: bool = false,
@@ -196,6 +199,13 @@ const Level = struct {
 
     fn index(self: *const Level) usize {
         return std.mem.indexOfScalar(*Level, self.popup.levels.items, @constCast(self)) orelse 0;
+    }
+
+    fn command_label(self: *const Level, cmd: *const Menu.Command) []const u8 {
+        const label = cmd.get_label();
+        if (self.label.len == 0 or !std.mem.startsWith(u8, label, self.label)) return label;
+        const rest = label[self.label.len..];
+        return if (std.mem.startsWith(u8, rest, ": ")) rest[2..] else label;
     }
 
     fn item_pos(button: *ButtonType) ?usize {
@@ -210,8 +220,8 @@ const Level = struct {
         for (self.items.items) |item| switch (item.*) {
             .separator => {},
             .command => |*cmd| {
-                label_w = @max(label_w, tui.egc_chunk_width(cmd.get_label(), 0, 1));
-                hint_w = @max(hint_w, tui.egc_chunk_width(get_hint(hints, cmd.command), 0, 1));
+                label_w = @max(label_w, tui.egc_chunk_width(self.command_label(cmd), 0, 1));
+                hint_w = @max(hint_w, tui.egc_chunk_width(get_hint(hints, cmd), 0, 1));
                 if (cmd.get_icon()) |_| self.has_icons = true;
             },
             .submenu => |submenu| {
@@ -275,7 +285,7 @@ const Level = struct {
             const pos = (start + i) % len;
             const label = switch (self.items.items[pos].*) {
                 .separator => continue,
-                .command => |*cmd| cmd.get_label(),
+                .command => |*cmd| self.command_label(cmd),
                 .submenu => |submenu| submenu.label,
             };
             if (label.len >= text.len and std.ascii.eqlIgnoreCase(label[0..text.len], text)) {
@@ -336,9 +346,9 @@ const Level = struct {
                 return false;
             },
             .command => |*cmd| .{
-                cmd.get_label(),
+                self.command_label(cmd),
                 cmd.get_icon(),
-                get_hint(get_hints(), cmd.command),
+                get_hint(get_hints(), cmd),
             },
             .submenu => |submenu| .{ submenu.label, null, submenu_hint },
         };

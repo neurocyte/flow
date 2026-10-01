@@ -1,3 +1,4 @@
+const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const command = @import("command");
@@ -73,6 +74,10 @@ pub const Command = struct {
         const id_ = self.id() orelse return false;
         const description = command.get_description(id_) orelse return false;
         return description.len > 0;
+    }
+
+    pub fn has_args(self: *const Command) bool {
+        return !std.mem.eql(u8, self.args, args(.{}));
     }
 
     pub fn send(self: *const Command) tp.result {
