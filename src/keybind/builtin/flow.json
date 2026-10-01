@@ -46,6 +46,7 @@
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_split"],
             ["ctrl+o", "open_file"],
+            ["ctrl+k s", "save_all"],
             ["ctrl+e", "open_recent"],
             ["ctrl+shift+e", "open_file_tree"],
             ["alt+o", "open_previous_file"],
