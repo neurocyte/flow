@@ -23,7 +23,8 @@ pub const Command = struct {
     }
 
     pub fn send(self: *const Command) tp.result {
-        return tp.self_pid().send(.{ "cmd", self.command, cbor.Raw{ .bytes = self.args } });
+        try tp.self_pid().send(.{ "cmd", self.command, cbor.Raw{ .bytes = self.args } });
+        return tp.self_pid().send(.{"flush_input"});
     }
 
     pub fn get_label(self: *const Command) []const u8 {

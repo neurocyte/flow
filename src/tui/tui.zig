@@ -538,6 +538,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{"flush_input"})) {
+        try self.dispatch_flush_input_event();
+        need_render(@src());
+        return;
+    }
+
     if (try m.match(.{ "VT", tp.more }))
         return @import("Vt.zig").Manager.receive_event(from, m) catch |e| self.logger.err("vt", e);
 
