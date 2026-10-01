@@ -11,6 +11,7 @@ const Widget = @import("../../Widget.zig");
 const ListBox = @import("../../ListBox.zig");
 const ModalBackground = @import("../../ModalBackground.zig");
 const Menu = @import("../../Menu.zig");
+const Layer = @import("renderer").Layer;
 
 const Self = @This();
 const module_name = @typeName(Self);
@@ -25,7 +26,17 @@ modal: *ModalBackground.State(*Self),
 levels: std.ArrayList(*Level) = .empty,
 logger: log.Logger,
 
-pub fn create(allocator: std.mem.Allocator, menu: *const Menu, pos: Widget.Pos) !tui.Mode {
+pub const Anchor = struct {
+    y: i32,
+    x: i32,
+    flip_x: i32,
+
+    pub fn at(pos: Widget.Pos) Anchor {
+        return .{ .y = pos.y, .x = pos.x, .flip_x = pos.x };
+    }
+};
+
+pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor) !tui.Mode {
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -45,7 +56,7 @@ pub fn create(allocator: std.mem.Allocator, menu: *const Menu, pos: Widget.Pos) 
     self.mode.event_handler = EventHandler.to_owned(self);
     self.mode.name = "menu";
     try mv.floating_views.add(self.modal.widget());
-    try self.open_level(menu, pos, pos.x);
+    try self.open_level(menu, anchor);
     return self.mode;
 }
 
@@ -62,7 +73,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn open_level(self: *Self, menu: *const Menu, anchor: Widget.Pos, flip_x: i32) !void {
+fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     const mv = tui.mainview() orelse return error.NotFound;
     const level = try self.allocator.create(Level);
     errdefer self.allocator.destroy(level);
@@ -72,6 +83,7 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Widget.Pos, flip_x: i32) !
     layer.alpha = tui.palette_opacity();
     layer.radius = 8;
     layer.shadow = .{};
+    layer.z_index = @enumFromInt(@intFromEnum(Layer.Level.overlay) + @as(i32, @intCast(self.levels.items.len)));
     level.* = .{
         .popup = self,
         .menu = menu,
@@ -82,7 +94,6 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Widget.Pos, flip_x: i32) !
             .on_render = Level.on_render,
         }),
         .anchor = anchor,
-        .flip_x = flip_x,
     };
     layer.ctx = level;
     layer.prepare_resize = Level.prepare_resize_layer;
@@ -125,7 +136,8 @@ fn open_submenu(self: *Self, level_idx: usize) !void {
     try self.open_level(submenu, .{
         .y = @intCast(box.y + idx),
         .x = @intCast(box.x + box.w),
-    }, @intCast(box.x));
+        .flip_x = @intCast(box.x),
+    });
 }
 
 fn activate(self: *Self, level_idx: usize, idx: usize) !void {
@@ -164,8 +176,7 @@ const Level = struct {
     menu: *const Menu,
     layer: *tui.WidgetLayerBox,
     list_box: *ListBox.State(*Level),
-    anchor: Widget.Pos,
-    flip_x: i32,
+    anchor: Anchor,
     width: usize = 0,
     has_icons: bool = false,
 
@@ -285,7 +296,7 @@ const Level = struct {
         const screen_h: i32 = @intCast(screen.h);
         var x = self.anchor.x + pl;
         if (x + w + pr > screen_w) {
-            const flipped = self.flip_x - pr - w;
+            const flipped = self.anchor.flip_x - pr - w;
             x = if (flipped >= pl) flipped else screen_w - w - pr;
         }
         x = @max(pl, @min(x, screen_w - w - pr));

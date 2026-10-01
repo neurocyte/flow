@@ -92,7 +92,7 @@ completion_info_mode: CompletionInfoMode = .box,
 widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
 dropdown_style: WidgetStyle = .compact,
-menu_style: WidgetStyle = .bar_left,
+menu_style: WidgetStyle = .bar_left_spacious,
 panel_style: WidgetStyle = .compact,
 home_style: WidgetStyle = .bars_top_bottom,
 pane_left_style: WidgetStyle = .bar_right,
@@ -104,6 +104,8 @@ info_box_width_limit: usize = 80,
 
 palette_placement: PalettePlacement = .top_center,
 palette_opacity: f32 = 0.75,
+
+menu_button_placement: MenuButtonPlacement = .left,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,
@@ -313,6 +315,11 @@ pub const PalettePlacement = enum {
     top_left,
     top_right,
     center,
+};
+
+pub const MenuButtonPlacement = enum {
+    left,
+    right,
 };
 
 pub const TaskRunner = enum {

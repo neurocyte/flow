@@ -28,7 +28,8 @@ const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
 pub const Menu = @import("Menu.zig");
-const MenuPopup = @import("mode/overlay/MenuPopup.zig");
+pub const MenuPopup = @import("mode/overlay/MenuPopup.zig");
+const MenuButton = @import("MenuButton.zig");
 const IdleAction = @import("config").IdleAction;
 const DbusClient = @import("DbusClient.zig");
 const Terminal = @import("Terminal");
@@ -1815,6 +1816,12 @@ const cmds = struct {
     }
     pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints" };
 
+    pub fn open_main_menu(_: *Self, _: Ctx) Result {
+        const anchor: MenuPopup.Anchor = if (MenuButton.find_visible()) |btn| MenuButton.anchor(btn) else .at(.{});
+        return open_menu(&@import("menu/Main.zig").menu, anchor);
+    }
+    pub const open_main_menu_meta: Meta = .{ .description = "Open menu" };
+
     pub fn toggle_command_logging(_: *Self, _: Ctx) Result {
         command.log_execute = !command.log_execute;
     }
@@ -2524,8 +2531,8 @@ pub fn open_overlay_create(mode: type, ctx: command.Context, args: anytype) comm
     return current().enter_overlay_mode_create(mode, ctx, args);
 }
 
-pub fn open_menu(menu: *const Menu, pos: Widget.Pos) command.Result {
-    return open_overlay_create(MenuPopup, .empty(), .{ menu, pos });
+pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor) command.Result {
+    return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor });
 }
 
 pub fn query_cache() *syntax.QueryCache {

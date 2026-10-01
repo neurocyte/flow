@@ -11,6 +11,7 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const WidgetScrollBox = @import("WidgetScrollBox.zig");
 const Button = @import("Button.zig");
+const MenuButton = @import("MenuButton.zig");
 const Tabs = @import("status/tabs.zig");
 const tab_render = @import("tab_render.zig");
 
@@ -73,7 +74,7 @@ pub fn init(self: *Self, allocator: Allocator, parent: Plane, style: *const Tabs
     tabs.on_render = render_tabs_background;
     tabs.render_decoration = null;
 
-    if (MenuButton.create(allocator, list.plane, self) catch null) |m|
+    if (StripMenuButton.create(allocator, list.plane, self) catch null) |m|
         list.add(m) catch m.deinit(allocator);
 }
 
@@ -227,7 +228,7 @@ const Tab = struct {
     }
 };
 
-const MenuButton = struct {
+const StripMenuButton = struct {
     strip: *Self,
 
     const ButtonType = Button.Options(@This()).ButtonType;
@@ -235,7 +236,7 @@ const MenuButton = struct {
     pub fn create(allocator: Allocator, parent: Plane, strip: *Self) error{OutOfMemory}!Widget {
         return Button.create_widget(@This(), allocator, parent, .{
             .ctx = .{ .strip = strip },
-            .label = " ≡ ",
+            .label = MenuButton.label,
             .on_click = on_click,
             .on_layout = layout,
             .on_render = render,
@@ -252,13 +253,6 @@ const MenuButton = struct {
     }
 
     pub fn render(_: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
-        btn.plane.set_base_style(theme.editor);
-        btn.plane.erase();
-        btn.plane.home();
-        btn.plane.set_style(if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.tab_inactive);
-        btn.plane.fill(" ");
-        btn.plane.home();
-        _ = btn.plane.putstr(btn.opts.label) catch {};
-        return false;
+        return MenuButton.render_button(btn, theme);
     }
 };
