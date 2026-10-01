@@ -463,6 +463,28 @@
             ["tab", "palette_menu_complete"]
         ]
     },
+    "overlay/menu": {
+        "press": [
+            ["alt+f9", "menu_next_widget_style"],
+            ["ctrl+p", "menu_up"],
+            ["ctrl+n", "menu_down"],
+            ["ctrl+b", "menu_close_submenu"],
+            ["ctrl+f", "menu_open_submenu"],
+            ["ctrl+c", "menu_cancel"],
+            ["ctrl+g", "menu_cancel"],
+            ["escape", "menu_cancel"],
+            ["up", "menu_up"],
+            ["down", "menu_down"],
+            ["left", "menu_close_submenu"],
+            ["right", "menu_open_submenu"],
+            ["home", "menu_first"],
+            ["end", "menu_last"],
+            ["page_up", "menu_first"],
+            ["page_down", "menu_last"],
+            ["enter", "menu_activate"],
+            ["space", "menu_activate"]
+        ]
+    },
     "mini/numeric": {
         "inherit": "project",
         "press": [

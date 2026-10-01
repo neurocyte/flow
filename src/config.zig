@@ -92,6 +92,7 @@ completion_info_mode: CompletionInfoMode = .box,
 widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
 dropdown_style: WidgetStyle = .compact,
+menu_style: WidgetStyle = .bar_left,
 panel_style: WidgetStyle = .compact,
 home_style: WidgetStyle = .bars_top_bottom,
 pane_left_style: WidgetStyle = .bar_right,
@@ -193,6 +194,7 @@ pub const WidgetType = enum {
     hint_window,
     info_box,
     dropdown,
+    menu,
 };
 
 pub const WidgetStyle = enum {
