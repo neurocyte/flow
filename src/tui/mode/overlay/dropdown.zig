@@ -16,7 +16,7 @@ const Widget = @import("../../Widget.zig");
 const scrollbar_v = @import("../../scrollbar_v.zig");
 const ModalBackground = @import("../../ModalBackground.zig");
 
-pub const Menu = @import("../../Menu.zig");
+pub const ListBox = @import("../../ListBox.zig");
 
 const max_menu_width = 80;
 const default_widget_type: Widget.Type = .palette;
@@ -29,7 +29,7 @@ pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
         menu_layer: *tui.WidgetLayerBox,
-        menu: *Menu.State(*Self),
+        menu: *ListBox.State(*Self),
         mode: keybind.Mode,
         query: std.ArrayList(u8),
         match_count: usize,
@@ -54,8 +54,8 @@ pub fn Create(options: type) type {
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
         const widget_type: Widget.Type = if (@hasDecl(options, "widget_type")) options.widget_type else default_widget_type;
 
-        pub const MenuType = Menu.Options(*Self).MenuType;
-        pub const ButtonType = MenuType.ButtonType;
+        pub const ListBoxType = ListBox.Options(*Self).ListBoxType;
+        pub const ButtonType = ListBoxType.ButtonType;
         pub const Pos = Widget.Pos;
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
@@ -76,7 +76,7 @@ pub fn Create(options: type) type {
             self.* = .{
                 .allocator = allocator,
                 .menu_layer = menu_layer,
-                .menu = try Menu.create(*Self, allocator, menu_layer.inner_plane(), .{
+                .menu = try ListBox.create(*Self, allocator, menu_layer.inner_plane(), .{
                     .ctx = self,
                     .style = widget_type,
                     .on_render = options.on_render_menu,
@@ -194,7 +194,7 @@ pub fn Create(options: type) type {
             return self.prepare_resize_at_y_x(screen, w, cursor.row + 1 + padding.top, cursor.col);
         }
 
-        fn after_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
+        fn after_resize_menu(self: *Self, _: *ListBox.State(*Self), _: Widget.Box) void {
             return self.after_resize();
         }
 
@@ -233,21 +233,21 @@ pub fn Create(options: type) type {
                 scrollbar.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
-        fn mouse_click_button4(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
+        fn mouse_click_button4(menu: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
-            if (self.view_pos < Menu.scroll_lines) {
+            if (self.view_pos < ListBox.scroll_lines) {
                 self.view_pos = 0;
             } else {
-                self.view_pos -= Menu.scroll_lines;
+                self.view_pos -= ListBox.scroll_lines;
             }
             self.update_scrollbar();
             self.start_query(0) catch {};
         }
 
-        fn mouse_click_button5(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
+        fn mouse_click_button5(menu: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
             if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
-                self.view_pos += Menu.scroll_lines;
+                self.view_pos += ListBox.scroll_lines;
             self.update_scrollbar();
             self.start_query(0) catch {};
         }

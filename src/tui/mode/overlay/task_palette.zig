@@ -146,7 +146,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     return false;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
@@ -191,7 +191,7 @@ pub fn call_runner(runner: TaskRunner, task: []const u8) !void {
     };
 }
 
-pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
+pub fn delete_item(menu: *Type.ListBoxType, button: *Type.ButtonType) bool {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return false;

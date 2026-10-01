@@ -150,7 +150,7 @@ fn find_closest(palette: *Type) ?usize {
     return null;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const self = menu.*.opts.ctx;
     const editor = tui.get_active_editor() orelse return;
     editor.clear_matches();

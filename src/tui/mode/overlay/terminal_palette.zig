@@ -266,7 +266,7 @@ fn add_profile(palette: *Type) !void {
     tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;

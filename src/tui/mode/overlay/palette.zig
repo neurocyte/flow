@@ -17,7 +17,7 @@ const Widget = @import("../../Widget.zig");
 const scrollbar_v = @import("../../scrollbar_v.zig");
 const ModalBackground = @import("../../ModalBackground.zig");
 
-pub const Menu = @import("../../Menu.zig");
+pub const ListBox = @import("../../ListBox.zig");
 
 const max_menu_width = 80;
 const default_widget_type: Widget.Type = .palette;
@@ -45,7 +45,7 @@ pub fn Create(options: type) type {
         allocator: std.mem.Allocator,
         modal: *ModalBackground.State(*Self),
         menu_layer: *tui.WidgetLayerBox,
-        menu: *Menu.State(*Self),
+        menu: *ListBox.State(*Self),
         mode: keybind.Mode,
         inputbox: *InputBox.State(*Self),
         logger: log.Logger,
@@ -77,8 +77,8 @@ pub fn Create(options: type) type {
         const has_skip_entry = @hasDecl(options, "skip_entry");
         const has_insert = @hasDecl(options, "insert");
 
-        pub const MenuType = Menu.Options(*Self).MenuType;
-        pub const ButtonType = MenuType.ButtonType;
+        pub const ListBoxType = ListBox.Options(*Self).ListBoxType;
+        pub const ButtonType = ListBoxType.ButtonType;
         pub const Pos = Widget.Pos;
 
         pub const ActivateMode = enum {
@@ -109,7 +109,7 @@ pub fn Create(options: type) type {
                     .effect = if (@hasDecl(options, "modal_dim") and !options.modal_dim) .none else .dim,
                 }),
                 .menu_layer = menu_layer,
-                .menu = try Menu.create(*Self, allocator, menu_layer.inner_plane(), .{
+                .menu = try ListBox.create(*Self, allocator, menu_layer.inner_plane(), .{
                     .ctx = self,
                     .style = widget_type,
                     .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
@@ -327,7 +327,7 @@ pub fn Create(options: type) type {
             return .{ .y = y, .x = x, .w = w, .h = h };
         }
 
-        fn after_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
+        fn after_resize_menu(self: *Self, _: *ListBox.State(*Self), _: Widget.Box) void {
             return self.after_resize();
         }
 
@@ -360,23 +360,23 @@ pub fn Create(options: type) type {
                 scrollbar.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
-        fn mouse_click_button4(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
+        fn mouse_click_button4(menu: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
             if (async_query) return;
-            if (self.view_pos < Menu.scroll_lines) {
+            if (self.view_pos < ListBox.scroll_lines) {
                 self.view_pos = 0;
             } else {
-                self.view_pos -= Menu.scroll_lines;
+                self.view_pos -= ListBox.scroll_lines;
             }
             self.update_scrollbar();
             self.start_query(0) catch {};
         }
 
-        fn mouse_click_button5(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
+        fn mouse_click_button5(menu: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
             if (async_query) return;
             if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
-                self.view_pos += Menu.scroll_lines;
+                self.view_pos += ListBox.scroll_lines;
             self.update_scrollbar();
             self.start_query(0) catch {};
         }
@@ -405,7 +405,7 @@ pub fn Create(options: type) type {
             self.do_resize(padding);
         }
 
-        pub fn append_async_item(self: *Self, label: []const u8, on_click: Menu.Options(*Self).ButtonClickHandler) !void {
+        pub fn append_async_item(self: *Self, label: []const u8, on_click: ListBox.Options(*Self).ButtonClickHandler) !void {
             try self.menu.add_item_with_handler(label, on_click);
             self.items += 1;
             self.total_items = self.items;

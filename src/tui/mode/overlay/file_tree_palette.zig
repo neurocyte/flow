@@ -295,7 +295,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     return false;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const palette = menu.*.opts.ctx;
 
     var label_str: []const u8 = undefined;

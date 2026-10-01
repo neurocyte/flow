@@ -12,7 +12,7 @@ const keybind = @import("keybind");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const Menu = @import("Menu.zig");
+const ListBox = @import("ListBox.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor = @import("editor.zig");
 const FileList = @import("FileList.zig");
@@ -29,7 +29,7 @@ pub const ActivateMode = FileList.ActivateMode;
 
 allocator: std.mem.Allocator,
 plane: Plane,
-menu: *MenuType,
+menu: *ListBoxType,
 logger: log.Logger,
 commands: Commands = undefined,
 current: bool = false,
@@ -42,8 +42,8 @@ view_rows: usize = 0,
 view_cols: usize = 0,
 box: Widget.Box = .{},
 
-const MenuType = Menu.Options(*Self).MenuType;
-const ButtonType = MenuType.ButtonType;
+const ListBoxType = ListBox.Options(*Self).ListBoxType;
+const ButtonType = ListBoxType.ButtonType;
 const path_column_ratio = 4;
 const widget_type: Widget.Type = .none;
 
@@ -59,7 +59,7 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
     var panel_input = try PanelInput.init(allocator, "filelist");
     errdefer panel_input.mode.deinit();
 
-    const menu = try Menu.create(*Self, allocator, plane, .{
+    const menu = try ListBox.create(*Self, allocator, plane, .{
         .ctx = self,
         .style = widget_type,
         .on_render = handle_render_menu,
@@ -312,25 +312,25 @@ fn update_scrollbar(self: *Self) void {
         scrollbar.set(0, @intCast(self.view_rows), 0);
 }
 
-fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
+fn mouse_click_button4(menu: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {
     const self = &menu.*.opts.ctx.*;
     const fl = self.list() orelse return;
     fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
-    if (fl.view_pos < Menu.scroll_lines) {
+    if (fl.view_pos < ListBox.scroll_lines) {
         fl.view_pos = 0;
     } else {
-        fl.view_pos -= Menu.scroll_lines;
+        fl.view_pos -= ListBox.scroll_lines;
     }
     self.update_selected();
     self.update_scrollbar();
 }
 
-fn mouse_click_button5(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
+fn mouse_click_button5(menu: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {
     const self = &menu.*.opts.ctx.*;
     const fl = self.list() orelse return;
     fl.selected = if (self.menu.selected) |sel_| sel_ + fl.view_pos else fl.selected;
     if (fl.view_pos < @max(fl.entries.items.len, self.view_rows) - self.view_rows)
-        fl.view_pos += Menu.scroll_lines;
+        fl.view_pos += ListBox.scroll_lines;
     self.update_selected();
     self.update_scrollbar();
 }
@@ -346,7 +346,7 @@ fn update_selected(self: *Self) void {
     }
 }
 
-fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {
+fn handle_menu_action(menu: **ListBoxType, button: *ButtonType, _: Widget.Pos) void {
     const self = menu.*.opts.ctx;
     const fl = self.list() orelse return;
     var idx: usize = undefined;

@@ -13,7 +13,7 @@ const root = @import("soft_root").root;
 const Widget = @import("Widget.zig");
 const WidgetLayerBox = @import("WidgetLayerBox.zig");
 const Button = @import("Button.zig");
-const Menu = @import("Menu.zig");
+const ListBox = @import("ListBox.zig");
 const tui = @import("tui.zig");
 const command = @import("command");
 const keybind = @import("keybind");
@@ -78,7 +78,7 @@ info: *WidgetLayerBox,
 fire: ?Fire = null,
 commands: Commands = undefined,
 focused: bool = false,
-menu: *Menu.State(*Self),
+menu: *ListBox.State(*Self),
 menu_w: usize = 0,
 menu_desc_w: usize = 0,
 menu_label_max: usize = 0,
@@ -109,8 +109,8 @@ fn info_version() []const u8 {
 }
 
 const widget_type: Widget.Type = .home;
-const MenuType = Menu.Options(*Self).MenuType;
-const ButtonType = MenuType.ButtonType;
+const ListBoxType = ListBox.Options(*Self).ListBoxType;
+const ButtonType = ListBoxType.ButtonType;
 
 pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     const logger = log.logger("home");
@@ -147,7 +147,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .parent = parent.plane.*,
         .plane = n,
         .info = info,
-        .menu = try Menu.create(*Self, allocator, w.plane.*, .{
+        .menu = try ListBox.create(*Self, allocator, w.plane.*, .{
             .ctx = self,
             .style = widget_type,
             .on_render = menu_on_render,
@@ -387,7 +387,7 @@ fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, 
     return false;
 }
 
-fn menu_action(_: **Menu.State(*Self), button: *ButtonType, _: Widget.Pos) void {
+fn menu_action(_: **ListBox.State(*Self), button: *ButtonType, _: Widget.Pos) void {
     _ = tui.set_focus_by_mouse_event();
     var description: []const u8 = undefined;
     var hint: []const u8 = undefined;

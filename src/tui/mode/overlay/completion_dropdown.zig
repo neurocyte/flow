@@ -349,7 +349,7 @@ pub fn complete(self: *Type, _: ?*Type.ButtonType) !void {
     self.menu.activate_selected();
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const self = menu.*.opts.ctx;
     const values = get_values(button.opts.label);
     const sel = get_insert_selection(self.value.editor, values, self.value.query);

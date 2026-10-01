@@ -77,7 +77,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var unused: []const u8 = undefined;
     var idx: usize = undefined;
     var iter = button.opts.label;
@@ -94,7 +94,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     tp.self_pid().send(.{ "system_clipboard", history[idx].text }) catch {};
 }
 
-pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
+pub fn delete_item(menu: *Type.ListBoxType, button: *Type.ButtonType) bool {
     var unused: []const u8 = undefined;
     var idx: usize = undefined;
     var iter = button.opts.label;

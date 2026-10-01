@@ -59,7 +59,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
@@ -71,7 +71,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     tp.self_pid().send(.{ "cmd", cmd_, .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
-pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
+pub fn delete_item(menu: *Type.ListBoxType, button: *Type.ButtonType) bool {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return false;

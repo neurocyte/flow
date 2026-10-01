@@ -138,7 +138,7 @@ pub fn complete(palette: *Type, _: ?*Type.ButtonType) !void {
     palette.menu.activate_selected();
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const values = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return;
     const text = if (values.insertText.len > 0)

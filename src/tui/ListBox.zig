@@ -21,17 +21,17 @@ pub fn Options(context: type) type {
         on_click5: ButtonClickHandler = do_nothing_click,
         on_render: *const fn (ctx: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool = on_render_default,
         on_layout: *const fn (ctx: context, button: *ButtonType) Widget.Layout = on_layout_default,
-        prepare_resize: *const fn (ctx: context, menu: *MenuType, box: Widget.Box) Widget.Box = prepare_resize_default,
-        after_resize: *const fn (ctx: context, menu: *MenuType, box: Widget.Box) void = after_resize_default,
+        prepare_resize: *const fn (ctx: context, menu: *ListBoxType, box: Widget.Box) Widget.Box = prepare_resize_default,
+        after_resize: *const fn (ctx: context, menu: *ListBoxType, box: Widget.Box) void = after_resize_default,
         on_scroll: ?EventHandler = null,
 
         pub const Context = context;
-        pub const MenuType = State(Context);
-        pub const ButtonType = Button.Options(*MenuType).ButtonType;
-        pub const ButtonClickHandler = Button.Options(*MenuType).ClickHandler;
+        pub const ListBoxType = State(Context);
+        pub const ButtonType = Button.Options(*ListBoxType).ButtonType;
+        pub const ButtonClickHandler = Button.Options(*ListBoxType).ClickHandler;
         pub const ClickHandler = *const fn (ctx: context, button: *ButtonType) void;
         pub fn do_nothing(_: context, _: *ButtonType) void {}
-        pub fn do_nothing_click(_: **MenuType, _: *ButtonType, _: Widget.Pos) void {}
+        pub fn do_nothing_click(_: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {}
 
         pub fn on_render_default(_: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
             const style_base = theme.editor;
@@ -52,13 +52,13 @@ pub fn Options(context: type) type {
             return .{ .static = 1 };
         }
 
-        pub fn prepare_resize_default(_: context, state: *MenuType, box_: Widget.Box) Widget.Box {
+        pub fn prepare_resize_default(_: context, state: *ListBoxType, box_: Widget.Box) Widget.Box {
             var box = box_;
             box.h = if (box_.h == 0) state.menu.widgets.items.len else box_.h;
             return box;
         }
 
-        pub fn after_resize_default(_: context, _: *MenuType, _: Widget.Box) void {}
+        pub fn after_resize_default(_: context, _: *ListBoxType, _: Widget.Box) void {}
     };
 }
 
@@ -108,7 +108,7 @@ pub fn State(ctx_type: type) type {
         pub const ButtonType = Button.Options(*Self).ButtonType;
 
         pub fn deinit(_: *Self, _: std.mem.Allocator) void {
-            @compileError("do not deinit Menu.State directly; free it via menu.widget().deinit() or the widget tree");
+            @compileError("do not deinit ListBox.State directly; free it via menu.widget().deinit() or the widget tree");
         }
 
         pub fn widget(self: *Self) Widget {

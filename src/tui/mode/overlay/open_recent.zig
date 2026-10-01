@@ -180,7 +180,7 @@ fn store_item(palette: *Type, item: []const u8) !void {
     (try palette.value.restore_info.addOne(palette.allocator)).* = item;
 }
 
-fn menu_action_open_file(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn menu_action_open_file(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const palette = menu.*.opts.ctx;
     save(palette);
     var file_path: []const u8 = undefined;

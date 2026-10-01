@@ -85,7 +85,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const palette = menu.*.opts.ctx;
     var description_: []const u8 = undefined;
     var name_: []const u8 = undefined;

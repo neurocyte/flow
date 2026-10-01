@@ -85,7 +85,7 @@ pub fn complete(palette: *Type, button_: ?*Type.ButtonType) !void {
     return palette.start_query(0);
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+fn select(menu: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     var name_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &name_) catch false)) return;
@@ -93,7 +93,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     tp.self_pid().send(.{ "cmd", "change_project", .{name_} }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
 }
 
-pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
+pub fn delete_item(menu: *Type.ListBoxType, button: *Type.ButtonType) bool {
     var name_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &name_) catch false)) return false;
