@@ -1832,10 +1832,10 @@ const cmds = struct {
 
     pub fn toggle_menu(self: *Self, _: Ctx) Result {
         self.config_.show_menu = switch (self.config_.show_menu) {
-            .bar => .left,
+            .none => .left,
             .left => .right,
-            .right => .none,
-            .none => .bar,
+            .right => .bar,
+            .bar => .none,
         };
         defer self.logger.print("show menu {t}", .{self.config_.show_menu});
         if (mainview()) |mv| mv.update_menu_bar_visibility();
