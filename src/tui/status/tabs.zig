@@ -19,10 +19,8 @@ const MenuButton = @import("../MenuButton.zig");
 const main_menu = @import("../menu/Main.zig");
 const tab_render = @import("../tab_render.zig");
 
-const default_min_tabs = 2;
-
 const @"style.config" = struct {
-    default_minimum_tabs_shown: usize = 2,
+    default_minimum_tabs_shown: usize = 1,
 
     padding: []const u8 = "\u{00A0}", // nbsp
     padding_fg_transparent: bool = true,
