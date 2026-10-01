@@ -63,7 +63,12 @@ const terminal: Menu = .{ .label = "Terminal", .items = &.{
 const settings: Menu = .{ .label = "Settings", .items = &.{
     .{ .submenu = &theme },
     .{ .command = .{ .command = "open_config" } },
+    .{ .command = .{ .command = "open_gui_config" } },
     .{ .command = .{ .command = "open_keybind_config" } },
+    .{ .command = .{ .command = "open_tabs_style_config" } },
+    .{ .command = .{ .command = "open_lsp_config_global" } },
+    .{ .command = .{ .command = "open_lsp_config_project" } },
+    .{ .command = .{ .command = "open_file_type_config" } },
 } };
 
 const theme: Menu = .{ .label = "Theme", .items = &.{
@@ -74,6 +79,6 @@ const theme: Menu = .{ .label = "Theme", .items = &.{
 } };
 
 const about: Menu = .{ .label = "About", .items = &.{
-    .{ .command = .{ .command = "open_version_info" } },
     .{ .command = .{ .command = "open_help" } },
+    .{ .command = .{ .command = "open_version_info" } },
 } };
