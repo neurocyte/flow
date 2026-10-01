@@ -372,6 +372,11 @@ fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode
     _ = try self.bottom_area.toggle(view, mode, ctx);
 }
 
+fn toggle_focusable_panel_view(self: *Self, comptime view: type, mode: PanelToggleMode) !void {
+    const v = try self.bottom_area.toggle(view, mode, .empty()) orelse return;
+    if (self.bottom_area.is_maximized()) v.focus();
+}
+
 fn show_panel_view(self: *Self, comptime view: type, ctx: command.Context) !*view {
     return (try self.bottom_area.toggle(view, .enable, ctx)) orelse error.PanelNotFound;
 }
@@ -1261,33 +1266,32 @@ const cmds = struct {
     pub const restore_panel_layout_meta: Meta = .{};
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(logview, .toggle);
+        try self.toggle_focusable_panel_view(logview, .toggle);
     }
     pub const toggle_logview_meta: Meta = .{};
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
-        const lv = try self.show_panel_view(logview, .empty());
-        if (self.bottom_area.is_maximized()) lv.focus();
+        try self.toggle_focusable_panel_view(logview, .enable);
     }
     pub const show_logview_meta: Meta = .{ .description = "View log" };
 
     pub fn toggle_inputview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(input_view, .toggle);
+        try self.toggle_focusable_panel_view(input_view, .toggle);
     }
     pub const toggle_inputview_meta: Meta = .{ .description = "Toggle raw input log" };
 
     pub fn toggle_keybindview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(keybind_view, .toggle);
+        try self.toggle_focusable_panel_view(keybind_view, .toggle);
     }
     pub const toggle_keybindview_meta: Meta = .{ .description = "Toggle keybind log" };
 
     pub fn toggle_inspector_view(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(@import("inspector_view.zig"), .toggle);
+        try self.toggle_focusable_panel_view(@import("inspector_view.zig"), .toggle);
     }
     pub const toggle_inspector_view_meta: Meta = .{ .description = "Toggle inspector view" };
 
     pub fn show_inspector_view(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(@import("inspector_view.zig"), .enable);
+        try self.toggle_focusable_panel_view(@import("inspector_view.zig"), .enable);
     }
     pub const show_inspector_view_meta: Meta = .{};
 
@@ -1300,7 +1304,8 @@ const cmds = struct {
     pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
 
     pub fn show_filelist(self: *Self, _: Ctx) Result {
-        _ = try self.show_filelist();
+        const fl = try self.show_filelist() orelse return;
+        if (self.bottom_area.is_maximized()) fl.focus();
     }
     pub const show_filelist_meta: Meta = .{ .description = "Show the file list" };
 
@@ -3114,6 +3119,7 @@ fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
 pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {
     if (content.len == 0) return;
     const info = self.show_panel_view(info_view, .empty()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    self.bottom_area.set_maximized(false);
     switch (mode) {
         .replace => info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
         .append => info.append_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),

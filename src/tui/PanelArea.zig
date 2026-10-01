@@ -585,7 +585,7 @@ pub fn cycle_tab(self: *Self, dir: PanelGroup.Direction) void {
     target.activate(p.id);
     self.last_focused = target;
     self.show();
-    if (was_focused) p.widget.focus();
+    if (was_focused or self.maximized) p.widget.focus();
     tui.need_render(@src());
 }
 
