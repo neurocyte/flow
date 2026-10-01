@@ -58,8 +58,9 @@ pub fn probe(self: *const Self, id: usize, abs_path: []const u8) Error!void {
     return self.send(.{ "probe", id, abs_path });
 }
 
-/// replies with {"FS", "stat", id, path, mtime_high, mtime_low}
-/// mtime is 0 when stat fails
+/// replies with {"FS", "stat", id, path, mtime_high, mtime_low},
+/// {"FS", "missing", id, path} when the path is not a file, or
+/// {"FS", "stat_error", id, path, error_name} on other failures.
 pub fn stat(self: *const Self, id: usize, abs_path: []const u8) Error!void {
     return self.send(.{ "stat", id, abs_path });
 }
@@ -932,10 +933,17 @@ const Process = struct {
 
     fn stat_path(from: tp.pid_ref, id: usize, path: []const u8) void {
         const io = root.get_io();
-        const stat_ = std.Io.Dir.cwd().statFile(io, path, .{}) catch {
-            from.send(.{ "FS", "stat", id, path, @as(i64, 0), @as(i64, 0) }) catch {};
+        const stat_ = std.Io.Dir.cwd().statFile(io, path, .{}) catch |e| {
+            if (e == error.FileNotFound or e == error.NotDir)
+                from.send(.{ "FS", "missing", id, path }) catch {}
+            else
+                from.send(.{ "FS", "stat_error", id, path, @errorName(e) }) catch {};
             return;
         };
+        if (stat_.kind != .file and stat_.kind != .sym_link) {
+            from.send(.{ "FS", "missing", id, path }) catch {};
+            return;
+        }
         const mtime: i128 = stat_.mtime.nanoseconds;
         const high: i64 = @intCast(mtime >> 64);
         const low: i64 = @truncate(mtime);

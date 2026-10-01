@@ -1408,9 +1408,15 @@ pub fn build_exe(
 
     const file_finder_imports: []const std.Build.Module.Import = &.{
         .{ .name = "soft_root", .module = soft_root_mod },
+        .{ .name = "log", .module = log_mod },
+        .{ .name = "cbor", .module = cbor_mod },
         .{ .name = "thespian", .module = thespian_mod },
+        .{ .name = "tracy", .module = tracy_mod },
         .{ .name = "file_type_config", .module = file_type_config_mod },
         .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
+        .{ .name = "git", .module = git_mod },
+        .{ .name = "file_watcher", .module = file_watcher_mod },
+        .{ .name = "gitignore", .module = gitignore_mod },
     };
 
     const file_finder_mod = b.createModule(.{
@@ -1467,9 +1473,9 @@ pub fn build_exe(
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "gitignore", .module = gitignore_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "EditSet", .module = EditSet_mod },
-            .{ .name = "gitignore", .module = gitignore_mod },
         },
     });
 

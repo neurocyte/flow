@@ -62,6 +62,7 @@ const Op = union(enum) {
     read: struct { name: []const u8, content: ?[]const u8 },
     read_two: struct { a: []const u8, a_content: []const u8, b: []const u8, b_content: []const u8 },
     probe: struct { name: []const u8, kind: FileStore.ProbeKind, binary: bool = false },
+    stat: struct { name: []const u8, mtime: ?i128 },
     short_write: struct { name: []const u8 },
     dying_writer: struct { name: []const u8 },
     watch: struct { name: []const u8 },
@@ -153,6 +154,10 @@ const Driver = struct {
             .probe => |op| {
                 self.request_id = self.new_id();
                 try self.store.probe(self.request_id, self.path(op.name));
+            },
+            .stat => |op| {
+                self.request_id = self.new_id();
+                try self.store.stat(self.request_id, self.path(op.name));
             },
             .short_write => |op| {
                 self.request_id = self.new_id();
@@ -281,6 +286,19 @@ const Driver = struct {
                     return fail("probe {s}: expected {t}/{} got {t}/{}", .{ op.name, op.kind, op.binary, kind, binary });
                 return self.advance();
             },
+            .stat => |op| {
+                if (op.mtime) |expected| {
+                    var high: i64 = 0;
+                    var low: i64 = 0;
+                    if (!try m.match(.{ "FS", "stat", tp.extract(&id), tp.extract(&path_), tp.extract(&high), tp.extract(&low) }))
+                        return fail("unexpected stat reply: {f}", .{m});
+                    const actual = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
+                    if (actual != expected) return fail("stat {s}: expected {d} got {d}", .{ op.name, expected, actual });
+                } else if (!try m.match(.{ "FS", "missing", tp.extract(&id), tp.extract(&path_) })) {
+                    return fail("expected missing stat reply: {f}", .{m});
+                }
+                return self.advance();
+            },
             .short_write => {
                 if (try m.match(.{ "FS", "write_ack", tp.more })) return;
                 if (!try m.match(.{ "FS", "error", tp.extract(&id), tp.extract(&op_name), tp.extract(&err_name) }))
@@ -351,6 +369,11 @@ test "file store streams" {
     try write_fixture(tmp.dir, "big2.txt", big2);
     try write_fixture(tmp.dir, "binary.bin", "abc\x00def");
     try write_fixture(tmp.dir, "watched.txt", "first");
+    try write_fixture(tmp.dir, "epoch.txt", "old");
+    const epoch = try tmp.dir.openFile(io, "epoch.txt", .{ .mode = .read_write });
+    defer epoch.close(io);
+    try epoch.setTimestamps(io, .{ .modify_timestamp = .{ .new = .zero } });
+    try tmp.dir.createDir(io, "not-a-file", .default_dir);
     if (posix) {
         try write_fixture(tmp.dir, "target.txt", "target");
         try tmp.dir.symLink(io, "target.txt", "link.txt", .{});
@@ -381,6 +404,8 @@ test "file store streams" {
         .{ .probe = .{ .name = "nested", .kind = .dir } },
         .{ .probe = .{ .name = "binary.bin", .kind = .file, .binary = true } },
         .{ .probe = .{ .name = "nope", .kind = .none } },
+        .{ .stat = .{ .name = "epoch.txt", .mtime = 0 } },
+        .{ .stat = .{ .name = "not-a-file", .mtime = null } },
         .{ .short_write = .{ .name = "short.txt" } },
         .{ .dying_writer = .{ .name = "dying.txt" } },
     });
@@ -424,7 +449,7 @@ test "file store streams" {
         try std.testing.expectEqualStrings("via link", try read_fixture(tmp.dir, "target.txt"));
     }
 
-    const allowed = [_][]const u8{ "new.txt", "empty.txt", "exact.txt", "plus1.txt", "existing.txt", "nested", "big2.txt", "binary.bin", "watched.txt", "target.txt", "link.txt", "ro" };
+    const allowed = [_][]const u8{ "new.txt", "empty.txt", "exact.txt", "plus1.txt", "existing.txt", "nested", "big2.txt", "binary.bin", "watched.txt", "epoch.txt", "not-a-file", "target.txt", "link.txt", "ro" };
     var it = tmp.dir.iterate();
     while (try it.next(io)) |entry| {
         for (allowed) |name| {

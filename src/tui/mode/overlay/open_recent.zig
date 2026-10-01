@@ -145,6 +145,17 @@ fn process_project_manager(palette: *Type, m: tp.message) MessageFilter.Error!bo
         palette.value.query_pending = false;
         palette.value.need_reset = true;
         try query(palette, palette.inputbox.mini_editor.bytes());
+    } else if (try cbor.match(m.buf, .{ "PRJ", "file_finder_failed", tp.extract(&file_name) })) {
+        if (palette.value.query_pending and std.mem.eql(u8, file_name, tp.env.get().str("project"))) {
+            reset_results(palette);
+            palette.longest = label.len;
+            palette.value.total_files_in_project = 0;
+            palette.value.query_pending = false;
+            palette.value.need_reset = true;
+            update_count_hint(palette);
+            palette.refresh_layout();
+            tui.need_render(@src());
+        }
     } else return false;
     return true;
 }
