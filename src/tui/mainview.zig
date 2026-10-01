@@ -1266,7 +1266,8 @@ const cmds = struct {
     pub const toggle_logview_meta: Meta = .{};
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(logview, .enable);
+        const lv = try self.show_panel_view(logview, .empty());
+        if (self.bottom_area.is_maximized()) lv.focus();
     }
     pub const show_logview_meta: Meta = .{ .description = "View log" };
 
