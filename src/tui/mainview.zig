@@ -3118,6 +3118,7 @@ fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
 pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {
     if (content.len == 0) return;
     const info = self.show_panel_view(info_view, .empty()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    self.bottom_area.set_maximized(false);
     switch (mode) {
         .replace => info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
         .append => info.append_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
