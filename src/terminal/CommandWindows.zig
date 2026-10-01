@@ -58,9 +58,15 @@ pub fn spawn(self: *CommandWindows, allocator: std.mem.Allocator, conpty: *ConPT
         &pi,
     );
     if (ok == .FALSE) {
-        switch (windows.GetLastError()) {
-            else => |err| return windows.unexpectedError(err),
-        }
+        const err = windows.GetLastError();
+        std.log.err("terminal: cannot run '{s}': {t}", .{ if (self.argv.len > 0) self.argv[0] else "", err });
+        return switch (err) {
+            .FILE_NOT_FOUND, .PATH_NOT_FOUND, .INVALID_NAME => error.FileNotFound,
+            .ACCESS_DENIED => error.AccessDenied,
+            .BAD_EXE_FORMAT, .EXE_MACHINE_TYPE_MISMATCH => error.InvalidExe,
+            .DIRECTORY => error.NotDir,
+            else => windows.unexpectedError(err),
+        };
     }
 
     self.process_handle = pi.hProcess;
