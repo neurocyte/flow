@@ -1039,7 +1039,7 @@ const spacer = struct {
     }
 
     pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        if (try m.match(.{ MouseEvent.Type.drag, tp.more })) {
+        if (try m.match(.{ MouseEvent.Type.drag, tp.more }) or try m.match(.{ MouseEvent.Type.release, tp.more })) {
             if (self.on_event) |h| h.send(from, m) catch {};
             return true;
         }
