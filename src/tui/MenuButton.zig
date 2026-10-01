@@ -12,6 +12,7 @@ menu: *const Menu,
 pub const ButtonType = Button.Options(@This()).ButtonType;
 
 pub const label = " ≡ ";
+pub const width = 3;
 
 pub fn create(allocator: Allocator, parent: Plane, menu: *const Menu) error{OutOfMemory}!Widget {
     return Button.create_widget(@This(), allocator, parent, .{
@@ -56,7 +57,7 @@ const FindVisible = struct {
 };
 
 pub fn layout(_: *@This(), _: *ButtonType) Widget.Layout {
-    return .{ .static = 3 };
+    return .{ .static = width };
 }
 
 pub fn render(_: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
