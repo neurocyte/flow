@@ -1304,7 +1304,8 @@ const cmds = struct {
     pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
 
     pub fn show_filelist(self: *Self, _: Ctx) Result {
-        _ = try self.show_filelist();
+        const fl = try self.show_filelist() orelse return;
+        if (self.bottom_area.is_maximized()) fl.focus();
     }
     pub const show_filelist_meta: Meta = .{ .description = "Show the file list" };
 
