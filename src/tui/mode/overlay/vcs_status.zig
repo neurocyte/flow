@@ -66,9 +66,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     } else if (try cbor.match(m.buf, .{ "PRJ", "new_or_modified_files_done", tp.any, tp.any })) {
         palette.start_query(0) catch {};
         tui.need_render(@src());
-    } else {
-        palette.logger.err("receive", tp.unexpected(m));
-    }
+    } else return false;
     return true;
 }
 

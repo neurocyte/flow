@@ -93,11 +93,10 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
 
 fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     if (!(cbor.match(m.buf, .{ "PRJ", tp.more }) catch false)) return false;
-    try process_project_manager(palette, m);
-    return true;
+    return process_project_manager(palette, m);
 }
 
-fn process_project_manager(palette: *Type, m: tp.message) MessageFilter.Error!void {
+fn process_project_manager(palette: *Type, m: tp.message) MessageFilter.Error!bool {
     defer tui.reset_hover(@src());
     var file_name: []const u8 = undefined;
     var file_type: []const u8 = undefined;
@@ -143,9 +142,8 @@ fn process_project_manager(palette: *Type, m: tp.message) MessageFilter.Error!vo
         palette.value.query_pending = false;
         palette.value.need_reset = true;
         try query(palette, palette.inputbox.text.items);
-    } else {
-        palette.logger.err("receive", tp.unexpected(m));
-    }
+    } else return false;
+    return true;
 }
 
 fn reset_results(palette: *Type) void {
