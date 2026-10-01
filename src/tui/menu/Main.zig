@@ -120,8 +120,8 @@ const view: Menu = .{ .label = "View", .items = &.{
     .{ .submenu = &panel },
     .separator,
     .{ .command = .{ .command = "toggle_centered_view" } },
-    .{ .command = .{ .command = "expand_centered_view" } },
-    .{ .command = .{ .command = "shrink_centered_view" } },
+    .{ .command = .{ .command = "expand_centered_view", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "shrink_centered_view", .on_activate = .keep_open } },
     .separator,
     .{ .submenu = &display },
     .{ .submenu = &window },
@@ -176,15 +176,15 @@ const panel: Menu = .{ .label = "Panel", .items = &.{
 } };
 
 const display: Menu = .{ .label = "Editor display", .items = &.{
-    .{ .command = .{ .command = "toggle_whitespace_mode" } },
-    .{ .command = .{ .command = "toggle_highlight_columns" } },
-    .{ .command = .{ .command = "toggle_syntax_highlighting" } },
+    .{ .command = .{ .command = "toggle_whitespace_mode", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_highlight_columns", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_syntax_highlighting", .on_activate = .keep_open } },
     .separator,
-    .{ .command = .{ .command = "gutter_mode_next" } },
-    .{ .command = .{ .command = "gutter_style_next" } },
-    .{ .command = .{ .command = "toggle_gutter_diffs" } },
-    .{ .command = .{ .command = "toggle_inline_diagnostics" } },
-    .{ .command = .{ .command = "toggle_inline_vcs_blame" } },
+    .{ .command = .{ .command = "gutter_mode_next", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "gutter_style_next", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_gutter_diffs", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_inline_diagnostics", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_inline_vcs_blame", .on_activate = .keep_open } },
     .separator,
     .{ .command = .{ .command = "scroll_view_center" } },
 } };
@@ -192,14 +192,14 @@ const display: Menu = .{ .label = "Editor display", .items = &.{
 const window: Menu = .{ .label = "Window", .items = &.{
     .{ .command = .{ .command = "toggle_fullscreen" } },
     .separator,
-    .{ .command = .{ .command = "adjust_fontsize", .args = Menu.args(.{@as(f32, 1.0)}), .label = "Increase font size" } },
-    .{ .command = .{ .command = "adjust_fontsize", .args = Menu.args(.{@as(f32, -1.0)}), .label = "Decrease font size" } },
-    .{ .command = .{ .command = "reset_fontsize" } },
+    .{ .command = .{ .command = "adjust_fontsize", .args = Menu.args(.{@as(f32, 1.0)}), .label = "Increase font size", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "adjust_fontsize", .args = Menu.args(.{@as(f32, -1.0)}), .label = "Decrease font size", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "reset_fontsize", .on_activate = .keep_open } },
     .separator,
-    .{ .command = .{ .command = "adjust_background_opacity", .args = Menu.args(.{@as(f32, 0.05)}), .label = "Increase window opacity" } },
-    .{ .command = .{ .command = "adjust_background_opacity", .args = Menu.args(.{@as(f32, -0.05)}), .label = "Decrease window opacity" } },
-    .{ .command = .{ .command = "reset_background_opacity" } },
-    .{ .command = .{ .command = "toggle_ignore_theme_alpha" } },
+    .{ .command = .{ .command = "adjust_background_opacity", .args = Menu.args(.{@as(f32, 0.05)}), .label = "Increase window opacity", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "adjust_background_opacity", .args = Menu.args(.{@as(f32, -0.05)}), .label = "Decrease window opacity", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "reset_background_opacity", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_ignore_theme_alpha", .on_activate = .keep_open } },
 } };
 
 const go: Menu = .{ .label = "Go", .items = &.{
@@ -242,8 +242,8 @@ const language: Menu = .{ .label = "Language", .items = &.{
     .{ .command = .{ .command = "format" } },
     .separator,
     .{ .command = .{ .command = "show_diagnostics" } },
-    .{ .command = .{ .command = "toggle_inline_diagnostics" } },
-    .{ .command = .{ .command = "toggle_auto_highlight_references" } },
+    .{ .command = .{ .command = "toggle_inline_diagnostics", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_auto_highlight_references", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_auto_hover" } },
     .{ .command = .{ .command = "toggle_format_on_save" } },
     .separator,
@@ -300,11 +300,11 @@ const settings: Menu = .{ .label = "Settings", .items = &.{
 
 const theme: Menu = .{ .label = "Theme", .items = &.{
     .{ .command = .{ .command = "change_theme" } },
-    .{ .command = .{ .command = "toggle_color_scheme" } },
+    .{ .command = .{ .command = "toggle_color_scheme", .on_activate = .keep_open } },
     .{ .command = .{ .command = "open_custom_theme" } },
     .separator,
-    .{ .command = .{ .command = "theme_next" } },
-    .{ .command = .{ .command = "theme_prev" } },
+    .{ .command = .{ .command = "theme_next", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "theme_prev", .on_activate = .keep_open } },
 } };
 
 const completion: Menu = .{ .label = "Completion", .items = &.{

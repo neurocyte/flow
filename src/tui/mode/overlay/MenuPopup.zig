@@ -167,7 +167,8 @@ fn activate(self: *Self, level_idx: usize, pos: usize) !void {
             self.top().select_first();
         },
         .command => |*cmd| {
-            try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
+            if (cmd.on_activate == .close_menu)
+                try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
             try cmd.send();
         },
     }

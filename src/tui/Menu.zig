@@ -65,6 +65,7 @@ pub const Command = struct {
     command: []const u8,
     args: []const u8 = args(.{}),
     label: []const u8 = "",
+    on_activate: enum { close_menu, keep_open } = .close_menu,
 
     pub fn id(self: *const Command) ?command.ID {
         return command.get_id(self.command);

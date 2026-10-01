@@ -159,7 +159,8 @@ fn on_click(item: *Item, _: *ButtonType, _: Widget.Pos) void {
         else
             self.open(item.idx),
         .command => |*cmd| {
-            if (self.open_idx) |_| tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch {};
+            if (self.open_idx != null and cmd.on_activate == .close_menu)
+                tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch {};
             cmd.send() catch |e| self.logger.err("command", e);
         },
     }
