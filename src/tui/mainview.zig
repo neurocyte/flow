@@ -344,6 +344,8 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         const cell = coord.to_cell(self.plane.mouse_geometry());
         self.bottom_bar_primary_drag(@intCast(std.math.clamp(cell.row, 0, std.math.maxInt(i32))));
+    } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) {
+        self.bottom_area.save_height();
     }
 }
 
@@ -1264,7 +1266,8 @@ const cmds = struct {
     pub const toggle_logview_meta: Meta = .{};
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(logview, .enable);
+        const lv = try self.show_panel_view(logview, .empty());
+        if (self.bottom_area.is_maximized()) lv.focus();
     }
     pub const show_logview_meta: Meta = .{ .description = "View log" };
 

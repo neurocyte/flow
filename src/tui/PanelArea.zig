@@ -55,6 +55,7 @@ tab_style_bufs: [][]const u8,
 on_maximize: ?MaximizeCallback = null,
 
 height: ?usize = null,
+unsaved_height: ?usize = null,
 maximized: bool = false,
 maximized_by_snap: bool = false,
 snap_height: usize = 0,
@@ -618,10 +619,11 @@ pub fn is_maximized(self: *const Self) bool {
 fn save_height_ratio(height: usize) void {
     const total = total_height();
     if (total == 0) return;
-    if (rows_for_ratio(total, tui.config().panel_height_ratio) == height) return;
     const total_f: f32 = @floatFromInt(total);
     const floor = @as(f32, @floatFromInt(height_min_rows)) / total_f;
-    tui.config_mut().panel_height_ratio = std.math.clamp(@as(f32, @floatFromInt(height)) / total_f, floor, height_ratio_max);
+    const ratio = std.math.clamp(@as(f32, @floatFromInt(height)) / total_f, floor, height_ratio_max);
+    if (ratio == tui.config().panel_height_ratio) return;
+    tui.config_mut().panel_height_ratio = ratio;
     tui.save_config() catch {};
 }
 
@@ -645,6 +647,7 @@ pub fn set_height_abs(self: *Self, y: usize) void {
     self.maximized = false;
     self.maximized_by_snap = false;
     self.list.layout_ = .{ .static = height };
+    self.unsaved_height = null;
     if (height == 1) {
         self.height = null;
         self.hide();
@@ -654,9 +657,15 @@ pub fn set_height_abs(self: *Self, y: usize) void {
         self.height = null;
         self.focus_active();
     } else {
-        save_height_ratio(height);
+        self.unsaved_height = height;
     }
     self.notify_maximized();
+}
+
+pub fn save_height(self: *Self) void {
+    const height = self.unsaved_height orelse return;
+    self.unsaved_height = null;
+    save_height_ratio(height);
 }
 
 pub fn set_height_rel(self: *Self, y: isize) void {
@@ -664,6 +673,7 @@ pub fn set_height_rel(self: *Self, y: isize) void {
     if (self.maximized and y > 0) return;
     const h: isize = @intCast(self.get_height());
     self.set_height_abs(@intCast(@max(1, h +| y)));
+    self.save_height();
 }
 
 pub fn toggle_maximize(self: *Self) void {

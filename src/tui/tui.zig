@@ -2035,8 +2035,9 @@ const cmds = struct {
         var on_exit: @import("config").TerminalOnExit = self.config_.terminal_on_exit;
         if (!(try ctx.args.match(.{tp.extract(&task)}) or
             try ctx.args.match(.{ tp.extract(&task), tp.extract(&on_exit) }))) return;
+        command.executeName("open_terminal", try command.fmtbuf(&buf, .{ task, on_exit })) catch
+            return;
         call_add_task(task);
-        try command.executeName("open_terminal", try command.fmtbuf(&buf, .{ task, on_exit }));
     }
     pub const run_task_in_terminal_meta: Meta = .{
         .description = "Run a task in terminal",
