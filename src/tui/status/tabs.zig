@@ -875,7 +875,7 @@ const Tab = struct {
         var buf: [std.fs.max_path_bytes + 16]u8 = undefined;
         command.executeName("navigate", .init(.{ .buf = cbor.fmt(&buf, .{ .file = buffer.get_file_path() }) })) catch return;
         const y, const x = btn.plane.global_yx();
-        tui.open_menu(&tab_menu, .{ .y = y + btn.plane.dim_y(), .x = x + pos.x, .flip_x = x + pos.x, .flip_y = y }, null) catch |e|
+        tui.open_menu(&tab_menu, .below(.{ .y = y + pos.y, .x = x + pos.x }), null) catch |e|
             std.log.err("tab menu: {t}", .{e});
     }
 

@@ -67,6 +67,6 @@ pub fn open_context_menu(panel: anytype, coord: MouseEvent.Coord) void {
     const T = @typeInfo(@TypeOf(panel)).pointer.child;
     panel.focus();
     const cell = coord.to_cell(.{ .cell_width = panel.plane.cell_x(), .cell_height = panel.plane.cell_y() });
-    tui.open_menu(Panel.context_menu(T), .at(.{ .y = cell.row, .x = cell.col }), null) catch |e|
+    tui.open_menu(Panel.context_menu(T), .below(.{ .y = cell.row, .x = cell.col }), null) catch |e|
         std.log.err("panel menu: {t}", .{e});
 }

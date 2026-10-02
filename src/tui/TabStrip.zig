@@ -232,7 +232,7 @@ const Tab = struct {
     fn on_click3(t: *Tab, btn: *ButtonType, pos: Widget.Pos) void {
         const src = t.strip.source;
         const y, const x = btn.plane.global_yx();
-        src.on_tab_menu(src.ctx, t.id, .{ .y = y + btn.plane.dim_y(), .x = x + pos.x, .flip_x = x + pos.x, .flip_y = y });
+        src.on_tab_menu(src.ctx, t.id, .below(.{ .y = y + pos.y, .x = x + pos.x }));
     }
 };
 

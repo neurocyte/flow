@@ -8560,7 +8560,7 @@ pub const EditorWidget = struct {
         const menus = @import("menu/Editor.zig");
         const menu = if (self.editor.has_selection()) &menus.selection else &menus.cursor;
         const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
-        try tui.open_menu(menu, .at(.{ .y = cell.row, .x = cell.col }), null);
+        try tui.open_menu(menu, .below(.{ .y = cell.row, .x = cell.col }), null);
     }
 
     fn mouse_click_button4(self: *Self, _: MouseEvent.Coord) Result {

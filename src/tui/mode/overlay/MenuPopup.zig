@@ -6,6 +6,7 @@ const keybind = @import("keybind");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const MouseEvent = @import("MouseEvent");
+const build_options = @import("build_options");
 
 const tui = @import("../../tui.zig");
 const Widget = @import("../../Widget.zig");
@@ -45,9 +46,26 @@ pub const Anchor = struct {
     x: i32,
     flip_x: i32,
     flip_y: ?i32 = null,
+    offset_px: Widget.Pos = .{},
+    flip_offset_px: Widget.Pos = .{},
 
     pub fn at(pos: Widget.Pos) Anchor {
         return .{ .y = pos.y, .x = pos.x, .flip_x = pos.x, .flip_y = pos.y };
+    }
+
+    pub fn below(pos: Widget.Pos) Anchor {
+        if (!build_options.gui)
+            return .{ .y = pos.y + 1, .x = pos.x, .flip_x = pos.x, .flip_y = pos.y };
+        const cw: i32 = tui.plane().cell_x();
+        const ch: i32 = tui.plane().cell_y();
+        return .{
+            .y = pos.y,
+            .x = pos.x,
+            .flip_x = pos.x,
+            .flip_y = pos.y,
+            .offset_px = .{ .y = @divFloor(ch * 3, 4), .x = @divFloor(cw, 2) },
+            .flip_offset_px = .{ .y = @divFloor(ch, 4), .x = @divFloor(cw, 2) },
+        };
     }
 };
 
@@ -188,6 +206,8 @@ fn open_submenu(self: *Self, level_idx: usize) !void {
         .y = @intCast(box.y + pos),
         .x = @intCast(box.x + box.w),
         .flip_x = @intCast(box.x),
+        .offset_px = level.offset_px,
+        .flip_offset_px = level.offset_px,
     });
 }
 
@@ -233,6 +253,7 @@ const Level = struct {
     items: std.ArrayList(*const Menu.Item) = .empty,
     width: usize = 0,
     has_icons: bool = false,
+    offset_px: Widget.Pos = .{},
 
     const ListBoxType = ListBox.Options(*Level).ListBoxType;
     const ButtonType = ListBoxType.ButtonType;
@@ -342,7 +363,18 @@ const Level = struct {
     fn prepare_resize_layer(ctx_: ?*anyopaque, _: *tui.WidgetLayerBox, _: Widget.Box) Widget.Box {
         const self: *Level = @ptrCast(@alignCast(ctx_.?));
         const padding = tui.get_widget_style(widget_type).padding;
-        return self.prepare_resize(padding).from_client_box(padding);
+        var box = self.prepare_resize(padding).from_client_box(padding);
+        if (self.offset_px.x != 0 or self.offset_px.y != 0) {
+            const cw: i32 = tui.plane().cell_x();
+            const ch: i32 = tui.plane().cell_y();
+            box.frame = .{
+                .x = @as(i32, @intCast(box.x)) * cw + self.offset_px.x,
+                .y = @as(i32, @intCast(box.y)) * ch + self.offset_px.y,
+                .w = @as(i32, @intCast(box.w)) * cw,
+                .h = @as(i32, @intCast(box.h)) * ch,
+            };
+        }
+        return box;
     }
 
     fn prepare_resize(self: *Level, padding: Widget.Style.Margin) Widget.Box {
@@ -355,17 +387,31 @@ const Level = struct {
         const h: i32 = @intCast(@min(self.items.items.len, screen.h -| (padding.top + padding.bottom)));
         const screen_w: i32 = @intCast(screen.w);
         const screen_h: i32 = @intCast(screen.h);
-        var x = self.anchor.x + pl;
-        if (x + w + pr > screen_w) {
-            const flipped = self.anchor.flip_x - pr - w;
-            x = if (flipped >= pl) flipped else screen_w - w - pr;
+        const anchor = self.anchor;
+        const spare_x: i32 = if (anchor.offset_px.x > 0) 1 else 0;
+        const spare_y: i32 = if (anchor.offset_px.y > 0) 1 else 0;
+        self.offset_px = .{};
+        var x = anchor.x + pl;
+        if (x + spare_x + w + pr <= screen_w) {
+            self.offset_px.x = anchor.offset_px.x;
+        } else {
+            const flipped = anchor.flip_x - pr - w;
+            if (flipped >= pl) {
+                x = flipped;
+                self.offset_px.x = anchor.flip_offset_px.x;
+            } else x = screen_w - w - pr;
         }
         x = @max(pl, @min(x, screen_w - w - pr));
-        var y = self.anchor.y + pt;
-        if (y + h + pb > screen_h) if (self.anchor.flip_y) |flip_y| {
+        var y = anchor.y + pt;
+        if (y + spare_y + h + pb <= screen_h) {
+            self.offset_px.y = anchor.offset_px.y;
+        } else if (anchor.flip_y) |flip_y| {
             const flipped = flip_y - pb - h;
-            if (flipped >= pt) y = flipped;
-        };
+            if (flipped >= pt) {
+                y = flipped;
+                self.offset_px.y = anchor.flip_offset_px.y;
+            }
+        }
         y = @max(pt, @min(y, screen_h - h - pb));
         return .{ .y = @intCast(y), .x = @intCast(x), .w = @intCast(w), .h = @intCast(h) };
     }

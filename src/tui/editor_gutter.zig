@@ -433,7 +433,7 @@ const menu: Menu = .{ .items = &.{
 fn secondary_click(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
     self.focus_editor();
     const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
-    tui.open_menu(&menu, .at(.{ .y = cell.row, .x = cell.col }), null) catch |e|
+    tui.open_menu(&menu, .below(.{ .y = cell.row, .x = cell.col }), null) catch |e|
         std.log.err("gutter menu: {t}", .{e});
     return true;
 }
