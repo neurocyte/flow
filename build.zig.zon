@@ -1,7 +1,7 @@
 .{
     .name = .flow,
     .version = "0.7.2",
-    .minimum_zig_version = "0.17.0-dev.2320+1e770dbef",
+    .minimum_zig_version = "0.17.0-dev.2384+ac77c23af",
     .fingerprint = 0x52c0d670590aa80f,
 
     .dependencies = .{
