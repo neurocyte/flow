@@ -3,7 +3,6 @@ const tp = @import("thespian");
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
-const command = @import("command");
 const project_manager = @import("project_manager");
 const VcsStatus = @import("VcsStatus");
 
@@ -11,6 +10,8 @@ const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
+const Menu = @import("../Menu.zig");
+const MenuButton = @import("../MenuButton.zig");
 
 const branch_symbol = "󰘬 ";
 const ahead_symbol = "⇡";
@@ -18,6 +19,16 @@ const behind_symbol = "⇣";
 const stash_symbol = "*";
 const changed_symbol = "+";
 const untracked_symbol = "?";
+
+const menu: Menu = .{ .items = &.{
+    .{ .command = .{ .command = "show_vcs_status" } },
+    .separator,
+    .{ .command = .{ .command = "goto_next_change" } },
+    .{ .command = .{ .command = "goto_prev_change" } },
+    .separator,
+    .{ .command = .{ .command = "toggle_gutter_diffs", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_inline_vcs_blame", .on_activate = .keep_open } },
+} };
 
 allocator: std.mem.Allocator,
 status: VcsStatus = .{},
@@ -54,10 +65,11 @@ pub fn ctx_deinit(self: *Self) void {
     self.status.reset(self.allocator);
 }
 
-fn on_click(self: *Self, _: *ButtonType, _: Widget.Pos) void {
+fn on_click(self: *Self, btn: *ButtonType, _: Widget.Pos) void {
     self.refresh_vcs_status();
     tui.sync_with_vcs() catch {};
-    command.executeName("show_vcs_status", .empty()) catch {};
+    tui.open_menu(&menu, MenuButton.anchor(btn), null) catch |e|
+        std.log.err("branch menu: {t}", .{e});
 }
 
 fn refresh_vcs_status(self: *Self) void {
