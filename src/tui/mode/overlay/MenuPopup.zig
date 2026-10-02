@@ -40,6 +40,7 @@ pub const Anchor = struct {
     y: i32,
     x: i32,
     flip_x: i32,
+    flip_y: ?i32 = null,
 
     pub fn at(pos: Widget.Pos) Anchor {
         return .{ .y = pos.y, .x = pos.x, .flip_x = pos.x };
@@ -325,7 +326,12 @@ const Level = struct {
             x = if (flipped >= pl) flipped else screen_w - w - pr;
         }
         x = @max(pl, @min(x, screen_w - w - pr));
-        const y = @max(pt, @min(self.anchor.y + pt, screen_h - h - pb));
+        var y = self.anchor.y + pt;
+        if (y + h + pb > screen_h) if (self.anchor.flip_y) |flip_y| {
+            const flipped = flip_y - pb - h;
+            if (flipped >= pt) y = flipped;
+        };
+        y = @max(pt, @min(y, screen_h - h - pb));
         return .{ .y = @intCast(y), .x = @intCast(x), .w = @intCast(w), .h = @intCast(h) };
     }
 

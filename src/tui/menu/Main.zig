@@ -226,7 +226,7 @@ const go: Menu = .{ .label = "Go", .items = &.{
     .{ .command = .{ .command = "open_file_links" } },
 } };
 
-const language: Menu = .{ .label = "Language", .items = &.{
+pub const language: Menu = .{ .label = "Language", .items = &.{
     .{ .command = .{ .command = "goto_definition" } },
     .{ .command = .{ .command = "goto_declaration" } },
     .{ .command = .{ .command = "goto_implementation" } },

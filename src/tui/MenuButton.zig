@@ -28,12 +28,13 @@ fn on_click(self: *@This(), btn: *ButtonType, _: Widget.Pos) void {
     tui.open_menu(self.menu, anchor(btn), null) catch |e| std.log.err("menu: {t}", .{e});
 }
 
-pub fn anchor(btn: *const ButtonType) tui.MenuPopup.Anchor {
+pub fn anchor(btn: anytype) tui.MenuPopup.Anchor {
     const y, const x = btn.plane.global_yx();
     return .{
         .y = y + btn.plane.dim_y(),
         .x = x,
         .flip_x = x + btn.plane.dim_x(),
+        .flip_y = y,
     };
 }
 
