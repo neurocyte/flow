@@ -9,6 +9,19 @@ const EventHandler = @import("EventHandler");
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const tui = @import("../tui.zig");
+const Menu = @import("../Menu.zig");
+const MenuButton = @import("../MenuButton.zig");
+
+const menu: Menu = .{ .items = &.{
+    .{ .command = .{ .command = "show_diagnostics" } },
+    .separator,
+    .{ .command = .{ .command = "goto_next_diagnostic" } },
+    .{ .command = .{ .command = "goto_prev_diagnostic" } },
+    .{ .command = .{ .command = "goto_next_file_or_diagnostic" } },
+    .{ .command = .{ .command = "goto_prev_file_or_diagnostic" } },
+    .separator,
+    .{ .command = .{ .command = "toggle_inline_diagnostics", .on_activate = .keep_open } },
+} };
 
 errors: usize = 0,
 warnings: usize = 0,
@@ -25,6 +38,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
         .ctx = .{},
         .label = "",
         .on_click = on_click,
+        .on_click3 = on_click3,
         .on_layout = layout,
         .on_render = render,
         .on_receive = receive,
@@ -34,6 +48,11 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
 
 fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
     command.executeName("show_diagnostics", .empty()) catch {};
+}
+
+fn on_click3(_: *Self, btn: *ButtonType, _: Widget.Pos) void {
+    tui.open_menu(&menu, MenuButton.anchor(btn), null) catch |e|
+        std.log.err("diagnostics menu: {t}", .{e});
 }
 
 pub fn layout(self: *Self, _: *ButtonType) Widget.Layout {
