@@ -88,7 +88,7 @@ pub const case: Menu = .{ .label = "Case", .items = &.{
     .{ .command = .{ .command = "switch_case" } },
 } };
 
-const selection: Menu = .{ .label = "Selection", .items = &.{
+pub const selection: Menu = .{ .label = "Selection", .items = &.{
     .{ .command = .{ .command = "select_all" } },
     .{ .command = .{ .command = "select_line" } },
     .{ .command = .{ .command = "select_par" } },
