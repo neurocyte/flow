@@ -887,9 +887,11 @@ fn render(self: *Self) void {
 
         switch (self.hint_mode) {
             .prefix => if (self.config_.enable_prefix_keyhints)
-                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .all, self.current_theme()),
+                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .all, self.current_theme())
+            else
+                @import("keyhints.zig").hide(),
             .all => @import("keyhints.zig").render_current_input_mode(self.allocator, .all, self.current_theme()),
-            .none => {},
+            .none => @import("keyhints.zig").hide(),
         }
 
         break :ret continue_mainview;
@@ -1275,6 +1277,7 @@ fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp
 
 fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {
     self.last_hover = coord;
+    @import("keyhints.zig").mouse_moved();
     if (coord.x >= 0 and coord.y >= 0) if (self.find_coord_widget(coord)) |w| {
         if (if (self.hover_focus) |h| h.ptr != w.ptr else true) {
             tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @as(u64, @intFromPtr(h.ptr)) else 0, @as(u64, @intFromPtr(w.ptr)) });
@@ -2879,6 +2882,12 @@ pub fn egc_chunk_col_pos(chunk: []const u8, abs_col: usize, tab_width: usize, co
 
 pub fn egc_last(egcs: []const u8) []const u8 {
     return renderer.Plane.egc_last(egcs);
+}
+
+pub fn mouse_cell() ?MouseEvent.Cell {
+    const coord = current().last_hover orelse return null;
+    const root_plane = plane();
+    return coord.to_cell(.{ .cell_width = root_plane.cell_x(), .cell_height = root_plane.cell_y() });
 }
 
 pub fn screen() Widget.Box {

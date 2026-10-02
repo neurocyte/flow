@@ -9,6 +9,8 @@ const Widget = @import("Widget.zig");
 const widget_type: Widget.Type = .hint_window;
 
 var show_page: usize = 0;
+var home_box: ?Widget.Box = null;
+var dodging: bool = false;
 
 pub fn render_current_input_mode(allocator: std.mem.Allocator, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
     const mode = tui.input_mode() orelse return;
@@ -32,9 +34,25 @@ pub fn scroll() void {
     show_page += 1;
 }
 
+pub fn hide() void {
+    home_box = null;
+}
+
+pub fn mouse_moved() void {
+    const box = home_box orelse return;
+    if (dodging != is_mouse_over(box)) tui.need_render(@src());
+}
+
+fn is_mouse_over(box: Widget.Box) bool {
+    const cell = tui.mouse_cell() orelse return false;
+    if (cell.row < 0 or cell.col < 0) return false;
+    return box.is_abs_coord_inside(@intCast(cell.row), @intCast(cell.col));
+}
+
 const RenderMode = enum { full, no_key_event_prefix };
 
 fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const Widget.Theme, render_mode: RenderMode) void {
+    home_box = null;
     // return if something is already rendering to the top layer
     if (tui.have_top_layer()) return;
     if (bindings.len == 0) return;
@@ -68,7 +86,10 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
         .x = scr.w -| max_len -| 2 -| widget_style.padding.left -| widget_style.padding.right,
         .y = scr.h -| max_items -| 1 -| widget_style.padding.top -| widget_style.padding.bottom,
     };
-    const deco_box = box.from_client_box(widget_style.padding);
+    var deco_box = box.from_client_box(widget_style.padding);
+    home_box = deco_box;
+    dodging = is_mouse_over(deco_box);
+    if (dodging) deco_box.x = scr.w -| (deco_box.x + deco_box.w);
 
     var top_layer_ = tui.top_layer(deco_box, 0, 0, .overlay) orelse return;
     widget_style.render_decoration(deco_box, widget_type, &top_layer_, theme);
