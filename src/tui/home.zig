@@ -30,31 +30,16 @@ const style = struct {
 
     centered: bool = false,
 
-    menu_commands: []const u8 = splice(if (build_options.gui)
+    menu_commands: []const u8 = splice(
         \\find_file
+        \\find_in_files
         \\create_new_file
         \\open_file
+        \\open_file_tree
         \\open_recent_project
-        \\find_in_files
         \\open_command_palette
         \\open_terminal
         \\run_task
-        \\open_config
-        \\open_gui_config
-        \\change_fontface
-        \\toggle_input_mode
-        \\open_main_menu
-        \\quit
-    else
-        \\find_file
-        \\create_new_file
-        \\open_file
-        \\open_recent_project
-        \\find_in_files
-        \\open_command_palette
-        \\open_terminal
-        \\run_task
-        \\open_config
         \\toggle_input_mode
         \\open_main_menu
         \\quit
