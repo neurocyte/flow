@@ -1987,6 +1987,22 @@ pub const Editor = struct {
         return sel.begin.row <= row and row <= sel.end.row and b_col <= col and col < e_col;
     }
 
+    pub fn is_point_in_any_selection(self: *const Self, y: i32, x: i32) bool {
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+            if (cursel.selection) |sel_| {
+                var sel = sel_;
+                sel.normalize();
+                if (self.is_point_in_selection(sel, y, x)) return true;
+            };
+        return false;
+    }
+
+    pub fn has_selection(self: *const Self) bool {
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+            if (cursel.selection) |_| return true;
+        return false;
+    }
+
     inline fn is_point_before_selection(self: *const Self, sel_: anytype, y_: i32, x_: i32) bool {
         const y: u32 = if (y_ < 0) return true else @intCast(y_);
         const sel = sel_;
@@ -8262,6 +8278,7 @@ pub const EditorWidget = struct {
     last_btn_count: usize = 0,
     last_btn_x: c_int = 0,
     last_btn_y: c_int = 0,
+    right_click: enum { none, pressed, dragged } = .none,
 
     hover: bool = false,
     hover_timer: ?tp.Cancellable = null,
@@ -8441,6 +8458,11 @@ pub const EditorWidget = struct {
     const Result = command.Result;
 
     fn mouse_click_event(self: *Self, mouse_type: MouseEvent.Type, btn: MouseEvent.Button, coord: MouseEvent.Coord) Result {
+        if (mouse_type == .release and btn == .right) {
+            defer self.right_click = .none;
+            if (self.right_click == .pressed) try self.open_context_menu(coord);
+            return;
+        }
         if (mouse_type != .press) return;
         if (!self.focused or tui.is_keyboard_focused()) switch (btn) {
             .left, .middle, .right => _ = tui.set_focus_by_mouse_event(),
@@ -8521,14 +8543,24 @@ pub const EditorWidget = struct {
 
     fn mouse_drag_button2(_: *Self, _: MouseEvent.Coord) Result {}
 
-    fn mouse_click_button3(self: *Self, coord: MouseEvent.Coord) Result {
-        const y_, const x_ = self.mouse_pos_abs(coord);
-        try self.editor.secondary_click(y_, x_);
+    fn mouse_click_button3(self: *Self, _: MouseEvent.Coord) Result {
+        self.right_click = .pressed;
     }
 
     fn mouse_drag_button3(self: *Self, coord: MouseEvent.Coord) Result {
+        self.right_click = .dragged;
         const y_, const x_ = self.mouse_pos_abs(coord);
         try self.editor.secondary_drag(y_, x_);
+    }
+
+    fn open_context_menu(self: *Self, coord: MouseEvent.Coord) Result {
+        const y_, const x_ = self.mouse_pos_abs(coord);
+        if (!self.editor.is_point_in_any_selection(y_, x_))
+            try self.editor.primary_click(y_, x_);
+        const menus = @import("menu/Editor.zig");
+        const menu = if (self.editor.has_selection()) &menus.selection else &menus.cursor;
+        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+        try tui.open_menu(menu, .at(.{ .y = cell.row, .x = cell.col }), null);
     }
 
     fn mouse_click_button4(self: *Self, _: MouseEvent.Coord) Result {

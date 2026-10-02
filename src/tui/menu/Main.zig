@@ -81,7 +81,7 @@ const lines: Menu = .{ .label = "Lines", .items = &.{
     .{ .command = .{ .command = "pull_down" } },
 } };
 
-const case: Menu = .{ .label = "Case", .items = &.{
+pub const case: Menu = .{ .label = "Case", .items = &.{
     .{ .command = .{ .command = "to_upper" } },
     .{ .command = .{ .command = "to_lower" } },
     .{ .command = .{ .command = "toggle_case" } },

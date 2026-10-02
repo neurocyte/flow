@@ -43,7 +43,7 @@ pub const Anchor = struct {
     flip_y: ?i32 = null,
 
     pub fn at(pos: Widget.Pos) Anchor {
-        return .{ .y = pos.y, .x = pos.x, .flip_x = pos.x };
+        return .{ .y = pos.y, .x = pos.x, .flip_x = pos.x, .flip_y = pos.y };
     }
 };
 
