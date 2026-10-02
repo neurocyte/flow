@@ -5,8 +5,8 @@ BUILDER="$(cd "$(dirname "$0")" && pwd)"
 BASEDIR="$(cd "$(dirname "$0")/../.." && pwd)"
 APPNAME="$(basename "$BASEDIR")"
 
-IMAGE="$APPNAME-builder-zig-0.17-dev"
-NAME="$APPNAME-builder-zig-0.17-dev"
+IMAGE="$APPNAME-builder"
+NAME="$APPNAME-builder"
 
 cd "$BASEDIR"
 
