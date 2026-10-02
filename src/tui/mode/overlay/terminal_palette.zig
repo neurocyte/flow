@@ -119,7 +119,7 @@ fn add_palette_command(
 ) !usize {
     const id = command.get_id(command_name) orelse return 0;
     var width: usize = 0;
-    if (command.get_icon(id)) |icon_| width += tui.egc_chunk_width(icon_, 0, 1);
+    width += tui.egc_chunk_width(command.get_icon(id) orelse terminal_icon, 0, 1);
     if (label_override.len > 0)
         width += tui.egc_chunk_width(label_override, 0, 1) + 1
     else if (command.get_description(id)) |desc|
@@ -188,7 +188,9 @@ pub fn on_render_list_box(palette: *Type, button: *Type.ButtonType, theme: *cons
 
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon_|
-            label_.writer.print("{s}  ", .{icon_}) catch {};
+            label_.writer.print("{s}  ", .{icon_}) catch {}
+        else
+            label_.writer.splatByteAll(' ', icon_width + 2) catch {};
         if (entry.label.len > 0)
             label_.writer.print("{s}", .{entry.label}) catch {}
         else if (command.get_description(id)) |desc|
