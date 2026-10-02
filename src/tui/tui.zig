@@ -1261,14 +1261,12 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn send_mouse(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
-    _ = self.input_listeners_.send(from, m) catch {};
     if (try self.update_hover(coord)) |w|
         _ = try w.send(from, m);
 }
 
 fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
-    _ = self.input_listeners_.send(from, m) catch {};
     _ = try self.update_hover(coord);
     if (self.drag_source) |w| if (self.is_live_widget_ptr(w)) {
         _ = try w.send(from, m);
