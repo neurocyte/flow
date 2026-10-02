@@ -26,10 +26,15 @@ const Self = @This();
 const ButtonType = Button.Options(Self).ButtonType;
 
 const menu: Menu = .{ .items = &.{
-    .{ .command = .{ .command = "toggle_keybind_hints", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "open_main_menu" } },
     .{ .command = .{ .command = "toggle_menu", .on_activate = .keep_open } },
+    .separator,
+    .{ .command = .{ .command = "switch_terminals" } },
+    .{ .command = .{ .command = "run_task" } },
+    .separator,
+    .{ .command = .{ .command = "toggle_keybind_hints", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_panel" } },
-    .{ .command = .{ .command = "toggle_input_mode" } },
+    .{ .command = .{ .command = "toggle_input_mode", .on_activate = .keep_open } },
     .separator,
     .{ .command = .{ .command = "change_theme" } },
     .{ .command = .{ .command = "toggle_color_scheme", .on_activate = .keep_open } },
