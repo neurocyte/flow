@@ -12,7 +12,7 @@ pub const menu: Menu = .{ .label = "Menu", .items = &.{
     .{ .submenu = &about },
 } };
 
-const file: Menu = .{ .label = "File", .items = &.{
+pub const file: Menu = .{ .label = "File", .items = &.{
     .{ .command = .{ .command = "create_new_file" } },
     .{ .command = .{ .command = "open_file" } },
     .{ .command = .{ .command = "find_file" } },
