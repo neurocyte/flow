@@ -58,7 +58,7 @@ menu_bar_layer: ?Widget = null,
 bars_hidden: bool = false,
 top_bar: ?Widget = null,
 bottom_bar: ?Widget = null,
-bottom_bar_drag: ?struct { top: i32, offset: i32, height: usize } = null,
+bottom_bar_drag: ?struct { bottom: i32, offset: i32 } = null,
 views: *WidgetList,
 views_widget: Widget,
 active_view: usize = 0,
@@ -368,6 +368,7 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         self.bottom_bar_primary_drag(coord.y);
     } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) {
         self.bottom_bar_drag = null;
+        self.set_bottom_bar_offset(0);
         self.bottom_area.save_height();
         tui.reset_hover(@src());
         tui.refresh_hover(@src());
@@ -379,16 +380,26 @@ fn bottom_bar_primary_drag(self: *Self, y: i32) void {
     const ch: i32 = @max(1, self.plane.cell_y());
     const drag = self.bottom_bar_drag orelse blk: {
         _, const top = bar.plane.global_origin_px();
+        const height: i32 = @intCast(self.bottom_area.current_height());
         self.bottom_bar_drag = .{
-            .top = top,
+            .bottom = top + (height + 1) * ch,
             .offset = std.math.clamp(y - top, 0, ch - 1),
-            .height = self.bottom_area.current_height(),
         };
         break :blk self.bottom_bar_drag.?;
     };
-    const rows = @divFloor(drag.top - (y - drag.offset) + @divFloor(ch, 2), ch);
-    const h = @as(i64, @intCast(drag.height)) + rows;
-    self.bottom_area.set_height_abs(@intCast(@max(1, h)));
+    const size = drag.bottom - (y - drag.offset);
+    self.bottom_area.set_height_abs(@intCast(@max(1, @divFloor(size, ch) - 1)));
+    if (build_options.gui) {
+        const height: i32 = @intCast(self.bottom_area.current_height());
+        self.set_bottom_bar_offset(if (self.bottom_area.is_maximized()) 0 else @max(0, size - (height + 1) * ch));
+    }
+}
+
+fn set_bottom_bar_offset(self: *Self, offset: i32) void {
+    const bar = (self.bottom_bar orelse return).dynamic_cast(tui.WidgetLayerBox) orelse return;
+    if (bar.offset_px_y == -offset) return;
+    bar.offset_px_y = -offset;
+    tui.need_render(@src());
 }
 
 pub fn get_panel_height(self: *Self) usize {
