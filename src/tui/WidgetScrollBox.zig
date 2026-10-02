@@ -407,6 +407,10 @@ pub fn drag_scroll(self: *Self, coord: MouseEvent.Coord) void {
         .horizontal => coord.x,
         .vertical => coord.y,
     };
+    tui.rdr().request_mouse_cursor(switch (self.direction) {
+        .horizontal => .@"ew-resize",
+        .vertical => .@"ns-resize",
+    }, true);
     const anchor = self.drag_anchor_px orelse {
         self.drag_anchor_px = pos;
         self.drag_origin_px = self.scroll_px;
@@ -447,7 +451,11 @@ pub fn scroll_into_view(self: *Self, w: Widget) void {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     if (self.drag_anchor_px != null) {
         const source, const button = tui.get_drag_source();
-        if (source == null or button != .middle) self.drag_anchor_px = null;
+        if (source == null or button != .middle) {
+            self.drag_anchor_px = null;
+            tui.reset_hover(@src());
+            tui.refresh_hover(@src());
+        }
     }
 
     const animating = self.update_scroll();
