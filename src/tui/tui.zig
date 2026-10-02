@@ -2541,6 +2541,11 @@ pub fn input_mode_outer() ?*Mode {
     return if (current().input_mode_outer_) |*p| p else null;
 }
 
+pub fn is_menu_open() bool {
+    const handler = (input_mode() orelse return false).event_handler orelse return false;
+    return handler.dynamic_cast(MenuPopup) != null;
+}
+
 pub fn mini_mode() ?*MiniMode {
     return if (current().mini_mode_) |*p| p else null;
 }
