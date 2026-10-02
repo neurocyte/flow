@@ -471,6 +471,10 @@ fn focused_panel(self: *Self) ?Panel {
     return g.active();
 }
 
+pub fn focused_panel_hints(self: *Self) ?*const tui.KeybindHints {
+    return (self.focused_panel() orelse return null).hints();
+}
+
 fn leave_maximized_panel(self: *Self) void {
     if (self.focused_panel() == null) return;
     if (self.bottom_area.is_maximized()) self.bottom_area.hide();
@@ -1260,17 +1264,17 @@ const cmds = struct {
     pub fn panel_split(self: *Self, _: Ctx) Result {
         try self.bottom_area.split();
     }
-    pub const panel_split_meta: Meta = .{ .description = "Move panel tab to a new group" };
+    pub const panel_split_meta: Meta = .{ .description = "Move panel to new group" };
 
     pub fn panel_move_tab_left(self: *Self, _: Ctx) Result {
         try self.bottom_area.move_active(.left);
     }
-    pub const panel_move_tab_left_meta: Meta = .{ .description = "Move panel tab to the group on the left" };
+    pub const panel_move_tab_left_meta: Meta = .{ .description = "Move panel left" };
 
     pub fn panel_move_tab_right(self: *Self, _: Ctx) Result {
         try self.bottom_area.move_active(.right);
     }
-    pub const panel_move_tab_right_meta: Meta = .{ .description = "Move panel tab to the group on the right" };
+    pub const panel_move_tab_right_meta: Meta = .{ .description = "Move panel right" };
 
     pub fn panel_focus_next_group(self: *Self, _: Ctx) Result {
         self.bottom_area.focus_group(.right);

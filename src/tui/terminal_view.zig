@@ -13,12 +13,11 @@ const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
+const Menu = @import("Menu.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
-const keybind = @import("keybind");
-pub const Mode = keybind.Mode;
 const color = @import("color");
 const RGB = color.RGB;
 const file_link = @import("file_link");
@@ -108,6 +107,21 @@ fn stack_above_parent(_: ?*anyopaque, layer: *tui.WidgetLayerBox, box: Widget.Bo
     layer.z_index = if (layer.plane.layer) |l| @enumFromInt(@intFromEnum(l.z_index) + 1) else .main;
     return box;
 }
+
+pub const panel_menu: Menu = .{ .label = "Terminal", .items = &.{
+    .{ .command = .{ .command = "terminal_copy_selection" } },
+    .separator,
+    .{ .command = .{ .command = "terminal_open_file_links" } },
+    .{ .command = .{ .command = "terminal_open_last_command_output" } },
+    .{ .command = .{ .command = "terminal_open_scrollback_buffer" } },
+    .separator,
+    .{ .command = .{ .command = "terminal_scroll_previous_command" } },
+    .{ .command = .{ .command = "terminal_scroll_next_command" } },
+    .separator,
+    .{ .command = .{ .command = "terminal_new" } },
+    .{ .command = .{ .command = "switch_terminals" } },
+    .{ .command = .{ .command = "terminal_kill" } },
+} };
 
 pub fn panel_write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {
     return self.vt.write_state(writer, tui.config().terminal_persist_scrollback);
@@ -224,6 +238,11 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             if (button == .middle and is_press and self.want_selection(mods)) {
                 _ = tui.set_focus_by_mouse_event();
                 self.paste_from_primary();
+                return true;
+            }
+
+            if (is_press and button == .right and !(self.panel_input.focused and self.vt.vt.mode.mouse != .none)) {
+                PanelInput.open_context_menu(self, coord);
                 return true;
             }
 

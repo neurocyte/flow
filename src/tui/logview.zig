@@ -121,6 +121,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         },
         else => {},
     };
+    if (try PanelInput.receive_context_menu(self, m)) return true;
     return self.panel_input.receive(from, m);
 }
 

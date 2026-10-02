@@ -3,8 +3,11 @@ const tp = @import("thespian");
 const command = @import("command");
 const keybind = @import("keybind");
 
+const MouseEvent = @import("MouseEvent");
+
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
+const Panel = @import("Panel.zig");
 
 const Self = @This();
 
@@ -51,4 +54,19 @@ pub fn copy_to_clipboard(text: []const u8) void {
     tui.clipboard_start_group();
     tui.clipboard_add_chunk(owned);
     tui.clipboard_send_to_system() catch {};
+}
+
+pub fn receive_context_menu(panel: anytype, m: tp.message) error{Exit}!bool {
+    var coord: MouseEvent.Coord = undefined;
+    if (!try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.extract(&coord), tp.more })) return false;
+    open_context_menu(panel, coord);
+    return true;
+}
+
+pub fn open_context_menu(panel: anytype, coord: MouseEvent.Coord) void {
+    const T = @typeInfo(@TypeOf(panel)).pointer.child;
+    panel.focus();
+    const cell = coord.to_cell(.{ .cell_width = panel.plane.cell_x(), .cell_height = panel.plane.cell_y() });
+    tui.open_menu(Panel.context_menu(T), .at(.{ .y = cell.row, .x = cell.col }), null) catch |e|
+        std.log.err("panel menu: {t}", .{e});
 }

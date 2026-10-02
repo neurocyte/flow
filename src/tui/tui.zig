@@ -2554,7 +2554,8 @@ pub fn open_overlay_create(mode: type, ctx: command.Context, args: anytype) comm
 }
 
 pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor, owner: ?MenuPopup.Owner) command.Result {
-    return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor, owner });
+    const hints = if (mainview()) |mv| mv.focused_panel_hints() else null;
+    return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor, owner, hints });
 }
 
 pub fn query_cache() *syntax.QueryCache {

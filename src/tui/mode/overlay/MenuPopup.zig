@@ -26,6 +26,7 @@ modal: *ModalBackground.State(*Self),
 levels: std.ArrayList(*Level) = .empty,
 logger: log.Logger,
 owner: ?Owner,
+hints: ?*const tui.KeybindHints,
 
 pub const Owner = struct {
     ctx: *anyopaque,
@@ -45,7 +46,7 @@ pub const Anchor = struct {
     }
 };
 
-pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, owner: ?Owner) !tui.Mode {
+pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, owner: ?Owner, hints: ?*const tui.KeybindHints) !tui.Mode {
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -60,6 +61,7 @@ pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, o
         }),
         .logger = log.logger(module_name),
         .owner = owner,
+        .hints = hints,
     };
     try self.commands.init(self);
     errdefer self.commands.deinit();
@@ -174,7 +176,8 @@ fn activate(self: *Self, level_idx: usize, pos: usize) !void {
     }
 }
 
-fn get_hints() ?*const tui.KeybindHints {
+fn get_hints(self: *const Self) ?*const tui.KeybindHints {
+    if (self.hints) |hints| return hints;
     const mode = tui.input_mode_outer() orelse tui.input_mode() orelse return null;
     return mode.keybind_hints;
 }
@@ -215,7 +218,7 @@ const Level = struct {
     }
 
     fn measure(self: *Level) void {
-        const hints = get_hints();
+        const hints = self.popup.get_hints();
         var label_w: usize = 0;
         var hint_w: usize = 0;
         for (self.items.items) |item| switch (item.*) {
@@ -349,7 +352,7 @@ const Level = struct {
             .command => |*cmd| .{
                 self.command_label(cmd),
                 cmd.get_icon(),
-                get_hint(get_hints(), cmd),
+                get_hint(self.popup.get_hints(), cmd),
             },
             .submenu => |submenu| .{ submenu.label, null, submenu_hint },
         };
