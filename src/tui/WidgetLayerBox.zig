@@ -53,6 +53,7 @@ content_w: u16 = 0,
 content_h: u16 = 0,
 shift_x: i32 = 0,
 shift_y: i32 = 0,
+offset_px_y: i32 = 0,
 layout_override: ?Widget.Layout = null,
 
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
@@ -251,7 +252,7 @@ fn build_target(self: *Self) Layer.Target {
     const cw: i32 = self.plane.cell_x();
     const ch: i32 = self.plane.cell_y();
     const px = ox + self.shift_x;
-    const py = oy + self.shift_y;
+    const py = oy + self.shift_y + self.offset_px_y;
     return .{
         .src = self.layer,
         .dst = tui.plane().window,

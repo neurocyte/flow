@@ -18,6 +18,7 @@ const EventHandler = @import("EventHandler");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
+const Menu = @import("Menu.zig");
 const ed = @import("editor.zig");
 const DigitStyle = @import("config").DigitStyle;
 const LineNumberMode = @import("config").LineNumberMode;
@@ -103,8 +104,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return self.primary_click(coord);
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.middle, tp.more }))
         return self.middle_click();
-    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.more }))
-        return self.secondary_click();
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.extract(&coord), tp.any }))
+        return self.secondary_click(coord);
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
         return self.primary_drag(coord);
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_up, tp.more }))
@@ -416,8 +417,24 @@ fn primary_drag(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
     return true;
 }
 
-fn secondary_click(_: *Self) error{Exit}!bool {
-    try command.executeName("gutter_mode_next", .empty());
+const menu: Menu = .{ .items = &.{
+    .{ .command = .{ .command = "gutter_mode_next", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "gutter_style_next", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_gutter_diffs", .on_activate = .keep_open } },
+    .separator,
+    .{ .command = .{ .command = "goto_next_change" } },
+    .{ .command = .{ .command = "goto_prev_change" } },
+    .{ .command = .{ .command = "goto_next_diagnostic" } },
+    .{ .command = .{ .command = "goto_prev_diagnostic" } },
+    .separator,
+    .{ .command = .{ .command = "goto" } },
+} };
+
+fn secondary_click(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
+    self.focus_editor();
+    const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+    tui.open_menu(&menu, .below(.{ .y = cell.row, .x = cell.col }), null) catch |e|
+        std.log.err("gutter menu: {t}", .{e});
     return true;
 }
 

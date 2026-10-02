@@ -81,7 +81,9 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    return if (self.panel_input) |*panel_input| panel_input.receive(from, m) else false;
+    const panel_input = if (self.panel_input) |*panel_input| panel_input else return false;
+    if (try PanelInput.receive_context_menu(self, m)) return true;
+    return panel_input.receive(from, m);
 }
 
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {

@@ -12,12 +12,11 @@ pub const menu: Menu = .{ .label = "Menu", .items = &.{
     .{ .submenu = &about },
 } };
 
-const file: Menu = .{ .label = "File", .items = &.{
+pub const file: Menu = .{ .label = "File", .items = &.{
     .{ .command = .{ .command = "create_new_file" } },
     .{ .command = .{ .command = "open_file" } },
     .{ .command = .{ .command = "find_file" } },
     .{ .command = .{ .command = "open_file_tree" } },
-    .{ .command = .{ .command = "open_recent" } },
     .{ .command = .{ .command = "open_recent_project" } },
     .separator,
     .{ .command = .{ .command = "save_file" } },
@@ -82,14 +81,14 @@ const lines: Menu = .{ .label = "Lines", .items = &.{
     .{ .command = .{ .command = "pull_down" } },
 } };
 
-const case: Menu = .{ .label = "Case", .items = &.{
+pub const case: Menu = .{ .label = "Case", .items = &.{
     .{ .command = .{ .command = "to_upper" } },
     .{ .command = .{ .command = "to_lower" } },
     .{ .command = .{ .command = "toggle_case" } },
     .{ .command = .{ .command = "switch_case" } },
 } };
 
-const selection: Menu = .{ .label = "Selection", .items = &.{
+pub const selection: Menu = .{ .label = "Selection", .items = &.{
     .{ .command = .{ .command = "select_all" } },
     .{ .command = .{ .command = "select_line" } },
     .{ .command = .{ .command = "select_par" } },
@@ -202,7 +201,7 @@ const window: Menu = .{ .label = "Window", .items = &.{
     .{ .command = .{ .command = "toggle_ignore_theme_alpha", .on_activate = .keep_open } },
 } };
 
-const go: Menu = .{ .label = "Go", .items = &.{
+pub const go: Menu = .{ .label = "Go", .items = &.{
     .{ .command = .{ .command = "jump_back" } },
     .{ .command = .{ .command = "jump_forward" } },
     .separator,
@@ -227,7 +226,7 @@ const go: Menu = .{ .label = "Go", .items = &.{
     .{ .command = .{ .command = "open_file_links" } },
 } };
 
-const language: Menu = .{ .label = "Language", .items = &.{
+pub const language: Menu = .{ .label = "Language", .items = &.{
     .{ .command = .{ .command = "goto_definition" } },
     .{ .command = .{ .command = "goto_declaration" } },
     .{ .command = .{ .command = "goto_implementation" } },

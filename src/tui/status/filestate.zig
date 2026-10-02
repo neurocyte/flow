@@ -16,6 +16,7 @@ const EventHandler = @import("EventHandler");
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const tui = @import("../tui.zig");
+const MenuButton = @import("../MenuButton.zig");
 
 const changed_on_disk_glyph = "󰳻";
 const deleted_on_disk_glyph = "󱂥";
@@ -79,20 +80,13 @@ pub fn ctx_deinit(self: *Self) void {
     }
 }
 
-fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    const terminal_active = if (tui.mainview()) |mv| mv.active_terminal_title() != null else false;
-    if (terminal_active)
-        command.executeName("switch_terminals", .empty()) catch {}
-    else
-        command.executeName("open_recent", .empty()) catch {};
+fn on_click(_: *Self, btn: *ButtonType, _: Widget.Pos) void {
+    tui.open_menu(&@import("../menu/Main.zig").file, MenuButton.anchor(btn), null) catch |e|
+        std.log.err("file menu: {t}", .{e});
 }
 
 fn on_click2(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    const terminal_active = if (tui.mainview()) |mv| mv.active_terminal_title() != null else false;
-    if (terminal_active)
-        command.executeName("switch_terminals", .empty()) catch {}
-    else
-        command.executeName("close_file", .empty()) catch {};
+    command.executeName("close_file", .empty()) catch {};
 }
 
 fn on_click3(self: *Self, _: *ButtonType, _: Widget.Pos) void {

@@ -97,6 +97,7 @@ pub fn load_entries(palette: *Type) !usize {
     for (profiles) |profile| try add_profile_entry(palette, profile, &longest, &longest_hint);
 
     longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_insert", hints, "Add or edit profile", .describe));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "run_task", hints, "", .run));
     longest_hint = @max(longest_hint, try add_palette_command(palette, "toggle_maximize_panel", hints, "", .run));
     return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
@@ -118,7 +119,7 @@ fn add_palette_command(
 ) !usize {
     const id = command.get_id(command_name) orelse return 0;
     var width: usize = 0;
-    if (command.get_icon(id)) |icon_| width += tui.egc_chunk_width(icon_, 0, 1);
+    width += tui.egc_chunk_width(command.get_icon(id) orelse terminal_icon, 0, 1);
     if (label_override.len > 0)
         width += tui.egc_chunk_width(label_override, 0, 1) + 1
     else if (command.get_description(id)) |desc|
@@ -187,7 +188,9 @@ pub fn on_render_list_box(palette: *Type, button: *Type.ButtonType, theme: *cons
 
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon_|
-            label_.writer.print("{s}  ", .{icon_}) catch {};
+            label_.writer.print("{s}  ", .{icon_}) catch {}
+        else
+            label_.writer.splatByteAll(' ', icon_width + 2) catch {};
         if (entry.label.len > 0)
             label_.writer.print("{s}", .{entry.label}) catch {}
         else if (command.get_description(id)) |desc|

@@ -4,13 +4,13 @@ const cbor = @import("cbor");
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
-const command = @import("command");
 const project_manager = @import("project_manager");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
+const MenuButton = @import("../MenuButton.zig");
 
 const LspStatus = project_manager.LspStatus;
 
@@ -49,8 +49,9 @@ pub fn ctx_deinit(self: *Self) void {
     self.servers.deinit(self.allocator);
 }
 
-fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("restart_language_server", .empty()) catch {};
+fn on_click(_: *Self, btn: *ButtonType, _: Widget.Pos) void {
+    tui.open_menu(&@import("../menu/Main.zig").language, MenuButton.anchor(btn), null) catch |e|
+        std.log.err("lsp menu: {t}", .{e});
 }
 
 fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {

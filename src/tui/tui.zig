@@ -86,6 +86,7 @@ commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?Widget = null,
 drag_button: MouseEvent.Button = .none,
+drag_press: ?struct { coord: MouseEvent.Coord, button: MouseEvent.Button } = null,
 dark_theme: Widget.Theme,
 light_theme: Widget.Theme,
 idle_frame_count: usize = 0,
@@ -887,9 +888,11 @@ fn render(self: *Self) void {
 
         switch (self.hint_mode) {
             .prefix => if (self.config_.enable_prefix_keyhints)
-                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .all, self.current_theme()),
+                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .all, self.current_theme())
+            else
+                @import("keyhints.zig").hide(),
             .all => @import("keyhints.zig").render_current_input_mode(self.allocator, .all, self.current_theme()),
-            .none => {},
+            .none => @import("keyhints.zig").hide(),
         }
 
         break :ret continue_mainview;
@@ -1005,6 +1008,11 @@ fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8
     send_func(self, coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
     var btn: MouseEvent.Button = .none;
     _ = m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false;
+    if (m.match(.{ MouseEvent.Type.press, tp.more }) catch false)
+        self.drag_press = .{ .coord = coord, .button = btn }
+    else if (self.drag_press) |press| if (press.button == btn) {
+        self.drag_press = null;
+    };
     self.maybe_reset_drag_source(btn);
 }
 
@@ -1018,8 +1026,9 @@ fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []con
     var btn: MouseEvent.Button = .none;
     if (m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false)
         if (self.drag_source == null) {
-            if (coord.x >= 0 and coord.y >= 0)
-                self.set_drag_source(self.find_coord_widget(coord), btn);
+            const press_coord = if (self.drag_press) |press| if (press.button == btn) press.coord else coord else coord;
+            if (press_coord.x >= 0 and press_coord.y >= 0)
+                self.set_drag_source(self.find_coord_widget(press_coord), btn);
         };
     self.send_mouse_drag(coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
@@ -1261,14 +1270,12 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn send_mouse(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
-    _ = self.input_listeners_.send(from, m) catch {};
     if (try self.update_hover(coord)) |w|
         _ = try w.send(from, m);
 }
 
 fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
-    _ = self.input_listeners_.send(from, m) catch {};
     _ = try self.update_hover(coord);
     if (self.drag_source) |w| if (self.is_live_widget_ptr(w)) {
         _ = try w.send(from, m);
@@ -1277,6 +1284,7 @@ fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp
 
 fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {
     self.last_hover = coord;
+    @import("keyhints.zig").mouse_moved();
     if (coord.x >= 0 and coord.y >= 0) if (self.find_coord_widget(coord)) |w| {
         if (if (self.hover_focus) |h| h.ptr != w.ptr else true) {
             tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @as(u64, @intFromPtr(h.ptr)) else 0, @as(u64, @intFromPtr(w.ptr)) });
@@ -1967,7 +1975,7 @@ const cmds = struct {
     pub fn open_file_tree(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/file_tree_palette.zig").Type, ctx);
     }
-    pub const open_file_tree_meta: Meta = .{ .description = "File tree" };
+    pub const open_file_tree_meta: Meta = .{ .description = "Open file tree" };
 
     pub fn insert_command_name(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type, ctx);
@@ -2541,6 +2549,11 @@ pub fn input_mode_outer() ?*Mode {
     return if (current().input_mode_outer_) |*p| p else null;
 }
 
+pub fn is_menu_open() bool {
+    const handler = (input_mode() orelse return false).event_handler orelse return false;
+    return handler.dynamic_cast(MenuPopup) != null;
+}
+
 pub fn mini_mode() ?*MiniMode {
     return if (current().mini_mode_) |*p| p else null;
 }
@@ -2554,7 +2567,8 @@ pub fn open_overlay_create(mode: type, ctx: command.Context, args: anytype) comm
 }
 
 pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor, owner: ?MenuPopup.Owner) command.Result {
-    return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor, owner });
+    const hints = if (mainview()) |mv| mv.focused_panel_hints() else null;
+    return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor, owner, hints });
 }
 
 pub fn query_cache() *syntax.QueryCache {
@@ -2875,6 +2889,12 @@ pub fn egc_chunk_col_pos(chunk: []const u8, abs_col: usize, tab_width: usize, co
 
 pub fn egc_last(egcs: []const u8) []const u8 {
     return renderer.Plane.egc_last(egcs);
+}
+
+pub fn mouse_cell() ?MouseEvent.Cell {
+    const coord = current().last_hover orelse return null;
+    const root_plane = plane();
+    return coord.to_cell(.{ .cell_width = root_plane.cell_x(), .cell_height = root_plane.cell_y() });
 }
 
 pub fn screen() Widget.Box {

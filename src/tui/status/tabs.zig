@@ -9,6 +9,7 @@ const styles = @import("renderer").styles;
 const Buffer = @import("Buffer");
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
+const command = @import("command");
 
 const tui = @import("../tui.zig");
 const Widget = @import("../Widget.zig");
@@ -17,6 +18,7 @@ const WidgetScrollBox = @import("../WidgetScrollBox.zig");
 const Button = @import("../Button.zig");
 const MenuButton = @import("../MenuButton.zig");
 const main_menu = @import("../menu/Main.zig");
+const Menu = @import("../Menu.zig");
 const tab_render = @import("../tab_render.zig");
 
 const @"style.config" = struct {
@@ -801,6 +803,21 @@ pub const TabBar = struct {
     }
 };
 
+const tab_menu: Menu = .{ .items = &.{
+    .{ .command = .{ .command = "save_file" } },
+    .{ .command = .{ .command = "save_as" } },
+    .{ .command = .{ .command = "reload_file" } },
+    .{ .command = .{ .command = "copy_file_name" } },
+    .separator,
+    .{ .command = .{ .command = "move_tab_previous" } },
+    .{ .command = .{ .command = "move_tab_next" } },
+    .{ .command = .{ .command = "add_split" } },
+    .separator,
+    .{ .command = .{ .command = "close_file" } },
+    .{ .command = .{ .command = "close_file_without_saving" } },
+    .{ .command = .{ .command = "restore_closed_tab" } },
+} };
+
 const Tab = struct {
     tabbar: *TabBar,
     buffer_ref: Buffer.Ref,
@@ -824,6 +841,7 @@ const Tab = struct {
             .label = if (buffer) |buf| name_from_buffer(buf) else "???",
             .on_click = Tab.on_click,
             .on_click2 = Tab.on_click2,
+            .on_click3 = Tab.on_click3,
             .on_layout = Tab.layout,
             .on_render = Tab.render,
             .on_event = EventHandler.bind(tabbar, TabBar.handle_event),
@@ -849,6 +867,16 @@ const Tab = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
             tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};
+    }
+
+    fn on_click3(self: *@This(), btn: *ButtonType, pos: Widget.Pos) void {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const buffer = buffer_manager.buffer_from_ref(self.buffer_ref) orelse return;
+        var buf: [std.fs.max_path_bytes + 16]u8 = undefined;
+        command.executeName("navigate", .init(.{ .buf = cbor.fmt(&buf, .{ .file = buffer.get_file_path() }) })) catch return;
+        const y, const x = btn.plane.global_yx();
+        tui.open_menu(&tab_menu, .below(.{ .y = y + pos.y, .x = x + pos.x }), null) catch |e|
+            std.log.err("tab menu: {t}", .{e});
     }
 
     fn is_active(self: *@This()) bool {

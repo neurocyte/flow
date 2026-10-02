@@ -58,6 +58,7 @@ menu_bar_layer: ?Widget = null,
 bars_hidden: bool = false,
 top_bar: ?Widget = null,
 bottom_bar: ?Widget = null,
+bottom_bar_drag: ?struct { bottom: i32, offset: i32 } = null,
 views: *WidgetList,
 views_widget: Widget,
 active_view: usize = 0,
@@ -363,16 +364,42 @@ fn set_bar_hidden(bar: ?Widget, hidden: bool) void {
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
-        const cell = coord.to_cell(self.plane.mouse_geometry());
-        self.bottom_bar_primary_drag(@intCast(std.math.clamp(cell.row, 0, std.math.maxInt(i32))));
+        tui.rdr().request_mouse_cursor(.@"ns-resize", true);
+        self.bottom_bar_primary_drag(coord.y);
     } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) {
+        self.bottom_bar_drag = null;
+        self.set_bottom_bar_offset(0);
         self.bottom_area.save_height();
+        tui.reset_hover(@src());
+        tui.refresh_hover(@src());
     }
 }
 
-fn bottom_bar_primary_drag(self: *Self, y: usize) void {
-    const h = @max(1, self.plane.dim_y() -| y -| 1);
-    self.bottom_area.set_height_abs(h);
+fn bottom_bar_primary_drag(self: *Self, y: i32) void {
+    const bar = self.bottom_bar orelse return;
+    const ch: i32 = @max(1, self.plane.cell_y());
+    const drag = self.bottom_bar_drag orelse blk: {
+        _, const top = bar.plane.global_origin_px();
+        const height: i32 = @intCast(self.bottom_area.current_height());
+        self.bottom_bar_drag = .{
+            .bottom = top + (height + 1) * ch,
+            .offset = std.math.clamp(y - top, 0, ch - 1),
+        };
+        break :blk self.bottom_bar_drag.?;
+    };
+    const size = drag.bottom - (y - drag.offset);
+    self.bottom_area.set_height_abs(@intCast(@max(1, @divFloor(size, ch) - 1)));
+    if (build_options.gui) {
+        const height: i32 = @intCast(self.bottom_area.current_height());
+        self.set_bottom_bar_offset(if (self.bottom_area.is_maximized()) 0 else @max(0, size - (height + 1) * ch));
+    }
+}
+
+fn set_bottom_bar_offset(self: *Self, offset: i32) void {
+    const bar = (self.bottom_bar orelse return).dynamic_cast(tui.WidgetLayerBox) orelse return;
+    if (bar.offset_px_y == -offset) return;
+    bar.offset_px_y = -offset;
+    tui.need_render(@src());
 }
 
 pub fn get_panel_height(self: *Self) usize {
@@ -469,6 +496,10 @@ fn focused_panel(self: *Self) ?Panel {
     const g = self.bottom_area.focused_group() orelse return null;
     if (!g.is_focused()) return null;
     return g.active();
+}
+
+pub fn focused_panel_hints(self: *Self) ?*const tui.KeybindHints {
+    return (self.focused_panel() orelse return null).hints();
 }
 
 fn leave_maximized_panel(self: *Self) void {
@@ -1260,17 +1291,17 @@ const cmds = struct {
     pub fn panel_split(self: *Self, _: Ctx) Result {
         try self.bottom_area.split();
     }
-    pub const panel_split_meta: Meta = .{ .description = "Move panel tab to a new group" };
+    pub const panel_split_meta: Meta = .{ .description = "Move panel to new group" };
 
     pub fn panel_move_tab_left(self: *Self, _: Ctx) Result {
         try self.bottom_area.move_active(.left);
     }
-    pub const panel_move_tab_left_meta: Meta = .{ .description = "Move panel tab to the group on the left" };
+    pub const panel_move_tab_left_meta: Meta = .{ .description = "Move panel left" };
 
     pub fn panel_move_tab_right(self: *Self, _: Ctx) Result {
         try self.bottom_area.move_active(.right);
     }
-    pub const panel_move_tab_right_meta: Meta = .{ .description = "Move panel tab to the group on the right" };
+    pub const panel_move_tab_right_meta: Meta = .{ .description = "Move panel right" };
 
     pub fn panel_focus_next_group(self: *Self, _: Ctx) Result {
         self.bottom_area.focus_group(.right);

@@ -34,6 +34,7 @@ pub const Source = struct {
     on_select: *const fn (ctx: *anyopaque, id: Id) void,
     on_close: *const fn (ctx: *anyopaque, id: Id) void,
     on_menu: *const fn (ctx: *anyopaque) void,
+    on_tab_menu: *const fn (ctx: *anyopaque, id: Id, anchor: tui.MenuPopup.Anchor) void,
 };
 
 const Self = @This();
@@ -118,6 +119,7 @@ fn rebuild(self: *Self) void {
             .label = t.label,
             .on_click = Tab.on_click,
             .on_click2 = Tab.on_click2,
+            .on_click3 = Tab.on_click3,
             .on_render = Tab.render,
             .on_layout = Tab.layout,
             .on_event = EventHandler.bind(self, handle_event),
@@ -225,6 +227,12 @@ const Tab = struct {
     fn on_click2(t: *Tab, _: *ButtonType, _: Widget.Pos) void {
         const src = t.strip.source;
         src.on_close(src.ctx, t.id);
+    }
+
+    fn on_click3(t: *Tab, btn: *ButtonType, pos: Widget.Pos) void {
+        const src = t.strip.source;
+        const y, const x = btn.plane.global_yx();
+        src.on_tab_menu(src.ctx, t.id, .below(.{ .y = y + pos.y, .x = x + pos.x }));
     }
 };
 

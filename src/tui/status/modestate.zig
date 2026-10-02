@@ -42,7 +42,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
 }
 
 pub fn layout(_: *Style, btn: *ButtonType) Widget.Layout {
-    const name = btn.plane.egc_chunk_width(tui.get_mode(), 0, 1);
+    const name = btn.plane.egc_chunk_width(mode_name(), 0, 1);
     const logo = if (is_mini_mode() or is_overlay_mode()) 1 else btn.plane.egc_chunk_width(left ++ symbol ++ right, 0, 1);
     const padding: usize = 2;
     const minimode_sep: usize = if (is_mini_mode()) 1 else 0;
@@ -54,7 +54,12 @@ fn is_mini_mode() bool {
 }
 
 fn is_overlay_mode() bool {
-    return tui.input_mode_outer() != null;
+    return tui.input_mode_outer() != null and !tui.is_menu_open();
+}
+
+fn mode_name() []const u8 {
+    if (tui.is_menu_open()) if (tui.input_mode_outer()) |mode| return mode.name;
+    return tui.get_mode();
 }
 
 pub fn render(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme) bool {
@@ -81,7 +86,7 @@ pub fn render(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme) bool {
     }
     self.plane.set_style(style_label);
     self.plane.on_styles(styles.bold);
-    _ = self.plane.putstr(std.fmt.bufPrintSentinel(&buf, "{s} ", .{tui.get_mode()}, 0) catch return false) catch {};
+    _ = self.plane.putstr(std.fmt.bufPrintSentinel(&buf, "{s} ", .{mode_name()}, 0) catch return false) catch {};
     if (is_mini_mode())
         render_separator(self, theme);
     return false;

@@ -1,5 +1,7 @@
 const std = @import("std");
 const Widget = @import("Widget.zig");
+const Menu = @import("Menu.zig");
+const KeybindHints = @import("keybind").KeybindHints;
 
 pub const Indicator = enum { none, alt_screen, activity, bell, busy, exited, exited_error };
 pub const Visibility = enum { visible, hidden };
@@ -26,6 +28,8 @@ pub const VTable = struct {
     scroll: ?*const fn (ctx: *anyopaque, action: ScrollAction) void,
     copy: ?*const fn (ctx: *anyopaque) void,
     clear: ?*const fn (ctx: *anyopaque) void,
+    menu: *const Menu,
+    hints: *const fn (ctx: *anyopaque) ?*const KeybindHints,
 };
 
 pub fn to(pimpl: anytype) Self {
@@ -86,6 +90,16 @@ pub fn to(pimpl: anytype) Self {
                     self_of(ctx).panel_clear();
                 }
             }.f else null,
+            .menu = context_menu(child),
+            .hints = struct {
+                fn f(ctx: *anyopaque) ?*const KeybindHints {
+                    const self = self_of(ctx);
+                    return if (@typeInfo(@TypeOf(self.panel_input)) == .optional)
+                        if (self.panel_input) |*panel_input| panel_input.mode.keybind_hints else null
+                    else
+                        self.panel_input.mode.keybind_hints;
+                }
+            }.f,
         },
     };
 }
@@ -136,10 +150,43 @@ pub fn clear(self: Self) void {
     if (self.vtable.clear) |f| f(self.impl.ptr);
 }
 
+pub fn menu(self: Self) *const Menu {
+    return self.vtable.menu;
+}
+
+pub fn hints(self: Self) ?*const KeybindHints {
+    return self.vtable.hints(self.impl.ptr);
+}
+
 pub fn is(self: Self, comptime T: type) bool {
     return std.mem.eql(u8, self.vtable.tag, T.panel_tag);
 }
 
 pub fn cast(self: Self, comptime T: type) ?*T {
     return self.impl.dynamic_cast(T);
+}
+
+pub fn context_menu(comptime T: type) *const Menu {
+    const items = comptime blk: {
+        var items: []const Menu.Item = if (@hasDecl(T, "panel_menu")) T.panel_menu.items ++ &[_]Menu.Item{.separator} else &.{};
+        if (@hasDecl(T, "panel_copy")) items = items ++ &[_]Menu.Item{.{ .command = .{ .command = "panel_copy" } }};
+        if (@hasDecl(T, "panel_clear")) items = items ++ &[_]Menu.Item{.{ .command = .{ .command = "panel_clear" } }};
+        if (@hasDecl(T, "panel_scroll")) items = items ++ &[_]Menu.Item{
+            .separator,
+            .{ .command = .{ .command = "panel_scroll_top" } },
+            .{ .command = .{ .command = "panel_scroll_bottom" } },
+        };
+        items = items ++ &[_]Menu.Item{
+            .separator,
+            .{ .command = .{ .command = "toggle_maximize_panel" } },
+            .{ .command = .{ .command = "panel_split" } },
+            .{ .command = .{ .command = "panel_move_tab_left" } },
+            .{ .command = .{ .command = "panel_move_tab_right" } },
+            .{ .command = .{ .command = "panel_tab_close" } },
+        };
+        break :blk items[0..items.len].*;
+    };
+    return &struct {
+        const menu: Menu = .{ .label = if (@hasDecl(T, "panel_menu")) T.panel_menu.label else "Panel", .items = &items };
+    }.menu;
 }

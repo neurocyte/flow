@@ -54,6 +54,7 @@ pub fn create(allocator: Allocator, parent: Plane, widget_type: Widget.Type, sty
         .on_select = strip_select,
         .on_close = strip_close,
         .on_menu = strip_menu,
+        .on_tab_menu = strip_tab_menu,
     });
     errdefer self.strip.widget().deinit(allocator);
 
@@ -217,6 +218,14 @@ fn strip_select(ctx: *anyopaque, id: TabStrip.Id) void {
 
 fn strip_close(_: *anyopaque, id: TabStrip.Id) void {
     tp.self_pid().send(.{ "cmd", "panel_tab_close", .{id} }) catch {};
+}
+
+fn strip_tab_menu(ctx: *anyopaque, id: TabStrip.Id, anchor: tui.MenuPopup.Anchor) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    strip_select(ctx, id);
+    const p = self.active() orelse return;
+    if (p.id != id) return;
+    tui.open_menu(p.menu(), anchor, null) catch |e| std.log.err("panel menu: {t}", .{e});
 }
 
 fn strip_menu(ctx: *anyopaque) void {

@@ -5,13 +5,13 @@ const Buffer = @import("Buffer");
 const config = @import("config");
 
 const Plane = @import("renderer").Plane;
-const command = @import("command");
 const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const fonts = @import("../fonts.zig");
 const tui = @import("../tui.zig");
+const MenuButton = @import("../MenuButton.zig");
 
 const DigitStyle = fonts.DigitStyle;
 
@@ -75,8 +75,9 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
     });
 }
 
-fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("goto", .empty()) catch {};
+fn on_click(_: *Self, btn: *ButtonType, _: Widget.Pos) void {
+    tui.open_menu(&@import("../menu/Main.zig").go, MenuButton.anchor(btn), null) catch |e|
+        std.log.err("go menu: {t}", .{e});
 }
 
 pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {

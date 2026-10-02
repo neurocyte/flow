@@ -5,6 +5,8 @@ const cbor = @import("cbor");
 const keybind = @import("keybind");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const MouseEvent = @import("MouseEvent");
+const build_options = @import("build_options");
 
 const tui = @import("../../tui.zig");
 const Widget = @import("../../Widget.zig");
@@ -24,8 +26,10 @@ mode: keybind.Mode,
 commands: command.Collection(cmds) = undefined,
 modal: *ModalBackground.State(*Self),
 levels: std.ArrayList(*Level) = .empty,
+closed: std.ArrayList(Closed) = .empty,
 logger: log.Logger,
 owner: ?Owner,
+hints: ?*const tui.KeybindHints,
 
 pub const Owner = struct {
     ctx: *anyopaque,
@@ -35,17 +39,37 @@ pub const Owner = struct {
 
 pub const Direction = enum { prev, next };
 
+const Closed = struct { menu: *const Menu, selected: ?usize };
+
 pub const Anchor = struct {
     y: i32,
     x: i32,
     flip_x: i32,
+    flip_y: ?i32 = null,
+    offset_px: Widget.Pos = .{},
+    flip_offset_px: Widget.Pos = .{},
 
     pub fn at(pos: Widget.Pos) Anchor {
-        return .{ .y = pos.y, .x = pos.x, .flip_x = pos.x };
+        return .{ .y = pos.y, .x = pos.x, .flip_x = pos.x, .flip_y = pos.y };
+    }
+
+    pub fn below(pos: Widget.Pos) Anchor {
+        if (!build_options.gui)
+            return .{ .y = pos.y + 1, .x = pos.x, .flip_x = pos.x, .flip_y = pos.y };
+        const cw: i32 = tui.plane().cell_x();
+        const ch: i32 = tui.plane().cell_y();
+        return .{
+            .y = pos.y,
+            .x = pos.x,
+            .flip_x = pos.x,
+            .flip_y = pos.y,
+            .offset_px = .{ .y = @divFloor(ch * 3, 4), .x = @divFloor(cw, 2) },
+            .flip_offset_px = .{ .y = @divFloor(ch, 4), .x = @divFloor(cw, 2) },
+        };
     }
 };
 
-pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, owner: ?Owner) !tui.Mode {
+pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, owner: ?Owner, hints: ?*const tui.KeybindHints) !tui.Mode {
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -60,6 +84,7 @@ pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, o
         }),
         .logger = log.logger(module_name),
         .owner = owner,
+        .hints = hints,
     };
     try self.commands.init(self);
     errdefer self.commands.deinit();
@@ -67,13 +92,16 @@ pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, o
     self.mode.name = "menu";
     try mv.floating_views.add(self.modal.widget());
     try self.open_level(menu, anchor);
+    try tui.input_listeners().add(EventHandler.bind(self, listen));
     return self.mode;
 }
 
 pub fn deinit(self: *Self) void {
+    tui.input_listeners().remove_ptr(self);
     self.commands.deinit();
     while (self.levels.items.len > 0) self.close_level();
     self.levels.deinit(self.allocator);
+    self.closed.deinit(self.allocator);
     if (tui.mainview()) |mv| mv.floating_views.remove(self.modal.widget());
     self.logger.deinit();
     if (self.owner) |owner| owner.on_close(owner.ctx);
@@ -82,6 +110,13 @@ pub fn deinit(self: *Self) void {
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
     return false;
+}
+
+fn listen(_: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.button_8, tp.more }))
+        try tp.self_pid().send(.{ "cmd", "menu_cancel" })
+    else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.button_9, tp.more }))
+        try tp.self_pid().send(.{ "cmd", "menu_reopen_submenu" });
 }
 
 fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
@@ -97,6 +132,7 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     layer.z_index = @fromBackingInt(@intCast(@backingInt(Layer.Level.overlay) + @as(i32, @intCast(self.levels.items.len))));
     level.* = .{
         .popup = self,
+        .menu = menu,
         .layer = layer,
         .label = menu.label,
         .list_box = try ListBox.create(*Level, self.allocator, layer.inner_plane(), .{
@@ -131,6 +167,24 @@ fn close_level(self: *Self) void {
     self.allocator.destroy(level);
 }
 
+fn close_submenu(self: *Self) void {
+    const level = self.top();
+    self.closed.append(self.allocator, .{ .menu = level.menu, .selected = level.list_box.selected }) catch {};
+    self.close_level();
+}
+
+fn reopen_submenu(self: *Self) !void {
+    const closed = self.closed.pop() orelse return;
+    const level = self.top();
+    const pos = for (level.items.items, 0..) |item, pos| switch (item.*) {
+        .submenu => |submenu| if (submenu == closed.menu) break pos,
+        else => {},
+    } else return self.closed.clearRetainingCapacity();
+    level.list_box.selected = pos;
+    try self.open_submenu(self.levels.items.len - 1);
+    self.top().list_box.selected = closed.selected;
+}
+
 fn close_levels_above(self: *Self, level_idx: usize) void {
     while (self.levels.items.len > level_idx + 1) self.close_level();
 }
@@ -152,6 +206,8 @@ fn open_submenu(self: *Self, level_idx: usize) !void {
         .y = @intCast(box.y + pos),
         .x = @intCast(box.x + box.w),
         .flip_x = @intCast(box.x),
+        .offset_px = level.offset_px,
+        .flip_offset_px = level.offset_px,
     });
 }
 
@@ -163,6 +219,7 @@ fn activate(self: *Self, level_idx: usize, pos: usize) !void {
     switch (level.items.items[pos].*) {
         .separator => self.close_levels_above(level_idx),
         .submenu => {
+            self.closed.clearRetainingCapacity();
             try self.open_submenu(level_idx);
             self.top().select_first();
         },
@@ -174,7 +231,8 @@ fn activate(self: *Self, level_idx: usize, pos: usize) !void {
     }
 }
 
-fn get_hints() ?*const tui.KeybindHints {
+fn get_hints(self: *const Self) ?*const tui.KeybindHints {
+    if (self.hints) |hints| return hints;
     const mode = tui.input_mode_outer() orelse tui.input_mode() orelse return null;
     return mode.keybind_hints;
 }
@@ -187,6 +245,7 @@ fn get_hint(hints: ?*const tui.KeybindHints, cmd: *const Menu.Command) []const u
 
 const Level = struct {
     popup: *Self,
+    menu: *const Menu,
     layer: *tui.WidgetLayerBox,
     list_box: *ListBox.State(*Level),
     anchor: Anchor,
@@ -194,6 +253,7 @@ const Level = struct {
     items: std.ArrayList(*const Menu.Item) = .empty,
     width: usize = 0,
     has_icons: bool = false,
+    offset_px: Widget.Pos = .{},
 
     const ListBoxType = ListBox.Options(*Level).ListBoxType;
     const ButtonType = ListBoxType.ButtonType;
@@ -215,7 +275,7 @@ const Level = struct {
     }
 
     fn measure(self: *Level) void {
-        const hints = get_hints();
+        const hints = self.popup.get_hints();
         var label_w: usize = 0;
         var hint_w: usize = 0;
         for (self.items.items) |item| switch (item.*) {
@@ -303,7 +363,18 @@ const Level = struct {
     fn prepare_resize_layer(ctx_: ?*anyopaque, _: *tui.WidgetLayerBox, _: Widget.Box) Widget.Box {
         const self: *Level = @ptrCast(@alignCast(ctx_.?));
         const padding = tui.get_widget_style(widget_type).padding;
-        return self.prepare_resize(padding).from_client_box(padding);
+        var box = self.prepare_resize(padding).from_client_box(padding);
+        if (self.offset_px.x != 0 or self.offset_px.y != 0) {
+            const cw: i32 = tui.plane().cell_x();
+            const ch: i32 = tui.plane().cell_y();
+            box.frame = .{
+                .x = @as(i32, @intCast(box.x)) * cw + self.offset_px.x,
+                .y = @as(i32, @intCast(box.y)) * ch + self.offset_px.y,
+                .w = @as(i32, @intCast(box.w)) * cw,
+                .h = @as(i32, @intCast(box.h)) * ch,
+            };
+        }
+        return box;
     }
 
     fn prepare_resize(self: *Level, padding: Widget.Style.Margin) Widget.Box {
@@ -316,13 +387,32 @@ const Level = struct {
         const h: i32 = @intCast(@min(self.items.items.len, screen.h -| (padding.top + padding.bottom)));
         const screen_w: i32 = @intCast(screen.w);
         const screen_h: i32 = @intCast(screen.h);
-        var x = self.anchor.x + pl;
-        if (x + w + pr > screen_w) {
-            const flipped = self.anchor.flip_x - pr - w;
-            x = if (flipped >= pl) flipped else screen_w - w - pr;
+        const anchor = self.anchor;
+        const spare_x: i32 = if (anchor.offset_px.x > 0) 1 else 0;
+        const spare_y: i32 = if (anchor.offset_px.y > 0) 1 else 0;
+        self.offset_px = .{};
+        var x = anchor.x + pl;
+        if (x + spare_x + w + pr <= screen_w) {
+            self.offset_px.x = anchor.offset_px.x;
+        } else {
+            const flipped = anchor.flip_x - pr - w;
+            if (flipped >= pl) {
+                x = flipped;
+                self.offset_px.x = anchor.flip_offset_px.x;
+            } else x = screen_w - w - pr;
         }
         x = @max(pl, @min(x, screen_w - w - pr));
-        const y = @max(pt, @min(self.anchor.y + pt, screen_h - h - pb));
+        var y = anchor.y + pt;
+        if (y + spare_y + h + pb <= screen_h) {
+            self.offset_px.y = anchor.offset_px.y;
+        } else if (anchor.flip_y) |flip_y| {
+            const flipped = flip_y - pb - h;
+            if (flipped >= pt) {
+                y = flipped;
+                self.offset_px.y = anchor.flip_offset_px.y;
+            }
+        }
+        y = @max(pt, @min(y, screen_h - h - pb));
         return .{ .y = @intCast(y), .x = @intCast(x), .w = @intCast(w), .h = @intCast(h) };
     }
 
@@ -349,7 +439,7 @@ const Level = struct {
             .command => |*cmd| .{
                 self.command_label(cmd),
                 cmd.get_icon(),
-                get_hint(get_hints(), cmd),
+                get_hint(self.popup.get_hints(), cmd),
             },
             .submenu => |submenu| .{ submenu.label, null, submenu_hint },
         };
@@ -406,7 +496,7 @@ const cmds = struct {
 
     pub fn menu_close_submenu(self: *Self, _: Ctx) Result {
         if (self.levels.items.len > 1)
-            self.close_level()
+            self.close_submenu()
         else if (self.owner) |owner|
             owner.on_cycle(owner.ctx, .prev);
     }
@@ -429,11 +519,16 @@ const cmds = struct {
 
     pub fn menu_cancel(self: *Self, _: Ctx) Result {
         if (self.levels.items.len > 1)
-            self.close_level()
+            self.close_submenu()
         else
             try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
     }
     pub const menu_cancel_meta: Meta = .{};
+
+    pub fn menu_reopen_submenu(self: *Self, _: Ctx) Result {
+        try self.reopen_submenu();
+    }
+    pub const menu_reopen_submenu_meta: Meta = .{};
 
     pub fn menu_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
