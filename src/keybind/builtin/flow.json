@@ -71,6 +71,7 @@
             ["f9", "theme_next"],
             ["shift+f9", "theme_prev"],
             ["f10", "open_main_menu"],
+            ["ctrl+alt+a f10", "open_main_menu"],
             ["ctrl+shift+f10", "toggle_menu"],
             ["f11", "toggle_fullscreen"],
             ["alt+enter", "toggle_fullscreen"],
