@@ -1967,7 +1967,7 @@ const cmds = struct {
     pub fn open_file_tree(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/file_tree_palette.zig").Type, ctx);
     }
-    pub const open_file_tree_meta: Meta = .{ .description = "File tree" };
+    pub const open_file_tree_meta: Meta = .{ .description = "Open file tree" };
 
     pub fn insert_command_name(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type, ctx);

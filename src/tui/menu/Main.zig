@@ -17,7 +17,6 @@ const file: Menu = .{ .label = "File", .items = &.{
     .{ .command = .{ .command = "open_file" } },
     .{ .command = .{ .command = "find_file" } },
     .{ .command = .{ .command = "open_file_tree" } },
-    .{ .command = .{ .command = "open_recent" } },
     .{ .command = .{ .command = "open_recent_project" } },
     .separator,
     .{ .command = .{ .command = "save_file" } },
