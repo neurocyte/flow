@@ -1,7 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
-const MouseEvent = @import("MouseEvent");
 const zeit = @import("zeit");
 const root = @import("soft_root").root;
 
@@ -9,103 +8,106 @@ const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
+const Button = @import("../Button.zig");
 const MessageFilter = @import("../MessageFilter.zig");
+const Menu = @import("../Menu.zig");
+const MenuButton = @import("../MenuButton.zig");
 const tui = @import("../tui.zig");
 const fonts = @import("../fonts.zig");
 
 const DigitStyle = fonts.DigitStyle;
 
 allocator: std.mem.Allocator,
-plane: Plane,
 tick_timer: ?tp.Cancellable = null,
-on_event: ?EventHandler,
 tz: zeit.timezone.TimeZone,
-style: ?DigitStyle,
+style: DigitStyle,
 
 const Self = @This();
+const ButtonType = Button.Options(Self).ButtonType;
+
+const menu: Menu = .{ .items = &.{
+    .{ .command = .{ .command = "toggle_keybind_hints", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_menu", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_panel" } },
+    .{ .command = .{ .command = "toggle_input_mode" } },
+    .separator,
+    .{ .command = .{ .command = "change_theme" } },
+    .{ .command = .{ .command = "toggle_color_scheme", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "theme_next", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "theme_prev", .on_activate = .keep_open } },
+    .separator,
+    .{ .command = .{ .command = "open_config" } },
+    .{ .command = .{ .command = "open_keybind_config" } },
+} };
 
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
-    const style: ?DigitStyle = if (arg) |style| std.meta.stringToEnum(DigitStyle, style) orelse null else null;
-
-    const self = try allocator.create(Self);
-    errdefer allocator.destroy(self);
-    self.* = .{
-        .allocator = allocator,
-        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-        .on_event = event_handler,
-        .tz = root.local_timezone(allocator) catch |e| {
-            std.log.err("clock: zeit.local failed with {any}", .{e});
-            return error.WidgetInitFailed;
-        },
-        .style = style,
+    var tz = root.local_timezone(allocator) catch |e| {
+        std.log.err("clock: zeit.local failed with {any}", .{e});
+        return error.WidgetInitFailed;
     };
-    try tui.message_filters().add(MessageFilter.bind(self, receive_tick));
-    self.update_tick_timer(.init);
-    return Widget.to(self);
+    errdefer tz.deinit();
+    return Button.create_widget(Self, allocator, parent, .{
+        .ctx = .{
+            .allocator = allocator,
+            .tz = tz,
+            .style = if (arg) |style| std.meta.stringToEnum(DigitStyle, style) orelse .ascii else .ascii,
+        },
+        .label = "",
+        .on_click = on_click,
+        .on_layout = layout,
+        .on_render = render,
+        .on_event = event_handler,
+    });
 }
 
-pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+pub fn ctx_init(self: *Self) error{OutOfMemory}!void {
+    try tui.message_filters().add(MessageFilter.bind(self, receive_tick));
+    self.start_tick_timer();
+}
+
+pub fn ctx_deinit(self: *Self) void {
     tui.message_filters().remove_ptr(self);
     if (self.tick_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
-        self.tick_timer = null;
     }
     self.tz.deinit();
-    self.plane.deinit();
-    allocator.destroy(self);
 }
 
-pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ MouseEvent.Type.drag, tp.more }) or try m.match(.{ MouseEvent.Type.release, tp.more })) {
-        if (self.on_event) |h| h.send(from, m) catch {};
-        return true;
-    }
-    return false;
+fn on_click(_: *Self, btn: *ButtonType, _: Widget.Pos) void {
+    tui.open_menu(&menu, MenuButton.anchor(btn), null) catch |e|
+        std.log.err("clock menu: {t}", .{e});
 }
 
-pub fn layout(_: *Self) Widget.Layout {
-    return if (tui.screen().w < 80)
-        .{ .static = 0 }
-    else
-        .{ .static = 5 };
+pub fn layout(_: *Self, _: *ButtonType) Widget.Layout {
+    return .{ .static = if (tui.screen().w < 80) 0 else 5 };
 }
 
-pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(theme.editor);
-    self.plane.erase();
-    self.plane.home();
-    self.plane.set_style(theme.statusbar);
-    self.plane.fill(" ");
-    self.plane.home();
+pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
+    btn.plane.set_base_style(theme.editor);
+    btn.plane.erase();
+    btn.plane.home();
+    btn.plane.set_style(if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar);
+    btn.plane.fill(" ");
+    btn.plane.home();
 
     const now = zeit.instant(root.get_io(), .{ .timezone = &self.tz }) catch return false;
     const dt = now.time();
-
-    var buf: [64]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    writer.print("{d:0>2}:{d:0>2}", .{ dt.hour, dt.minute }) catch {};
-
-    const value_str = writer.buffered();
-    for (value_str, 0..) |_, i| _ = self.plane.putstr(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii)) catch {};
+    var buf: [8]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "{d:0>2}:{d:0>2}", .{ dt.hour, dt.minute }) catch return false;
+    for (0..text.len) |i| _ = btn.plane.putstr(fonts.get_digit_ascii(text[i .. i + 1], self.style)) catch {};
     return false;
 }
 
 fn receive_tick(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    if (try cbor.match(m.buf, .{"CLOCK"})) {
-        tui.need_render(@src());
-        self.update_tick_timer(.ticked);
-        return true;
-    }
-    return false;
+    if (!try cbor.match(m.buf, .{"CLOCK"})) return false;
+    tui.need_render(@src());
+    if (self.tick_timer) |*t| t.deinit();
+    self.start_tick_timer();
+    return true;
 }
 
-fn update_tick_timer(self: *Self, event: enum { init, ticked }) void {
-    if (self.tick_timer) |*t| {
-        if (event != .ticked) t.cancel() catch {};
-        t.deinit();
-        self.tick_timer = null;
-    }
+fn start_tick_timer(self: *Self) void {
     const current = zeit.instant(root.get_io(), .{ .timezone = &self.tz }) catch return;
     var next = current.time();
     next.minute += 1;
