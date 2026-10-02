@@ -58,6 +58,10 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
 }
 
 fn format(self: *Self) void {
+    if (self.matches <= 1 and self.cursels <= 1 and self.selection == null) {
+        self.rendered = "";
+        return;
+    }
     var writer: std.Io.Writer = .fixed(&self.buf);
     writer.writeAll(" ") catch {};
     if (self.matches > 1) {
