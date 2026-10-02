@@ -5,6 +5,7 @@ const cbor = @import("cbor");
 const keybind = @import("keybind");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const MouseEvent = @import("MouseEvent");
 
 const tui = @import("../../tui.zig");
 const Widget = @import("../../Widget.zig");
@@ -24,6 +25,7 @@ mode: keybind.Mode,
 commands: command.Collection(cmds) = undefined,
 modal: *ModalBackground.State(*Self),
 levels: std.ArrayList(*Level) = .empty,
+closed: std.ArrayList(Closed) = .empty,
 logger: log.Logger,
 owner: ?Owner,
 hints: ?*const tui.KeybindHints,
@@ -35,6 +37,8 @@ pub const Owner = struct {
 };
 
 pub const Direction = enum { prev, next };
+
+const Closed = struct { menu: *const Menu, selected: ?usize };
 
 pub const Anchor = struct {
     y: i32,
@@ -70,13 +74,16 @@ pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, o
     self.mode.name = "menu";
     try mv.floating_views.add(self.modal.widget());
     try self.open_level(menu, anchor);
+    try tui.input_listeners().add(EventHandler.bind(self, listen));
     return self.mode;
 }
 
 pub fn deinit(self: *Self) void {
+    tui.input_listeners().remove_ptr(self);
     self.commands.deinit();
     while (self.levels.items.len > 0) self.close_level();
     self.levels.deinit(self.allocator);
+    self.closed.deinit(self.allocator);
     if (tui.mainview()) |mv| mv.floating_views.remove(self.modal.widget());
     self.logger.deinit();
     if (self.owner) |owner| owner.on_close(owner.ctx);
@@ -85,6 +92,13 @@ pub fn deinit(self: *Self) void {
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
     return false;
+}
+
+fn listen(_: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.button_8, tp.more }))
+        try tp.self_pid().send(.{ "cmd", "menu_cancel" })
+    else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.button_9, tp.more }))
+        try tp.self_pid().send(.{ "cmd", "menu_reopen_submenu" });
 }
 
 fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
@@ -100,6 +114,7 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     layer.z_index = @enumFromInt(@intFromEnum(Layer.Level.overlay) + @as(i32, @intCast(self.levels.items.len)));
     level.* = .{
         .popup = self,
+        .menu = menu,
         .layer = layer,
         .label = menu.label,
         .list_box = try ListBox.create(*Level, self.allocator, layer.inner_plane(), .{
@@ -134,6 +149,24 @@ fn close_level(self: *Self) void {
     self.allocator.destroy(level);
 }
 
+fn close_submenu(self: *Self) void {
+    const level = self.top();
+    self.closed.append(self.allocator, .{ .menu = level.menu, .selected = level.list_box.selected }) catch {};
+    self.close_level();
+}
+
+fn reopen_submenu(self: *Self) !void {
+    const closed = self.closed.pop() orelse return;
+    const level = self.top();
+    const pos = for (level.items.items, 0..) |item, pos| switch (item.*) {
+        .submenu => |submenu| if (submenu == closed.menu) break pos,
+        else => {},
+    } else return self.closed.clearRetainingCapacity();
+    level.list_box.selected = pos;
+    try self.open_submenu(self.levels.items.len - 1);
+    self.top().list_box.selected = closed.selected;
+}
+
 fn close_levels_above(self: *Self, level_idx: usize) void {
     while (self.levels.items.len > level_idx + 1) self.close_level();
 }
@@ -166,6 +199,7 @@ fn activate(self: *Self, level_idx: usize, pos: usize) !void {
     switch (level.items.items[pos].*) {
         .separator => self.close_levels_above(level_idx),
         .submenu => {
+            self.closed.clearRetainingCapacity();
             try self.open_submenu(level_idx);
             self.top().select_first();
         },
@@ -191,6 +225,7 @@ fn get_hint(hints: ?*const tui.KeybindHints, cmd: *const Menu.Command) []const u
 
 const Level = struct {
     popup: *Self,
+    menu: *const Menu,
     layer: *tui.WidgetLayerBox,
     list_box: *ListBox.State(*Level),
     anchor: Anchor,
@@ -415,7 +450,7 @@ const cmds = struct {
 
     pub fn menu_close_submenu(self: *Self, _: Ctx) Result {
         if (self.levels.items.len > 1)
-            self.close_level()
+            self.close_submenu()
         else if (self.owner) |owner|
             owner.on_cycle(owner.ctx, .prev);
     }
@@ -438,11 +473,16 @@ const cmds = struct {
 
     pub fn menu_cancel(self: *Self, _: Ctx) Result {
         if (self.levels.items.len > 1)
-            self.close_level()
+            self.close_submenu()
         else
             try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
     }
     pub const menu_cancel_meta: Meta = .{};
+
+    pub fn menu_reopen_submenu(self: *Self, _: Ctx) Result {
+        try self.reopen_submenu();
+    }
+    pub const menu_reopen_submenu_meta: Meta = .{};
 
     pub fn menu_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
