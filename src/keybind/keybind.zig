@@ -1759,5 +1759,5 @@ test "unbind blocks a binding inherited from the builtin fallback" {
     const home = custom.get_mode("home").?;
     try std.testing.expect((try test_command_for(home, "c")) == null);
     // the rest of the builtin mode still comes through
-    try std.testing.expectEqualStrings("open_keybind_config", (try test_command_for(home, "k")).?);
+    try std.testing.expectEqualStrings("toggle_input_mode", (try test_command_for(home, "f4")).?);
 }
