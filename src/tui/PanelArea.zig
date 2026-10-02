@@ -607,6 +607,12 @@ fn rows_for_ratio(total: usize, ratio: f32) usize {
     return std.math.clamp(h, @min(height_min_rows, max_h), max_h);
 }
 
+pub fn current_height(self: *const Self) usize {
+    if (!self.visible()) return 0;
+    if (self.maximized) return max_height(self);
+    return self.get_height();
+}
+
 pub fn get_height(self: *const Self) usize {
     if (self.height) |h| return h;
     return rows_for_ratio(total_height(), tui.config().panel_height_ratio);

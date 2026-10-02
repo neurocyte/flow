@@ -86,6 +86,7 @@ commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?Widget = null,
 drag_button: MouseEvent.Button = .none,
+drag_press: ?struct { coord: MouseEvent.Coord, button: MouseEvent.Button } = null,
 dark_theme: Widget.Theme,
 light_theme: Widget.Theme,
 idle_frame_count: usize = 0,
@@ -1007,6 +1008,11 @@ fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8
     send_func(self, coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
     var btn: MouseEvent.Button = .none;
     _ = m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false;
+    if (m.match(.{ MouseEvent.Type.press, tp.more }) catch false)
+        self.drag_press = .{ .coord = coord, .button = btn }
+    else if (self.drag_press) |press| if (press.button == btn) {
+        self.drag_press = null;
+    };
     self.maybe_reset_drag_source(btn);
 }
 
@@ -1020,8 +1026,9 @@ fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []con
     var btn: MouseEvent.Button = .none;
     if (m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false)
         if (self.drag_source == null) {
-            if (coord.x >= 0 and coord.y >= 0)
-                self.set_drag_source(self.find_coord_widget(coord), btn);
+            const press_coord = if (self.drag_press) |press| if (press.button == btn) press.coord else coord else coord;
+            if (press_coord.x >= 0 and press_coord.y >= 0)
+                self.set_drag_source(self.find_coord_widget(press_coord), btn);
         };
     self.send_mouse_drag(coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }

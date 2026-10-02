@@ -58,6 +58,7 @@ menu_bar_layer: ?Widget = null,
 bars_hidden: bool = false,
 top_bar: ?Widget = null,
 bottom_bar: ?Widget = null,
+bottom_bar_drag: ?struct { top: i32, offset: i32, height: usize } = null,
 views: *WidgetList,
 views_widget: Widget,
 active_view: usize = 0,
@@ -364,18 +365,30 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         tui.rdr().request_mouse_cursor(.@"ns-resize", true);
-        const cell = coord.to_cell(self.plane.mouse_geometry());
-        self.bottom_bar_primary_drag(@intCast(std.math.clamp(cell.row, 0, std.math.maxInt(i32))));
+        self.bottom_bar_primary_drag(coord.y);
     } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) {
+        self.bottom_bar_drag = null;
         self.bottom_area.save_height();
         tui.reset_hover(@src());
         tui.refresh_hover(@src());
     }
 }
 
-fn bottom_bar_primary_drag(self: *Self, y: usize) void {
-    const h = @max(1, self.plane.dim_y() -| y -| 1);
-    self.bottom_area.set_height_abs(h);
+fn bottom_bar_primary_drag(self: *Self, y: i32) void {
+    const bar = self.bottom_bar orelse return;
+    const ch: i32 = @max(1, self.plane.cell_y());
+    const drag = self.bottom_bar_drag orelse blk: {
+        _, const top = bar.plane.global_origin_px();
+        self.bottom_bar_drag = .{
+            .top = top,
+            .offset = std.math.clamp(y - top, 0, ch - 1),
+            .height = self.bottom_area.current_height(),
+        };
+        break :blk self.bottom_bar_drag.?;
+    };
+    const rows = @divFloor(drag.top - (y - drag.offset) + @divFloor(ch, 2), ch);
+    const h = @as(i64, @intCast(drag.height)) + rows;
+    self.bottom_area.set_height_abs(@intCast(@max(1, h)));
 }
 
 pub fn get_panel_height(self: *Self) usize {
