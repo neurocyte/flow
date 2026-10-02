@@ -201,7 +201,7 @@ const window: Menu = .{ .label = "Window", .items = &.{
     .{ .command = .{ .command = "toggle_ignore_theme_alpha", .on_activate = .keep_open } },
 } };
 
-const go: Menu = .{ .label = "Go", .items = &.{
+pub const go: Menu = .{ .label = "Go", .items = &.{
     .{ .command = .{ .command = "jump_back" } },
     .{ .command = .{ .command = "jump_forward" } },
     .separator,
