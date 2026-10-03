@@ -29,7 +29,9 @@
             ["ctrl+w v", "add_split"],
             ["ctrl+w c", "toggle_centered_view"],
             ["ctrl+w h", "goto_left_split"],
+            ["ctrl+w left", "goto_left_split"],
             ["ctrl+w l", "goto_right_split"],
+            ["ctrl+w right", "goto_right_split"],
             ["ctrl+w H", "swap_left_split"],
             ["ctrl+w L", "swap_right_split"],
             ["ctrl+w F", "goto_file_split"],
@@ -562,7 +564,7 @@
             ["escape", "mini_mode_cancel"],
             ["backspace", "mini_mode_cancel"]
         ]
-    }, 
+    },
     "home": {
         "on_match_failure": "ignore",
         "press": [
@@ -589,7 +591,9 @@
             ["ctrl+w v", "add_split"],
             ["ctrl+w c", "toggle_centered_view"],
             ["ctrl+w h", "goto_left_split"],
+            ["ctrl+w left", "goto_left_split"],
             ["ctrl+w l", "goto_right_split"],
+            ["ctrl+w right", "goto_right_split"],
             ["ctrl+w H", "swap_left_split"],
             ["ctrl+w L", "swap_right_split"],
             ["ctrl+w F", "goto_file_split"],
@@ -623,5 +627,5 @@
             ["space '", "last_palette"],
             ["space /", "find_in_files"]
         ]
-    } 
+    }
 }
