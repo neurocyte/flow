@@ -99,3 +99,17 @@ test "mini_buffer undo redo" {
     try mb.undo();
     try eq("abX!c", mb.bytes());
 }
+
+test "mini_buffer typing over a selection is one undo step" {
+    var mb: MiniBuffer = .init(a);
+    defer mb.deinit();
+    try mb.set_text("old query");
+    mb.select_all();
+    try mb.insert("n");
+    try mb.insert("e");
+    try mb.insert("w");
+    try eq("new", mb.bytes());
+    try mb.undo();
+    try eq("old query", mb.bytes());
+    try eq("old query", mb.selected_text().?);
+}

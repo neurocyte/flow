@@ -80,7 +80,8 @@ pub fn clear(self: *Self) !void {
 }
 
 pub fn insert(self: *Self, text: []const u8) !void {
-    return self.insert_as(text, if (self.selection() == null) .insert else .replace);
+    try self.insert_as(text, if (self.selection() == null) .insert else .replace);
+    self.last_edit = .insert;
 }
 
 pub fn paste(self: *Self, text: []const u8) !void {
