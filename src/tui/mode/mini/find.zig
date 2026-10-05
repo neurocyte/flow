@@ -64,6 +64,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
                 if (self.mini_editor.bytes().len == 0) self.find_history_prev();
             },
         }
+        self.mini_editor.buffer.select_all();
     }
     var mode = try keybind.mode("mini/find", allocator, .{
         .insert_command = "mini_mode_insert_bytes",

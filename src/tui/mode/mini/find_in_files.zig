@@ -35,6 +35,7 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
     if (tui.get_active_selection(self.allocator)) |text| {
         defer self.allocator.free(text);
         try self.mini_editor.buffer.set_text(text);
+        self.mini_editor.buffer.select_all();
     }
     var mode = try keybind.mode("mini/find_in_files", allocator, .{
         .insert_command = "mini_mode_insert_bytes",
