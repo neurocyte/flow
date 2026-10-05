@@ -34,7 +34,9 @@ pub fn load_entries(self: *Type) error{ Exit, OutOfMemory }!void {
         defer self.allocator.free(text);
         if (!(text.len > 2 and std.mem.eql(u8, text[0..2], "..")))
             try self.mini_editor.buffer.clear();
+        const begin = self.file_path().len;
         try self.mini_editor.buffer.insert(text);
+        self.mini_editor.buffer.select_range(begin, self.file_path().len);
     }
 }
 
