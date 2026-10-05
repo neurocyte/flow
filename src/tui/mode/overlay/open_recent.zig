@@ -130,6 +130,11 @@ fn process_project_manager(palette: *Type, m: tp.message) MessageFilter.Error!bo
         try add_item(palette, file_name, file_icon, file_color, indicator, null);
         tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{ "PRJ", "recent_done", tp.extract(&palette.longest), tp.extract(&query_), tp.extract(&palette.value.total_files_in_project) })) {
+        if (palette.value.need_reset) {
+            reset_results(palette);
+            palette.refresh_layout();
+            tui.need_render(@src());
+        }
         update_count_hint(palette);
         palette.value.query_pending = false;
         palette.value.need_reset = true;
