@@ -19,18 +19,27 @@ pub fn load_entries(self: *Type) !void {
         defer self.allocator.free(text);
         if (!(text.len > 2 and std.mem.eql(u8, text[0..2], "..")))
             try self.mini_editor.buffer.clear();
+        const begin = self.file_path().len;
         try self.mini_editor.buffer.insert(text);
+        const end = self.file_path().len;
+        if (std.fs.path.extension(text).len == 0 and !std.mem.endsWith(u8, text, std.fs.path.sep_str))
+            try append_default_extension(self, editor);
+        self.mini_editor.buffer.select_range(begin, end);
         return;
     }
     const buffer = editor.buffer orelse return;
     if (buffer.file_exists and !buffer.is_ephemeral()) return;
     const basename = std.fs.path.basename(file_path);
     const extension = std.fs.path.extension(basename);
-    if (extension.len == 0) if (default_extension(editor)) |ext| {
-        try self.mini_editor.buffer.insert(".");
-        try self.mini_editor.buffer.insert(ext);
-    };
+    if (extension.len == 0)
+        try append_default_extension(self, editor);
     self.mini_editor.buffer.select_range(file_path.len - basename.len, file_path.len - extension.len);
+}
+
+fn append_default_extension(self: *Type, editor: *const tui.exports.editor.Editor) !void {
+    const ext = default_extension(editor) orelse return;
+    try self.mini_editor.buffer.insert(".");
+    try self.mini_editor.buffer.insert(ext);
 }
 
 fn default_extension(editor: *const tui.exports.editor.Editor) ?[]const u8 {
