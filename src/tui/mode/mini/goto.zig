@@ -43,7 +43,10 @@ const Mode = enum {
 fn goto(self: *Type, ctx: command.Context) void {
     var mode: Mode = .goto;
     _ = ctx.args.match(.{cbor.extract(&mode)}) catch {};
-    send_goto(mode, if (self.input) |input| input.cursor else self.start.cursor);
+    send_goto(mode, if (self.input) |input| input.cursor else .{
+        .row = self.start.cursor.row + 1,
+        .col = self.start.cursor.col + 1,
+    });
 }
 
 fn send_goto(mode: Mode, cursor: Cursor) void {

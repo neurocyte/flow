@@ -33,5 +33,5 @@ fn goto(self: *Type, _: command.Context) void {
     if (self.input) |input|
         command.executeName("goto_byte_offset", command.fmt(.{input.offset})) catch {}
     else
-        command.executeName("goto_line_and_column", command.fmt(.{ self.start.cursor.row, self.start.cursor.col })) catch {};
+        command.executeName("goto_line_and_column", command.fmt(.{ self.start.cursor.row + 1, self.start.cursor.col + 1 })) catch {};
 }
