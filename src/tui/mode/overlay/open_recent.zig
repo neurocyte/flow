@@ -68,18 +68,16 @@ pub fn update_count_hint(palette: *Type) void {
 }
 
 pub fn complete(palette: *Type, button_: ?*Type.ButtonType) !void {
-    const pos = palette.inputbox.text.items.len;
+    const pos = palette.inputbox.mini_editor.bytes().len;
     const button = button_ orelse return;
     var iter = button.opts.label;
     var file_path: []const u8 = undefined;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
 
     if (std.mem.indexOfPos(u8, file_path, pos, &.{std.fs.path.sep})) |pos_| {
-        palette.inputbox.text.shrinkRetainingCapacity(0);
-        try palette.inputbox.text.appendSlice(palette.allocator, file_path[0..@min(pos_ + 1, file_path.len)]);
+        try palette.inputbox.mini_editor.buffer.set_text(file_path[0..@min(pos_ + 1, file_path.len)]);
     }
 
-    palette.inputbox.cursor = tui.egc_chunk_width(palette.inputbox.text.items, 0, 8);
     return palette.start_query(0);
 }
 
@@ -135,13 +133,13 @@ fn process_project_manager(palette: *Type, m: tp.message) MessageFilter.Error!bo
         update_count_hint(palette);
         palette.value.query_pending = false;
         palette.value.need_reset = true;
-        if (!std.mem.eql(u8, palette.inputbox.text.items, query_))
-            try query(palette, palette.inputbox.text.items);
+        if (!std.mem.eql(u8, palette.inputbox.mini_editor.bytes(), query_))
+            try query(palette, palette.inputbox.mini_editor.bytes());
     } else if (try cbor.match(m.buf, .{ "PRJ", "open_done", tp.string, tp.extract(&palette.longest), tp.extract(&palette.value.total_files_in_project) })) {
         update_count_hint(palette);
         palette.value.query_pending = false;
         palette.value.need_reset = true;
-        try query(palette, palette.inputbox.text.items);
+        try query(palette, palette.inputbox.mini_editor.bytes());
     } else return false;
     return true;
 }
@@ -200,7 +198,7 @@ fn save(palette: *Type) void {
     const writer = &data.writer;
 
     cbor.writeArrayHeader(writer, 4) catch return;
-    cbor.writeValue(writer, palette.inputbox.text.items) catch return;
+    cbor.writeValue(writer, palette.inputbox.mini_editor.bytes()) catch return;
     cbor.writeValue(writer, palette.longest) catch return;
     cbor.writeValue(writer, palette.list_box.selected) catch return;
     cbor.writeArrayHeader(writer, palette.value.restore_info.items.len) catch return;
@@ -217,9 +215,7 @@ fn restore(palette: *Type, ctx: command.Context) !void {
     var input_: []const u8 = undefined;
     if (!(cbor.matchString(&iter, &input_) catch return)) return;
 
-    palette.inputbox.text.shrinkRetainingCapacity(0);
-    try palette.inputbox.text.appendSlice(palette.inputbox.allocator, input_);
-    palette.inputbox.cursor = tui.egc_chunk_width(palette.inputbox.text.items, 0, 8);
+    try palette.inputbox.mini_editor.buffer.set_text(input_);
 
     if (!(cbor.matchValue(&iter, cbor.extract(&palette.longest)) catch return)) return;
 

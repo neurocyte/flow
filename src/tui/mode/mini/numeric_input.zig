@@ -9,7 +9,8 @@ const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
 
-const Allocator = @import("std").mem.Allocator;
+const std = @import("std");
+const Allocator = std.mem.Allocator;
 const fmt = @import("std").fmt;
 
 pub fn Create(options: type) type {
@@ -21,7 +22,7 @@ pub fn Create(options: type) type {
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else usize;
 
         allocator: Allocator,
-        buf: [30]u8 = undefined,
+        mini_editor: *tui.MiniEditor,
         input: ?ValueType = null,
         start: ValueType,
         ctx: command.Context,
@@ -30,71 +31,66 @@ pub fn Create(options: type) type {
         pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
+            const mini_editor = try tui.MiniEditor.create(allocator);
+            errdefer mini_editor.destroy();
             self.* = .{
                 .allocator = allocator,
+                .mini_editor = mini_editor,
                 .ctx = .{ .io = ctx.io, .now = ctx.now, .args = try ctx.args.clone(allocator) },
                 .start = if (@hasDecl(options, "ValueType")) ValueType{} else 0,
             };
             self.start = options.start(self);
+            if (!@hasDecl(options, "ValueType")) if (self.input) |value| {
+                var buf: [32]u8 = undefined;
+                try mini_editor.buffer.set_text(fmt.bufPrint(&buf, "{d}", .{value}) catch "");
+                mini_editor.buffer.clear_history();
+                mini_editor.buffer.select_all();
+            };
+            mini_editor.on_change = .bind(self, on_input_change);
             try self.commands.init(self);
             var mode = try keybind.mode("mini/numeric", allocator, .{
                 .insert_command = "mini_mode_insert_bytes",
             });
             mode.event_handler = EventHandler.to_owned(self);
-            return .{ mode, .{ .name = options.name(self) } };
+            return .{ mode, .{ .name = options.name(self), .mini_editor = self.mini_editor } };
         }
 
         pub fn deinit(self: *Self) void {
             self.allocator.free(self.ctx.args.buf);
             self.commands.deinit();
+            self.mini_editor.destroy();
             self.allocator.destroy(self);
         }
 
-        pub fn receive(self: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
-            self.update_mini_mode_text();
+        pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
             return false;
         }
 
-        fn update_mini_mode_text(self: *Self) void {
-            if (tui.mini_mode()) |mini_mode| {
-                if (@hasDecl(options, "format_value")) {
-                    mini_mode.text = options.format_value(self, self.input, &self.buf);
-                } else {
-                    mini_mode.text = if (self.input) |linenum|
-                        (fmt.bufPrint(&self.buf, "{d}", .{linenum}) catch "")
-                    else
-                        "";
-                }
-                mini_mode.cursor = tui.egc_chunk_width(mini_mode.text, 0, 1);
-            }
+        fn parse_value(text: []const u8) ?ValueType {
+            return fmt.parseInt(ValueType, text, 10) catch null;
         }
 
-        fn insert_char(self: *Self, char: u8) void {
-            const process_digit_ = if (@hasDecl(options, "process_digit")) options.process_digit else process_digit;
-            if (@hasDecl(options, "Separator")) {
-                switch (char) {
-                    '0'...'9' => process_digit_(self, @intCast(char - '0')),
-                    options.Separator => options.process_separator(self),
-                    else => {},
-                }
-            } else {
-                switch (char) {
-                    '0'...'9' => process_digit_(self, @intCast(char - '0')),
-                    else => {},
-                }
-            }
+        fn update(self: *Self) void {
+            const text = self.mini_editor.bytes();
+            self.input = if (@hasDecl(options, "parse_value")) options.parse_value(text) else parse_value(text);
         }
 
-        fn process_digit(self: *Self, digit: u8) void {
-            self.input = switch (digit) {
-                0 => if (self.input) |value| value * 10 else 0,
-                1...9 => if (self.input) |x| x * 10 + digit else digit,
-                else => unreachable,
+        fn on_input_change(self: *Self) void {
+            self.update();
+            options.preview(self, self.ctx);
+        }
+
+        fn is_valid(self: *Self, char: u8) bool {
+            return switch (char) {
+                '0'...'9' => true,
+                else => @hasDecl(options, "Separator") and char == options.Separator and
+                    std.mem.indexOfScalar(u8, self.mini_editor.bytes(), char) == null,
             };
         }
 
-        fn insert_bytes(self: *Self, bytes: []const u8) void {
-            for (bytes) |c| self.insert_char(c);
+        fn insert_bytes(self: *Self, bytes: []const u8) !void {
+            for (bytes) |c| if (self.is_valid(c)) try self.mini_editor.buffer.insert(&.{c});
+            self.update();
         }
 
         const cmds = struct {
@@ -104,30 +100,21 @@ pub fn Create(options: type) type {
             const Result = command.Result;
 
             pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
-                self.input = null;
-                self.update_mini_mode_text();
+                try self.mini_editor.buffer.clear();
+                self.update();
             }
             pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
             pub fn mini_mode_cancel(self: *Self, ctx: Ctx) Result {
                 self.input = null;
-                self.update_mini_mode_text();
                 options.cancel(self, self.ctx);
                 command.executeName("exit_mini_mode", ctx) catch {};
             }
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
             pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
-                if (self.input) |*input| {
-                    if (@hasDecl(options, "delete")) {
-                        options.delete(self, input);
-                    } else {
-                        const newval = if (input.* < 10) 0 else input.* / 10;
-                        self.input = if (newval == 0) null else newval;
-                    }
-                    self.update_mini_mode_text();
-                    options.preview(self, self.ctx);
-                }
+                try self.mini_editor.buffer.delete_backward();
+                self.on_input_change();
             }
             pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
 
@@ -135,11 +122,7 @@ pub fn Create(options: type) type {
                 var keypress: usize = 0;
                 if (!try ctx.args.match(.{tp.extract(&keypress)}))
                     return error.InvalidGotoInsertCodePointArgument;
-                switch (keypress) {
-                    '0'...'9' => self.insert_char(@intCast(keypress)),
-                    else => {},
-                }
-                self.update_mini_mode_text();
+                if (keypress < 0x80) try self.insert_bytes(&.{@intCast(keypress)});
                 options.preview(self, self.ctx);
             }
             pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
@@ -148,8 +131,7 @@ pub fn Create(options: type) type {
                 var bytes: []const u8 = undefined;
                 if (!try ctx.args.match(.{tp.extract(&bytes)}))
                     return error.InvalidGotoInsertBytesArgument;
-                self.insert_bytes(bytes);
-                self.update_mini_mode_text();
+                try self.insert_bytes(bytes);
                 options.preview(self, self.ctx);
             }
             pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };

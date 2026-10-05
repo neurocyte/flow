@@ -14,27 +14,27 @@ pub fn load_entries(self: *Type) error{ Exit, OutOfMemory }!void {
     var path_buf: [512]u8 = undefined;
     const project_path = tp.env.get().str("project");
     const project_name = project_manager.abbreviate_home(&path_buf, project_path);
-    try self.file_path.appendSlice(self.allocator, project_name);
-    try self.file_path.append(self.allocator, std.fs.path.sep);
+    try self.mini_editor.buffer.insert(project_name);
+    try self.mini_editor.buffer.insert(std.fs.path.sep_str);
     const editor = tui.get_active_editor() orelse return;
     if (editor.file_path) |old_path| {
         if (std.fs.path.dirname(old_path)) |dirname| {
             if (std.fs.path.isAbsolute(dirname)) {
                 const abbreviated_dirname = project_manager.abbreviate_home(&path_buf, dirname);
-                self.file_path.clearRetainingCapacity();
-                try self.file_path.appendSlice(self.allocator, abbreviated_dirname);
+                try self.mini_editor.buffer.clear();
+                try self.mini_editor.buffer.insert(abbreviated_dirname);
             } else {
-                try self.file_path.appendSlice(self.allocator, dirname);
+                try self.mini_editor.buffer.insert(dirname);
             }
-            try self.file_path.append(self.allocator, std.fs.path.sep);
+            try self.mini_editor.buffer.insert(std.fs.path.sep_str);
         }
     }
     if (editor.get_primary().selection) |sel| ret: {
         const text = editor.get_selection(sel, self.allocator) catch break :ret;
         defer self.allocator.free(text);
         if (!(text.len > 2 and std.mem.eql(u8, text[0..2], "..")))
-            self.file_path.clearRetainingCapacity();
-        try self.file_path.appendSlice(self.allocator, text);
+            try self.mini_editor.buffer.clear();
+        try self.mini_editor.buffer.insert(text);
     }
 }
 
@@ -46,7 +46,7 @@ pub fn select(self: *Type) void {
     {
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
-        const file_path = project_manager.expand_home(self.allocator, &buf, self.file_path.items);
+        const file_path = project_manager.expand_home(self.allocator, &buf, self.file_path());
         const cmd_ = switch (self.select) {
             .normal => "navigate",
             .alternate => "navigate_split_vertical",

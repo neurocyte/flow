@@ -14,7 +14,6 @@ const ed = @import("../../editor.zig");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const eql = std.mem.eql;
-const findLastAny = std.mem.findLastAny;
 const ArrayList = std.ArrayList;
 const Timestamp = std.Io.Timestamp;
 
@@ -23,7 +22,7 @@ const Self = @This();
 const Commands = command.Collection(cmds);
 
 allocator: Allocator,
-input_: ArrayList(u8),
+mini_editor: *tui.MiniEditor,
 find_mode: Mode,
 last_input: ArrayList(u8),
 start_view: ed.View,
@@ -36,9 +35,11 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     const editor = tui.get_active_editor() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
+    const mini_editor = try tui.MiniEditor.create(allocator);
+    errdefer mini_editor.destroy();
     self.* = .{
         .allocator = allocator,
-        .input_ = .empty,
+        .mini_editor = mini_editor,
         .find_mode = editor.find_mode orelse default_find_mode(),
         .last_input = .empty,
         .start_view = editor.view,
@@ -49,7 +50,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     var query: []const u8 = undefined;
     if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&query) }) catch false) {
         editor.find_mode = self.find_mode;
-        try self.input_.appendSlice(self.allocator, query);
+        try self.mini_editor.buffer.set_text(query);
     } else {
         if (ctx.args.match(.{cbor.extract(&self.find_mode)}) catch false) {
             editor.find_mode = self.find_mode;
@@ -60,7 +61,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
             .last_query => self.find_history_prev(),
             .selection_or_last_query => {
                 try self.set_from_current_selection(editor);
-                if (self.input_.items.len == 0) self.find_history_prev();
+                if (self.mini_editor.bytes().len == 0) self.find_history_prev();
             },
         }
     }
@@ -68,12 +69,12 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .insert_command = "mini_mode_insert_bytes",
     });
     mode.event_handler = EventHandler.to_owned(self);
-    return .{ mode, .{ .name = find_mode_name(self.find_mode) } };
+    return .{ mode, .{ .name = find_mode_name(self.find_mode), .mini_editor = self.mini_editor } };
 }
 
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
-    self.input_.deinit(self.allocator);
+    self.mini_editor.destroy();
     self.last_input.deinit(self.allocator);
     self.allocator.destroy(self);
 }
@@ -98,37 +99,25 @@ fn set_from_current_selection(self: *Self, editor: *ed.Editor) !void {
     if (editor.get_primary().selection) |sel| ret: {
         const text = editor.get_selection(sel, self.allocator) catch break :ret;
         defer self.allocator.free(text);
-        try self.input_.appendSlice(self.allocator, text);
+        try self.mini_editor.buffer.set_text(text);
     }
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var text: []const u8 = undefined;
 
-    defer self.update_mini_mode_text();
-
     const ctx: command.Context = .empty();
     if (try m.match(.{"F"})) {
         self.flush_input(ctx.now) catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.mini_editor.buffer.paste(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
 }
 
-fn insert_code_point(self: *Self, c: u32) !void {
-    var buf: [16]u8 = undefined;
-    const bytes = input.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    try self.input_.appendSlice(self.allocator, buf[0..bytes]);
-}
-
-fn insert_bytes(self: *Self, bytes: []const u8) !void {
-    try self.input_.appendSlice(self.allocator, bytes);
-}
-
 fn flush_input(self: *Self, now: Timestamp) !void {
     self.editor.find_mode = self.find_mode;
-    const pattern = self.input_.items;
+    const pattern = self.mini_editor.bytes();
     if (pattern.len > 0) {
         if (eql(u8, pattern, self.last_input.items))
             return;
@@ -167,9 +156,9 @@ fn find_history_prev(self: *Self) void {
             if (pos > 0) self.history_pos = pos - 1;
         } else {
             self.history_pos = history.items.len - 1;
-            if (self.input_.items.len > 0)
-                self.editor.push_find_history(self.editor.allocator.dupe(u8, self.input_.items) catch return);
-            if (eql(u8, history.items[self.history_pos.?], self.input_.items) and self.history_pos.? > 0)
+            if (self.mini_editor.bytes().len > 0)
+                self.editor.push_find_history(self.editor.allocator.dupe(u8, self.mini_editor.bytes()) catch return);
+            if (eql(u8, history.items[self.history_pos.?], self.mini_editor.bytes()) and self.history_pos.? > 0)
                 self.history_pos = self.history_pos.? - 1;
         }
         self.load_history(self.history_pos.?);
@@ -187,21 +176,13 @@ fn find_history_next(self: *Self) void {
 
 fn load_history(self: *Self, pos: usize) void {
     if (self.editor.find_history) |*history| {
-        self.input_.clearRetainingCapacity();
-        self.input_.appendSlice(self.allocator, history.items[pos]) catch {};
-    }
-}
-
-fn update_mini_mode_text(self: *Self) void {
-    if (tui.mini_mode()) |mini_mode| {
-        mini_mode.text = self.input_.items;
-        mini_mode.cursor = tui.egc_chunk_width(self.input_.items, 0, 1);
+        self.mini_editor.buffer.set_text(history.items[pos]) catch {};
     }
 }
 
 fn toggle_find_mode(self: *Self, ctx: cmds.Ctx, new_find_mode: Mode) cmds.Result {
     const a = self.allocator;
-    const query = try a.dupe(u8, self.input_.items);
+    const query = try a.dupe(u8, self.mini_editor.bytes());
     defer a.free(query);
     self.find_mode = new_find_mode;
     self.editor.find_mode = new_find_mode;
@@ -230,8 +211,7 @@ const cmds = struct {
     pub const toggle_find_mode_regex_meta: Meta = .{ .description = "Toggle regex find mode" };
 
     pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
-        self.input_.clearRetainingCapacity();
-        self.update_mini_mode_text();
+        try self.mini_editor.buffer.clear();
     }
     pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
@@ -241,7 +221,7 @@ const cmds = struct {
     pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
     pub fn mini_mode_select(self: *Self, ctx: Ctx) Result {
-        self.editor.push_find_history(self.input_.items);
+        self.editor.push_find_history(self.mini_editor.bytes());
         self.cmd("exit_mini_mode", ctx) catch {};
     }
     pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
@@ -250,8 +230,7 @@ const cmds = struct {
         var egc: u32 = 0;
         if (!try ctx.args.match(.{tp.extract(&egc)}))
             return error.InvalidFindInsertCodePointArgument;
-        self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.update_mini_mode_text();
+        try self.mini_editor.buffer.insert_code_point(@intCast(egc));
     }
     pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
 
@@ -259,41 +238,35 @@ const cmds = struct {
         var bytes: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&bytes)}))
             return error.InvalidFindInsertBytesArgument;
-        self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.update_mini_mode_text();
+        try self.mini_editor.buffer.insert(bytes);
     }
     pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
-        self.input_.resize(self.allocator, self.input_.items.len - tui.egc_last(self.input_.items).len) catch {};
-        self.update_mini_mode_text();
+        try self.mini_editor.buffer.delete_backward();
     }
     pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
 
     pub fn mini_mode_delete_word_left(self: *Self, _: Ctx) Result {
-        if (findLastAny(u8, self.input_.items, "/\\. -_")) |pos| {
-            self.input_.shrinkRetainingCapacity(pos);
-        } else {
-            self.input_.shrinkRetainingCapacity(0);
-        }
-        self.update_mini_mode_text();
+        try self.mini_editor.buffer.delete_word_left();
     }
     pub const mini_mode_delete_word_left_meta: Meta = .{ .description = "Delete word to the left" };
 
     pub fn mini_mode_history_prev(self: *Self, _: Ctx) Result {
         self.find_history_prev();
-        self.update_mini_mode_text();
     }
     pub const mini_mode_history_prev_meta: Meta = .{ .description = "History previous" };
 
     pub fn mini_mode_history_next(self: *Self, _: Ctx) Result {
         self.find_history_next();
-        self.update_mini_mode_text();
     }
     pub const mini_mode_history_next_meta: Meta = .{ .description = "History next" };
 
     pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
-        return mini_mode_insert_bytes(self, ctx);
+        var bytes: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&bytes)}))
+            return error.InvalidFindPasteArgument;
+        try self.mini_editor.buffer.paste(bytes);
     }
     pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
 };

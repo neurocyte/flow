@@ -380,8 +380,33 @@
             ["enter", "home_menu_activate"]
         ]
     },
-    "overlay/palette": {
+    "mini_editor": {
         "inherit": "project",
+        "press": [
+            ["left", "mini_editor_move_left"],
+            ["right", "mini_editor_move_right"],
+            ["home", "mini_editor_move_begin"],
+            ["end", "mini_editor_move_end"],
+            ["ctrl+left", "mini_editor_move_word_left"],
+            ["ctrl+right", "mini_editor_move_word_right"],
+            ["shift+left", "mini_editor_select_left"],
+            ["shift+right", "mini_editor_select_right"],
+            ["ctrl+shift+left", "mini_editor_select_word_left"],
+            ["ctrl+shift+right", "mini_editor_select_word_right"],
+            ["shift+home", "mini_editor_select_begin"],
+            ["shift+end", "mini_editor_select_end"],
+            ["ctrl+a", "mini_editor_select_all"],
+            ["delete", "mini_editor_delete_forward"],
+            ["ctrl+delete", "mini_editor_delete_word_right"],
+            ["ctrl+z", "mini_editor_undo"],
+            ["ctrl+y", "mini_editor_redo"],
+            ["ctrl+shift+z", "mini_editor_redo"],
+            ["ctrl+x", "mini_editor_cut"],
+            ["ctrl+insert", "mini_editor_copy"]
+        ]
+    },
+    "overlay/palette": {
+        "inherit": "mini_editor",
         "press": [
             ["alt+!", "add_task"],
             ["alt+f9", "overlay_next_widget_style"],
@@ -411,12 +436,10 @@
             ["escape", "palette_menu_cancel"],
             ["up", "palette_menu_up"],
             ["down", "palette_menu_down"],
-            ["left", "palette_menu_left"],
-            ["right", "palette_menu_right"],
             ["page_up", "palette_menu_pageup"],
             ["page_down", "palette_menu_pagedown"],
-            ["home", "palette_menu_top"],
-            ["end", "palette_menu_bottom"],
+            ["ctrl+home", "palette_menu_top"],
+            ["ctrl+end", "palette_menu_bottom"],
             ["enter", "palette_menu_activate"],
             ["shift+enter", "palette_menu_activate_alternate"],
             ["ctrl+enter", "palette_menu_insert"],
@@ -484,7 +507,7 @@
         ]
     },
     "mini/numeric": {
-        "inherit": "project",
+        "inherit": "mini_editor",
         "press": [
             ["b", "toggle_goto_style"],
             ["ctrl+u", "mini_mode_reset"],
@@ -509,8 +532,8 @@
             ["backspace", "mini_mode_cancel"]
         ]
     },
-    "mini/buffer": {
-        "inherit": "project",
+    "mini/text_input": {
+        "inherit": "mini_editor",
         "press": [
             ["ctrl+u", "mini_mode_reset"],
             ["ctrl+g", "mini_mode_cancel"],
@@ -526,7 +549,7 @@
         ]
     },
     "mini/file_browser": {
-        "inherit": "project",
+        "inherit": "mini_editor",
         "press": [
             ["ctrl+u", "mini_mode_reset"],
             ["ctrl+g", "mini_mode_cancel"],
@@ -549,7 +572,7 @@
         ]
     },
     "mini/find_in_files": {
-        "inherit": "project",
+        "inherit": "mini_editor",
         "press": [
             ["alt+f9", "panel_next_widget_style"],
             ["ctrl+u", "mini_mode_reset"],
@@ -578,7 +601,7 @@
         ]
     },
     "mini/find": {
-        "inherit": "project",
+        "inherit": "mini_editor",
         "press": [
             ["ctrl+u", "mini_mode_reset"],
             ["ctrl+g", "mini_mode_cancel"],

@@ -1,4 +1,5 @@
 const fmt = @import("std").fmt;
+const splitScalar = @import("std").mem.splitScalar;
 const cbor = @import("cbor");
 const command = @import("command");
 
@@ -10,7 +11,6 @@ pub const create = Type.create;
 
 pub const ValueType = struct {
     cursor: Cursor = .{},
-    part: enum { row, col } = .row,
 };
 pub const Separator = ':';
 
@@ -23,61 +23,12 @@ pub fn start(_: *Type) ValueType {
     return .{ .cursor = editor.get_primary().cursor };
 }
 
-pub fn process_digit(self: *Type, digit: u8) void {
-    const part = if (self.input) |input| input.part else .row;
-    switch (part) {
-        .row => switch (digit) {
-            0 => {
-                if (self.input) |*input| input.cursor.row = input.cursor.row * 10;
-            },
-            1...9 => {
-                if (self.input) |*input| {
-                    input.cursor.row = input.cursor.row * 10 + digit;
-                } else {
-                    self.input = .{ .cursor = .{ .row = digit } };
-                }
-            },
-            else => unreachable,
-        },
-        .col => if (self.input) |*input| {
-            input.cursor.col = input.cursor.col * 10 + digit;
-        },
-    }
-}
-
-pub fn process_separator(self: *Type) void {
-    if (self.input) |*input| switch (input.part) {
-        .row => input.part = .col,
-        else => {},
-    };
-}
-
-pub fn delete(self: *Type, input: *ValueType) void {
-    switch (input.part) {
-        .row => {
-            const newval = if (input.cursor.row < 10) 0 else input.cursor.row / 10;
-            if (newval == 0) self.input = null else input.cursor.row = newval;
-        },
-        .col => {
-            const newval = if (input.cursor.col < 10) 0 else input.cursor.col / 10;
-            if (newval == 0) {
-                input.part = .row;
-                input.cursor.col = 0;
-            } else input.cursor.col = newval;
-        },
-    }
-}
-
-pub fn format_value(_: *Type, input: ?ValueType, buf: []u8) []const u8 {
-    return if (input) |value| blk: {
-        switch (value.part) {
-            .row => break :blk fmt.bufPrint(buf, "{d}", .{value.cursor.row}) catch "",
-            .col => if (value.cursor.col == 0)
-                break :blk fmt.bufPrint(buf, "{d}:", .{value.cursor.row}) catch ""
-            else
-                break :blk fmt.bufPrint(buf, "{d}:{d}", .{ value.cursor.row, value.cursor.col }) catch "",
-        }
-    } else "";
+pub fn parse_value(text: []const u8) ?ValueType {
+    var parts = splitScalar(u8, text, Separator);
+    const row = fmt.parseInt(usize, parts.first(), 10) catch return null;
+    if (row == 0) return null;
+    const col = fmt.parseInt(usize, parts.rest(), 10) catch 0;
+    return .{ .cursor = .{ .row = row, .col = col } };
 }
 
 pub const preview = goto;

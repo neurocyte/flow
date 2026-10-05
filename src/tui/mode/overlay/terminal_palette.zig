@@ -253,7 +253,7 @@ fn render_colored_icon(plane: *@import("renderer").Plane, glyph: []const u8, gly
 }
 
 pub fn edit_selected(palette: *Type, button: ?*Type.ButtonType) !void {
-    if (palette.inputbox.text.items.len > 0) return add_profile(palette);
+    if (palette.inputbox.mini_editor.bytes().len > 0) return add_profile(palette);
     const button_ = button orelse return;
     var entry: Entry = undefined;
     var iter = button_.opts.label;
@@ -264,7 +264,7 @@ pub fn edit_selected(palette: *Type, button: ?*Type.ButtonType) !void {
 }
 
 fn add_profile(palette: *Type) !void {
-    const profile = palette.inputbox.text.items;
+    const profile = palette.inputbox.mini_editor.bytes();
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "open_terminal_profile", .{profile} }) catch |e| palette.logger.err(module_name, e);
 }

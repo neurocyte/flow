@@ -25,6 +25,7 @@ pub fn Create(options: type) type {
         allocator: Allocator,
         input: ?ValueType = null,
         value: ValueType,
+        mini_editor: ?*tui.MiniEditor = null,
         ctx: command.Context,
         commands: Commands = undefined,
 
@@ -36,12 +37,15 @@ pub fn Create(options: type) type {
                 .ctx = .{ .io = ctx.io, .now = ctx.now, .args = try ctx.args.clone(allocator) },
                 .value = if (@hasDecl(options, "start")) options.start(self) else {},
             };
+            errdefer if (self.mini_editor) |mini_editor| mini_editor.destroy();
+            if (@hasDecl(options, "show_input"))
+                self.mini_editor = try tui.MiniEditor.create(allocator);
             try self.commands.init(self);
             var mode = try keybind.mode("mini/get_char", allocator, .{
                 .insert_command = "mini_mode_insert_bytes",
             });
             mode.event_handler = EventHandler.to_owned(self);
-            return .{ mode, .{ .name = options.name(self) } };
+            return .{ mode, .{ .name = options.name(self), .mini_editor = self.mini_editor } };
         }
 
         pub fn deinit(self: *Self) void {
@@ -49,6 +53,7 @@ pub fn Create(options: type) type {
                 options.deinit(self);
             self.allocator.free(self.ctx.args.buf);
             self.commands.deinit();
+            if (self.mini_editor) |mini_editor| mini_editor.destroy();
             self.allocator.destroy(self);
         }
 

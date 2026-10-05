@@ -72,15 +72,13 @@ pub fn complete(palette: *Type, button_: ?*Type.ButtonType) !void {
     var project_name: []const u8 = undefined;
     if (!(cbor.matchString(&iter, &project_name) catch false)) return;
 
-    const input = palette.inputbox.text.items;
+    const input = palette.inputbox.mini_editor.bytes();
     const completion = if (std.mem.startsWith(u8, project_name, input) and input.len < project_name.len) blk: {
         const pos = std.mem.indexOfScalarPos(u8, project_name, input.len + 1, std.fs.path.sep) orelse break :blk project_name;
         break :blk project_name[0 .. pos + 1];
     } else project_name;
 
-    palette.inputbox.text.shrinkRetainingCapacity(0);
-    try palette.inputbox.text.appendSlice(palette.inputbox.allocator, completion);
-    palette.inputbox.cursor = tui.egc_chunk_width(palette.inputbox.text.items, 0, 8);
+    try palette.inputbox.mini_editor.buffer.set_text(completion);
     palette.view_pos = 0;
     return palette.start_query(0);
 }

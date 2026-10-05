@@ -28,6 +28,7 @@ const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
 pub const Menu = @import("Menu.zig");
+pub const MiniEditor = @import("MiniEditor.zig");
 pub const MenuPopup = @import("mode/overlay/MenuPopup.zig");
 const MenuButton = @import("MenuButton.zig");
 const IdleAction = @import("config").IdleAction;
@@ -41,6 +42,7 @@ pub const exports = struct {
     };
     pub const editor = @import("editor.zig");
     pub const jump_labels = @import("jump_labels.zig");
+    pub const MiniBuffer = @import("MiniBuffer.zig");
 };
 
 const Allocator = std.mem.Allocator;
@@ -2024,13 +2026,13 @@ const cmds = struct {
             return call_add_task(task);
 
         return enter_mini_mode(self, struct {
-            pub const Type = @import("mode/mini/buffer.zig").Create(@This());
+            pub const Type = @import("mode/mini/text_input.zig").Create(@This());
             pub const create = Type.create;
             pub fn name(_: *Type) []const u8 {
                 return @import("mode/overlay/task_palette.zig").name;
             }
             pub fn select(self_: *Type) void {
-                @import("mode/overlay/task_palette.zig").run_task(.normal, self_.input.items) catch {};
+                @import("mode/overlay/task_palette.zig").run_task(.normal, self_.mini_editor.bytes()) catch {};
                 command.executeName("exit_mini_mode", .empty()) catch {};
             }
         }, ctx);
@@ -2515,8 +2517,7 @@ const cmds = struct {
 
 pub const MiniMode = struct {
     name: []const u8,
-    text: []const u8 = "",
-    cursor: ?usize = null,
+    mini_editor: ?*MiniEditor = null,
 };
 
 pub const Mode = keybind.Mode;

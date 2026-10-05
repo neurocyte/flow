@@ -312,8 +312,7 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     if (node.type_ == .folder) {
         node.expanded = !node.expanded;
 
-        palette.inputbox.text.shrinkRetainingCapacity(0);
-        palette.inputbox.cursor = tui.egc_chunk_width(palette.inputbox.text.items, 0, 8);
+        palette.inputbox.mini_editor.buffer.clear() catch {};
 
         if (node.expanded and node.children == null) {
             select_child(palette, node);

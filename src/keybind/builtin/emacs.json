@@ -100,8 +100,8 @@
     "overlay/palette": {
         "press": [
             ["ctrl+w", "overlay_delete_word_left"],
-            ["ctrl+a", "palette_menu_top"],
-            ["ctrl+f", "palette_menu_down"]
+            ["ctrl+a", "mini_editor_move_begin"],
+            ["ctrl+f", "mini_editor_move_right"]
         ]
     },
     "mini/file_browser": {

@@ -135,28 +135,30 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
 
 fn render_mini_mode(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) void {
     const mini_mode = tui.mini_mode() orelse return;
-    const needed = 1 + tui.egc_chunk_width(mini_mode.text, 0, 8) + 1;
+    const needed = 1 + (if (mini_mode.mini_editor) |mini_editor| mini_editor.width() else 0) + 1;
     if (needed <= btn.plane.dim_x()) {
-        self.draw_mini_mode(&btn.plane, mini_mode.text, mini_mode.cursor);
+        self.draw_mini_mode(&btn.plane, theme, mini_mode);
     } else {
-        self.render_mini_mode_overlay(btn, theme, mini_mode.text, mini_mode.cursor) catch
-            self.draw_mini_mode(&btn.plane, mini_mode.text, mini_mode.cursor);
+        self.render_mini_mode_overlay(btn, theme, mini_mode) catch
+            self.draw_mini_mode(&btn.plane, theme, mini_mode);
     }
 }
 
-fn draw_mini_mode(self: *Self, plane: *Plane, text: []const u8, cursor: ?usize) void {
+fn draw_mini_mode(self: *Self, plane: *Plane, theme: *const Widget.Theme, mini_mode: *const tui.MiniMode) void {
     plane.off_styles(styles.italic);
-    _ = plane.putstr_unicode(" ") catch {};
-    _ = plane.putstr_unicode(text) catch {};
-    if (cursor) |c| {
-        const pos: c_int = @intCast(c);
-        plane.cursor_enable(0, pos + 1, tui.get_cursor_shape());
-        self.have_mini_mode_cursor = true;
-    }
+    const mini_editor = mini_mode.mini_editor orelse return;
+    const width: usize = plane.dim_x();
+    mini_editor.render(plane, .{
+        .x = 1,
+        .width = if (width > 1) width - 1 else 0,
+        .style = theme.statusbar,
+        .style_selection = theme.editor_selection,
+    });
+    self.have_mini_mode_cursor = true;
 }
 
 // Render the mini mode buffer covering the neighbouring widgets.
-fn render_mini_mode_overlay(self: *Self, btn: *ButtonType, theme: *const Widget.Theme, text: []const u8, cursor: ?usize) !void {
+fn render_mini_mode_overlay(self: *Self, btn: *ButtonType, theme: *const Widget.Theme, mini_mode: *const tui.MiniMode) !void {
     const screen = tui.screen();
     const cw: i32 = btn.plane.cell_x();
     const ch: i32 = btn.plane.cell_y();
@@ -184,7 +186,7 @@ fn render_mini_mode_overlay(self: *Self, btn: *ButtonType, theme: *const Widget.
     plane.set_style(theme.statusbar);
     plane.fill(" ");
     plane.home();
-    self.draw_mini_mode(&plane, text, cursor);
+    self.draw_mini_mode(&plane, theme, mini_mode);
     _ = layer.widget().render(theme);
 }
 

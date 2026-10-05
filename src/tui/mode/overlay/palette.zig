@@ -152,9 +152,9 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "initial_query")) blk: {
                 const initial_query = options.initial_query(self, self.allocator) catch break :blk;
                 defer self.allocator.free(initial_query);
-                try self.inputbox.text.appendSlice(self.allocator, initial_query);
-                self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
+                try self.inputbox.mini_editor.buffer.set_text(initial_query);
             }
+            self.inputbox.mini_editor.on_change = .bind(self, on_input_change);
             try self.start_query(0);
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.list_box_layer.widget());
@@ -389,7 +389,7 @@ pub fn Create(options: type) type {
             var text: []const u8 = undefined;
 
             if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-                self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.paste_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
             return false;
         }
@@ -414,17 +414,17 @@ pub fn Create(options: type) type {
         }
 
         pub fn start_query(self: *Self, n: usize) !void {
-            if (async_query) return options.query(self, self.inputbox.text.items);
+            if (async_query) return options.query(self, self.inputbox.mini_editor.bytes());
             defer tui.reset_hover(@src());
             defer self.update_count_hint();
             self.items = 0;
             self.list_box.reset_items();
             self.list_box.selected = null;
-            self.longest = self.inputbox.text.items.len;
+            self.longest = self.inputbox.mini_editor.bytes().len;
             for (self.entries.items) |entry|
                 self.longest = @max(self.longest, entry.label.len);
 
-            if (self.inputbox.text.items.len == 0) {
+            if (self.inputbox.mini_editor.bytes().len == 0) {
                 self.total_items = 0;
                 var pos: usize = 0;
                 for (self.entries.items) |*entry| {
@@ -435,7 +435,7 @@ pub fn Create(options: type) type {
                         try options.add_list_box_entry(self, entry, null);
                 }
             } else {
-                _ = try self.query_entries(self.inputbox.text.items);
+                _ = try self.query_entries(self.inputbox.mini_editor.bytes());
             }
             if (self.initial_selected) |idx| {
                 self.initial_selected = null;
@@ -507,38 +507,37 @@ pub fn Create(options: type) type {
             return matches.items.len;
         }
 
+        fn on_input_change(self: *Self) void {
+            self.view_pos = 0;
+            self.start_query(0) catch |e| self.logger.err("query", e);
+        }
+
         fn delete_word(self: *Self) !void {
-            if (std.mem.lastIndexOfAny(u8, self.inputbox.text.items, "/\\. -_")) |pos| {
-                self.inputbox.text.shrinkRetainingCapacity(pos);
-            } else {
-                self.inputbox.text.shrinkRetainingCapacity(0);
-            }
-            self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
+            try self.inputbox.mini_editor.buffer.delete_word_left();
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn delete_code_point(self: *Self) !void {
-            if (self.inputbox.text.items.len > 0) {
-                self.inputbox.text.shrinkRetainingCapacity(self.inputbox.text.items.len - tui.egc_last(self.inputbox.text.items).len);
-                self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
-            }
+            try self.inputbox.mini_editor.buffer.delete_backward();
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn insert_code_point(self: *Self, c: u32) !void {
-            var buf: [6]u8 = undefined;
-            const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
-            try self.inputbox.text.appendSlice(self.allocator, buf[0..bytes]);
-            self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
+            try self.inputbox.mini_editor.buffer.insert_code_point(@intCast(c));
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn insert_bytes(self: *Self, bytes: []const u8) !void {
-            try self.inputbox.text.appendSlice(self.allocator, bytes);
-            self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
+            try self.inputbox.mini_editor.buffer.insert(bytes);
+            self.view_pos = 0;
+            return self.start_query(0);
+        }
+
+        fn paste_bytes(self: *Self, bytes: []const u8) !void {
+            try self.inputbox.mini_editor.buffer.paste(bytes);
             self.view_pos = 0;
             return self.start_query(0);
         }
@@ -726,10 +725,10 @@ pub fn Create(options: type) type {
             pub const palette_menu_complete_meta: Meta = .{};
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
-                if (has_activate_query and self.items == 0 and self.inputbox.text.items.len > 0) {
+                if (has_activate_query and self.items == 0 and self.inputbox.mini_editor.bytes().len > 0) {
                     const activate = self.activate;
                     self.activate = .normal;
-                    return options.activate_query(activate, self.inputbox.text.items);
+                    return options.activate_query(activate, self.inputbox.mini_editor.bytes());
                 }
                 self.list_box.activate_selected();
             }
@@ -746,8 +745,8 @@ pub fn Create(options: type) type {
                 self.activate = .normal;
                 if (@hasDecl(options, "edit_selected"))
                     return options.edit_selected(self, self.list_box.get_selected());
-                if (has_insert and self.inputbox.text.items.len > 0)
-                    return options.insert(activate, self.inputbox.text.items);
+                if (has_insert and self.inputbox.mini_editor.bytes().len > 0)
+                    return options.insert(activate, self.inputbox.mini_editor.bytes());
             }
             pub const palette_menu_insert_meta: Meta = .{ .icon = "" };
 
@@ -806,7 +805,10 @@ pub fn Create(options: type) type {
             pub const overlay_next_widget_style_meta: Meta = .{};
 
             pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
-                return overlay_insert_bytes(self, ctx);
+                var bytes: []const u8 = undefined;
+                if (!try ctx.args.match(.{tp.extract(&bytes)}))
+                    return error.InvalidPalettePasteArgument;
+                self.paste_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
             pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
         };

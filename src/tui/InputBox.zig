@@ -6,6 +6,7 @@ const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 
 const Widget = @import("Widget.zig");
+const MiniEditor = @import("MiniEditor.zig");
 const tui = @import("tui.zig");
 
 pub fn Options(context: type) type {
@@ -27,34 +28,37 @@ pub fn Options(context: type) type {
         pub fn on_render_default(_: context, self: *State(Context), theme: *const Widget.Theme) bool {
             const style_base = theme.editor_widget;
             const style_input_placeholder = theme.input_placeholder;
-            const style_label = if (self.text.items.len > 0) theme.input else style_input_placeholder;
+            const text = self.mini_editor.bytes();
+            const style_label = if (text.len > 0) theme.input else style_input_placeholder;
             self.plane.set_base_style(style_base);
             self.plane.erase();
             self.plane.home();
             self.plane.set_style(style_label);
             self.plane.fill(" ");
             self.plane.home();
+            var hint_width: usize = 0;
             if (self.hint.items.len > 0) {
                 const hint = self.hint.items;
                 self.plane.set_style(style_input_placeholder);
                 _ = self.plane.print_aligned_right(0, "{s} ", .{hint}) catch {};
+                hint_width = self.plane.egc_chunk_width(hint, 0, 1) + 2;
                 self.plane.home();
                 self.plane.set_style(style_label);
             }
-            for (0..self.opts.padding) |_| _ = self.plane.putchar(" ");
-            if (self.icon_width > 0) if (self.opts.icon) |icon| {
-                _ = self.plane.print("{s}", .{icon}) catch {};
-            };
-            if (self.text.items.len > 0) {
-                _ = self.plane.print("{s} ", .{self.text.items}) catch {};
-            } else {
+            const x: c_int = self.opts.padding;
+            if (text.len == 0) {
+                const prefix_width = self.plane.egc_chunk_width(self.mini_editor.prefix.items, 0, 1);
+                self.plane.cursor_move_yx(0, x + @as(c_int, @intCast(prefix_width)));
                 _ = self.plane.print("{s} ", .{self.label.items}) catch {};
             }
-            if (self.cursor) |cursor| {
-                const pos: c_int = @intCast(cursor);
-                const x: c_int = @intCast(self.opts.padding + self.icon_width);
-                self.plane.cursor_enable(0, pos + x, tui.get_cursor_shape());
-            }
+            const used = @as(usize, @intCast(x)) + hint_width;
+            const width = self.plane.dim_x();
+            self.mini_editor.render(&self.plane, .{
+                .x = x,
+                .width = if (width > used) width - used else 1,
+                .style = style_label,
+                .style_selection = theme.editor_selection,
+            });
             return false;
         }
 
@@ -70,6 +74,8 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
     errdefer n.deinit();
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
+    const mini_editor = try MiniEditor.create(allocator);
+    errdefer mini_editor.destroy();
     self.* = .{
         .allocator = allocator,
         .parent = parent,
@@ -77,9 +83,10 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
         .opts = opts,
         .label = .empty,
         .hint = .empty,
-        .text = .empty,
-        .icon_width = @intCast(if (tui.config().show_fileicons) if (opts.icon) |icon| n.egc_chunk_width(icon, 0, 1) else 0 else 0),
+        .mini_editor = mini_editor,
     };
+    if (tui.config().show_fileicons) if (opts.icon) |icon|
+        try mini_editor.set_prefix(icon);
     try self.label.appendSlice(self.allocator, self.opts.label);
     self.opts.label = self.label.items;
     if (self.opts.hint) |hint| {
@@ -99,15 +106,13 @@ pub fn State(ctx_type: type) type {
         label: std.ArrayList(u8),
         hint: std.ArrayList(u8),
         opts: Options(ctx_type),
-        text: std.ArrayList(u8),
-        icon_width: c_int,
-        cursor: ?usize = 0,
+        mini_editor: *MiniEditor,
 
         const Self = @This();
         pub const Context = ctx_type;
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            self.text.deinit(self.allocator);
+            self.mini_editor.destroy();
             self.hint.deinit(self.allocator);
             self.label.deinit(self.allocator);
             self.plane.deinit();

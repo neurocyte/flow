@@ -25,8 +25,7 @@ pub const SelectMode = enum {
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
-        file_path: std.ArrayList(u8),
-        rendered_mini_buffer: std.ArrayListUnmanaged(u8) = .empty,
+        mini_editor: *tui.MiniEditor,
         query: std.ArrayList(u8),
         match: std.ArrayList(u8),
         entries: std.ArrayList(Entry),
@@ -51,9 +50,11 @@ pub fn Create(options: type) type {
         pub fn create(allocator: std.mem.Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
+            const mini_editor = try tui.MiniEditor.create(allocator);
+            errdefer mini_editor.destroy();
             self.* = .{
                 .allocator = allocator,
-                .file_path = .empty,
+                .mini_editor = mini_editor,
                 .query = .empty,
                 .match = .empty,
                 .entries = .empty,
@@ -63,11 +64,14 @@ pub fn Create(options: type) type {
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
+            self.mini_editor.buffer.clear_history();
+            self.update_mini_mode_prefix();
+            self.mini_editor.on_change = .bind(self, on_input_change);
             var mode = try keybind.mode("mini/file_browser", allocator, .{
                 .insert_command = "mini_mode_insert_bytes",
             });
             mode.event_handler = EventHandler.to_owned(self);
-            return .{ mode, .{ .name = options.name(self) } };
+            return .{ mode, .{ .name = options.name(self), .mini_editor = self.mini_editor } };
         }
 
         pub fn deinit(self: *Self) void {
@@ -77,8 +81,7 @@ pub fn Create(options: type) type {
             self.entries.deinit(self.allocator);
             self.match.deinit(self.allocator);
             self.query.deinit(self.allocator);
-            self.file_path.deinit(self.allocator);
-            self.rendered_mini_buffer.deinit(self.allocator);
+            self.mini_editor.destroy();
             self.allocator.destroy(self);
         }
 
@@ -86,10 +89,20 @@ pub fn Create(options: type) type {
             var text: []const u8 = undefined;
 
             if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-                self.file_path.appendSlice(self.allocator, text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.complete_trigger_count = 0;
+                self.mini_editor.buffer.paste(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
-            self.update_mini_mode_text();
+            self.update_mini_mode_prefix();
             return false;
+        }
+
+        fn on_input_change(self: *Self) void {
+            self.complete_trigger_count = 0;
+            self.update_mini_mode_prefix();
+        }
+
+        pub fn file_path(self: *const Self) []const u8 {
+            return self.mini_editor.bytes();
         }
 
         fn clear_entries(self: *Self) void {
@@ -102,10 +115,11 @@ pub fn Create(options: type) type {
         }
 
         fn try_complete_file(self: *Self) project_manager.Error!void {
-            const probed = tui.probed(self.file_path.items) orelse {
+            const path = self.file_path();
+            const probed = tui.probed(path) orelse {
                 var buf: [std.fs.max_path_bytes + 32]u8 = undefined;
-                const complete: cbor.Raw = .{ .bytes = cbor.fmt(&buf, .{ "MINI", "probed", self.file_path.items }) };
-                tui.probe(self.file_path.items, .{ .file = complete, .dir = complete, .other = complete });
+                const complete: cbor.Raw = .{ .bytes = cbor.fmt(&buf, .{ "MINI", "probed", path }) };
+                tui.probe(path, .{ .file = complete, .dir = complete, .other = complete });
                 return;
             };
             self.complete_trigger_count += 1;
@@ -114,14 +128,14 @@ pub fn Create(options: type) type {
                 self.match.clearRetainingCapacity();
                 self.clear_entries();
                 if (probed.kind == .dir) {
-                    try self.query.appendSlice(self.allocator, self.file_path.items);
-                } else if (self.file_path.items.len > 0) blk: {
-                    const basename_begin = std.mem.lastIndexOfScalar(u8, self.file_path.items, std.fs.path.sep) orelse {
-                        try self.match.appendSlice(self.allocator, self.file_path.items);
+                    try self.query.appendSlice(self.allocator, path);
+                } else if (path.len > 0) blk: {
+                    const basename_begin = std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep) orelse {
+                        try self.match.appendSlice(self.allocator, path);
                         break :blk;
                     };
-                    try self.query.appendSlice(self.allocator, self.file_path.items[0 .. basename_begin + 1]);
-                    try self.match.appendSlice(self.allocator, self.file_path.items[basename_begin + 1 ..]);
+                    try self.query.appendSlice(self.allocator, path[0 .. basename_begin + 1]);
+                    try self.match.appendSlice(self.allocator, path[basename_begin + 1 ..]);
                 }
                 // log.logger("file_browser").print("query: '{s}' match: '{s}'", .{ self.query.items, self.match.items });
                 try project_manager.request_path_files(max_complete_paths, self.query.items);
@@ -133,13 +147,12 @@ pub fn Create(options: type) type {
         fn reverse_complete_file(self: *Self) error{OutOfMemory}!void {
             if (self.complete_trigger_count < 2) {
                 self.complete_trigger_count = 0;
-                self.file_path.clearRetainingCapacity();
                 if (self.match.items.len > 0) {
                     try self.construct_path(self.query.items, self.match.items, .file, 0);
                 } else {
-                    try self.file_path.appendSlice(self.allocator, self.query.items);
+                    try self.mini_editor.buffer.set_text(self.query.items);
                 }
-                self.update_mini_mode_text();
+                self.update_mini_mode_prefix();
                 return;
             }
             self.complete_trigger_count -= 1;
@@ -149,7 +162,7 @@ pub fn Create(options: type) type {
         fn receive_path_entry(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
             var path: []const u8 = undefined;
             if (try cbor.match(m.buf, .{ "MINI", "probed", tp.extract(&path) })) {
-                if (std.mem.eql(u8, path, self.file_path.items))
+                if (std.mem.eql(u8, path, self.file_path()))
                     self.try_complete_file() catch {};
                 return true;
             }
@@ -165,10 +178,10 @@ pub fn Create(options: type) type {
         fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!bool {
             var count: usize = undefined;
             if (try cbor.match(m.buf, .{ "PRJ", "path_entry", tp.more })) {
-                defer self.update_mini_mode_text();
+                defer self.update_mini_mode_prefix();
                 try self.process_path_entry(m);
             } else if (try cbor.match(m.buf, .{ "PRJ", "path_done", tp.any, tp.any, tp.extract(&count) })) {
-                defer self.update_mini_mode_text();
+                defer self.update_mini_mode_prefix();
                 try self.do_complete();
             } else return false;
             return true;
@@ -204,7 +217,6 @@ pub fn Create(options: type) type {
 
         fn do_complete(self: *Self) !void {
             self.complete_trigger_count = @min(self.complete_trigger_count, self.entries.items.len);
-            self.file_path.clearRetainingCapacity();
             const match_number = self.complete_trigger_count;
             if (self.match.items.len > 0) {
                 try self.match_path();
@@ -229,12 +241,15 @@ pub fn Create(options: type) type {
             self.matched_entry = entry_no;
             var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
             const path = project_manager.normalize_file_path(path_, &file_path_buf);
-            try self.file_path.appendSlice(self.allocator, path);
+            var new_path: std.ArrayList(u8) = .empty;
+            defer new_path.deinit(self.allocator);
+            try new_path.appendSlice(self.allocator, path);
             if (path.len > 0 and path[path.len - 1] != std.fs.path.sep)
-                try self.file_path.append(self.allocator, std.fs.path.sep);
-            try self.file_path.appendSlice(self.allocator, entry_name);
+                try new_path.append(self.allocator, std.fs.path.sep);
+            try new_path.appendSlice(self.allocator, entry_name);
             if (entry_type == .dir)
-                try self.file_path.append(self.allocator, std.fs.path.sep);
+                try new_path.append(self.allocator, std.fs.path.sep);
+            try self.mini_editor.buffer.set_text(new_path.items);
         }
 
         fn match_path(self: *Self) !void {
@@ -273,22 +288,15 @@ pub fn Create(options: type) type {
             return std.mem.eql(u8, icase_prefix, icase_str[0..icase_prefix.len]);
         }
 
-        fn delete_to_previous_path_segment(self: *Self) void {
+        fn delete_to_previous_path_segment(self: *Self) !void {
             self.complete_trigger_count = 0;
-            if (self.file_path.items.len == 0) return;
-            if (self.file_path.items.len == 1) {
-                self.file_path.clearRetainingCapacity();
-                return;
-            }
-            const path = if (self.file_path.items[self.file_path.items.len - 1] == std.fs.path.sep)
-                self.file_path.items[0 .. self.file_path.items.len - 2]
+            const file_path_ = self.file_path();
+            if (file_path_.len < 2) return self.mini_editor.buffer.truncate(0);
+            const path = if (file_path_[file_path_.len - 1] == std.fs.path.sep)
+                file_path_[0 .. file_path_.len - 2]
             else
-                self.file_path.items;
-            if (std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep)) |pos| {
-                self.file_path.items.len = pos + 1;
-            } else {
-                self.file_path.clearRetainingCapacity();
-            }
+                file_path_;
+            return self.mini_editor.buffer.truncate(if (std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep)) |pos| pos + 1 else 0);
         }
 
         fn message(comptime fmt: anytype, args: anytype) void {
@@ -296,20 +304,13 @@ pub fn Create(options: type) type {
             tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
         }
 
-        fn update_mini_mode_text(self: *Self) void {
-            if (tui.mini_mode()) |mini_mode| {
-                const icon = if (self.entries.items.len > 0 and self.complete_trigger_count > 0)
-                    self.entries.items[self.complete_trigger_count - 1].icon
-                else
-                    " ";
-                self.rendered_mini_buffer.clearRetainingCapacity();
-                var buf: [512]u8 = undefined;
-                var fbs: std.Io.Writer = .fixed(&buf);
-                fbs.print("{s}  {s}", .{ icon, self.file_path.items }) catch {};
-                self.rendered_mini_buffer.appendSlice(self.allocator, fbs.buffered()) catch {};
-                mini_mode.text = self.rendered_mini_buffer.items;
-                mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1) + 3;
-            }
+        fn update_mini_mode_prefix(self: *Self) void {
+            const icon = if (self.entries.items.len > 0 and self.complete_trigger_count > 0)
+                self.entries.items[self.complete_trigger_count - 1].icon
+            else
+                " ";
+            var buf: [64]u8 = undefined;
+            self.mini_editor.set_prefix(std.fmt.bufPrint(&buf, "{s}  ", .{icon}) catch "") catch {};
         }
 
         const cmds = struct {
@@ -320,8 +321,8 @@ pub fn Create(options: type) type {
 
             pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
                 self.complete_trigger_count = 0;
-                self.file_path.clearRetainingCapacity();
-                self.update_mini_mode_text();
+                try self.mini_editor.buffer.clear();
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
@@ -331,23 +332,21 @@ pub fn Create(options: type) type {
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
             pub fn mini_mode_delete_to_previous_path_segment(self: *Self, _: Ctx) Result {
-                self.delete_to_previous_path_segment();
-                self.update_mini_mode_text();
+                try self.delete_to_previous_path_segment();
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_delete_to_previous_path_segment_meta: Meta = .{ .description = "Delete to previous path segment" };
 
             pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
-                if (self.file_path.items.len > 0) {
-                    self.complete_trigger_count = 0;
-                    self.file_path.shrinkRetainingCapacity(self.file_path.items.len - tui.egc_last(self.file_path.items).len);
-                }
-                self.update_mini_mode_text();
+                self.complete_trigger_count = 0;
+                try self.mini_editor.buffer.delete_backward();
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
 
             pub fn mini_mode_try_complete_file(self: *Self, _: Ctx) Result {
                 self.try_complete_file() catch |e| return tp.exit_error(e, @errorReturnTrace());
-                self.update_mini_mode_text();
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_try_complete_file_meta: Meta = .{ .description = "Complete file" };
 
@@ -359,7 +358,7 @@ pub fn Create(options: type) type {
 
             pub fn mini_mode_reverse_complete_file(self: *Self, _: Ctx) Result {
                 self.reverse_complete_file() catch |e| return tp.exit_error(e, @errorReturnTrace());
-                self.update_mini_mode_text();
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_reverse_complete_file_meta: Meta = .{ .description = "Reverse complete file" };
 
@@ -368,10 +367,8 @@ pub fn Create(options: type) type {
                 if (!try ctx.args.match(.{tp.extract(&egc)}))
                     return error.InvalidFileBrowserInsertCodePointArgument;
                 self.complete_trigger_count = 0;
-                var buf: [32]u8 = undefined;
-                const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
-                try self.file_path.appendSlice(self.allocator, buf[0..bytes]);
-                self.update_mini_mode_text();
+                try self.mini_editor.buffer.insert_code_point(@intCast(egc));
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
 
@@ -380,26 +377,31 @@ pub fn Create(options: type) type {
                 if (!try ctx.args.match(.{tp.extract(&bytes)}))
                     return error.InvalidFileBrowserInsertBytesArgument;
                 self.complete_trigger_count = 0;
-                try self.file_path.appendSlice(self.allocator, bytes);
-                self.update_mini_mode_text();
+                try self.mini_editor.buffer.insert(bytes);
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
             pub fn mini_mode_select(self: *Self, _: Ctx) Result {
                 options.select(self);
-                self.update_mini_mode_text();
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
 
             pub fn mini_mode_select_alternate(self: *Self, _: Ctx) Result {
                 self.select = .alternate;
                 options.select(self);
-                self.update_mini_mode_text();
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_select_alternate_meta: Meta = .{ .description = "Select alternate" };
 
             pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
-                return mini_mode_insert_bytes(self, ctx);
+                var bytes: []const u8 = undefined;
+                if (!try ctx.args.match(.{tp.extract(&bytes)}))
+                    return error.InvalidFileBrowserPasteArgument;
+                self.complete_trigger_count = 0;
+                try self.mini_editor.buffer.paste(bytes);
+                self.update_mini_mode_prefix();
             }
             pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
         };

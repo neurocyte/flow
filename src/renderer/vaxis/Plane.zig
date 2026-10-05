@@ -581,6 +581,11 @@ pub fn egc_chunk_col_pos(self: *const Plane, chunk_: []const u8, abs_col_: usize
     return chunk_.len - chunk.len;
 }
 
+pub fn egc_first(egcs: []const u8) []const u8 {
+    var iter = vaxis.unicode.graphemeIterator(egcs);
+    return if (iter.next()) |grapheme| grapheme.bytes(egcs) else egcs[0..0];
+}
+
 pub fn egc_last(egcs: []const u8) []const u8 {
     var iter = vaxis.unicode.graphemeIterator(egcs);
     var last: []const u8 = egcs[0..0];

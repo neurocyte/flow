@@ -10,8 +10,9 @@ pub const create = Type.create;
 pub const ValueType = struct {
     editor: ?*ed.Editor,
     state: jump_labels.State,
-    text: [1]u8 = undefined,
 };
+
+pub const show_input = {};
 
 /// Expects the labels installed by `goto_word`.
 pub fn start(_: *Type) ValueType {
@@ -46,10 +47,8 @@ pub fn process_egc(self: *Type, egc: []const u8) command.Result {
 }
 
 fn show_first(self: *Type, first: u8) void {
-    self.value.text[0] = first;
-    const mini_mode = tui.mini_mode() orelse return;
-    mini_mode.text = self.value.text[0..1];
-    mini_mode.cursor = 1;
+    const mini_editor = self.mini_editor orelse return;
+    mini_editor.buffer.set_text(&.{first}) catch {};
 }
 
 fn active_editor(self: *Type) ?*ed.Editor {
