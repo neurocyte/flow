@@ -2032,6 +2032,7 @@ const cmds = struct {
                 return @import("mode/overlay/task_palette.zig").name;
             }
             pub fn select(self_: *Type) void {
+                if (self_.mini_editor.bytes().len == 0) return;
                 @import("mode/overlay/task_palette.zig").run_task(.normal, self_.mini_editor.bytes()) catch {};
                 command.executeName("exit_mini_mode", .empty()) catch {};
             }
