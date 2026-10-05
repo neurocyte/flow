@@ -384,14 +384,12 @@ pub fn Create(options: type) type {
 
             pub fn mini_mode_select(self: *Self, _: Ctx) Result {
                 options.select(self);
-                self.update_mini_mode_prefix();
             }
             pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
 
             pub fn mini_mode_select_alternate(self: *Self, _: Ctx) Result {
                 self.select = .alternate;
                 options.select(self);
-                self.update_mini_mode_prefix();
             }
             pub const mini_mode_select_alternate_meta: Meta = .{ .description = "Select alternate" };
 

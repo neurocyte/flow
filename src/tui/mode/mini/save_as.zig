@@ -12,14 +12,32 @@ pub const create = Type.create;
 
 pub fn load_entries(self: *Type) !void {
     const editor = tui.get_active_editor() orelse return;
-    try self.mini_editor.buffer.insert(editor.file_path orelse "");
+    const file_path = editor.file_path orelse "";
+    try self.mini_editor.buffer.insert(file_path);
     if (editor.get_primary().selection) |sel| ret: {
         const text = editor.get_selection(sel, self.allocator) catch break :ret;
         defer self.allocator.free(text);
         if (!(text.len > 2 and std.mem.eql(u8, text[0..2], "..")))
             try self.mini_editor.buffer.clear();
         try self.mini_editor.buffer.insert(text);
+        return;
     }
+    const buffer = editor.buffer orelse return;
+    if (buffer.file_exists and !buffer.is_ephemeral()) return;
+    const basename = std.fs.path.basename(file_path);
+    const extension = std.fs.path.extension(basename);
+    if (extension.len == 0) if (default_extension(editor)) |ext| {
+        try self.mini_editor.buffer.insert(".");
+        try self.mini_editor.buffer.insert(ext);
+    };
+    self.mini_editor.buffer.select_range(file_path.len - basename.len, file_path.len - extension.len);
+}
+
+fn default_extension(editor: *const tui.exports.editor.Editor) ?[]const u8 {
+    const file_type = editor.file_type orelse return null;
+    return for (file_type.extensions orelse return null) |ext| {
+        if (std.mem.indexOfScalar(u8, ext, '.') == null) break ext;
+    } else null;
 }
 
 pub fn name(_: *Type) []const u8 {
