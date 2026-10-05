@@ -134,6 +134,12 @@ pub fn select_all(self: *Self) void {
     self.cursor = self.text.items.len;
 }
 
+pub fn select_range(self: *Self, begin: usize, end: usize) void {
+    self.last_edit = .none;
+    self.anchor = @min(begin, self.text.items.len);
+    self.cursor = @min(end, self.text.items.len);
+}
+
 pub fn delete_backward(self: *Self) !void {
     return self.delete_to(self.prev(self.cursor));
 }

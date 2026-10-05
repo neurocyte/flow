@@ -113,3 +113,13 @@ test "mini_buffer typing over a selection is one undo step" {
     try eq("old query", mb.bytes());
     try eq("old query", mb.selected_text().?);
 }
+
+test "mini_buffer select_range" {
+    var mb: MiniBuffer = .init(a);
+    defer mb.deinit();
+    try mb.set_text("dir/Untitled-1.zig");
+    mb.select_range(4, 14);
+    try eq("Untitled-1", mb.selected_text().?);
+    try mb.insert("main");
+    try eq("dir/main.zig", mb.bytes());
+}
