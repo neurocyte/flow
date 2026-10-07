@@ -261,6 +261,10 @@ pub const CurSel = struct {
         return self.cursor.nudge_delete(nudge);
     }
 
+    fn is_cursor_only(self: *const Self) bool {
+        return if (self.selection) |sel| sel.empty() else true;
+    }
+
     fn merge(self: *Self, other: Selection) bool {
         if (self.selection) |*sel_| {
             if (sel_.merge(other)) {
@@ -1026,6 +1030,7 @@ pub const Editor = struct {
 
     fn update_buf_and_eol_mode(self: *Self, root: Buffer.Root, eol_mode: Buffer.EolMode, utf8_sanitized: bool, now: std.Io.Timestamp) !void {
         const b = self.buffer orelse return error.Stop;
+        self.collapse_duplicate_cursors();
         var sfa_buf: [512]u8 = undefined;
         var sfa: std.heap.BufferFirstAllocator = .init(&sfa_buf, self.allocator);
         const sfa_allocator = sfa.allocator();
@@ -2374,6 +2379,20 @@ pub const Editor = struct {
         } else return false;
     }
 
+    fn collapse_duplicate_cursors(self: *Self) void {
+        const cursels = self.cursels.items;
+        var idx = cursels.len;
+        while (idx > 1) {
+            idx -= 1;
+            const cursel = cursels[idx] orelse continue;
+            if (!cursel.is_cursor_only()) continue;
+            for (cursels[0..idx]) |*other_| if (other_.*) |other|
+                if (other.is_cursor_only() and other.cursor.eql(cursel.cursor)) {
+                    other_.* = null;
+                };
+        }
+    }
+
     fn collapse_cursors(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "collapse cursors" });
         defer frame.deinit();
@@ -2916,10 +2935,11 @@ pub const Editor = struct {
         return root_;
     }
 
-    fn delete_range(self: *Self, root: Buffer.Root, cursel: *const CurSel, sel: Selection, allocator: Allocator) error{Stop}!struct { Buffer.Root, Buffer.Nudge, ?u8 } {
+    fn delete_range(self: *Self, root: Buffer.Root, cursel: *CurSel, sel: Selection, allocator: Allocator) error{Stop}!struct { Buffer.Root, Buffer.Nudge, ?u8 } {
         var size: usize = 0;
         const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, self.metrics);
         const nudge: Buffer.Nudge = .delete(sel, root, root_, self.metrics);
+        _ = cursel.cursor.nudge_delete(nudge);
         self.nudge_delete(nudge, cursel, size);
         return .{ root_, nudge, trigger_char };
     }
@@ -3624,8 +3644,7 @@ pub const Editor = struct {
         cursor.target = cursor.col;
         self.nudge_insert(.insert(.{ .begin = begin, .end = cursor.* }, root, root_, self.metrics), cursel, s.len);
         if (replaced) |sel| {
-            root_, const nudge, const trigger_char = try self.delete_range(root_, cursel, sel, allocator);
-            _ = cursor.nudge_delete(nudge);
+            root_, _, const trigger_char = try self.delete_range(root_, cursel, sel, allocator);
             if (trigger_char) |char| self.run_triggers(cursel, char, .delete);
         }
         if (s.len > 0) self.run_triggers(cursel, s[s.len - 1], .insert);
