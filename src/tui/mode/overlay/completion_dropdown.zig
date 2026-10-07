@@ -239,7 +239,7 @@ pub const Values = struct {
     kind: CompletionItemKind,
     insert: ?Selection,
     replace: ?Selection,
-    additionalTextEdits: []const u8,
+    additionalTextEdits: cbor.Raw,
     label_detail: []const u8,
     label_description: []const u8,
     detail: []const u8,
@@ -289,7 +289,7 @@ pub fn get_values(item_cbor: []const u8) Values {
         .kind = @fromBackingInt(@intCast(kind)),
         .insert = get_range(insert_cbor),
         .replace = get_range(replace_cbor),
-        .additionalTextEdits = additionalTextEdits,
+        .additionalTextEdits = .{ .bytes = additionalTextEdits },
         .label_detail = label_detail,
         .label_description = label_description,
         .detail = detail,
@@ -360,7 +360,7 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     else
         values.label;
     const ctx: command.Context = .empty();
-    self.value.editor.insert_completion(sel, text, values.insertTextFormat, ctx.now) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
+    self.value.editor.insert_completion(sel, text, values.insertTextFormat, values.additionalTextEdits, ctx.now) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| self.logger.err(module_name, e);

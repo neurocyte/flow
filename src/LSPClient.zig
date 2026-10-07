@@ -584,7 +584,7 @@ pub const CompletionItemError = error{
     InvalidCompletionItem,
     InvalidCompletionItemField,
     InvalidCompletionItemFieldName,
-} || TextEditError || cbor.Error;
+} || TextEditError || cbor.Error || std.Io.Writer.Error;
 fn send_completion_items(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, items: []const u8, is_incomplete: bool) (CompletionItemError || cbor.Error)!void {
     var iter = items;
     var len = cbor.decodeArrayHeader(&iter) catch return;
@@ -619,8 +619,8 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     var insertText: []const u8 = "";
     var insertTextFormat: usize = 0;
     var textEdit: TextEdit = .{};
-    var additionalTextEdits: [32]TextEdit = undefined;
-    var additionalTextEdits_len: usize = 0;
+    var additionalTextEdits: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+    defer additionalTextEdits.deinit();
 
     var iter = item;
     var len = cbor.decodeMapHeader(&iter) catch return;
@@ -676,17 +676,27 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
         } else if (std.mem.eql(u8, field_name, "textEdit")) {
             textEdit = try read_textEdit(&iter);
         } else if (std.mem.eql(u8, field_name, "additionalTextEdits")) {
-            var len_ = cbor.decodeArrayHeader(&iter) catch return;
-            additionalTextEdits_len = len_;
-            var idx: usize = 0;
+            if (try cbor.matchValue(&iter, cbor.null_)) continue;
+            var len_ = cbor.decodeArrayHeader(&iter) catch return invalid_completion_item_field("additionalTextEdits");
+            additionalTextEdits.clearRetainingCapacity();
+            try cbor.writeArrayHeader(&additionalTextEdits.writer, len_);
             while (len_ > 0) : (len_ -= 1) {
-                additionalTextEdits[idx] = try read_textEdit(&iter);
-                idx += 1;
+                const edit = try read_textEdit(&iter);
+                const range = edit.replace orelse edit.insert orelse return invalid_completion_item_field("additionalTextEdits");
+                try cbor.writeValue(&additionalTextEdits.writer, .{
+                    range.start.line,
+                    range.start.character,
+                    range.end.line,
+                    range.end.character,
+                    edit.newText,
+                });
             }
         } else {
             try cbor.skipValue(&iter);
         }
     }
+    if (additionalTextEdits.written().len == 0)
+        try cbor.writeArrayHeader(&additionalTextEdits.writer, 0);
     const insert = textEdit.insert orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     const replace = textEdit.replace orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     return to.send(.{
@@ -719,7 +729,7 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
                 replace.end.line,
                 replace.end.character,
             },
-            additionalTextEdits[0..additionalTextEdits_len],
+            cbor.Raw{ .bytes = additionalTextEdits.written() },
         },
     }) catch |e| {
         std.log.err("send add_completion failed: {t}", .{e});

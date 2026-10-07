@@ -6088,7 +6088,7 @@ pub const Editor = struct {
     }
     pub const select_prev_sibling_meta: Meta = .{ .description = "Move selection to previous AST sibling node" };
 
-    pub fn insert_snippet(self: *Self, snippet_text_: []const u8, now: std.Io.Timestamp) Result {
+    pub fn insert_snippet(self: *Self, snippet_text_: []const u8, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
         var snippet_buf: std.ArrayList(u8) = .empty;
         defer snippet_buf.deinit(self.allocator);
         const snippet_text = switch (self.indent_mode) {
@@ -6106,18 +6106,22 @@ pub const Editor = struct {
         const value = try snippet.parse(self.allocator, snippet_text, snippet_variables.resolve);
         defer value.deinit(self.allocator);
 
-        const root_ = try self.buf_root();
+        const b = try self.buf_for_update();
+        var root = try self.apply_text_edits(b.root, text_edits, b.allocator);
         const primary = self.get_primary();
         const cursor = if (primary.selection) |sel| sel.begin else primary.cursor;
         const eol_mode = try self.buf_eol_mode();
         var cursor_pos: usize = 0;
-        _ = try root_.get_range(.{
+        _ = try root.get_range(.{
             .begin = .{ .row = 0, .col = 0 },
             .end = cursor,
         }, null, &cursor_pos, null, self.metrics);
 
-        try self.insert_cursels(value.text, now);
-        const root = try self.buf_root();
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            root = try self.insert(root, cursel, value.text, b.allocator);
+        };
+        try self.update_buf(root, now);
+        self.clamp(now);
 
         if (self.has_secondary_cursors())
             return;
@@ -6207,21 +6211,73 @@ pub const Editor = struct {
         };
     }
 
-    pub fn insert_completion(self: *Self, sel: Selection, text: []const u8, insertTextFormat: usize, now: std.Io.Timestamp) Result {
+    pub fn insert_completion(self: *Self, sel: Selection, text: []const u8, insertTextFormat: usize, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
         if (self.has_secondary_cursors())
             self.replicate_selection(sel);
         self.get_primary().selection = sel;
 
         switch (insertTextFormat) {
-            2 => try self.insert_snippet(text, now),
-            else => try self.insert_cursels(text, now),
+            2 => try self.insert_snippet(text, text_edits, now),
+            else => try self.insert_cursels_with_text_edits(text, text_edits, now),
         }
     }
 
-    pub fn insert_completion_at_cursor(self: *Self, text: []const u8, insertTextFormat: usize, now: std.Io.Timestamp) Result {
+    pub fn insert_completion_at_cursor(self: *Self, text: []const u8, insertTextFormat: usize, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
         const primary = self.get_primary();
         const sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
-        return self.insert_completion(sel, text, insertTextFormat, now);
+        return self.insert_completion(sel, text, insertTextFormat, text_edits, now);
+    }
+
+    const TextEdit = struct {
+        sel: Selection,
+        text: []const u8,
+
+        fn less_fn(_: void, lhs: TextEdit, rhs: TextEdit) bool {
+            return rhs.sel.begin.right_of(lhs.sel.begin);
+        }
+    };
+
+    fn apply_text_edits(self: *Self, root: Buffer.Root, text_edits: cbor.Raw, allocator: Allocator) !Buffer.Root {
+        var iter = text_edits.bytes;
+        if (iter.len == 0) return root;
+        var len = try cbor.decodeArrayHeader(&iter);
+        var edits: std.ArrayList(TextEdit) = .empty;
+        defer edits.deinit(self.allocator);
+        while (len > 0) : (len -= 1) {
+            var pos: Selection = .{};
+            var text: []const u8 = undefined;
+            if (!try cbor.matchValue(&iter, .{
+                cbor.extract(&pos.begin.row),
+                cbor.extract(&pos.begin.col),
+                cbor.extract(&pos.end.row),
+                cbor.extract(&pos.end.col),
+                cbor.extract(&text),
+            })) return error.InvalidTextEdit;
+            var sel = pos.from_pos(root, self.metrics);
+            sel.normalize();
+            (try edits.addOne(self.allocator)).* = .{ .sel = sel, .text = text };
+        }
+        std.mem.sort(TextEdit, edits.items, {}, TextEdit.less_fn);
+
+        var root_ = root;
+        var idx = edits.items.len;
+        while (idx > 0) {
+            idx -= 1;
+            root_ = try self.apply_text_edit(root_, edits.items[idx], allocator);
+        }
+        return root_;
+    }
+
+    fn apply_text_edit(self: *Self, root: Buffer.Root, edit: TextEdit, allocator: Allocator) !Buffer.Root {
+        var cursel: CurSel = .{ .cursor = edit.sel.end };
+        var root_ = root;
+        if (edit.text.len > 0) {
+            cursel.cursor.row, cursel.cursor.col, root_ = try root.insert_chars(edit.sel.end.row, edit.sel.end.col, edit.text, allocator, self.metrics);
+            self.nudge_insert(.insert(.{ .begin = edit.sel.end, .end = cursel.cursor }, root, root_, self.metrics), &cursel, edit.text.len);
+        }
+        if (!edit.sel.empty())
+            root_, _, _ = try self.delete_range(root_, &cursel, edit.sel, allocator);
+        return root_;
     }
 
     pub fn update_completion_cursels(self: *Self, sel: Selection, text: []const u8, now: std.Io.Timestamp) Result {
@@ -6244,8 +6300,12 @@ pub const Editor = struct {
     }
 
     pub fn insert_cursels(self: *Self, chars: []const u8, now: std.Io.Timestamp) Result {
+        return self.insert_cursels_with_text_edits(chars, .empty, now);
+    }
+
+    fn insert_cursels_with_text_edits(self: *Self, chars: []const u8, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
         const b = try self.buf_for_update();
-        var root = b.root;
+        var root = try self.apply_text_edits(b.root, text_edits, b.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             root = try self.insert(root, cursel, chars, b.allocator);
         };
