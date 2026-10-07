@@ -763,3 +763,45 @@ test "nudge_insert: cursor before a tab follows its character" {
     try test_nudge_insert_doc("xyQ\tz\n", .{ .row = 0, .col = 0 }, "ab", .{ .row = 0, .col = 2 });
     try test_nudge_insert_doc("x\tyQ\n", .{ .row = 0, .col = 0 }, "ab\tcd\n\t", .{ .row = 0, .col = 9 });
 }
+
+test "nudge_insert: selection ending at the insert position does not grow" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 1 }, .end = .{ .row = 3, .col = 4 } };
+    sel.nudge_insert(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } });
+    try std.testing.expectEqual(1, sel.begin.col);
+    try std.testing.expectEqual(4, sel.end.col);
+
+    var reversed: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 1 } };
+    reversed.nudge_insert(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } });
+    try std.testing.expectEqual(4, reversed.begin.col);
+    try std.testing.expectEqual(1, reversed.end.col);
+}
+
+test "nudge_insert: selection beginning at the insert position moves" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 8 } };
+    sel.nudge_insert(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } });
+    try std.testing.expectEqual(6, sel.begin.col);
+    try std.testing.expectEqual(10, sel.end.col);
+}
+
+test "nudge_insert: empty selection at the insert position moves" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 4 } };
+    sel.nudge_insert(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } });
+    try std.testing.expectEqual(6, sel.begin.col);
+    try std.testing.expectEqual(6, sel.end.col);
+}
+
+test "nudge: replacing a selection keeps a cursor at its begin and moves a cursor at its end" {
+    // replace (0,1)-(0,5) with one character: insert at the selection end, then delete the selection
+    const insert: Buffer.Nudge = .{ .sel = .{ .begin = .{ .row = 0, .col = 5 }, .end = .{ .row = 0, .col = 6 } } };
+    const delete: Buffer.Nudge = .{ .sel = .{ .begin = .{ .row = 0, .col = 1 }, .end = .{ .row = 0, .col = 5 } } };
+
+    var at_begin: Buffer.Cursor = .{ .row = 0, .col = 1 };
+    at_begin.nudge_insert(insert);
+    try std.testing.expect(at_begin.nudge_delete(delete));
+    try std.testing.expectEqual(1, at_begin.col);
+
+    var at_end: Buffer.Cursor = .{ .row = 0, .col = 5 };
+    at_end.nudge_insert(insert);
+    try std.testing.expect(at_end.nudge_delete(delete));
+    try std.testing.expectEqual(2, at_end.col);
+}

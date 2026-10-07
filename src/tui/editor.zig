@@ -94,8 +94,10 @@ pub const Match = struct {
     }
 
     fn nudge_insert(self: *Self, nudge: Buffer.Nudge) void {
-        self.begin.nudge_insert(nudge);
-        self.end.nudge_insert(nudge);
+        var sel = self.to_selection();
+        sel.nudge_insert(nudge);
+        self.begin = sel.begin;
+        self.end = sel.end;
     }
 
     fn nudge_delete(self: *Self, nudge: Buffer.Nudge) bool {
@@ -243,8 +245,13 @@ pub const CurSel = struct {
     }
 
     fn nudge_insert(self: *Self, nudge: Buffer.Nudge) void {
-        if (self.selection) |*sel_| sel_.nudge_insert(nudge);
-        self.cursor.nudge_insert(nudge);
+        const sel = if (self.selection) |*sel_| sel_ else return self.cursor.nudge_insert(nudge);
+        const at_end = self.cursor.eql(sel.end);
+        const at_begin = self.cursor.eql(sel.begin);
+        sel.nudge_insert(nudge);
+        const edge = if (at_end) sel.end else if (at_begin) sel.begin else return self.cursor.nudge_insert(nudge);
+        if (edge.eql(self.cursor)) return;
+        self.cursor = .{ .row = edge.row, .col = edge.col, .target = edge.col };
     }
 
     fn nudge_delete(self: *Self, nudge: Buffer.Nudge) bool {
@@ -2904,11 +2911,17 @@ pub const Editor = struct {
         sel.normalize();
         cursel.cursor = sel.begin;
         cursel.disable_selection_normal();
-        var size: usize = 0;
-        const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, self.metrics);
-        self.nudge_delete(.delete(sel, root, root_, self.metrics), cursel, size);
+        const root_, _, const trigger_char = try self.delete_range(root, cursel, sel, allocator);
         if (trigger_char) |char| self.run_triggers(cursel, char, .delete);
         return root_;
+    }
+
+    fn delete_range(self: *Self, root: Buffer.Root, cursel: *const CurSel, sel: Selection, allocator: Allocator) error{Stop}!struct { Buffer.Root, Buffer.Nudge, ?u8 } {
+        var size: usize = 0;
+        const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, self.metrics);
+        const nudge: Buffer.Nudge = .delete(sel, root, root_, self.metrics);
+        self.nudge_delete(nudge, cursel, size);
+        return .{ root_, nudge, trigger_char };
     }
 
     fn delete_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root, allocator: Allocator) error{Stop}!Buffer.Root {
@@ -3596,13 +3609,25 @@ pub const Editor = struct {
 
     pub fn insert(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
         cursel.check_selection(root, self.metrics);
-        var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
+        // insert after the selection before deleting it, so that only cursors behind the replaced text are moved
+        const replaced: ?Selection = if (cursel.selection) |sel_| blk: {
+            var sel = sel_;
+            sel.normalize();
+            cursel.cursor = sel.end;
+            cursel.disable_selection_normal();
+            break :blk sel;
+        } else null;
+        var root_ = root;
         const cursor = &cursel.cursor;
         const begin = cursel.cursor;
-        const before = root_;
         cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
         cursor.target = cursor.col;
-        self.nudge_insert(.insert(.{ .begin = begin, .end = cursor.* }, before, root_, self.metrics), cursel, s.len);
+        self.nudge_insert(.insert(.{ .begin = begin, .end = cursor.* }, root, root_, self.metrics), cursel, s.len);
+        if (replaced) |sel| {
+            root_, const nudge, const trigger_char = try self.delete_range(root_, cursel, sel, allocator);
+            _ = cursor.nudge_delete(nudge);
+            if (trigger_char) |char| self.run_triggers(cursel, char, .delete);
+        }
         if (s.len > 0) self.run_triggers(cursel, s[s.len - 1], .insert);
         return root_;
     }

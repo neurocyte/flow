@@ -88,8 +88,10 @@ pub fn extract(self: *Self, iter: *[]const u8) !bool {
 }
 
 pub fn nudge_insert(self: *Self, nudge: Nudge) void {
-    self.begin.nudge_insert(nudge);
-    self.end.nudge_insert(nudge);
+    const left, const right = if (self.is_reversed()) .{ &self.end, &self.begin } else .{ &self.begin, &self.end };
+    const ends_at_insert = !self.empty() and right.eql(nudge.sel.begin);
+    left.nudge_insert(nudge);
+    if (!ends_at_insert) right.nudge_insert(nudge);
 }
 
 pub fn nudge_delete(self: *Self, nudge: Nudge) bool {
