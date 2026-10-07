@@ -248,11 +248,7 @@ pub fn nudge_delete(self: *Self, nudge: Selection) bool {
     }
     if (self.row == nudge.end.row) {
         self.row -= nudge.end.row - nudge.begin.row;
-        if (self.row == nudge.begin.row) {
-            self.col += nudge.begin.col + nudge.end.col;
-        } else {
-            self.col -= nudge.end.col;
-        }
+        self.col = self.col - nudge.end.col + nudge.begin.col;
         self.target = self.col;
         return true;
     }

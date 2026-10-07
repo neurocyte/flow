@@ -551,3 +551,61 @@ test "reflow: bullet continuation keeps prefix tabs and pads with spaces" {
         "\t- one two three\n\t  four\n",
     );
 }
+
+fn test_nudge_delete(cursor_: Buffer.Cursor, nudge: Buffer.Selection, expected: ?Buffer.Cursor) !void {
+    var cursor = cursor_;
+    const survived = cursor.nudge_delete(nudge);
+    if (expected) |expected_| {
+        try std.testing.expect(survived);
+        try std.testing.expectEqual(expected_.row, cursor.row);
+        try std.testing.expectEqual(expected_.col, cursor.col);
+    } else try std.testing.expect(!survived);
+}
+
+test "nudge_delete: cursor before the deleted range is unchanged" {
+    try test_nudge_delete(
+        .{ .row = 2, .col = 3 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } },
+        .{ .row = 2, .col = 3 },
+    );
+}
+
+test "nudge_delete: cursor inside the deleted range is removed" {
+    try test_nudge_delete(
+        .{ .row = 4, .col = 1 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } },
+        null,
+    );
+}
+
+test "nudge_delete: single line delete shifts cursor left" {
+    try test_nudge_delete(
+        .{ .row = 3, .col = 10 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } },
+        .{ .row = 3, .col = 8 },
+    );
+}
+
+test "nudge_delete: multi line delete shifts cursor on a later row up" {
+    try test_nudge_delete(
+        .{ .row = 7, .col = 10 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } },
+        .{ .row = 5, .col = 10 },
+    );
+}
+
+test "nudge_delete: multi line delete joins cursor on the last deleted row" {
+    try test_nudge_delete(
+        .{ .row = 5, .col = 10 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } },
+        .{ .row = 3, .col = 8 },
+    );
+}
+
+test "nudge_delete: multi line delete with cursor at the range end" {
+    try test_nudge_delete(
+        .{ .row = 5, .col = 6 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } },
+        .{ .row = 3, .col = 4 },
+    );
+}
