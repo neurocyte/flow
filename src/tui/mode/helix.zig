@@ -894,10 +894,21 @@ fn surround_cursel_add(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocato
         return error.Stop;
 
     const enclose_pair = find_open_close_pair(encloser);
-    var root_: Buffer.Root = root;
     cursel.check_selection(root, ed.metrics);
 
-    const sel = cursel.enable_selection(root_, ed.metrics);
+    const sel = cursel.enable_selection(root, ed.metrics);
+    const root_, const enclosed = try surround_add(root, sel.*, enclose_pair.left, enclose_pair.right, allocator, ed.metrics);
+    cursel.selection = enclosed;
+    ed.nudge_insert(enclosed, cursel, encloser.len * 2);
+
+    if (enclosed.end.right_of(enclosed.begin)) {
+        try cursel.*.cursor.move_right(root_, ed.metrics);
+    }
+    return root_;
+}
+
+fn surround_add(root: Buffer.Root, sel: Selection, left: []const u8, right: []const u8, allocator: Allocator, metrics: Buffer.Metrics) error{Stop}!struct { Buffer.Root, Selection } {
+    var root_: Buffer.Root = root;
     var begin = sel.begin;
     var end = sel.end;
     if (sel.is_reversed()) {
@@ -905,22 +916,16 @@ fn surround_cursel_add(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocato
         begin = sel.end;
     }
     if (begin.row == end.row and end.col == begin.col) {
-        end.move_right(root_, ed.metrics) catch {};
+        end.move_right(root_, metrics) catch {};
     }
-    _, _, root_ = root_.insert_chars(end.row, end.col, enclose_pair.right, allocator, ed.metrics) catch return error.Stop;
-    _, _, root_ = root_.insert_chars(begin.row, begin.col, enclose_pair.left, allocator, ed.metrics) catch return error.Stop;
+    _, _, root_ = root_.insert_chars(end.row, end.col, right, allocator, metrics) catch return error.Stop;
+    _, _, root_ = root_.insert_chars(begin.row, begin.col, left, allocator, metrics) catch return error.Stop;
 
     if (begin.row == end.row) {
-        try end.move_right(root_, ed.metrics); // for left-bracket column shift on same row
+        try end.move_right(root_, metrics); // for left-bracket column shift on same row
     }
-    try end.move_right(root_, ed.metrics); // skip past right bracket
-    cursel.selection = Selection{ .begin = begin, .end = end };
-    ed.nudge_insert(.{ .begin = begin, .end = end }, cursel, encloser.len * 2);
-
-    if (end.right_of(begin)) {
-        try cursel.*.cursor.move_right(root_, ed.metrics);
-    }
-    return root_;
+    try end.move_right(root_, metrics); // skip past right bracket
+    return .{ root_, .{ .begin = begin, .end = end } };
 }
 
 fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}
@@ -1325,4 +1330,5 @@ pub const test_internal = struct {
     pub const insert_before = private.insert_before;
     pub const insert_replace_selection = private.insert_replace_selection;
     pub const insert_after = private.insert_after;
+    pub const surround_add = private.surround_add;
 };

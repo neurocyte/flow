@@ -245,3 +245,36 @@ test "to_char_right_beyond_eol" {
 // Related to that is the fact that when a selection
 // is made, then trying to move to the right, the
 // first movement is swallowed
+
+test "insert_line_vim nudges other cursors" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string("one\ntwo\n", &eol_mode, &sanitized), now);
+
+    var cursor: Cursor = .{ .row = 0, .col = 0 };
+    _, const nudge = try Editor.insert_line_vim_at(buffer.root, &cursor, "X\n", buffer.allocator, metrics());
+
+    var other: Cursor = .{ .row = 1, .col = 1 };
+    other.nudge_insert(nudge);
+    try std.testing.expectEqual(2, other.row);
+    try std.testing.expectEqual(1, other.col);
+}
+
+test "surround_add nudges other cursors by the inserted brackets only" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string("foo bar baz\n", &eol_mode, &sanitized), now);
+
+    const sel: Buffer.Selection = .{ .begin = .{ .row = 0, .col = 4 }, .end = .{ .row = 0, .col = 7 } };
+    _, const nudge = try helix.test_internal.surround_add(buffer.root, sel, "(", ")", buffer.allocator, metrics());
+
+    var inside: Cursor = .{ .row = 0, .col = 5 };
+    inside.nudge_insert(nudge);
+    try std.testing.expectEqual(6, inside.col);
+
+    var after: Cursor = .{ .row = 0, .col = 9 };
+    after.nudge_insert(nudge);
+    try std.testing.expectEqual(11, after.col);
+}

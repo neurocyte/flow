@@ -3605,12 +3605,16 @@ pub const Editor = struct {
 
     pub fn insert_line_vim(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
         var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
-        const cursor = &cursel.cursor;
-        const begin = cursel.cursor;
-        _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
-        cursor.target = cursor.col;
-        self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+        root_, const nudge = try insert_line_vim_at(root_, &cursel.cursor, s, allocator, self.metrics);
+        self.nudge_insert(nudge, cursel, s.len);
         return root_;
+    }
+
+    pub fn insert_line_vim_at(root: Buffer.Root, cursor: *Cursor, s: []const u8, allocator: Allocator, metrics: Buffer.Metrics) !struct { Buffer.Root, Selection } {
+        const begin = cursor.*;
+        _, _, const root_ = try root.insert_chars(cursor.row, cursor.col, s, allocator, metrics);
+        cursor.target = cursor.col;
+        return .{ root_, .{ .begin = begin, .end = cursor.* } };
     }
 
     pub fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root) !Buffer.Root {

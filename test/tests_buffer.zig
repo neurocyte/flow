@@ -609,3 +609,135 @@ test "nudge_delete: multi line delete with cursor at the range end" {
         .{ .row = 3, .col = 4 },
     );
 }
+
+test "nudge_delete: cursor at the range begin survives" {
+    try test_nudge_delete(
+        .{ .row = 3, .col = 4 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } },
+        .{ .row = 3, .col = 4 },
+    );
+    try test_nudge_delete(
+        .{ .row = 3, .col = 4 },
+        .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } },
+        .{ .row = 3, .col = 4 },
+    );
+}
+
+test "nudge_delete: selection ending at the range begin survives" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 1 }, .end = .{ .row = 3, .col = 4 } };
+    try std.testing.expect(sel.nudge_delete(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } }));
+    try std.testing.expectEqual(1, sel.begin.col);
+    try std.testing.expectEqual(4, sel.end.col);
+}
+
+test "nudge_delete: selection beginning at the range end survives" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 6 }, .end = .{ .row = 3, .col = 9 } };
+    try std.testing.expect(sel.nudge_delete(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } }));
+    try std.testing.expectEqual(4, sel.begin.col);
+    try std.testing.expectEqual(7, sel.end.col);
+}
+
+test "nudge_insert: cursor on a later row keeps its target column" {
+    var cursor: Buffer.Cursor = .{ .row = 7, .col = 10, .target = 20 };
+    cursor.nudge_insert(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } });
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 9, .col = 10, .target = 20 }, cursor);
+}
+
+test "nudge_delete: cursor on a later row keeps its target column" {
+    var cursor: Buffer.Cursor = .{ .row = 7, .col = 10, .target = 20 };
+    try std.testing.expect(cursor.nudge_delete(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } }));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 5, .col = 10, .target = 20 }, cursor);
+}
+
+fn tab_metrics() Buffer.Metrics {
+    var metrics_ = metrics();
+    metrics_.egc_length = struct {
+        fn f(self: Buffer.Metrics, egcs: []const u8, colcount: *usize, abs_col: usize) usize {
+            colcount.* = if (egcs[0] == '\t') self.tab_width - (abs_col % self.tab_width) else 1;
+            return 1;
+        }
+    }.f;
+    metrics_.egc_chunk_width = struct {
+        fn f(self: Buffer.Metrics, chunk_: []const u8, abs_col_: usize) usize {
+            var abs_col = abs_col_;
+            for (chunk_) |c| abs_col += if (c == '\t') self.tab_width - (abs_col % self.tab_width) else 1;
+            return abs_col - abs_col_;
+        }
+    }.f;
+    return metrics_;
+}
+
+fn test_nudge_delete_doc(doc: []const u8, sel: Buffer.Selection, cursor_: Buffer.Cursor) !void {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
+
+    const pos = try buffer.root.get_byte_pos(cursor_, tab_metrics(), eol_mode);
+    var size: usize = 0;
+    const root, _ = try buffer.root.delete_range_char(sel, buffer.allocator, &size, tab_metrics());
+    const expected = root.byte_offset_to_line_and_col(pos - size, tab_metrics(), eol_mode);
+
+    var cursor = cursor_;
+    try std.testing.expect(cursor.nudge_delete(sel));
+    try std.testing.expectEqual(expected.row, cursor.row);
+    try std.testing.expectEqual(expected.col, cursor.col);
+}
+
+fn test_nudge_insert_doc(doc: []const u8, at: Buffer.Cursor, text: []const u8, cursor_: Buffer.Cursor) !void {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
+
+    const pos = try buffer.root.get_byte_pos(cursor_, tab_metrics(), eol_mode);
+    const row, const col, const root = try buffer.root.insert_chars(at.row, at.col, text, buffer.allocator, tab_metrics());
+    const expected = root.byte_offset_to_line_and_col(pos + text.len, tab_metrics(), eol_mode);
+
+    var cursor = cursor_;
+    cursor.nudge_insert(.{ .begin = at, .end = .{ .row = row, .col = col } });
+    try std.testing.expectEqual(expected.row, cursor.row);
+    try std.testing.expectEqual(expected.col, cursor.col);
+}
+
+test "nudge_delete: cursor follows its character" {
+    try test_nudge_delete_doc(
+        "ab ab Q\n",
+        .{ .begin = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 2 } },
+        .{ .row = 0, .col = 6 },
+    );
+    try test_nudge_delete_doc(
+        "abcd\nef Q\n",
+        .{ .begin = .{ .row = 0, .col = 4 }, .end = .{ .row = 1, .col = 2 } },
+        .{ .row = 1, .col = 3 },
+    );
+}
+
+test "nudge_delete: cursor follows its character across a tab" {
+    try test_nudge_delete_doc(
+        "ab\tab\tQ\n",
+        .{ .begin = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 2 } },
+        .{ .row = 0, .col = 16 },
+    );
+}
+
+test "nudge_delete: cursor follows its character across a tab on a joined row" {
+    try test_nudge_delete_doc(
+        "abcd\nef\tQ\n",
+        .{ .begin = .{ .row = 0, .col = 4 }, .end = .{ .row = 1, .col = 2 } },
+        .{ .row = 1, .col = 8 },
+    );
+}
+
+test "nudge_insert: cursor follows its character" {
+    try test_nudge_insert_doc(" Q\n", .{ .row = 0, .col = 0 }, "ab", .{ .row = 0, .col = 1 });
+    try test_nudge_insert_doc(" Q\n", .{ .row = 0, .col = 0 }, "ab\ncd", .{ .row = 0, .col = 1 });
+}
+
+test "nudge_insert: cursor follows its character across a tab" {
+    try test_nudge_insert_doc("\tQ\n", .{ .row = 0, .col = 0 }, "ab", .{ .row = 0, .col = 8 });
+}
