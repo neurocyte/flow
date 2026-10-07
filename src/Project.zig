@@ -1317,6 +1317,11 @@ pub fn completion(self: *Self, from: tp.pid_ref, source_location: *const SourceL
     return client.completion(from, source_location);
 }
 
+pub fn completion_resolve(self: *Self, from: tp.pid_ref, file_path: []const u8, token: u32, item: []const u8) StartLspError!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    return client.completion_resolve(from, file_path, token, item);
+}
+
 pub const SymbolInformationError = LSPClient.SymbolInformationError;
 pub fn symbols(self: *Self, from: tp.pid_ref, file_path: []const u8) (StartLspError || SymbolInformationError)!void {
     const client = try self.get_lsp_client_for_file(file_path);

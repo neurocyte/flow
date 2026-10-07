@@ -240,6 +240,7 @@ pub const Values = struct {
     insert: ?Selection,
     replace: ?Selection,
     additionalTextEdits: cbor.Raw,
+    item: cbor.Raw,
     label_detail: []const u8,
     label_description: []const u8,
     detail: []const u8,
@@ -263,6 +264,7 @@ pub fn get_values(item_cbor: []const u8) Values {
     var insert_cbor: []const u8 = &.{};
     var replace_cbor: []const u8 = &.{};
     var additionalTextEdits: []const u8 = &.{};
+    var item: []const u8 = &.{};
     _ = cbor.match(item_cbor, .{
         cbor.any, // file_path
         cbor.any, // row
@@ -282,6 +284,7 @@ pub fn get_values(item_cbor: []const u8) Values {
         cbor.extract_cbor(&insert_cbor),
         cbor.extract_cbor(&replace_cbor),
         cbor.extract_cbor(&additionalTextEdits),
+        cbor.extract_cbor(&item),
     }) catch false;
     return .{
         .label = label_,
@@ -290,6 +293,7 @@ pub fn get_values(item_cbor: []const u8) Values {
         .insert = get_range(insert_cbor),
         .replace = get_range(replace_cbor),
         .additionalTextEdits = .{ .bytes = additionalTextEdits },
+        .item = .{ .bytes = item },
         .label_detail = label_detail,
         .label_description = label_description,
         .detail = detail,
@@ -360,7 +364,7 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     else
         values.label;
     const ctx: command.Context = .empty();
-    self.value.editor.insert_completion(sel, text, values.insertTextFormat, values.additionalTextEdits, ctx.now) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
+    self.value.editor.insert_completion(sel, text, values.insertTextFormat, values.additionalTextEdits, values.item, ctx.now) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| self.logger.err(module_name, e);
@@ -370,6 +374,7 @@ pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(self, .empty());
     const mv = tui.mainview() orelse return;
     const values = get_values(button.opts.label);
+    self.value.editor.resolve_completion(values.item, values.additionalTextEdits);
     switch (tui.config().completion_info_mode) {
         .none => {},
         .box => try show_info_box(self, button, values),

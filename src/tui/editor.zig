@@ -451,6 +451,11 @@ pub const Editor = struct {
     completions: CompletionState = .empty,
     completions_request: ?CompletionState = .done,
     completions_refresh_pending: bool = false,
+    completion_resolve: struct {
+        token: u32 = 0,
+        text_edits: ?[]const u8 = null,
+        apply_on_arrival: bool = false,
+    } = .{},
 
     changes: std.ArrayList(Diff) = .empty,
 
@@ -685,6 +690,7 @@ pub const Editor = struct {
         if (self.info_box_layer) |layer| layer.deinit(self.allocator);
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
+        self.reset_completion_resolve();
         self.completions.deinit(self.allocator);
         if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
@@ -6211,7 +6217,10 @@ pub const Editor = struct {
         };
     }
 
-    pub fn insert_completion(self: *Self, sel: Selection, text: []const u8, insertTextFormat: usize, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
+    pub fn insert_completion(self: *Self, sel: Selection, text: []const u8, insertTextFormat: usize, text_edits_: cbor.Raw, item: cbor.Raw, now: std.Io.Timestamp) Result {
+        const text_edits = self.completion_text_edits(item, text_edits_);
+        defer if (!self.completion_resolve.apply_on_arrival) self.reset_completion_resolve();
+
         if (self.has_secondary_cursors())
             self.replicate_selection(sel);
         self.get_primary().selection = sel;
@@ -6222,10 +6231,81 @@ pub const Editor = struct {
         }
     }
 
-    pub fn insert_completion_at_cursor(self: *Self, text: []const u8, insertTextFormat: usize, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
+    pub fn insert_completion_at_cursor(self: *Self, text: []const u8, insertTextFormat: usize, text_edits: cbor.Raw, item: cbor.Raw, now: std.Io.Timestamp) Result {
         const primary = self.get_primary();
         const sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
-        return self.insert_completion(sel, text, insertTextFormat, text_edits, now);
+        return self.insert_completion(sel, text, insertTextFormat, text_edits, item, now);
+    }
+
+    fn has_text_edits(text_edits: cbor.Raw) bool {
+        var iter = text_edits.bytes;
+        if (iter.len == 0) return false;
+        return (cbor.decodeArrayHeader(&iter) catch 0) > 0;
+    }
+
+    fn completion_item_has_data(item: cbor.Raw) bool {
+        var iter = item.bytes;
+        var len = cbor.decodeMapHeader(&iter) catch return false;
+        while (len > 0) : (len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(cbor.matchString(&iter, &field_name) catch return false)) return false;
+            if (std.mem.eql(u8, field_name, "data"))
+                return !(cbor.matchValue(&iter, cbor.null_) catch return false);
+            cbor.skipValue(&iter) catch return false;
+        }
+        return false;
+    }
+
+    fn can_resolve_completions(self: *const Self) bool {
+        const ft = self.file_type orelse return false;
+        const ls = ft.language_server orelse return false;
+        if (ls.len == 0) return false;
+        const info = (tui.mainview() orelse return false).lsp_info.table.get(ls[0]) orelse return false;
+        return info.resolve_provider;
+    }
+
+    fn reset_completion_resolve(self: *Self) void {
+        if (self.completion_resolve.text_edits) |text_edits| self.allocator.free(text_edits);
+        self.completion_resolve = .{};
+    }
+
+    pub fn resolve_completion(self: *Self, item: cbor.Raw, text_edits: cbor.Raw) void {
+        const token: u32 = @max(1, @as(u32, @truncate(std.hash.Wyhash.hash(0, item.bytes))));
+        if (self.completion_resolve.token == token) return;
+        self.reset_completion_resolve();
+        if (item.bytes.len == 0 or has_text_edits(text_edits)) return;
+        if (!completion_item_has_data(item) and !self.can_resolve_completions()) return;
+        self.completion_resolve.token = token;
+        project_manager.completion_resolve(self.file_path orelse return, token, item) catch |e|
+            self.logger.err("completion_resolve", e);
+    }
+
+    fn completion_text_edits(self: *Self, item: cbor.Raw, text_edits: cbor.Raw) cbor.Raw {
+        if (has_text_edits(text_edits)) return text_edits;
+        self.resolve_completion(item, text_edits);
+        const resolve = &self.completion_resolve;
+        if (resolve.token == 0) return text_edits;
+        if (resolve.text_edits) |resolved| return .{ .bytes = resolved };
+        resolve.apply_on_arrival = true;
+        return text_edits;
+    }
+
+    pub fn completion_resolved(self: *Self, token: u32, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
+        const resolve = &self.completion_resolve;
+        if (resolve.token != token) return;
+        if (cbor.match(text_edits.bytes, cbor.null_) catch false)
+            return self.reset_completion_resolve();
+        if (!resolve.apply_on_arrival) {
+            if (resolve.text_edits) |old| self.allocator.free(old);
+            resolve.text_edits = try self.allocator.dupe(u8, text_edits.bytes);
+            return;
+        }
+        self.reset_completion_resolve();
+        if (!has_text_edits(text_edits)) return;
+        const b = try self.buf_for_update();
+        const root = try self.apply_text_edits(b.root, text_edits, b.allocator);
+        try self.update_buf(root, now);
+        self.clamp(now);
     }
 
     const TextEdit = struct {

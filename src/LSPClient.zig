@@ -677,20 +677,8 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
             textEdit = try read_textEdit(&iter);
         } else if (std.mem.eql(u8, field_name, "additionalTextEdits")) {
             if (try cbor.matchValue(&iter, cbor.null_)) continue;
-            var len_ = cbor.decodeArrayHeader(&iter) catch return invalid_completion_item_field("additionalTextEdits");
             additionalTextEdits.clearRetainingCapacity();
-            try cbor.writeArrayHeader(&additionalTextEdits.writer, len_);
-            while (len_ > 0) : (len_ -= 1) {
-                const edit = try read_textEdit(&iter);
-                const range = edit.replace orelse edit.insert orelse return invalid_completion_item_field("additionalTextEdits");
-                try cbor.writeValue(&additionalTextEdits.writer, .{
-                    range.start.line,
-                    range.start.character,
-                    range.end.line,
-                    range.end.character,
-                    edit.newText,
-                });
-            }
+            try write_text_edits(&additionalTextEdits.writer, &iter);
         } else {
             try cbor.skipValue(&iter);
         }
@@ -730,10 +718,80 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
                 replace.end.character,
             },
             cbor.Raw{ .bytes = additionalTextEdits.written() },
+            cbor.Raw{ .bytes = item },
         },
     }) catch |e| {
         std.log.err("send add_completion failed: {t}", .{e});
     };
+}
+
+fn write_text_edits(writer: *std.Io.Writer, iter: *[]const u8) (TextEditError || std.Io.Writer.Error)!void {
+    var len = cbor.decodeArrayHeader(iter) catch return invalid_text_edit_field("additionalTextEdits");
+    try cbor.writeArrayHeader(writer, len);
+    while (len > 0) : (len -= 1) {
+        const edit = try read_textEdit(iter);
+        const range = edit.replace orelse edit.insert orelse return invalid_text_edit_field("additionalTextEdits.range");
+        try cbor.writeValue(writer, .{
+            range.start.line,
+            range.start.character,
+            range.end.line,
+            range.end.character,
+            edit.newText,
+        });
+    }
+}
+
+pub fn completion_resolve(self: *Self, from: tp.pid_ref, file_path: []const u8, token: u32, item: []const u8) LspError!void {
+    const handler: struct {
+        from: tp.pid,
+        file_path: []const u8,
+        token: u32,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.file_path);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) (CompletionItemError || cbor.Error)!void {
+            var text_edits: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+            defer text_edits.deinit();
+            var result: []const u8 = undefined;
+            if (!try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
+                try cbor.writeValue(&text_edits.writer, null);
+            } else {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
+                    var iter = result;
+                    var len = try cbor.decodeMapHeader(&iter);
+                    while (len > 0) : (len -= 1) {
+                        var field_name: []const u8 = undefined;
+                        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidCompletionItemFieldName;
+                        if (std.mem.eql(u8, field_name, "additionalTextEdits")) {
+                            if (try cbor.matchValue(&iter, cbor.null_)) continue;
+                            text_edits.clearRetainingCapacity();
+                            try write_text_edits(&text_edits.writer, &iter);
+                        } else {
+                            try cbor.skipValue(&iter);
+                        }
+                    }
+                }
+                if (text_edits.written().len == 0)
+                    try cbor.writeArrayHeader(&text_edits.writer, 0);
+            }
+            self_.from.send(.{ "cmd", "completion_resolved", .{
+                self_.file_path,
+                self_.token,
+                cbor.Raw{ .bytes = text_edits.written() },
+            } }) catch |e| {
+                std.log.err("send completion_resolved failed: {t}", .{e});
+            };
+        }
+    } = .{
+        .from = from.clone(),
+        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+        .token = token,
+    };
+
+    self.lsp.send_request(self.allocator, "completionItem/resolve", cbor.Raw{ .bytes = item }, handler) catch return error.LspFailed;
 }
 
 pub fn symbols(self: *Self, from: tp.pid_ref, file_path: []const u8) (LspError || SymbolInformationError)!void {
@@ -1620,6 +1678,7 @@ fn send_init_request(
                         .preselectSupport = true,
                         .tagSupport = .{ .valueSet = .{1} },
                         .insertReplaceSupport = true,
+                        .resolveSupport = .{ .properties = .{"additionalTextEdits"} },
                         .insertTextModeSupport = .{ .valueSet = .{ 1, 2 } },
                         .labelDetailsSupport = true,
                     },
@@ -1855,6 +1914,10 @@ fn send_lsp_capabilities(to: tp.pid_ref, project_path: []const u8, language_serv
 }
 
 fn send_lsp_completionProvider(to: tp.pid_ref, project_path: []const u8, language_server: []const u8, iter: *[]const u8) (LspInfoError || cbor.Error)!void {
+    var resolve_provider: bool = false;
+    defer to.send(.{ "PRJ", "completionResolveProvider", project_path, cbor.Raw{ .bytes = language_server }, resolve_provider }) catch |e| {
+        std.log.err("send completionResolveProvider failed: {t}", .{e});
+    };
     var len = cbor.decodeMapHeader(iter) catch return;
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
@@ -1863,6 +1926,8 @@ fn send_lsp_completionProvider(to: tp.pid_ref, project_path: []const u8, languag
             var items: []const u8 = undefined;
             if (!(try cbor.matchValue(iter, cbor.extract_cbor(&items)))) return error.InvalidTriggerCharacters;
             try send_lsp_triggerCharacters(to, project_path, language_server, items);
+        } else if (std.mem.eql(u8, field_name, "resolveProvider")) {
+            if (!(try cbor.matchValue(iter, cbor.extract(&resolve_provider)))) try cbor.skipValue(iter);
         } else {
             try cbor.skipValue(iter);
         }

@@ -5,6 +5,7 @@ const Table = std.StringHashMapUnmanaged(Info);
 
 pub const Info = struct {
     trigger_characters: std.ArrayList([]const u8) = .empty,
+    resolve_provider: bool = false,
 };
 
 pub fn init(allocator: std.mem.Allocator) @This() {
@@ -38,6 +39,25 @@ pub fn add_from_event(self: *@This(), cbor_buf: []const u8) error{ InvalidTrigge
         cbor.extract_cbor(&trigger_characters),
     }) catch return)) return;
     try self.add(lsp_arg0, &trigger_characters);
+}
+
+pub fn set_resolve_provider_from_event(self: *@This(), cbor_buf: []const u8) error{OutOfMemory}!void {
+    var lsp_arg0: []const u8 = undefined;
+    var resolve_provider: bool = false;
+    if (!(cbor.match(cbor_buf, .{
+        cbor.any,
+        cbor.any,
+        cbor.any,
+        .{ cbor.extract(&lsp_arg0), cbor.more },
+        cbor.extract(&resolve_provider),
+    }) catch return)) return;
+    if (self.table.getPtr(lsp_arg0)) |info| {
+        info.resolve_provider = resolve_provider;
+        return;
+    }
+    const key = try self.allocator.dupe(u8, lsp_arg0);
+    errdefer self.allocator.free(key);
+    try self.table.put(self.allocator, key, .{ .resolve_provider = resolve_provider });
 }
 
 fn add(self: *@This(), lsp_arg0: []const u8, iter: *[]const u8) error{ InvalidTriggersArray, OutOfMemory }!void {

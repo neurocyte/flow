@@ -324,6 +324,13 @@ pub fn completion(source_location: SourceLocation) (ProjectManagerError || Proje
     return send(.{ "completion", project, source_location });
 }
 
+pub fn completion_resolve(file_path: []const u8, token: u32, item: cbor.Raw) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "completion_resolve", project, file_path, token, item });
+}
+
 pub fn symbols(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -504,6 +511,8 @@ const Process = struct {
         var message: []const u8 = undefined;
         var vcs_id: []const u8 = undefined;
         var source_location: SourceLocation = undefined;
+        var token: u32 = 0;
+        var item: []const u8 = undefined;
 
         var eol_mode: Buffer.EolModeTag = @backingInt(Buffer.EolMode.lf);
         var event_type: file_watcher.EventType = undefined;
@@ -608,6 +617,8 @@ const Process = struct {
             self.symbols(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "completion", tp.extract(&project_directory), tp.extract(&source_location) })) {
             self.completion(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "completion_resolve", tp.extract(&project_directory), tp.extract(&path), tp.extract(&token), tp.extract_cbor(&item) })) {
+            self.completion_resolve(from, project_directory, path, token, item) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&source_location) })) {
             self.rename_symbol(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "hover", tp.extract(&project_directory), tp.extract(&source_location) })) {
@@ -1070,6 +1081,13 @@ const Process = struct {
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.completion(from, args);
+    }
+
+    fn completion_resolve(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, token: u32, item: []const u8) (ProjectError || Project.StartLspError)!void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion_resolve" });
+        defer frame.deinit();
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.completion_resolve(from, file_path, token, item);
     }
 
     fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.GetLineOfFileError || Project.StartLspError)!void {

@@ -1839,6 +1839,29 @@ const cmds = struct {
         },
     };
 
+    pub fn completion_resolved(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var token: u32 = undefined;
+        var text_edits: []const u8 = undefined;
+
+        if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+            tp.extract(&token),
+            tp.extract_cbor(&text_edits),
+        })) return error.InvalidCompletionResolvedArgument;
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
+        if (self.get_editor_for_file(file_path)) |editor|
+            try editor.completion_resolved(token, .{ .bytes = text_edits }, ctx.now);
+    }
+    pub const completion_resolved_meta: Meta = .{
+        .arguments = &.{
+            .string, // file_path
+            .integer, // token
+            .array, // text_edits or null
+        },
+    };
+
     pub fn add_completion_done(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         var row: usize = undefined;
@@ -3236,6 +3259,10 @@ pub fn vcs_blame_update(self: *Self, m: tp.message) void {
 pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.lsp_info.add_from_event(m.buf) catch return;
     self.foreach_editor(ed.Editor.update_completion_triggers);
+}
+
+pub fn completion_resolve_provider_update(self: *Self, m: tp.message) void {
+    self.lsp_info.set_resolve_provider_from_event(m.buf) catch return;
 }
 
 pub fn lsp_restarted(self: *Self, m: tp.message) void {
