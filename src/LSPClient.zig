@@ -1610,11 +1610,6 @@ fn send_init_request(
                         .preselectSupport = true,
                         .tagSupport = .{ .valueSet = .{1} },
                         .insertReplaceSupport = true,
-                        .resolveSupport = .{ .properties = .{
-                            "documentation",
-                            "detail",
-                            "additionalTextEdits",
-                        } },
                         .insertTextModeSupport = .{ .valueSet = .{ 1, 2 } },
                         .labelDetailsSupport = true,
                     },
