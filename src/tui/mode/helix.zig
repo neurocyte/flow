@@ -897,9 +897,9 @@ fn surround_cursel_add(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocato
     cursel.check_selection(root, ed.metrics);
 
     const sel = cursel.enable_selection(root, ed.metrics);
-    const root_, const enclosed = try surround_add(root, sel.*, enclose_pair.left, enclose_pair.right, allocator, ed.metrics);
+    const root_, const enclosed, const nudges = try surround_add(root, sel.*, enclose_pair.left, enclose_pair.right, allocator, ed.metrics);
     cursel.selection = enclosed;
-    ed.nudge_insert(enclosed, cursel, encloser.len * 2);
+    for (nudges) |nudge| ed.nudge_insert(nudge, cursel, encloser.len);
 
     if (enclosed.end.right_of(enclosed.begin)) {
         try cursel.*.cursor.move_right(root_, ed.metrics);
@@ -907,8 +907,7 @@ fn surround_cursel_add(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocato
     return root_;
 }
 
-fn surround_add(root: Buffer.Root, sel: Selection, left: []const u8, right: []const u8, allocator: Allocator, metrics: Buffer.Metrics) error{Stop}!struct { Buffer.Root, Selection } {
-    var root_: Buffer.Root = root;
+fn surround_add(root: Buffer.Root, sel: Selection, left: []const u8, right: []const u8, allocator: Allocator, metrics: Buffer.Metrics) error{Stop}!struct { Buffer.Root, Selection, [2]Buffer.Nudge } {
     var begin = sel.begin;
     var end = sel.end;
     if (sel.is_reversed()) {
@@ -916,16 +915,20 @@ fn surround_add(root: Buffer.Root, sel: Selection, left: []const u8, right: []co
         begin = sel.end;
     }
     if (begin.row == end.row and end.col == begin.col) {
-        end.move_right(root_, metrics) catch {};
+        end.move_right(root, metrics) catch {};
     }
-    _, _, root_ = root_.insert_chars(end.row, end.col, right, allocator, metrics) catch return error.Stop;
-    _, _, root_ = root_.insert_chars(begin.row, begin.col, left, allocator, metrics) catch return error.Stop;
+    const right_row, const right_col, const root_right = root.insert_chars(end.row, end.col, right, allocator, metrics) catch return error.Stop;
+    const left_row, const left_col, const root_ = root_right.insert_chars(begin.row, begin.col, left, allocator, metrics) catch return error.Stop;
+    const nudges: [2]Buffer.Nudge = .{
+        .insert(.{ .begin = end, .end = .{ .row = right_row, .col = right_col } }, root, root_right, metrics),
+        .insert(.{ .begin = begin, .end = .{ .row = left_row, .col = left_col } }, root_right, root_, metrics),
+    };
 
     if (begin.row == end.row) {
         try end.move_right(root_, metrics); // for left-bracket column shift on same row
     }
     try end.move_right(root_, metrics); // skip past right bracket
-    return .{ root_, .{ .begin = begin, .end = end } };
+    return .{ root_, .{ .begin = begin, .end = end }, nudges };
 }
 
 fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}
@@ -1085,10 +1088,11 @@ fn insert_before(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []co
 
     cursel.disable_selection_normal();
     const begin = cursel.cursor;
+    const before = root_;
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, text, allocator, editor.metrics);
     cursor.target = cursor.col;
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
-    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, text.len);
+    editor.nudge_insert(.insert(.{ .begin = begin, .end = cursor.* }, before, root_, editor.metrics), cursel, text.len);
     return root_;
 }
 
@@ -1106,10 +1110,11 @@ fn insert_replace_selection(editor: *Editor, root: Buffer.Root, cursel: *CurSel,
 
     const cursor = &cursel.cursor;
     const begin = cursel.cursor;
+    const before = root_;
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, text, allocator, editor.metrics);
     cursor.target = cursor.col;
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
-    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, text.len);
+    editor.nudge_insert(.insert(.{ .begin = begin, .end = cursor.* }, before, root_, editor.metrics), cursel, text.len);
     return root_;
 }
 
@@ -1131,10 +1136,11 @@ fn insert_after(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []con
 
     cursel.disable_selection_normal();
     const begin = cursel.cursor;
+    const before = root_;
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, text, allocator, editor.metrics);
     cursor.target = cursor.col;
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
-    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, text.len);
+    editor.nudge_insert(.insert(.{ .begin = begin, .end = cursor.* }, before, root_, editor.metrics), cursel, text.len);
     return root_;
 }
 

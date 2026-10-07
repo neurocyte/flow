@@ -93,15 +93,18 @@ pub const Match = struct {
         return from_selection(self.to_selection().from_pos(root, metrics));
     }
 
-    fn nudge_insert(self: *Self, nudge: Selection) void {
+    fn nudge_insert(self: *Self, nudge: Buffer.Nudge) void {
         self.begin.nudge_insert(nudge);
         self.end.nudge_insert(nudge);
     }
 
-    fn nudge_delete(self: *Self, nudge: Selection) bool {
+    fn nudge_delete(self: *Self, nudge: Buffer.Nudge) bool {
+        const was_empty = self.begin.eql(self.end);
         if (!self.begin.nudge_delete(nudge))
             return false;
-        return self.end.nudge_delete(nudge);
+        if (!self.end.nudge_delete(nudge))
+            return false;
+        return was_empty or !self.begin.eql(self.end);
     }
 };
 
@@ -239,12 +242,12 @@ pub const CurSel = struct {
         return true;
     }
 
-    fn nudge_insert(self: *Self, nudge: Selection) void {
+    fn nudge_insert(self: *Self, nudge: Buffer.Nudge) void {
         if (self.selection) |*sel_| sel_.nudge_insert(nudge);
         self.cursor.nudge_insert(nudge);
     }
 
-    fn nudge_delete(self: *Self, nudge: Selection) bool {
+    fn nudge_delete(self: *Self, nudge: Buffer.Nudge) bool {
         if (self.selection) |*sel_|
             if (!sel_.nudge_delete(nudge))
                 return false;
@@ -2869,7 +2872,7 @@ pub const Editor = struct {
         self.collapse_cursors();
     }
 
-    pub fn nudge_insert(self: *Self, nudge: Selection, exclude: *const CurSel, _: usize) void {
+    pub fn nudge_insert(self: *Self, nudge: Buffer.Nudge, exclude: *const CurSel, _: usize) void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 cursel.nudge_insert(nudge);
@@ -2879,7 +2882,7 @@ pub const Editor = struct {
             cursel.nudge_insert(nudge);
     }
 
-    fn nudge_delete(self: *Self, nudge: Selection, exclude: *const CurSel, _: usize) void {
+    fn nudge_delete(self: *Self, nudge: Buffer.Nudge, exclude: *const CurSel, _: usize) void {
         for (self.cursels.items, 0..) |*cursel_, i| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 if (!cursel.nudge_delete(nudge)) {
@@ -2903,7 +2906,7 @@ pub const Editor = struct {
         cursel.disable_selection_normal();
         var size: usize = 0;
         const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, self.metrics);
-        self.nudge_delete(sel, cursel, size);
+        self.nudge_delete(.delete(sel, root, root_, self.metrics), cursel, size);
         if (trigger_char) |char| self.run_triggers(cursel, char, .delete);
         return root_;
     }
@@ -3596,9 +3599,10 @@ pub const Editor = struct {
         var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
         const cursor = &cursel.cursor;
         const begin = cursel.cursor;
+        const before = root_;
         cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
         cursor.target = cursor.col;
-        self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+        self.nudge_insert(.insert(.{ .begin = begin, .end = cursor.* }, before, root_, self.metrics), cursel, s.len);
         if (s.len > 0) self.run_triggers(cursel, s[s.len - 1], .insert);
         return root_;
     }
@@ -3610,11 +3614,10 @@ pub const Editor = struct {
         return root_;
     }
 
-    pub fn insert_line_vim_at(root: Buffer.Root, cursor: *Cursor, s: []const u8, allocator: Allocator, metrics: Buffer.Metrics) !struct { Buffer.Root, Selection } {
-        const begin = cursor.*;
-        _, _, const root_ = try root.insert_chars(cursor.row, cursor.col, s, allocator, metrics);
+    pub fn insert_line_vim_at(root: Buffer.Root, cursor: *Cursor, s: []const u8, allocator: Allocator, metrics: Buffer.Metrics) !struct { Buffer.Root, Buffer.Nudge } {
+        const row, const col, const root_ = try root.insert_chars(cursor.row, cursor.col, s, allocator, metrics);
         cursor.target = cursor.col;
-        return .{ root_, .{ .begin = begin, .end = cursor.* } };
+        return .{ root_, .insert(.{ .begin = cursor.*, .end = .{ .row = row, .col = col } }, root, root_, metrics) };
     }
 
     pub fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root) !Buffer.Root {

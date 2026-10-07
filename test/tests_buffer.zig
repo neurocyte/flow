@@ -554,7 +554,7 @@ test "reflow: bullet continuation keeps prefix tabs and pads with spaces" {
 
 fn test_nudge_delete(cursor_: Buffer.Cursor, nudge: Buffer.Selection, expected: ?Buffer.Cursor) !void {
     var cursor = cursor_;
-    const survived = cursor.nudge_delete(nudge);
+    const survived = cursor.nudge_delete(.{ .sel = nudge });
     if (expected) |expected_| {
         try std.testing.expect(survived);
         try std.testing.expectEqual(expected_.row, cursor.row);
@@ -625,27 +625,44 @@ test "nudge_delete: cursor at the range begin survives" {
 
 test "nudge_delete: selection ending at the range begin survives" {
     var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 1 }, .end = .{ .row = 3, .col = 4 } };
-    try std.testing.expect(sel.nudge_delete(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } }));
+    try std.testing.expect(sel.nudge_delete(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } }));
     try std.testing.expectEqual(1, sel.begin.col);
     try std.testing.expectEqual(4, sel.end.col);
 }
 
+test "nudge_delete: selection equal to the range is removed" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } };
+    try std.testing.expect(!sel.nudge_delete(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } }));
+}
+
+test "nudge_delete: selection extending beyond the range is shrunk" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 9 } };
+    try std.testing.expect(sel.nudge_delete(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } }));
+    try std.testing.expectEqual(4, sel.begin.col);
+    try std.testing.expectEqual(7, sel.end.col);
+}
+
+test "nudge_delete: selection overlapping the range begin is removed" {
+    var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 1 }, .end = .{ .row = 3, .col = 5 } };
+    try std.testing.expect(!sel.nudge_delete(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } }));
+}
+
 test "nudge_delete: selection beginning at the range end survives" {
     var sel: Buffer.Selection = .{ .begin = .{ .row = 3, .col = 6 }, .end = .{ .row = 3, .col = 9 } };
-    try std.testing.expect(sel.nudge_delete(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } }));
+    try std.testing.expect(sel.nudge_delete(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 3, .col = 6 } } }));
     try std.testing.expectEqual(4, sel.begin.col);
     try std.testing.expectEqual(7, sel.end.col);
 }
 
 test "nudge_insert: cursor on a later row keeps its target column" {
     var cursor: Buffer.Cursor = .{ .row = 7, .col = 10, .target = 20 };
-    cursor.nudge_insert(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } });
+    cursor.nudge_insert(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } } });
     try std.testing.expectEqual(Buffer.Cursor{ .row = 9, .col = 10, .target = 20 }, cursor);
 }
 
 test "nudge_delete: cursor on a later row keeps its target column" {
     var cursor: Buffer.Cursor = .{ .row = 7, .col = 10, .target = 20 };
-    try std.testing.expect(cursor.nudge_delete(.{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } }));
+    try std.testing.expect(cursor.nudge_delete(.{ .sel = .{ .begin = .{ .row = 3, .col = 4 }, .end = .{ .row = 5, .col = 6 } } }));
     try std.testing.expectEqual(Buffer.Cursor{ .row = 5, .col = 10, .target = 20 }, cursor);
 }
 
@@ -681,7 +698,7 @@ fn test_nudge_delete_doc(doc: []const u8, sel: Buffer.Selection, cursor_: Buffer
     const expected = root.byte_offset_to_line_and_col(pos - size, tab_metrics(), eol_mode);
 
     var cursor = cursor_;
-    try std.testing.expect(cursor.nudge_delete(sel));
+    try std.testing.expect(cursor.nudge_delete(.delete(sel, buffer.root, root, tab_metrics())));
     try std.testing.expectEqual(expected.row, cursor.row);
     try std.testing.expectEqual(expected.col, cursor.col);
 }
@@ -699,7 +716,7 @@ fn test_nudge_insert_doc(doc: []const u8, at: Buffer.Cursor, text: []const u8, c
     const expected = root.byte_offset_to_line_and_col(pos + text.len, tab_metrics(), eol_mode);
 
     var cursor = cursor_;
-    cursor.nudge_insert(.{ .begin = at, .end = .{ .row = row, .col = col } });
+    cursor.nudge_insert(.insert(.{ .begin = at, .end = .{ .row = row, .col = col } }, buffer.root, root, tab_metrics()));
     try std.testing.expectEqual(expected.row, cursor.row);
     try std.testing.expectEqual(expected.col, cursor.col);
 }
@@ -740,4 +757,9 @@ test "nudge_insert: cursor follows its character" {
 
 test "nudge_insert: cursor follows its character across a tab" {
     try test_nudge_insert_doc("\tQ\n", .{ .row = 0, .col = 0 }, "ab", .{ .row = 0, .col = 8 });
+}
+
+test "nudge_insert: cursor before a tab follows its character" {
+    try test_nudge_insert_doc("xyQ\tz\n", .{ .row = 0, .col = 0 }, "ab", .{ .row = 0, .col = 2 });
+    try test_nudge_insert_doc("x\tyQ\n", .{ .row = 0, .col = 0 }, "ab\tcd\n\t", .{ .row = 0, .col = 9 });
 }

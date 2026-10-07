@@ -268,13 +268,16 @@ test "surround_add nudges other cursors by the inserted brackets only" {
     buffer.update(try buffer.load_from_string("foo bar baz\n", &eol_mode, &sanitized), now);
 
     const sel: Buffer.Selection = .{ .begin = .{ .row = 0, .col = 4 }, .end = .{ .row = 0, .col = 7 } };
-    _, const nudge = try helix.test_internal.surround_add(buffer.root, sel, "(", ")", buffer.allocator, metrics());
+    _, const enclosed, const nudges = try helix.test_internal.surround_add(buffer.root, sel, "(", ")", buffer.allocator, metrics());
 
     var inside: Cursor = .{ .row = 0, .col = 5 };
-    inside.nudge_insert(nudge);
+    for (nudges) |nudge| inside.nudge_insert(nudge);
     try std.testing.expectEqual(6, inside.col);
 
     var after: Cursor = .{ .row = 0, .col = 9 };
-    after.nudge_insert(nudge);
+    for (nudges) |nudge| after.nudge_insert(nudge);
     try std.testing.expectEqual(11, after.col);
+
+    try std.testing.expectEqual(4, enclosed.begin.col);
+    try std.testing.expectEqual(9, enclosed.end.col);
 }

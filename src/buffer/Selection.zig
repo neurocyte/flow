@@ -3,6 +3,7 @@ const Writer = @import("std").Io.Writer;
 
 const Buffer = @import("Buffer.zig");
 const Cursor = @import("Cursor.zig");
+const Nudge = @import("Nudge.zig");
 
 begin: Cursor = Cursor{},
 end: Cursor = Cursor{},
@@ -86,15 +87,18 @@ pub fn extract(self: *Self, iter: *[]const u8) !bool {
     return true;
 }
 
-pub fn nudge_insert(self: *Self, nudge: Self) void {
+pub fn nudge_insert(self: *Self, nudge: Nudge) void {
     self.begin.nudge_insert(nudge);
     self.end.nudge_insert(nudge);
 }
 
-pub fn nudge_delete(self: *Self, nudge: Self) bool {
+pub fn nudge_delete(self: *Self, nudge: Nudge) bool {
+    const was_empty = self.empty();
     if (!self.begin.nudge_delete(nudge))
         return false;
-    return self.end.nudge_delete(nudge);
+    if (!self.end.nudge_delete(nudge))
+        return false;
+    return was_empty or !self.empty();
 }
 
 pub fn merge(self: *Self, other_: Self) bool {

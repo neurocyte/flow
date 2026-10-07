@@ -3,6 +3,7 @@ const cbor = @import("cbor");
 const Buffer = @import("Buffer.zig");
 const View = @import("View.zig");
 const Selection = @import("Selection.zig");
+const Nudge = @import("Nudge.zig");
 const Metrics = Buffer.Metrics;
 
 row: usize = 0,
@@ -220,39 +221,29 @@ pub fn extract(self: *Self, iter: *[]const u8) !bool {
     });
 }
 
-pub fn nudge_insert(self: *Self, nudge: Selection) void {
-    if (self.row < nudge.begin.row or (self.row == nudge.begin.row and self.col < nudge.begin.col)) return;
+pub fn nudge_insert(self: *Self, nudge: Nudge) void {
+    const begin, const end = .{ nudge.sel.begin, nudge.sel.end };
+    if (begin.right_of(self.*)) return;
 
-    const rows = nudge.end.row - nudge.begin.row;
-    if (self.row == nudge.begin.row) {
-        if (nudge.begin.row < nudge.end.row) {
-            self.row += rows;
-            self.col = self.col - nudge.begin.col + nudge.end.col;
-        } else {
-            self.col += nudge.end.col - nudge.begin.col;
-        }
+    if (self.row == begin.row) {
+        nudge.follow(self, begin, end);
+        self.target = self.col;
     } else {
-        self.row += rows;
+        self.row += end.row - begin.row;
     }
-    self.target = self.col;
 }
 
-pub fn nudge_delete(self: *Self, nudge: Selection) bool {
-    if (nudge.begin.right_of(self.*)) return true;
-    if (nudge.end.right_of(self.*)) return false;
+pub fn nudge_delete(self: *Self, nudge: Nudge) bool {
+    const begin, const end = .{ nudge.sel.begin, nudge.sel.end };
+    if (!self.right_of(begin)) return true;
+    if (end.right_of(self.*)) return false;
 
-    if (self.row == nudge.begin.row) {
-        self.col -= nudge.end.col - nudge.begin.col;
+    if (self.row == end.row) {
+        nudge.follow(self, end, begin);
         self.target = self.col;
-        return true;
+    } else {
+        self.row -= end.row - begin.row;
     }
-    if (self.row == nudge.end.row) {
-        self.row -= nudge.end.row - nudge.begin.row;
-        self.col = self.col - nudge.end.col + nudge.begin.col;
-        self.target = self.col;
-        return true;
-    }
-    self.row -= nudge.end.row - nudge.begin.row;
     return true;
 }
 

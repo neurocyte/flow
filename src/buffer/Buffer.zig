@@ -22,6 +22,7 @@ pub const reflow = @import("reflow.zig").reflow;
 
 pub const Manager = @import("Manager.zig");
 pub const Cursor = @import("Cursor.zig");
+pub const Nudge = @import("Nudge.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
 
