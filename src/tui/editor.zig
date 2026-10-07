@@ -4746,6 +4746,7 @@ pub const Editor = struct {
             const primary = self.get_primary();
             move_cursor_up(root, &primary.cursor, self.metrics) catch {};
         }
+        self.collapse_cursors();
         self.clamp(ctx.now);
     }
     pub const add_cursor_up_meta: Meta = .{ .description = "Add cursor up", .arguments = &.{.integer} };
@@ -4773,6 +4774,7 @@ pub const Editor = struct {
             const root = try self.buf_root();
             move_cursor_down(root, &primary.cursor, self.metrics) catch {};
         }
+        self.collapse_cursors();
         self.clamp(ctx.now);
     }
     pub const add_cursor_down_meta: Meta = .{ .description = "Add cursor down", .arguments = &.{.integer} };
