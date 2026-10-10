@@ -33,12 +33,20 @@
 // characters of line 2. The diagnostic carries a data field.
 
 // Code actions
-// A code action request returns three items:
+// A code action request returns these items. The server ignores the "only"
+// filter of the request, so the client must filter.
 // - A preferred quick fix that inserts a comment line above the range. Its
 //   title shows how many diagnostics the request context held, and whether
 //   their data field came back.
+// - A quick fix without an edit. The edit comes from codeAction/resolve.
 // - A disabled refactoring.
+// - A refactoring with an edit and a command. The command must run after
+//   the edit.
 // - An old style Command item.
+
+// Commands
+// The command "dummy.apply" makes the server send a workspace/applyEdit
+// request that inserts a line at the top of the file given as its argument.
 
 const std = @import("std");
 
@@ -68,7 +76,8 @@ const capabilities = .{
     .textDocumentSync = 1,
     .completionProvider = .{ .resolveProvider = false },
     .hoverProvider = true,
-    .codeActionProvider = true,
+    .codeActionProvider = .{ .resolveProvider = true },
+    .executeCommandProvider = .{ .commands = .{"dummy.apply"} },
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -125,6 +134,11 @@ fn handle(io: std.Io, arena: std.mem.Allocator, out: *std.Io.Writer, msg: std.js
         try resolve(io, arena, out, id_, params);
     } else if (std.mem.eql(u8, method, "textDocument/codeAction")) {
         try code_actions(arena, out, id_, params);
+    } else if (std.mem.eql(u8, method, "codeAction/resolve")) {
+        try resolve_code_action(arena, out, id_, params);
+    } else if (std.mem.eql(u8, method, "workspace/executeCommand")) {
+        try execute_command(arena, out, params);
+        try respond(arena, out, id_, null);
     } else if (std.mem.eql(u8, method, "textDocument/hover")) {
         try send_apply_edit(arena, out, params);
         try respond(arena, out, id_, .{ .contents = "dummy_lsp sent workspace/applyEdit" });
@@ -212,26 +226,62 @@ fn code_actions(arena: std.mem.Allocator, out: *std.Io.Writer, id: std.json.Valu
         if (data_returned) ", data returned" else "",
     });
 
-    const Changes = struct {
-        uri: []const u8,
-        edits: []const TextEdit,
-
-        pub fn jsonStringify(self: @This(), jw: *std.json.Stringify) !void {
-            try jw.beginObject();
-            try jw.objectField(self.uri);
-            try jw.write(self.edits);
-            try jw.endObject();
-        }
-    };
-    const changes: Changes = .{ .uri = uri, .edits = &.{.{
-        .range = .{ .start = .{ .line = line, .character = 0 }, .end = .{ .line = line, .character = 0 } },
-        .newText = "# fixed by dummy_lsp\n",
-    }} };
-
     try respond(arena, out, id, .{
-        .{ .title = title, .kind = "quickfix", .isPreferred = true, .edit = .{ .changes = changes } },
+        .{ .title = title, .kind = "quickfix", .isPreferred = true, .edit = .{ .changes = Changes.insert_line(uri, line, "# fixed by dummy_lsp\n") } },
+        .{ .title = "Lazy fix (dummy)", .kind = "quickfix", .data = .{ .uri = uri, .line = line } },
         .{ .title = "Rewrite (dummy)", .kind = "refactor.rewrite", .disabled = .{ .reason = "nothing to rewrite" } },
+        .{
+            .title = "Edit then command (dummy)",
+            .kind = "refactor",
+            .edit = .{ .changes = Changes.insert_line(uri, line, "# edited by dummy_lsp\n") },
+            .command = .{ .title = "Apply", .command = "dummy.apply", .arguments = .{uri} },
+        },
         .{ .title = "Run dummy command", .command = "dummy.apply", .arguments = .{uri} },
+    });
+}
+
+const Changes = struct {
+    uri: []const u8,
+    edits: [1]TextEdit,
+
+    fn insert_line(uri: []const u8, line: usize, text: []const u8) Changes {
+        return .{ .uri = uri, .edits = .{.{
+            .range = .{ .start = .{ .line = line, .character = 0 }, .end = .{ .line = line, .character = 0 } },
+            .newText = text,
+        }} };
+    }
+
+    pub fn jsonStringify(self: @This(), jw: *std.json.Stringify) !void {
+        try jw.beginObject();
+        try jw.objectField(self.uri);
+        try jw.write(self.edits);
+        try jw.endObject();
+    }
+};
+
+fn resolve_code_action(arena: std.mem.Allocator, out: *std.Io.Writer, id: std.json.Value, action: std.json.Value) !void {
+    const data = get(action, "data") orelse return respond(arena, out, id, action);
+    const uri = get_string(data, "uri") orelse return respond(arena, out, id, action);
+    const line: usize = @intCast(get_int(data, "line") orelse 0);
+    try respond(arena, out, id, .{
+        .title = get_string(action, "title") orelse "",
+        .kind = get_string(action, "kind") orelse "",
+        .data = data,
+        .edit = .{ .changes = Changes.insert_line(uri, line, "# lazily fixed by dummy_lsp\n") },
+    });
+}
+
+fn execute_command(arena: std.mem.Allocator, out: *std.Io.Writer, params: std.json.Value) !void {
+    if (!std.mem.eql(u8, get_string(params, "command") orelse "", "dummy.apply")) return;
+    const uri = switch (get(params, "arguments") orelse .null) {
+        .array => |arguments| if (arguments.items.len > 0 and arguments.items[0] == .string) arguments.items[0].string else return,
+        else => return,
+    };
+    try send(arena, out, .{
+        .jsonrpc = "2.0",
+        .id = "apply-edit-command",
+        .method = "workspace/applyEdit",
+        .params = .{ .edit = .{ .changes = Changes.insert_line(uri, 0, "# applied by dummy command\n") } },
     });
 }
 
