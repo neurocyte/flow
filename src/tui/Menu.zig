@@ -7,6 +7,7 @@ const Menu = @This();
 
 label: []const u8 = "",
 items: []const Item,
+on_open: ?Command = null,
 
 pub const Item = union(enum) {
     command: Command,
@@ -66,6 +67,12 @@ pub const Command = struct {
     args: []const u8 = args(.{}),
     label: []const u8 = "",
     on_activate: enum { close_menu, keep_open } = .close_menu,
+    state: State = .enabled,
+
+    pub const State = union(enum) {
+        enabled,
+        disabled: []const u8,
+    };
 
     pub fn id(self: *const Command) ?command.ID {
         return command.get_id(self.command);
@@ -73,6 +80,7 @@ pub const Command = struct {
 
     pub fn is_visible(self: *const Command) bool {
         const id_ = self.id() orelse return false;
+        if (self.label.len > 0) return true;
         const description = command.get_description(id_) orelse return false;
         return description.len > 0;
     }

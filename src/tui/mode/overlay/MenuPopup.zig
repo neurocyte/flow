@@ -146,18 +146,12 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     layer.prepare_resize = Level.prepare_resize_layer;
     layer.set(level.list_box.container_widget);
     errdefer level.items.deinit(self.allocator);
-    var it = menu.visible();
-    while (it.next()) |item| try level.items.append(self.allocator, item);
-    for (0..level.items.items.len) |pos| {
-        var buf: [16]u8 = undefined;
-        try level.list_box.add_item_with_handler(cbor.fmt(&buf, pos), Level.on_click);
-    }
-    level.measure();
-    level.select_first();
+    try level.set_menu(menu);
     try self.levels.ensureUnusedCapacity(self.allocator, 1);
     try mv.floating_views.add(layer.widget());
     self.levels.appendAssumeCapacity(level);
     level.resize();
+    if (menu.on_open) |*cmd| try cmd.send();
 }
 
 fn close_level(self: *Self) void {
@@ -224,6 +218,7 @@ fn activate(self: *Self, level_idx: usize, pos: usize) !void {
             self.top().select_first();
         },
         .command => |*cmd| {
+            if (cmd.state == .disabled) return;
             if (cmd.on_activate == .close_menu)
                 try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
             try cmd.send();
@@ -238,6 +233,10 @@ fn get_hints(self: *const Self) ?*const tui.KeybindHints {
 }
 
 fn get_hint(hints: ?*const tui.KeybindHints, cmd: *const Menu.Command) []const u8 {
+    switch (cmd.state) {
+        .enabled => {},
+        .disabled => |reason| return reason,
+    }
     if (cmd.has_args()) return "";
     const hint = (hints orelse return "").get(cmd.command) orelse return "";
     return hint[0 .. std.mem.indexOf(u8, hint, ", ") orelse hint.len];
@@ -257,6 +256,21 @@ const Level = struct {
 
     const ListBoxType = ListBox.Options(*Level).ListBoxType;
     const ButtonType = ListBoxType.ButtonType;
+
+    fn set_menu(self: *Level, menu: *const Menu) !void {
+        self.menu = menu;
+        self.items.clearRetainingCapacity();
+        self.list_box.reset_items();
+        self.has_icons = false;
+        var it = menu.visible();
+        while (it.next()) |item| try self.items.append(self.popup.allocator, item);
+        for (0..self.items.items.len) |pos| {
+            var buf: [16]u8 = undefined;
+            try self.list_box.add_item_with_handler(cbor.fmt(&buf, pos), Level.on_click);
+        }
+        self.measure();
+        self.select_first();
+    }
 
     fn index(self: *const Level) usize {
         return std.mem.indexOfScalar(*Level, self.popup.levels.items, @constCast(self)) orelse 0;
@@ -443,8 +457,16 @@ const Level = struct {
             },
             .submenu => |submenu| .{ submenu.label, null, submenu_hint },
         };
-        const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
-        const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
+        const style_label_ = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
+        const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label_;
+        const disabled = switch (self.items.items[pos].*) {
+            .command => |*cmd| cmd.state == .disabled,
+            else => false,
+        };
+        const style_label: Widget.Theme.Style = if (disabled)
+            .{ .fg = theme.editor_widget_border.fg, .bg = style_label_.bg }
+        else
+            style_label_;
         button.plane.set_style(style_label);
         button.plane.fill(" ");
         button.plane.home();
@@ -524,6 +546,20 @@ const cmds = struct {
             try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
     }
     pub const menu_cancel_meta: Meta = .{};
+
+    pub fn menu_update(self: *Self, ctx: Ctx) Result {
+        var from: usize = 0;
+        var to: usize = 0;
+        if (!try ctx.args.match(.{ tp.extract(&from), tp.extract(&to) }))
+            return error.InvalidMenuUpdateArgument;
+        for (self.levels.items, 0..) |level, level_idx| if (@intFromPtr(level.menu) == from) {
+            self.close_levels_above(level_idx);
+            try level.set_menu(@ptrFromInt(to));
+            level.resize();
+            return;
+        };
+    }
+    pub const menu_update_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 
     pub fn menu_reopen_submenu(self: *Self, _: Ctx) Result {
         try self.reopen_submenu();
