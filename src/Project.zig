@@ -1494,6 +1494,17 @@ pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, p
 pub const ApplyEditResult = enum { applied, failed };
 pub const CodeActionTrigger = LSPClient.CodeActionTrigger;
 pub const Range = LSPClient.Range;
+pub const CodeActionError = LSPClient.CodeActionError;
+
+pub fn apply_code_action(self: *Self, from: tp.pid_ref, file_path: []const u8, action: []const u8) (StartLspError || LSPClient.CodeActionError)!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    return client.apply_code_action(from, action);
+}
+
+pub fn execute_command(self: *Self, language_server: []const u8, command: []const u8) LspError!void {
+    const client = self.get_existing_lsp_client(language_server) orelse return error.NoLsp;
+    return client.execute_command(command);
+}
 
 pub fn code_actions(self: *Self, from: tp.pid_ref, file_path: []const u8, range: LSPClient.Range, only: []const u8, trigger: CodeActionTrigger, token: u32) StartLspError!void {
     const client = try self.get_lsp_client_for_file(file_path);
@@ -1544,7 +1555,7 @@ pub fn apply_edit(self: *Self, from: tp.pid_ref, to: tp.pid_ref, language_server
         return LSP.send_response(self.allocator, from, cbor_id, .{ .applied = false, .failureReason = @errorName(e) }) catch error.LspFailed;
     to.send(.{ "cmd", "apply_workspace_edit", .{
         cbor.Raw{ .bytes = workspace_edit.written() },
-        .{ self.name, language_server, cbor.Raw{ .bytes = cbor_id } },
+        .{ "apply_edit_response", self.name, language_server, cbor.Raw{ .bytes = cbor_id } },
     } }) catch return error.LspFailed;
 }
 

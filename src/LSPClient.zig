@@ -182,6 +182,124 @@ pub fn code_actions(
     }, handler) catch return error.LspFailed;
 }
 
+const CodeActionFields = struct {
+    edit: ?[]const u8 = null,
+    command: ?[]const u8 = null,
+    has_data: bool = false,
+};
+
+fn read_code_action(action: []const u8) CodeActionError!CodeActionFields {
+    var fields: CodeActionFields = .{};
+    var iter = action;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidCodeAction;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        var value: []const u8 = undefined;
+        if (!(cbor.matchString(&iter, &field_name) catch false)) return error.InvalidCodeActionFieldName;
+        if (!(cbor.matchValue(&iter, cbor.extract_cbor(&value)) catch false)) return error.InvalidCodeActionField;
+        if (cbor.match(value, cbor.null_) catch false) continue;
+        if (std.mem.eql(u8, field_name, "edit")) {
+            fields.edit = value;
+        } else if (std.mem.eql(u8, field_name, "command")) {
+            // a Command item has the command name here, a CodeAction has a Command object
+            fields.command = if (cbor.match(value, cbor.string) catch false) action else value;
+        } else if (std.mem.eql(u8, field_name, "data")) {
+            fields.has_data = true;
+        }
+    }
+    return fields;
+}
+
+fn get_lsp_name(self: *const Self) []const u8 {
+    var name: []const u8 = "";
+    _ = cbor.match(self.language_server, .{ cbor.extract(&name), cbor.more }) catch false;
+    return name;
+}
+
+pub fn apply_code_action(self: *Self, from: tp.pid_ref, action: []const u8) (LspError || CodeActionError)!void {
+    const fields = try read_code_action(action);
+    const can_resolve = self.server_capabilities.code_action == .actions_with_resolve or fields.has_data;
+    if (fields.edit != null or fields.command != null or !can_resolve)
+        return execute_code_action(from, tp.self_pid(), self.project_name, self.get_lsp_name(), action) catch error.LspFailed;
+
+    const handler: struct {
+        from: tp.pid,
+        project_manager: tp.pid,
+        project: []const u8,
+        lsp_name: []const u8,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.project);
+            std.heap.c_allocator.free(self_.lsp_name);
+            self_.project_manager.deinit();
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var result: []const u8 = undefined;
+            if (!try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map }))
+                return std.log.err("failed to resolve code action", .{});
+            if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+                try execute_code_action(self_.from.ref(), self_.project_manager.ref(), self_.project, self_.lsp_name, result);
+        }
+    } = .{
+        .from = from.clone(),
+        .project_manager = tp.self_pid().clone(),
+        .project = try std.heap.c_allocator.dupe(u8, self.project_name),
+        .lsp_name = try std.heap.c_allocator.dupe(u8, self.get_lsp_name()),
+    };
+
+    self.lsp.send_request(self.allocator, "codeAction/resolve", cbor.Raw{ .bytes = action }, handler) catch return error.LspFailed;
+}
+
+// apply the edit of a code action first, then execute its command
+fn execute_code_action(to: tp.pid_ref, project_manager: tp.pid_ref, project: []const u8, lsp_name_: []const u8, action: []const u8) !void {
+    const fields = try read_code_action(action);
+    const edit = fields.edit orelse {
+        const command = fields.command orelse return std.log.warn("code action has no edit and no command", .{});
+        return project_manager.send(.{ "execute_command", project, lsp_name_, cbor.Raw{ .bytes = command } });
+    };
+    var workspace_edit: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+    defer workspace_edit.deinit();
+    try write_workspace_edit(&workspace_edit.writer, edit);
+    return if (fields.command) |command|
+        to.send(.{ "cmd", "apply_workspace_edit", .{
+            cbor.Raw{ .bytes = workspace_edit.written() },
+            .{ "execute_command", project, lsp_name_, cbor.Raw{ .bytes = command } },
+        } })
+    else
+        to.send(.{ "cmd", "apply_workspace_edit", .{cbor.Raw{ .bytes = workspace_edit.written() }} });
+}
+
+pub fn execute_command(self: *Self, command: []const u8) LspError!void {
+    var name: []const u8 = "";
+    var arguments: ?[]const u8 = null;
+    var iter = command;
+    var len = cbor.decodeMapHeader(&iter) catch return error.LspFailed;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        var value: []const u8 = undefined;
+        if (!(cbor.matchString(&iter, &field_name) catch false)) return error.LspFailed;
+        if (!(cbor.matchValue(&iter, cbor.extract_cbor(&value)) catch false)) return error.LspFailed;
+        if (std.mem.eql(u8, field_name, "command")) {
+            _ = cbor.match(value, cbor.extract(&name)) catch false;
+        } else if (std.mem.eql(u8, field_name, "arguments")) {
+            if (!(cbor.match(value, cbor.null_) catch false)) arguments = value;
+        }
+    }
+    if (!self.server_capabilities.can_execute(name))
+        return self.logger_lsp.print("{f} cannot execute command '{s}'", .{ fmt_lsp_name_func(self.language_server), name });
+
+    const handler: struct {
+        pub fn deinit(_: *@This()) void {}
+        pub fn receive(_: @This(), _: tp.message) !void {}
+    } = .{};
+    (if (arguments) |arguments_|
+        self.lsp.send_request(self.allocator, "workspace/executeCommand", .{ .command = name, .arguments = cbor.Raw{ .bytes = arguments_ } }, handler)
+    else
+        self.lsp.send_request(self.allocator, "workspace/executeCommand", .{ .command = name }, handler)) catch return error.LspFailed;
+}
+
 pub const CodeActionError = error{
     InvalidCodeAction,
     InvalidCodeActionField,
@@ -1970,6 +2088,7 @@ fn send_init_request(
         .capabilities = .{
             .workspace = .{
                 .applyEdit = true,
+                .executeCommand = .{ .dynamicRegistration = false },
                 .workspaceEdit = .{
                     .documentChanges = true,
                     .failureHandling = "abort",
@@ -2084,6 +2203,7 @@ fn send_init_request(
                 .codeAction = .{
                     .isPreferredSupport = true,
                     .dataSupport = true,
+                    .resolveSupport = .{ .properties = .{"edit"} },
                     .codeActionLiteralSupport = .{
                         .codeActionKind = .{
                             .valueSet = .{

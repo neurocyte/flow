@@ -348,8 +348,15 @@ pub fn code_actions(file_path: []const u8, range: [4]usize, only: []const u8, tr
     return send(.{ "code_actions", project, file_path, range, only, trigger, token });
 }
 
-pub fn apply_edit_response(reply: cbor.Raw, result: ApplyEditResult, reason: []const u8) (ProjectManagerError || ProjectError)!void {
-    return send(.{ "apply_edit_response", reply, result, reason });
+pub fn workspace_edit_done(reply: cbor.Raw, result: ApplyEditResult, reason: []const u8) (ProjectManagerError || ProjectError)!void {
+    return send(.{ "workspace_edit_done", reply, result, reason });
+}
+
+pub fn apply_code_action(file_path: []const u8, action: cbor.Raw) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "apply_code_action", project, file_path, action });
 }
 
 pub fn symbols(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -648,8 +655,15 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "lsp_capabilities", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
             if (self.projects.get(project_directory)) |project|
                 project.set_lsp_capabilities(language_server, params_cb) catch |e| self.logger.err("lsp-capabilities", e);
-        } else if (try cbor.match(m.buf, .{ "apply_edit_response", .{ tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&cbor_id) }, tp.extract(&apply_edit_result), tp.extract(&text) })) {
+        } else if (try cbor.match(m.buf, .{ "workspace_edit_done", .{ "apply_edit_response", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&cbor_id) }, tp.extract(&apply_edit_result), tp.extract(&text) })) {
             self.apply_edit_response(project_directory, language_server, cbor_id, apply_edit_result, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "workspace_edit_done", .{ "execute_command", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) }, tp.extract(&apply_edit_result), tp.string })) {
+            if (apply_edit_result == .applied)
+                self.execute_command(project_directory, language_server, params_cb) catch |e| return self.logger.err("execute-command", e);
+        } else if (try cbor.match(m.buf, .{ "execute_command", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
+            self.execute_command(project_directory, language_server, params_cb) catch |e| return self.logger.err("execute-command", e);
+        } else if (try cbor.match(m.buf, .{ "apply_code_action", tp.extract(&project_directory), tp.extract(&path), tp.extract_cbor(&item) })) {
+            self.apply_code_action(from, project_directory, path, item) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&source_location) })) {
             self.rename_symbol(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "hover", tp.extract(&project_directory), tp.extract(&source_location) })) {
@@ -1126,6 +1140,16 @@ const Process = struct {
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.code_actions(from, file_path, range, only, trigger, token);
+    }
+
+    fn apply_code_action(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, action: []const u8) (ProjectError || Project.StartLspError || Project.CodeActionError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.apply_code_action(from, file_path, action);
+    }
+
+    fn execute_command(self: *Process, project_directory: []const u8, language_server: []const u8, command: []const u8) (ProjectError || Project.LspError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.execute_command(language_server, command);
     }
 
     fn apply_edit_response(self: *Process, project_directory: []const u8, language_server: []const u8, cbor_id: []const u8, result: ApplyEditResult, reason: []const u8) (ProjectError || Project.LspError)!void {
