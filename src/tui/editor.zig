@@ -460,6 +460,12 @@ pub const Editor = struct {
         then: enum { keep, apply_preferred, open_menu, fill_submenu } = .keep,
         menu: ?*CodeActionMenu = null,
     } = .{},
+    code_action_indicator: struct {
+        token: u32 = 0,
+        root: usize = 0,
+        sel: Selection = .{},
+        state: enum { unknown, pending, none, available } = .unknown,
+    } = .{},
     completion_resolve: struct {
         token: u32 = 0,
         text_edits: ?[]const u8 = null,
@@ -7844,24 +7850,73 @@ pub const Editor = struct {
         }
     }
 
-    fn request_code_actions(self: *Self, only: []const u8, trigger: project_manager.CodeActionTrigger, then: @FieldType(@FieldType(Self, "code_actions"), "then")) Result {
-        const file_path = self.file_path orelse return;
-        const root = self.buf_root() catch return;
+    // tokens of automatic requests have this bit set
+    const code_action_indicator_token: u32 = 1 << 31;
+
+    fn primary_selection_or_cursor(self: *const Self) Selection {
         const primary = self.get_primary();
         var sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
         sel.normalize();
-        const only_ = try self.allocator.dupe(u8, only);
-        self.clear_code_actions();
-        self.code_actions.only = only_;
-        self.code_actions.then = then;
-        self.code_actions.token +%= 1;
-        self.code_actions.root = token_from(root);
-        return project_manager.code_actions(file_path, .{
+        return sel;
+    }
+
+    fn send_code_actions_request(self: *Self, root: Buffer.Root, sel: Selection, only: []const u8, trigger: project_manager.CodeActionTrigger, token: u32) Result {
+        return project_manager.code_actions(self.file_path orelse return, .{
             sel.begin.row,
             try root.get_line_width_to_pos(sel.begin.row, sel.begin.col, self.metrics),
             sel.end.row,
             try root.get_line_width_to_pos(sel.end.row, sel.end.col, self.metrics),
-        }, only, trigger, self.code_actions.token);
+        }, only, trigger, token);
+    }
+
+    fn request_code_actions(self: *Self, only: []const u8, trigger: project_manager.CodeActionTrigger, then: @FieldType(@FieldType(Self, "code_actions"), "then")) Result {
+        const root = self.buf_root() catch return;
+        const only_ = try self.allocator.dupe(u8, only);
+        self.clear_code_actions();
+        self.code_actions.only = only_;
+        self.code_actions.then = then;
+        self.code_actions.token = (self.code_actions.token +% 1) & ~code_action_indicator_token;
+        self.code_actions.root = token_from(root);
+        return self.send_code_actions_request(root, self.primary_selection_or_cursor(), only, trigger, self.code_actions.token);
+    }
+
+    pub fn request_code_action_indicator(self: *Self) Result {
+        const ft = self.file_type orelse return;
+        if (ft.language_server == null or self.count_cursels() != 1) return;
+        const root = self.buf_root() catch return;
+        const sel = self.primary_selection_or_cursor();
+        const indicator = &self.code_action_indicator;
+        if (indicator.state != .unknown and indicator.root == token_from(root) and indicator.sel.eql(sel)) return;
+        indicator.* = .{
+            .token = (indicator.token +% 1) | code_action_indicator_token,
+            .root = token_from(root),
+            .sel = sel,
+            .state = .pending,
+        };
+        return self.send_code_actions_request(root, sel, "", .automatic, indicator.token);
+    }
+
+    fn code_action_indicator_result(self: *Self, token: u32, entries: cbor.Raw) Result {
+        const indicator = &self.code_action_indicator;
+        if (token != indicator.token) return;
+        indicator.state = .none;
+        var iter = entries.bytes;
+        var len = try cbor.decodeArrayHeader(&iter);
+        while (len > 0) : (len -= 1) {
+            var action: CodeAction = .{};
+            if (!try action.extract(&iter)) return error.InvalidCodeActionEntry;
+            if (action.disabled_reason.len == 0) indicator.state = .available;
+        }
+        if (indicator.state == .available) tui.need_render(@src());
+    }
+
+    /// the row to mark as having code actions, valid until the buffer or the cursor row changes
+    pub fn code_action_indicator_row(self: *const Self) ?usize {
+        const indicator = &self.code_action_indicator;
+        if (indicator.state != .available) return null;
+        if (indicator.root != token_from(self.buf_root() catch return null)) return null;
+        const row = self.get_primary().cursor.row;
+        return if (indicator.sel.begin.row <= row and row <= indicator.sel.end.row) row else null;
     }
 
     const CodeAction = struct {
@@ -7890,6 +7945,7 @@ pub const Editor = struct {
     };
 
     pub fn code_actions_result(self: *Self, token: u32, entries: cbor.Raw) Result {
+        if (token & code_action_indicator_token != 0) return self.code_action_indicator_result(token, entries);
         if (token != self.code_actions.token) return;
         if (token_from(self.buf_root() catch return) != self.code_actions.root) return;
 
@@ -8918,6 +8974,7 @@ pub const EditorWidget = struct {
                 .hover => {
                     try self.editor.hover(.{ .io = io, .now = now });
                 },
+                .code_actions => self.editor.request_code_action_indicator() catch {},
                 .highlight_references => {
                     const primary = self.editor.get_primary();
                     switch (self.editor.match_type) {

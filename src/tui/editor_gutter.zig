@@ -102,6 +102,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
         return self.primary_click(coord);
+    if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
+        return self.primary_release(coord);
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.middle, tp.more }))
         return self.middle_click();
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.extract(&coord), tp.any }))
@@ -182,8 +184,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         .absolute => self.render_linear(theme),
         .none => self.render_none(theme),
     }
-    if (self.symbols)
+    if (self.symbols) {
         self.render_diagnostics(theme);
+        self.render_code_action_indicator(theme);
+    }
     return false;
 }
 
@@ -362,6 +366,23 @@ fn render_diagnostics(self: *Self, theme: *const Widget.Theme) void {
         for (self.editor.diagnostics.items) |*diag| self.render_diagnostic(diag, theme);
 }
 
+const code_action_icon = "󰌵";
+
+fn code_action_indicator_y(self: *const Self) ?usize {
+    const row = self.editor.code_action_indicator_row() orelse return null;
+    return if (self.view_top <= row and row < self.view_top + self.view_rows) row - self.view_top else null;
+}
+
+fn render_code_action_indicator(self: *Self, theme: *const Widget.Theme) void {
+    const y = self.code_action_indicator_y() orelse return;
+    self.plane.cursor_move_yx(@intCast(y), 0);
+    var cell = self.plane.cell_init();
+    _ = self.plane.at_cursor_cell(&cell) catch return;
+    cell.set_style_fg(theme.editor_warning);
+    _ = self.plane.cell_load(&cell, code_action_icon) catch {};
+    _ = self.plane.putc(&cell) catch {};
+}
+
 fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widget.Theme) void {
     const row = diag.sel.begin.row;
     if (!(self.view_top < row and row < self.view_top + self.view_rows)) return;
@@ -401,6 +422,7 @@ fn editor_row(self: *Self, coord: MouseEvent.Coord) i32 {
 
 fn primary_click(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
     self.focus_editor();
+    if (self.is_code_action_indicator(coord)) return true;
     var line = self.view_top + 1;
     line += @intCast(self.editor_row(coord));
     if (line > self.lines) line = self.lines;
@@ -429,6 +451,19 @@ const menu: Menu = .{ .items = &.{
     .separator,
     .{ .command = .{ .command = "goto" } },
 } };
+
+fn is_code_action_indicator(self: *const Self, coord: MouseEvent.Coord) bool {
+    const cell = coord.to_cell(self.plane.mouse_geometry());
+    const y = self.code_action_indicator_y() orelse return false;
+    return cell.col == 0 and cell.row == y;
+}
+
+// the menu opens on release, a release on an open menu would close it again
+fn primary_release(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
+    if (!self.is_code_action_indicator(coord)) return false;
+    try command.executeName("code_action", .empty());
+    return true;
+}
 
 fn secondary_click(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
     self.focus_editor();

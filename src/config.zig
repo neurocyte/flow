@@ -153,10 +153,11 @@ watch_non_indexed_projects: bool = false,
 
 include_files: []const u8 = "",
 
-const default_actions = [_]IdleAction{.highlight_references};
+const default_actions = [_]IdleAction{ .highlight_references, .code_actions };
 pub const IdleAction = enum {
     hover,
     highlight_references,
+    code_actions,
 };
 
 pub const DigitStyle = enum {
