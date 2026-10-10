@@ -93,6 +93,7 @@ widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
 dropdown_style: WidgetStyle = .compact,
 menu_style: WidgetStyle = .compact,
+dialog_style: WidgetStyle = .thick_boxed,
 panel_style: WidgetStyle = .compact,
 home_style: WidgetStyle = .bars_top_bottom,
 pane_left_style: WidgetStyle = .bar_right,
@@ -198,6 +199,7 @@ pub const WidgetType = enum {
     info_box,
     dropdown,
     menu,
+    dialog,
 };
 
 pub const WidgetStyle = enum {

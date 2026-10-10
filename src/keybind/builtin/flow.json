@@ -510,6 +510,7 @@
     "overlay/confirm": {
         "inherit": "project",
         "press": [
+            ["alt+f9", "dialog_next_widget_style"],
             ["ctrl+c", "confirm_cancel"],
             ["ctrl+g", "confirm_cancel"],
             ["escape", "confirm_cancel"],

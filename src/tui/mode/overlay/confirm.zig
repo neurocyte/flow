@@ -13,7 +13,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 
 const Self = @This();
 const module_name = @typeName(Self);
-const widget_type: Widget.Type = .menu;
+const widget_type: Widget.Type = .dialog;
 
 pub const Options = struct {
     message: []const u8,

@@ -2496,6 +2496,13 @@ const cmds = struct {
     }
     pub const menu_next_widget_style_meta: Meta = .{};
 
+    pub fn dialog_next_widget_style(_: *Self, _: Ctx) Result {
+        set_next_style(.dialog);
+        need_render(@src());
+        try save_config();
+    }
+    pub const dialog_next_widget_style_meta: Meta = .{};
+
     pub fn info_box_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.info_box);
         need_render(@src());
@@ -3377,6 +3384,7 @@ pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
         .pane_right => WidgetStyle.from_tag(config_.pane_right_style),
         .hint_window => WidgetStyle.from_tag(config_.hint_window_style),
         .info_box => WidgetStyle.from_tag(config_.info_box_style),
+        .dialog => WidgetStyle.from_tag(config_.dialog_style),
     };
 }
 
@@ -3408,6 +3416,7 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
         .pane_right => &config_.pane_right_style,
         .hint_window => &config_.hint_window_style,
         .info_box => &config_.info_box_style,
+        .dialog => &config_.dialog_style,
     };
 }
 

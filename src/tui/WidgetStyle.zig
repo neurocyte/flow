@@ -185,6 +185,7 @@ pub fn theme_style_from_type(style_type: WidgetType, theme: *const Theme) Theme.
         },
         .hint_window => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
         .info_box => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
+        .dialog => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
     };
 }
 
