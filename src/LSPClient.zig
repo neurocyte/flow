@@ -26,8 +26,144 @@ language_server: []const u8,
 language_server_options: []const u8,
 language_server_protocol: file_type_config.ProtocolLevel,
 owner: tp.pid,
+server_capabilities: ServerCapabilities = .{},
 
 const Self = @This();
+
+pub const ServerCapabilities = struct {
+    code_action: CodeActionProvider = .none,
+    execute_commands: []const []const u8 = &.{},
+
+    pub const CodeActionProvider = enum { none, actions, actions_with_resolve };
+
+    pub fn read(allocator: std.mem.Allocator, capabilities: []const u8) (OutOfMemoryError || cbor.Error)!ServerCapabilities {
+        var self: ServerCapabilities = .{};
+        errdefer self.deinit(allocator);
+        var iter = capabilities;
+        var len = try cbor.decodeMapHeader(&iter);
+        while (len > 0) : (len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidType;
+            if (std.mem.eql(u8, field_name, "codeActionProvider")) {
+                self.code_action = try read_code_action_provider(&iter);
+            } else if (std.mem.eql(u8, field_name, "executeCommandProvider")) {
+                self.execute_commands = try read_execute_commands(allocator, &iter);
+            } else {
+                try cbor.skipValue(&iter);
+            }
+        }
+        return self;
+    }
+
+    fn read_code_action_provider(iter: *[]const u8) cbor.Error!CodeActionProvider {
+        var supported: bool = false;
+        if (try cbor.matchValue(iter, cbor.extract(&supported)))
+            return if (supported) .actions else .none;
+        var resolve_provider: bool = false;
+        var len = try cbor.decodeMapHeader(iter);
+        while (len > 0) : (len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(iter, &field_name))) return error.InvalidType;
+            if (std.mem.eql(u8, field_name, "resolveProvider")) {
+                if (!(try cbor.matchValue(iter, cbor.extract(&resolve_provider)))) try cbor.skipValue(iter);
+            } else {
+                try cbor.skipValue(iter);
+            }
+        }
+        return if (resolve_provider) .actions_with_resolve else .actions;
+    }
+
+    fn read_execute_commands(allocator: std.mem.Allocator, iter: *[]const u8) (OutOfMemoryError || cbor.Error)![]const []const u8 {
+        var commands: std.ArrayList([]const u8) = .empty;
+        errdefer {
+            for (commands.items) |command| allocator.free(command);
+            commands.deinit(allocator);
+        }
+        var len = cbor.decodeMapHeader(iter) catch {
+            try cbor.skipValue(iter);
+            return &.{};
+        };
+        while (len > 0) : (len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(iter, &field_name))) return error.InvalidType;
+            if (std.mem.eql(u8, field_name, "commands")) {
+                var count = try cbor.decodeArrayHeader(iter);
+                while (count > 0) : (count -= 1) {
+                    var command: []const u8 = undefined;
+                    if (!(try cbor.matchString(iter, &command))) return error.InvalidType;
+                    (try commands.addOne(allocator)).* = try allocator.dupe(u8, command);
+                }
+            } else {
+                try cbor.skipValue(iter);
+            }
+        }
+        return commands.toOwnedSlice(allocator);
+    }
+
+    pub fn deinit(self: *ServerCapabilities, allocator: std.mem.Allocator) void {
+        for (self.execute_commands) |command| allocator.free(command);
+        allocator.free(self.execute_commands);
+        self.* = .{};
+    }
+
+    pub fn can_execute(self: *const ServerCapabilities, command: []const u8) bool {
+        for (self.execute_commands) |command_| if (std.mem.eql(u8, command_, command)) return true;
+        return false;
+    }
+};
+
+pub fn set_server_capabilities(self: *Self, capabilities: []const u8) (OutOfMemoryError || cbor.Error)!void {
+    const server_capabilities: ServerCapabilities = try .read(self.allocator, capabilities);
+    self.server_capabilities.deinit(self.allocator);
+    self.server_capabilities = server_capabilities;
+    std.log.debug("{f}: code actions: {t}, commands: {d}", .{
+        fmt_lsp_name_func(self.language_server),
+        server_capabilities.code_action,
+        server_capabilities.execute_commands.len,
+    });
+}
+
+/// write the diagnostics that overlap or touch range as an array
+pub fn write_diagnostics_in_range(writer: *std.Io.Writer, diagnostics: []const u8, range: Range) (RangeError || std.Io.Writer.Error)!void {
+    var count: usize = 0;
+    var iter = diagnostics;
+    var len = try cbor.decodeArrayHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var diagnostic: []const u8 = undefined;
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostic)))) return error.InvalidType;
+        if (try diagnostic_in_range(diagnostic, range)) count += 1;
+    }
+
+    try cbor.writeArrayHeader(writer, count);
+    iter = diagnostics;
+    len = try cbor.decodeArrayHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var diagnostic: []const u8 = undefined;
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostic)))) return error.InvalidType;
+        if (try diagnostic_in_range(diagnostic, range)) try writer.writeAll(diagnostic);
+    }
+}
+
+fn diagnostic_in_range(diagnostic: []const u8, range: Range) RangeError!bool {
+    var iter = diagnostic;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidType;
+        if (std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidType;
+            const diagnostic_range = try read_range(range_);
+            return !position_before(diagnostic_range.end, range.start) and !position_before(range.end, diagnostic_range.start);
+        }
+        try cbor.skipValue(&iter);
+    }
+    return false;
+}
+
+fn position_before(a: Position, b: Position) bool {
+    return a.line < b.line or (a.line == b.line and a.character < b.character);
+}
 
 const OutOfMemoryError = error{OutOfMemory};
 
@@ -99,6 +235,7 @@ fn create(
 pub fn deinit(self: *Self) void {
     self.owner.deinit();
     self.lsp.term();
+    self.server_capabilities.deinit(self.allocator);
     self.logger_lsp.deinit();
     self.allocator.free(self.language_server_options);
     self.allocator.free(self.language_server);
@@ -1574,9 +1711,11 @@ fn send_init_request(
         lsp: LSP,
         project_path: []const u8,
         notify_restart: bool,
+        project_manager: tp.pid,
 
         pub fn deinit(self_: *@This()) void {
             self_.from.deinit();
+            self_.project_manager.deinit();
             self_.lsp.pid.deinit();
             std.heap.c_allocator.free(self_.language_server);
             std.heap.c_allocator.free(self_.project_path);
@@ -1597,8 +1736,25 @@ fn send_init_request(
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return;
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
-                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
                     try send_lsp_init_response(self_.from.ref(), self_.project_path, self_.language_server, result);
+                    try self_.send_server_capabilities(result);
+                }
+            }
+        }
+
+        fn send_server_capabilities(self_: @This(), result: []const u8) !void {
+            var lsp_name: []const u8 = "";
+            _ = cbor.match(self_.language_server, .{ cbor.extract(&lsp_name), cbor.more }) catch false;
+            var iter = result;
+            var len = cbor.decodeMapHeader(&iter) catch return;
+            while (len > 0) : (len -= 1) {
+                var field_name: []const u8 = undefined;
+                var value: []const u8 = undefined;
+                if (!(try cbor.matchString(&iter, &field_name))) return;
+                if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return;
+                if (std.mem.eql(u8, field_name, "capabilities"))
+                    self_.project_manager.send(.{ "lsp_capabilities", self_.project_path, lsp_name, cbor.Raw{ .bytes = value } }) catch {};
             }
         }
     } = .{
@@ -1610,6 +1766,7 @@ fn send_init_request(
         },
         .project_path = try std.heap.c_allocator.dupe(u8, project_path),
         .notify_restart = notify_restart,
+        .project_manager = tp.self_pid().clone(),
     };
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;

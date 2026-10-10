@@ -32,6 +32,7 @@ longest_file_path: usize = 0,
 longest_new_or_modified_file_path: usize = 0,
 open_time: i64,
 language_servers: std.StringHashMap(*LSPClient),
+diagnostics: std.StringHashMapUnmanaged([]const u8) = .empty,
 file_language_server_name: std.StringHashMap([]const u8),
 lsp_unavailable: std.StringHashMapUnmanaged(void) = .empty,
 lsp_commands: std.StringHashMapUnmanaged(LspCommand) = .empty,
@@ -179,6 +180,12 @@ pub fn deinit(self: *Self) void {
         self.allocator.free(p.key_ptr.*);
         p.value_ptr.*.deinit();
     }
+    var i_diagnostics = self.diagnostics.iterator();
+    while (i_diagnostics.next()) |p| {
+        self.allocator.free(p.key_ptr.*);
+        self.allocator.free(p.value_ptr.*);
+    }
+    self.diagnostics.deinit(self.allocator);
     var i_unavail = self.lsp_unavailable.iterator();
     while (i_unavail.next()) |p| self.allocator.free(p.key_ptr.*);
     self.lsp_unavailable.deinit(self.allocator);
@@ -1365,6 +1372,7 @@ pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) D
     if (uri == null) return error.InvalidDiagnosticField;
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const file_path = try LSPClient.file_uri_to_path(uri.?, &file_path_buf);
+    self.set_diagnostics(file_path, diagnostics) catch {};
 
     self.send_clear_diagnostics(to, file_path);
 
@@ -1484,6 +1492,37 @@ pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, p
 }
 
 pub const ApplyEditResult = enum { applied, failed };
+
+pub fn set_lsp_capabilities(self: *Self, lsp_name: []const u8, capabilities: []const u8) (error{OutOfMemory} || cbor.Error)!void {
+    const client = self.get_existing_lsp_client(lsp_name) orelse return;
+    return client.set_server_capabilities(capabilities);
+}
+
+fn set_diagnostics(self: *Self, file_path: []const u8, diagnostics: []const u8) error{OutOfMemory}!void {
+    var iter = diagnostics;
+    const empty = (cbor.decodeArrayHeader(&iter) catch 0) == 0;
+    if (self.diagnostics.fetchRemove(file_path)) |kv| {
+        self.allocator.free(kv.key);
+        self.allocator.free(kv.value);
+    }
+    if (empty) return;
+    const key = try self.allocator.dupe(u8, file_path);
+    errdefer self.allocator.free(key);
+    const value = try self.allocator.dupe(u8, diagnostics);
+    errdefer self.allocator.free(value);
+    try self.diagnostics.put(self.allocator, key, value);
+}
+
+/// write the published diagnostics of file_path that overlap or touch range as an array
+pub fn write_diagnostics_in_range(self: *Self, writer: *std.Io.Writer, file_path: []const u8, range: LSPClient.Range) (LSPClient.RangeError || std.Io.Writer.Error)!void {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const key = if (std.fs.path.isAbsolute(file_path))
+        file_path
+    else
+        std.fmt.bufPrint(&buf, "{s}{c}{s}", .{ self.name, std.fs.path.sep, file_path }) catch file_path;
+    const diagnostics = self.diagnostics.get(key) orelse return cbor.writeArrayHeader(writer, 0);
+    return LSPClient.write_diagnostics_in_range(writer, diagnostics, range);
+}
 
 pub fn apply_edit(self: *Self, from: tp.pid_ref, to: tp.pid_ref, language_server: []const u8, cbor_id: []const u8, params_cb: []const u8) LspError!void {
     var workspace_edit: std.Io.Writer.Allocating = .init(self.allocator);

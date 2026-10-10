@@ -32,6 +32,8 @@ pub const ApplyEditResult = Project.ApplyEditResult;
 
 pub const test_internal = struct {
     pub const write_workspace_edit = @import("LSPClient.zig").write_workspace_edit;
+    pub const write_diagnostics_in_range = @import("LSPClient.zig").write_diagnostics_in_range;
+    pub const ServerCapabilities = @import("LSPClient.zig").ServerCapabilities;
 };
 
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
@@ -629,6 +631,9 @@ const Process = struct {
             self.completion(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "completion_resolve", tp.extract(&project_directory), tp.extract(&path), tp.extract(&token), tp.extract_cbor(&item) })) {
             self.completion_resolve(from, project_directory, path, token, item) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "lsp_capabilities", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
+            if (self.projects.get(project_directory)) |project|
+                project.set_lsp_capabilities(language_server, params_cb) catch |e| self.logger.err("lsp-capabilities", e);
         } else if (try cbor.match(m.buf, .{ "apply_edit_response", .{ tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&cbor_id) }, tp.extract(&apply_edit_result), tp.extract(&text) })) {
             self.apply_edit_response(project_directory, language_server, cbor_id, apply_edit_result, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&source_location) })) {
