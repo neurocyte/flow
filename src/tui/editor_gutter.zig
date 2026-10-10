@@ -385,7 +385,7 @@ fn render_code_action_indicator(self: *Self, theme: *const Widget.Theme) void {
 
 fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widget.Theme) void {
     const row = diag.sel.begin.row;
-    if (!(self.view_top < row and row < self.view_top + self.view_rows)) return;
+    if (!(self.view_top <= row and row < self.view_top + self.view_rows)) return;
     const style_ = switch (diag.get_severity()) {
         .Error => theme.editor_error,
         .Warning => theme.editor_warning,
