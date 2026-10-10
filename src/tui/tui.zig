@@ -2135,22 +2135,25 @@ const cmds = struct {
     }
     pub const switch_terminals_meta: Meta = .{ .description = "Switch terminals" };
 
-    pub fn confirm(_: *Self, ctx: Ctx) Result {
+    pub fn confirm(self: *Self, ctx: Ctx) Result {
         var text: []const u8 = undefined;
-        var confirm_label: []const u8 = undefined;
-        var on_confirm: cbor.Raw = .empty;
+        var choices_cbor: []const u8 = undefined;
         var on_cancel: ?cbor.Raw = null;
-        if (!(try ctx.args.match(.{ tp.extract(&text), tp.extract(&confirm_label), tp.extract(&on_confirm) }) or
-            try ctx.args.match(.{ tp.extract(&text), tp.extract(&confirm_label), tp.extract(&on_confirm), tp.extract(&on_cancel) })))
+        if (!(try ctx.args.match(.{ tp.extract(&text), tp.extract_cbor(&choices_cbor) }) or
+            try ctx.args.match(.{ tp.extract(&text), tp.extract_cbor(&choices_cbor), tp.extract(&on_cancel) })))
             return error.InvalidConfirmArgument;
-        return open_confirm(.{
-            .message = text,
-            .confirm_label = confirm_label,
-            .on_confirm = on_confirm,
-            .on_cancel = on_cancel,
-        });
+        var choices: std.ArrayList(Confirm.Choice) = .empty;
+        defer choices.deinit(self.allocator);
+        var len = try cbor.decodeArrayHeader(&choices_cbor);
+        while (len > 0) : (len -= 1) {
+            var choice: Confirm.Choice = undefined;
+            if (!try cbor.matchValue(&choices_cbor, .{ cbor.extract(&choice.label), cbor.extract(&choice.action) }))
+                return error.InvalidConfirmArgument;
+            (try choices.addOne(self.allocator)).* = choice;
+        }
+        return open_confirm(.{ .message = text, .choices = choices.items, .on_cancel = on_cancel });
     }
-    pub const confirm_meta: Meta = .{ .arguments = &.{ .string, .string, .array } };
+    pub const confirm_meta: Meta = .{ .arguments = &.{ .string, .array } };
 
     pub fn exit_overlay_mode(self: *Self, ctx: Ctx) Result {
         if (self.input_mode_outer_ == null) return enter_mode_default(self, ctx);

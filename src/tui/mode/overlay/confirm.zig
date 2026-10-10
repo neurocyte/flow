@@ -15,20 +15,24 @@ const Self = @This();
 const module_name = @typeName(Self);
 const widget_type: Widget.Type = .dialog;
 
+pub const Choice = struct {
+    label: []const u8,
+    /// message sent to the tui when the user activates this choice
+    action: cbor.Raw,
+};
+
 pub const Options = struct {
     message: []const u8,
-    confirm_label: []const u8 = "Yes",
+    choices: []const Choice,
     cancel_label: []const u8 = "Cancel",
-    /// message sent to the tui when the user confirms
-    on_confirm: cbor.Raw,
-    /// message sent to the tui when the dialog closes in any other way
+    /// message sent to the tui when the dialog closes without a choice
     on_cancel: ?cbor.Raw = null,
 };
 
 const Row = union(enum) {
     text: []const u8,
     separator,
-    confirm,
+    choice: usize,
     cancel,
 };
 
@@ -43,7 +47,7 @@ arena: std.heap.ArenaAllocator,
 options: Options,
 rows: std.ArrayList(Row) = .empty,
 width: usize = 0,
-confirmed: bool = false,
+chosen: bool = false,
 
 const ListBoxType = ListBox.Options(*Self).ListBoxType;
 const ButtonType = ListBoxType.ButtonType;
@@ -77,9 +81,15 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
         .arena = arena,
         .options = .{
             .message = try a.dupe(u8, options.message),
-            .confirm_label = try a.dupe(u8, options.confirm_label),
+            .choices = choices: {
+                const choices = try a.alloc(Choice, options.choices.len);
+                for (options.choices, choices) |choice, *copy| copy.* = .{
+                    .label = try a.dupe(u8, choice.label),
+                    .action = .{ .bytes = try a.dupe(u8, choice.action.bytes) },
+                };
+                break :choices choices;
+            },
             .cancel_label = try a.dupe(u8, options.cancel_label),
-            .on_confirm = .{ .bytes = try a.dupe(u8, options.on_confirm.bytes) },
             .on_cancel = if (options.on_cancel) |msg| .{ .bytes = try a.dupe(u8, msg.bytes) } else null,
         },
     };
@@ -91,14 +101,14 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
     var lines = std.mem.splitScalar(u8, self.options.message, '\n');
     while (lines.next()) |line| try self.rows.append(self.arena.allocator(), .{ .text = line });
     try self.rows.append(self.arena.allocator(), .separator);
-    try self.rows.append(self.arena.allocator(), .confirm);
+    for (0..self.options.choices.len) |idx| try self.rows.append(self.arena.allocator(), .{ .choice = idx });
     try self.rows.append(self.arena.allocator(), .cancel);
     for (self.rows.items, 0..) |row, pos| {
         var buf: [16]u8 = undefined;
         try self.list_box.add_item_with_handler(cbor.fmt(&buf, pos), on_click);
         self.width = @max(self.width, tui.egc_chunk_width(self.row_label(row), 0, 1) + 2);
     }
-    // the safe choice is selected first
+    // cancel is selected first
     self.list_box.selected = self.rows.items.len - 1;
 
     layer.ctx = self;
@@ -116,7 +126,7 @@ pub fn deinit(self: *Self) void {
         mv.floating_views.remove(self.layer.widget());
         mv.floating_views.remove(self.modal.widget());
     }
-    if (!self.confirmed) if (self.options.on_cancel) |msg|
+    if (!self.chosen) if (self.options.on_cancel) |msg|
         tp.self_pid().send_raw(.{ .buf = msg.bytes }) catch {};
     self.logger.deinit();
     self.arena.deinit();
@@ -131,31 +141,56 @@ fn row_label(self: *const Self, row: Row) []const u8 {
     return switch (row) {
         .text => |text| text,
         .separator => "",
-        .confirm => self.options.confirm_label,
+        .choice => |idx| self.options.choices[idx].label,
         .cancel => self.options.cancel_label,
     };
 }
 
 fn selectable(row: Row) bool {
-    return row == .confirm or row == .cancel;
+    return row == .choice or row == .cancel;
 }
 
-fn select(self: *Self, choice: std.meta.Tag(Row)) void {
-    for (self.rows.items, 0..) |row, pos| if (row == choice) {
-        self.list_box.selected = pos;
-    };
+fn select_next(self: *Self, direction: enum { up, down }) void {
+    const len = self.rows.items.len;
+    var pos = self.list_box.selected orelse len - 1;
+    for (0..len) |_| {
+        pos = switch (direction) {
+            .down => (pos + 1) % len,
+            .up => (pos + len - 1) % len,
+        };
+        if (selectable(self.rows.items[pos])) {
+            self.list_box.selected = pos;
+            return;
+        }
+    }
+}
+
+fn select_by_prefix(self: *Self, text: []const u8) void {
+    const len = self.rows.items.len;
+    if (text.len == 0) return;
+    const start = if (self.list_box.selected) |selected| selected + 1 else 0;
+    for (0..len) |i| {
+        const pos = (start + i) % len;
+        const row = self.rows.items[pos];
+        if (!selectable(row)) continue;
+        const label = self.row_label(row);
+        if (label.len >= text.len and std.ascii.eqlIgnoreCase(label[0..text.len], text)) {
+            self.list_box.selected = pos;
+            return;
+        }
+    }
 }
 
 fn activate(self: *Self, pos: usize) !void {
     if (pos >= self.rows.items.len) return;
     switch (self.rows.items[pos]) {
         .text, .separator => return,
-        .confirm => {
-            self.confirmed = true;
-            const on_confirm = try self.allocator.dupe(u8, self.options.on_confirm.bytes);
-            defer self.allocator.free(on_confirm);
+        .choice => |idx| {
+            self.chosen = true;
+            const action = try self.allocator.dupe(u8, self.options.choices[idx].action.bytes);
+            defer self.allocator.free(action);
             try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
-            try tp.self_pid().send_raw(.{ .buf = on_confirm });
+            try tp.self_pid().send_raw(.{ .buf = action });
         },
         .cancel => try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }),
     }
@@ -215,11 +250,15 @@ const cmds = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
-    pub fn confirm_toggle(self: *Self, _: Ctx) Result {
-        const pos = self.list_box.selected orelse return self.select(.cancel);
-        self.select(if (self.rows.items[pos] == .confirm) .cancel else .confirm);
+    pub fn confirm_up(self: *Self, _: Ctx) Result {
+        self.select_next(.up);
     }
-    pub const confirm_toggle_meta: Meta = .{};
+    pub const confirm_up_meta: Meta = .{};
+
+    pub fn confirm_down(self: *Self, _: Ctx) Result {
+        self.select_next(.down);
+    }
+    pub const confirm_down_meta: Meta = .{};
 
     pub fn confirm_activate(self: *Self, _: Ctx) Result {
         try self.activate(self.list_box.selected orelse return);
@@ -235,14 +274,7 @@ const cmds = struct {
         var bytes: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&bytes)}))
             return error.InvalidConfirmInsertBytesArgument;
-        if (bytes.len == 0) return;
-        for ([_]std.meta.Tag(Row){ .confirm, .cancel }) |choice| {
-            const label = self.row_label(if (choice == .confirm) .confirm else .cancel);
-            if (label.len > 0 and std.ascii.toLower(label[0]) == std.ascii.toLower(bytes[0])) {
-                self.select(choice);
-                return;
-            }
-        }
+        self.select_by_prefix(bytes);
     }
     pub const confirm_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 };

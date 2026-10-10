@@ -270,7 +270,7 @@ fn quit_if_idle(self: *Self) bool {
     if (self.buffer_manager.has_any_non_hidden_buffers()) return false;
     if (Vt.Manager.any_terminals()) return false;
     self.block_quit_render();
-    command.executeName("quit", .empty()) catch {};
+    command.executeName("quit_confirmed", .empty()) catch {};
     return true;
 }
 
@@ -600,13 +600,43 @@ const cmds = struct {
     }
     pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 
-    pub fn quit(self: *Self, _: Ctx) Result {
+    pub fn quit(self: *Self, ctx: Ctx) Result {
+        try self.check_no_busy_terminals();
+        var save_buf: [64]u8 = undefined;
+        var quit_buf: [64]u8 = undefined;
+        if (self.buffer_manager.is_dirty()) {
+            var message_buf: [64]u8 = undefined;
+            const count = self.buffer_manager.count_dirty_buffers();
+            return tui.open_confirm(.{
+                .message = std.fmt.bufPrint(&message_buf, "{d} file{s} with unsaved changes", .{ count, if (count == 1) "" else "s" }) catch "unsaved changes",
+                .choices = &.{
+                    .{ .label = "Save all and quit", .action = .{ .bytes = cbor.fmt(&save_buf, .{ "cmd", "save_all_and_quit" }) } },
+                    .{ .label = "Quit without saving", .action = .{ .bytes = cbor.fmt(&quit_buf, .{ "cmd", "quit_without_saving" }) } },
+                },
+            });
+        }
+        if (!build_options.gui) return quit_confirmed(self, ctx);
+        return tui.open_confirm(.{
+            .message = "Quit flow?",
+            .choices = &.{.{ .label = "Quit", .action = .{ .bytes = cbor.fmt(&quit_buf, .{ "cmd", "quit_confirmed" }) } }},
+        });
+    }
+    pub const quit_meta: Meta = .{ .description = "Quit" };
+
+    pub fn save_all_and_quit(self: *Self, _: Ctx) Result {
+        var buf: [64]u8 = undefined;
+        self.buffer_manager.save_all(.{ .then = .{ .bytes = cbor.fmt(&buf, .{ "cmd", "quit_confirmed" }) } }) catch |e|
+            return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const save_all_and_quit_meta: Meta = .{ .description = "Save all and quit" };
+
+    pub fn quit_confirmed(self: *Self, _: Ctx) Result {
         try self.check_all_not_dirty();
         try self.check_no_busy_terminals();
         Vt.Manager.snapshot_alt_screens();
         try tp.self_pid().send("quit");
     }
-    pub const quit_meta: Meta = .{ .description = "Quit" };
+    pub const quit_confirmed_meta: Meta = .{};
 
     pub fn quit_without_saving(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("quit");
