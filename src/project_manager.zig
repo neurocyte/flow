@@ -29,6 +29,10 @@ pub const Error = ProjectError || ProjectManagerError;
 pub const ProjectError = error{NoProject};
 pub const LspStatus = Project.LspStatus;
 
+pub const test_internal = struct {
+    pub const write_workspace_edit = @import("LSPClient.zig").write_workspace_edit;
+};
+
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 const OutOfMemoryError = error{OutOfMemory};
 const FileSystemError = error{FileSystem};

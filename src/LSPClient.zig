@@ -256,18 +256,6 @@ pub const TextEdit = struct {
     replace: ?Range = null,
 };
 
-pub const Rename = struct {
-    uri: []const u8,
-    new_text: []const u8,
-    range: Range,
-};
-
-pub const DocumentChangesError = error{
-    InvalidDocumentChanges,
-    InvalidDocumentChangesField,
-    InvalidDocumentChangesFieldName,
-} || TextEditError || cbor.Error;
-
 pub const SymbolType = enum { document_symbol, symbol_information };
 
 pub const DocumentSymbol = struct {
@@ -726,11 +714,11 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
 }
 
 fn write_text_edits(writer: *std.Io.Writer, iter: *[]const u8) (TextEditError || std.Io.Writer.Error)!void {
-    var len = cbor.decodeArrayHeader(iter) catch return invalid_text_edit_field("additionalTextEdits");
+    var len = cbor.decodeArrayHeader(iter) catch return invalid_text_edit_field("textEdits");
     try cbor.writeArrayHeader(writer, len);
     while (len > 0) : (len -= 1) {
         const edit = try read_textEdit(iter);
-        const range = edit.replace orelse edit.insert orelse return invalid_text_edit_field("additionalTextEdits.range");
+        const range = edit.replace orelse edit.insert orelse return invalid_text_edit_field("textEdits.range");
         try cbor.writeValue(writer, .{
             range.start.line,
             range.start.character,
@@ -1240,34 +1228,51 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
         pub fn receive(self_: @This(), response: tp.message) !void {
             const allocator = std.heap.c_allocator;
             var result: []const u8 = undefined;
-            // buffer the renames in order to send as a single, atomic message
-            var renames = std.array_list.Managed(Rename).init(allocator);
-            defer renames.deinit();
 
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
                 if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
-                    try decode_rename_symbol_map(result, &renames);
-                    // write the renames message manually since there doesn't appear to be an array helper
+                    var workspace_edit: std.Io.Writer.Allocating = .init(allocator);
+                    defer workspace_edit.deinit();
+                    try write_workspace_edit(&workspace_edit.writer, result);
+
+                    // send the renames as a single, atomic message
                     var msg_buf: std.Io.Writer.Allocating = .init(allocator);
                     defer msg_buf.deinit();
                     const w = &msg_buf.writer;
                     try cbor.writeArrayHeader(w, 3);
                     try cbor.writeValue(w, "cmd");
                     try cbor.writeValue(w, "rename_symbol_item");
-                    try cbor.writeArrayHeader(w, renames.items.len);
-                    for (renames.items) |rename| {
-                        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                        const file_path_ = try file_uri_to_path(rename.uri, &file_path_buf);
-                        const line = try get_line_of_file(allocator, file_path_, rename.range.start.line);
-                        try cbor.writeValue(w, .{
-                            file_path_,
-                            rename.range.start.line,
-                            rename.range.start.character,
-                            rename.range.end.line,
-                            rename.range.end.character,
-                            rename.new_text,
-                            line,
-                        });
+                    try cbor.writeArrayHeader(w, try count_workspace_edit_text_edits(workspace_edit.written()));
+
+                    var iter: []const u8 = workspace_edit.written();
+                    var files = try cbor.decodeArrayHeader(&iter);
+                    while (files > 0) : (files -= 1) {
+                        var file_path: []const u8 = undefined;
+                        var text_edits: []const u8 = undefined;
+                        if (!try cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.any, cbor.extract_cbor(&text_edits) }))
+                            return error.InvalidWorkspaceEdit;
+                        var edits = try cbor.decodeArrayHeader(&text_edits);
+                        while (edits > 0) : (edits -= 1) {
+                            var range: Range = undefined;
+                            var new_text: []const u8 = undefined;
+                            if (!try cbor.matchValue(&text_edits, .{
+                                cbor.extract(&range.start.line),
+                                cbor.extract(&range.start.character),
+                                cbor.extract(&range.end.line),
+                                cbor.extract(&range.end.character),
+                                cbor.extract(&new_text),
+                            })) return error.InvalidWorkspaceEdit;
+                            const line = try get_line_of_file(allocator, file_path, range.start.line);
+                            try cbor.writeValue(w, .{
+                                file_path,
+                                range.start.line,
+                                range.start.character,
+                                range.end.line,
+                                range.end.character,
+                                new_text,
+                                line,
+                            });
+                        }
                     }
                     self_.from.send_raw(.{ .buf = msg_buf.written() }) catch return error.ClientFailed;
                 }
@@ -1284,90 +1289,138 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
     }, handler) catch return error.LspFailed;
 }
 
-// decode a WorkspaceEdit record which may have shape {"changes": {}} or {"documentChanges": []}
-// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspaceEdit
-fn decode_rename_symbol_map(result: []const u8, renames: *std.array_list.Managed(Rename)) DocumentChangesError!void {
-    var iter = result;
-    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidDocumentChanges;
-    var changes: []const u8 = "";
+pub const WorkspaceEditError = error{
+    InvalidWorkspaceEdit,
+    InvalidWorkspaceEditField,
+    InvalidWorkspaceEditFieldName,
+    InvalidTargetURI,
+} || TextEditError || std.Io.Writer.Error;
+
+pub fn write_workspace_edit(writer: *std.Io.Writer, workspace_edit: []const u8) WorkspaceEditError!void {
+    var iter = workspace_edit;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEdit;
+    var changes: ?[]const u8 = null;
+    var document_changes: ?[]const u8 = null;
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDocumentChangesFieldName;
+        var value: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidWorkspaceEditFieldName;
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return error.InvalidWorkspaceEditField;
+        if (try cbor.match(value, cbor.null_)) continue;
         if (std.mem.eql(u8, field_name, "changes")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidDocumentChangesField;
-            try decode_rename_symbol_changes(changes, renames);
-            return;
+            changes = value;
         } else if (std.mem.eql(u8, field_name, "documentChanges")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidDocumentChangesField;
-            try decode_rename_symbol_doc_changes(changes, renames);
-            return;
+            document_changes = value;
+        }
+    }
+    return if (document_changes) |value|
+        write_workspace_edit_document_changes(writer, value)
+    else if (changes) |value|
+        write_workspace_edit_changes(writer, value)
+    else
+        error.InvalidWorkspaceEdit;
+}
+
+fn write_workspace_edit_changes(writer: *std.Io.Writer, changes: []const u8) WorkspaceEditError!void {
+    var iter = changes;
+    var files = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEditField;
+    try cbor.writeArrayHeader(writer, files);
+    while (files > 0) : (files -= 1) {
+        var file_uri: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidWorkspaceEditFieldName;
+        try write_workspace_edit_file(writer, file_uri, null, &iter);
+    }
+}
+
+fn write_workspace_edit_document_changes(writer: *std.Io.Writer, document_changes: []const u8) WorkspaceEditError!void {
+    var count: usize = 0;
+    var iter = document_changes;
+    var len = cbor.decodeArrayHeader(&iter) catch return error.InvalidWorkspaceEditField;
+    while (len > 0) : (len -= 1) {
+        var change: []const u8 = undefined;
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&change)))) return error.InvalidWorkspaceEditField;
+        if ((try read_text_document_edit(change)) != null) count += 1;
+    }
+
+    try cbor.writeArrayHeader(writer, count);
+    iter = document_changes;
+    len = try cbor.decodeArrayHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var change: []const u8 = undefined;
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&change)))) return error.InvalidWorkspaceEditField;
+        var edit = (try read_text_document_edit(change)) orelse {
+            std.log.warn("ignored unsupported resource operation in workspace edit", .{});
+            continue;
+        };
+        try write_workspace_edit_file(writer, edit.uri, edit.version, &edit.edits);
+    }
+}
+
+const TextDocumentEdit = struct {
+    uri: []const u8,
+    version: ?usize,
+    edits: []const u8,
+};
+
+// returns null for the resource operations CreateFile, RenameFile and DeleteFile
+fn read_text_document_edit(change: []const u8) WorkspaceEditError!?TextDocumentEdit {
+    var iter = change;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEditField;
+    var uri: ?[]const u8 = null;
+    var version: ?usize = null;
+    var edits: ?[]const u8 = null;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidWorkspaceEditFieldName;
+        if (std.mem.eql(u8, field_name, "kind")) {
+            return null;
+        } else if (std.mem.eql(u8, field_name, "textDocument")) {
+            var fields = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEditField;
+            while (fields > 0) : (fields -= 1) {
+                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidWorkspaceEditFieldName;
+                if (std.mem.eql(u8, field_name, "uri")) {
+                    var uri_: []const u8 = undefined;
+                    if (!(try cbor.matchString(&iter, &uri_))) return error.InvalidWorkspaceEditField;
+                    uri = uri_;
+                } else if (std.mem.eql(u8, field_name, "version")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&version)))) return error.InvalidWorkspaceEditField;
+                } else {
+                    try cbor.skipValue(&iter);
+                }
+            }
+        } else if (std.mem.eql(u8, field_name, "edits")) {
+            var edits_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&edits_)))) return error.InvalidWorkspaceEditField;
+            edits = edits_;
         } else {
             try cbor.skipValue(&iter);
         }
     }
-    return error.InvalidDocumentChanges;
+    return .{
+        .uri = uri orelse return error.InvalidWorkspaceEditField,
+        .version = version,
+        .edits = edits orelse return error.InvalidWorkspaceEditField,
+    };
 }
 
-fn decode_rename_symbol_changes(changes: []const u8, renames: *std.array_list.Managed(Rename)) TextEditError!void {
-    var iter = changes;
-    var files_len = cbor.decodeMapHeader(&iter) catch return error.InvalidTextEdit;
-    while (files_len > 0) : (files_len -= 1) {
-        var file_uri: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidTextEdit;
-        try decode_rename_symbol_item(file_uri, &iter, renames);
-    }
+fn write_workspace_edit_file(writer: *std.Io.Writer, file_uri: []const u8, version: ?usize, text_edits: *[]const u8) WorkspaceEditError!void {
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    try cbor.writeArrayHeader(writer, 3);
+    try cbor.writeValue(writer, try file_uri_to_path(file_uri, &file_path_buf));
+    try cbor.writeValue(writer, version);
+    try write_text_edits(writer, text_edits);
 }
 
-fn decode_rename_symbol_doc_changes(changes: []const u8, renames: *std.array_list.Managed(Rename)) DocumentChangesError!void {
-    var iter = changes;
-    var changes_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidDocumentChanges;
-    while (changes_len > 0) : (changes_len -= 1) {
-        var dc_fields_len = cbor.decodeMapHeader(&iter) catch return error.InvalidDocumentChanges;
-        var file_uri: []const u8 = "";
-        while (dc_fields_len > 0) : (dc_fields_len -= 1) {
-            var field_name: []const u8 = undefined;
-            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDocumentChangesFieldName;
-            if (std.mem.eql(u8, field_name, "textDocument")) {
-                var td_fields_len = cbor.decodeMapHeader(&iter) catch return error.InvalidDocumentChangesField;
-                while (td_fields_len > 0) : (td_fields_len -= 1) {
-                    var td_field_name: []const u8 = undefined;
-                    if (!(try cbor.matchString(&iter, &td_field_name))) return error.InvalidDocumentChangesField;
-                    if (std.mem.eql(u8, td_field_name, "uri")) {
-                        if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidDocumentChangesField;
-                    } else try cbor.skipValue(&iter); // skip "version": 1
-                }
-            } else if (std.mem.eql(u8, field_name, "edits")) {
-                if (file_uri.len == 0) return error.InvalidDocumentChangesField;
-                try decode_rename_symbol_item(file_uri, &iter, renames);
-            }
-        }
+fn count_workspace_edit_text_edits(workspace_edit: []const u8) cbor.Error!usize {
+    var count: usize = 0;
+    var iter = workspace_edit;
+    var files = try cbor.decodeArrayHeader(&iter);
+    while (files > 0) : (files -= 1) {
+        var text_edits: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, .{ cbor.any, cbor.any, cbor.extract_cbor(&text_edits) })) return error.InvalidType;
+        count += try cbor.decodeArrayHeader(&text_edits);
     }
-}
-
-// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textEdit
-fn decode_rename_symbol_item(file_uri: []const u8, iter: *[]const u8, renames: *std.array_list.Managed(Rename)) TextEditError!void {
-    var text_edits_len = cbor.decodeArrayHeader(iter) catch return error.InvalidTextEditField;
-    while (text_edits_len > 0) : (text_edits_len -= 1) {
-        var m_range: ?Range = null;
-        var new_text: []const u8 = "";
-        var edits_len = cbor.decodeMapHeader(iter) catch return error.InvalidTextEditField;
-        while (edits_len > 0) : (edits_len -= 1) {
-            var field_name: []const u8 = undefined;
-            if (!(try cbor.matchString(iter, &field_name))) return error.InvalidTextEditField;
-            if (std.mem.eql(u8, field_name, "range")) {
-                var range: []const u8 = undefined;
-                if (!(try cbor.matchValue(iter, cbor.extract_cbor(&range)))) return error.InvalidTextEditField;
-                m_range = try read_range(range);
-            } else if (std.mem.eql(u8, field_name, "newText")) {
-                if (!(try cbor.matchString(iter, &new_text))) return error.InvalidTextEditField;
-            } else {
-                try cbor.skipValue(iter);
-            }
-        }
-
-        const range = m_range orelse return error.InvalidTextEditField;
-        try renames.append(.{ .uri = file_uri, .range = range, .new_text = new_text });
-    }
+    return count;
 }
 
 pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, version: usize, text: []const u8) LspError!void {
