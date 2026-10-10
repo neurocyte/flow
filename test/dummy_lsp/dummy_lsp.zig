@@ -28,6 +28,18 @@
 // On line 1 the edit carries a wrong document version, so the client must
 // answer with "applied: false".
 
+// Diagnostics
+// When a file opens, the server publishes one warning for the first three
+// characters of line 2. The diagnostic carries a data field.
+
+// Code actions
+// A code action request returns three items:
+// - A preferred quick fix that inserts a comment line above the range. Its
+//   title shows how many diagnostics the request context held, and whether
+//   their data field came back.
+// - A disabled refactoring.
+// - An old style Command item.
+
 const std = @import("std");
 
 const Position = struct { line: usize, character: usize };
@@ -56,6 +68,7 @@ const capabilities = .{
     .textDocumentSync = 1,
     .completionProvider = .{ .resolveProvider = false },
     .hoverProvider = true,
+    .codeActionProvider = true,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -101,6 +114,7 @@ fn handle(io: std.Io, arena: std.mem.Allocator, out: *std.Io.Writer, msg: std.js
     const params = get(msg, "params") orelse .null;
 
     if (std.mem.eql(u8, method, "exit")) return false;
+    if (std.mem.eql(u8, method, "textDocument/didOpen")) try publish_diagnostics(arena, out, params);
     const id_ = id orelse return true;
 
     if (std.mem.eql(u8, method, "initialize")) {
@@ -109,6 +123,8 @@ fn handle(io: std.Io, arena: std.mem.Allocator, out: *std.Io.Writer, msg: std.js
         try respond(arena, out, id_, .{ .isIncomplete = false, .items = try completion_items(arena, params) });
     } else if (std.mem.eql(u8, method, "completionItem/resolve")) {
         try resolve(io, arena, out, id_, params);
+    } else if (std.mem.eql(u8, method, "textDocument/codeAction")) {
+        try code_actions(arena, out, id_, params);
     } else if (std.mem.eql(u8, method, "textDocument/hover")) {
         try send_apply_edit(arena, out, params);
         try respond(arena, out, id_, .{ .contents = "dummy_lsp sent workspace/applyEdit" });
@@ -154,6 +170,68 @@ fn completion_items(arena: std.mem.Allocator, params: std.json.Value) ![]const C
                 .{ .range = .{ .start = .{ .line = line, .character = 0 }, .end = .{ .line = line, .character = 1 } }, .newText = "    " },
             }),
         },
+    });
+}
+
+fn publish_diagnostics(arena: std.mem.Allocator, out: *std.Io.Writer, params: std.json.Value) !void {
+    const uri = get_string(get(params, "textDocument") orelse .null, "uri") orelse return;
+    try send(arena, out, .{
+        .jsonrpc = "2.0",
+        .method = "textDocument/publishDiagnostics",
+        .params = .{
+            .uri = uri,
+            .diagnostics = .{.{
+                .range = Range{ .start = .{ .line = 1, .character = 0 }, .end = .{ .line = 1, .character = 3 } },
+                .severity = 2,
+                .source = "dummy_lsp",
+                .message = "dummy warning",
+                .data = .{ .id = 7 },
+            }},
+        },
+    });
+}
+
+fn code_actions(arena: std.mem.Allocator, out: *std.Io.Writer, id: std.json.Value, params: std.json.Value) !void {
+    const uri = get_string(get(params, "textDocument") orelse .null, "uri") orelse return respond(arena, out, id, null);
+    const start = get(get(params, "range") orelse .null, "start") orelse .null;
+    const line: usize = @intCast(get_int(start, "line") orelse 0);
+
+    var diagnostics: usize = 0;
+    var data_returned = false;
+    switch (get(get(params, "context") orelse .null, "diagnostics") orelse .null) {
+        .array => |array| {
+            diagnostics = array.items.len;
+            for (array.items) |diagnostic| {
+                if ((get_int(get(diagnostic, "data") orelse .null, "id") orelse 0) == 7) data_returned = true;
+            }
+        },
+        else => {},
+    }
+    const title = try std.fmt.allocPrint(arena, "Insert comment ({d} diagnostics in context{s})", .{
+        diagnostics,
+        if (data_returned) ", data returned" else "",
+    });
+
+    const Changes = struct {
+        uri: []const u8,
+        edits: []const TextEdit,
+
+        pub fn jsonStringify(self: @This(), jw: *std.json.Stringify) !void {
+            try jw.beginObject();
+            try jw.objectField(self.uri);
+            try jw.write(self.edits);
+            try jw.endObject();
+        }
+    };
+    const changes: Changes = .{ .uri = uri, .edits = &.{.{
+        .range = .{ .start = .{ .line = line, .character = 0 }, .end = .{ .line = line, .character = 0 } },
+        .newText = "# fixed by dummy_lsp\n",
+    }} };
+
+    try respond(arena, out, id, .{
+        .{ .title = title, .kind = "quickfix", .isPreferred = true, .edit = .{ .changes = changes } },
+        .{ .title = "Rewrite (dummy)", .kind = "refactor.rewrite", .disabled = .{ .reason = "nothing to rewrite" } },
+        .{ .title = "Run dummy command", .command = "dummy.apply", .arguments = .{uri} },
     });
 }
 
