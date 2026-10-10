@@ -52,18 +52,48 @@ test "workspace edit: documentChanges is preferred over changes" {
     );
 }
 
-test "workspace edit: resource operations are skipped" {
+test "workspace edit: file operations" {
     try expect_workspace_edit(
         \\{"documentChanges":[
         \\  {"kind":"create","uri":"file:///src/new.zig"},
         \\  {"textDocument":{"uri":"file:///src/new.zig","version":null},"edits":[
         \\    {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"x"}]},
-        \\  {"kind":"rename","oldUri":"file:///src/a.zig","newUri":"file:///src/b.zig"},
+        \\  {"kind":"rename","oldUri":"file:///src/a.zig","newUri":"file:///src/sub/b.zig"},
         \\  {"kind":"delete","uri":"file:///src/c.zig"}
         \\]}
     ,
-        \\[["/src/new.zig",null,[[0,0,0,0,"x"]]]]
+        \\[["create","/src/new.zig","","fail","file"],["/src/new.zig",null,[[0,0,0,0,"x"]]],["rename","/src/a.zig","/src/sub/b.zig","fail","file"],["delete","/src/c.zig","","fail","file"]]
     );
+}
+
+test "workspace edit: file operation options" {
+    try expect_workspace_edit(
+        \\{"documentChanges":[
+        \\  {"kind":"create","uri":"file:///a","options":{"overwrite":true,"ignoreIfExists":true}},
+        \\  {"kind":"create","uri":"file:///b","options":{"ignoreIfExists":true}},
+        \\  {"options":{"overwrite":false,"ignoreIfExists":false},"newUri":"file:///d","oldUri":"file:///c","kind":"rename"},
+        \\  {"kind":"delete","uri":"file:///dir","options":{"recursive":true,"ignoreIfNotExists":true},"annotationId":"x"},
+        \\  {"kind":"delete","uri":"file:///e","options":null}
+        \\]}
+    ,
+        \\[["create","/a","","overwrite","file"],["create","/b","","ignore","file"],["rename","/c","/d","fail","file"],["delete","/dir","","ignore","recursive"],["delete","/e","","fail","file"]]
+    );
+}
+
+test "workspace edit: invalid file operations" {
+    for ([_][]const u8{
+        \\{"documentChanges":[{"kind":"move","uri":"file:///a"}]}
+        ,
+        \\{"documentChanges":[{"kind":"create"}]}
+        ,
+        \\{"documentChanges":[{"kind":"rename","oldUri":"file:///a"}]}
+    }) |json| {
+        const workspace_edit = try cbor.fromJsonAlloc(a, json);
+        defer a.free(workspace_edit);
+        var result: std.Io.Writer.Allocating = .init(a);
+        defer result.deinit();
+        try std.testing.expectError(error.InvalidWorkspaceEditField, write_workspace_edit(&result.writer, workspace_edit));
+    }
 }
 
 test "workspace edit: percent encoded uri" {

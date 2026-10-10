@@ -45,6 +45,9 @@
 // - A refactoring with an edit and a command. The command must run after
 //   the edit.
 // - An old style Command item.
+// - Three refactorings with file operations, all in the directory of the file:
+//   create "created.dummy" with one line of text, rename the file to
+//   "renamed.dummy" after an edit to it, and delete "<file>.other".
 
 // Commands
 // The command "dummy.apply" makes the server send a workspace/applyEdit
@@ -241,7 +244,35 @@ fn code_actions(arena: std.mem.Allocator, out: *std.Io.Writer, id: std.json.Valu
             .command = .{ .title = "Apply", .command = "dummy.apply", .arguments = .{uri} },
         },
         .{ .title = "Run dummy command", .command = "dummy.apply", .arguments = .{uri} },
+        .{ .title = "Create file (dummy)", .kind = "refactor", .edit = .{ .documentChanges = .{
+            FileOperation{ .kind = "create", .uri = try sibling(arena, uri, "created.dummy") },
+            TextDocumentEdit{ .textDocument = .{ .uri = try sibling(arena, uri, "created.dummy") }, .edits = &.{.{ .range = top, .newText = "created by dummy_lsp\n" }} },
+        } } },
+        .{ .title = "Rename file (dummy)", .kind = "refactor", .edit = .{ .documentChanges = .{
+            TextDocumentEdit{ .textDocument = .{ .uri = uri }, .edits = &.{.{ .range = top, .newText = "# renamed by dummy_lsp\n" }} },
+            FileOperation{ .kind = "rename", .oldUri = uri, .newUri = try sibling(arena, uri, "renamed.dummy") },
+        } } },
+        .{ .title = "Delete other file (dummy)", .kind = "refactor", .edit = .{ .documentChanges = .{
+            FileOperation{ .kind = "delete", .uri = try std.fmt.allocPrint(arena, "{s}.other", .{uri}) },
+        } } },
     });
+}
+
+const FileOperation = struct {
+    kind: []const u8,
+    uri: ?[]const u8 = null,
+    oldUri: ?[]const u8 = null,
+    newUri: ?[]const u8 = null,
+};
+
+const TextDocumentEdit = struct {
+    textDocument: struct { uri: []const u8, version: ?i64 = null },
+    edits: []const TextEdit,
+};
+
+fn sibling(arena: std.mem.Allocator, uri: []const u8, name: []const u8) ![]const u8 {
+    const dir = uri[0 .. (std.mem.lastIndexOfScalar(u8, uri, '/') orelse return error.InvalidUri) + 1];
+    return std.fmt.allocPrint(arena, "{s}{s}", .{ dir, name });
 }
 
 const Changes = struct {

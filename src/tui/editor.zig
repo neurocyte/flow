@@ -8735,6 +8735,11 @@ pub const Editor = struct {
     }
     pub const set_file_type_meta: Meta = .{ .arguments = &.{.string} };
 
+    pub fn buffer_renamed(self: *Self, file_path: []const u8) !void {
+        self.file_path = try self.allocator.dupe(u8, file_path);
+        try self.send_focus_events();
+    }
+
     pub fn send_focus_events(self: *Self) !void {
         const ftn = if (self.file_type) |ft| ft.name else file_type_config.default.name;
         const fti = if (self.file_type) |ft| ft.icon orelse file_type_config.default.icon else file_type_config.default.icon;

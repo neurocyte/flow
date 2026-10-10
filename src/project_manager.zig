@@ -31,6 +31,9 @@ pub const LspStatus = Project.LspStatus;
 pub const ApplyEditResult = Project.ApplyEditResult;
 pub const CodeActionTrigger = Project.CodeActionTrigger;
 pub const CodeActionPreference = @import("LSPClient.zig").CodeActionPreference;
+pub const FileOperation = @import("LSPClient.zig").FileOperation;
+pub const FileConflict = @import("LSPClient.zig").FileConflict;
+pub const FileScope = @import("LSPClient.zig").FileScope;
 
 pub const test_internal = struct {
     pub const write_workspace_edit = @import("LSPClient.zig").write_workspace_edit;

@@ -1656,8 +1656,10 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
                     while (files > 0) : (files -= 1) {
                         var file_path: []const u8 = undefined;
                         var text_edits: []const u8 = undefined;
-                        if (!try cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.any, cbor.extract_cbor(&text_edits) }))
-                            return error.InvalidWorkspaceEdit;
+                        if (!try cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.any, cbor.extract_cbor(&text_edits) })) {
+                            try cbor.skipValue(&iter);
+                            continue;
+                        }
                         var edits = try cbor.decodeArrayHeader(&text_edits);
                         while (edits > 0) : (edits -= 1) {
                             var range: Range = undefined;
@@ -1740,27 +1742,81 @@ fn write_workspace_edit_changes(writer: *std.Io.Writer, changes: []const u8) Wor
 }
 
 fn write_workspace_edit_document_changes(writer: *std.Io.Writer, document_changes: []const u8) WorkspaceEditError!void {
-    var count: usize = 0;
     var iter = document_changes;
     var len = cbor.decodeArrayHeader(&iter) catch return error.InvalidWorkspaceEditField;
+    try cbor.writeArrayHeader(writer, len);
     while (len > 0) : (len -= 1) {
         var change: []const u8 = undefined;
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&change)))) return error.InvalidWorkspaceEditField;
-        if ((try read_text_document_edit(change)) != null) count += 1;
+        if (try read_text_document_edit(change)) |edit_| {
+            var edit = edit_;
+            try write_workspace_edit_file(writer, edit.uri, edit.version, &edit.edits);
+        } else try write_file_operation(writer, change);
     }
+}
 
-    try cbor.writeArrayHeader(writer, count);
-    iter = document_changes;
-    len = try cbor.decodeArrayHeader(&iter);
+pub const FileOperation = enum { create, rename, delete };
+pub const FileConflict = enum { fail, overwrite, ignore };
+pub const FileScope = enum { file, recursive };
+
+// CreateFile, RenameFile or DeleteFile as [kind, path, to_path, on_conflict, scope]
+fn write_file_operation(writer: *std.Io.Writer, change: []const u8) WorkspaceEditError!void {
+    var kind: ?FileOperation = null;
+    var uri: []const u8 = "";
+    var old_uri: []const u8 = "";
+    var new_uri: []const u8 = "";
+    var overwrite = false;
+    var ignore = false;
+    var recursive = false;
+    var iter = change;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEditField;
     while (len > 0) : (len -= 1) {
-        var change: []const u8 = undefined;
-        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&change)))) return error.InvalidWorkspaceEditField;
-        var edit = (try read_text_document_edit(change)) orelse {
-            std.log.warn("ignored unsupported resource operation in workspace edit", .{});
-            continue;
-        };
-        try write_workspace_edit_file(writer, edit.uri, edit.version, &edit.edits);
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidWorkspaceEditFieldName;
+        if (std.mem.eql(u8, field_name, "kind")) {
+            var kind_: []const u8 = undefined;
+            if (!(try cbor.matchString(&iter, &kind_))) return error.InvalidWorkspaceEditField;
+            kind = std.meta.stringToEnum(FileOperation, kind_) orelse return error.InvalidWorkspaceEditField;
+        } else if (std.mem.eql(u8, field_name, "uri")) {
+            if (!(try cbor.matchString(&iter, &uri))) return error.InvalidWorkspaceEditField;
+        } else if (std.mem.eql(u8, field_name, "oldUri")) {
+            if (!(try cbor.matchString(&iter, &old_uri))) return error.InvalidWorkspaceEditField;
+        } else if (std.mem.eql(u8, field_name, "newUri")) {
+            if (!(try cbor.matchString(&iter, &new_uri))) return error.InvalidWorkspaceEditField;
+        } else if (std.mem.eql(u8, field_name, "options")) {
+            if (try cbor.matchValue(&iter, cbor.null_)) continue;
+            var options = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEditField;
+            while (options > 0) : (options -= 1) {
+                var value = false;
+                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidWorkspaceEditFieldName;
+                if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) {
+                    try cbor.skipValue(&iter);
+                    continue;
+                }
+                if (std.mem.eql(u8, field_name, "overwrite")) {
+                    overwrite = value;
+                } else if (std.mem.eql(u8, field_name, "ignoreIfExists") or std.mem.eql(u8, field_name, "ignoreIfNotExists")) {
+                    ignore = value;
+                } else if (std.mem.eql(u8, field_name, "recursive")) {
+                    recursive = value;
+                }
+            }
+        } else {
+            try cbor.skipValue(&iter);
+        }
     }
+    const kind_ = kind orelse return error.InvalidWorkspaceEditField;
+    const from_uri = if (kind_ == .rename) old_uri else uri;
+    if (from_uri.len == 0 or (kind_ == .rename and new_uri.len == 0)) return error.InvalidWorkspaceEditField;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var to_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    try cbor.writeValue(writer, .{
+        kind_,
+        try file_uri_to_path(from_uri, &path_buf),
+        if (kind_ == .rename) try file_uri_to_path(new_uri, &to_path_buf) else "",
+        @as(FileConflict, if (overwrite) .overwrite else if (ignore) .ignore else .fail),
+        @as(FileScope, if (recursive) .recursive else .file),
+    });
 }
 
 const TextDocumentEdit = struct {
@@ -1824,7 +1880,10 @@ fn count_workspace_edit_text_edits(workspace_edit: []const u8) cbor.Error!usize 
     var files = try cbor.decodeArrayHeader(&iter);
     while (files > 0) : (files -= 1) {
         var text_edits: []const u8 = undefined;
-        if (!try cbor.matchValue(&iter, .{ cbor.any, cbor.any, cbor.extract_cbor(&text_edits) })) return error.InvalidType;
+        if (!try cbor.matchValue(&iter, .{ cbor.any, cbor.any, cbor.extract_cbor(&text_edits) })) {
+            try cbor.skipValue(&iter);
+            continue;
+        }
         count += try cbor.decodeArrayHeader(&text_edits);
     }
     return count;
@@ -2089,6 +2148,7 @@ fn send_init_request(
                 .executeCommand = .{ .dynamicRegistration = false },
                 .workspaceEdit = .{
                     .documentChanges = true,
+                    .resourceOperations = .{ "create", "rename", "delete" },
                     .failureHandling = "abort",
                 },
                 // .configuration = true,

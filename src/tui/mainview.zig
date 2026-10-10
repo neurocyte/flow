@@ -1883,52 +1883,69 @@ const cmds = struct {
     pub fn apply_workspace_edit(self: *Self, ctx: Ctx) Result {
         var workspace_edit: []const u8 = undefined;
         var reply: []const u8 = &.{};
-        var loaded: bool = false;
+        var step: WorkspaceEditStep = .start;
         if (!(try ctx.args.match(.{tp.extract_cbor(&workspace_edit)}) or
             try ctx.args.match(.{ tp.extract_cbor(&workspace_edit), tp.extract_cbor(&reply) }) or
-            try ctx.args.match(.{ tp.extract_cbor(&workspace_edit), tp.extract_cbor(&reply), tp.extract(&loaded) })))
+            try ctx.args.match(.{ tp.extract_cbor(&workspace_edit), tp.extract_cbor(&reply), tp.extract(&step) })))
             return error.InvalidApplyWorkspaceEditArgument;
 
         var iter = workspace_edit;
         var files = try cbor.decodeArrayHeader(&iter);
         while (files > 0) : (files -= 1) {
-            const remaining = iter;
+            const resume_: WorkspaceEditResume = .{ .files = files, .bytes = iter, .reply = reply };
+            const step_ = step;
+            step = .start;
             var file_path: []const u8 = undefined;
+            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
             var version: ?usize = null;
             var text_edits: []const u8 = undefined;
-            if (!try cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.extract(&version), cbor.extract_cbor(&text_edits) }))
-                return error.InvalidApplyWorkspaceEditArgument;
-            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            if (!try cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.extract(&version), cbor.extract_cbor(&text_edits) })) {
+                var operation: FileOperation = undefined;
+                if (!try cbor.matchValue(&iter, .{
+                    cbor.extract(&operation.kind),
+                    cbor.extract(&operation.path),
+                    cbor.extract(&operation.to_path),
+                    cbor.extract(&operation.conflict),
+                    cbor.extract(&operation.scope),
+                })) return error.InvalidApplyWorkspaceEditArgument;
+                var to_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                operation.path = project_manager.normalize_file_path(operation.path, &file_path_buf);
+                operation.to_path = project_manager.normalize_file_path(operation.to_path, &to_path_buf);
+                switch (try self.apply_file_operation(operation, step_, resume_, ctx)) {
+                    .done => continue,
+                    .pending => return,
+                }
+            }
             file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
 
-            const just_loaded = loaded;
-            loaded = false;
-            if (!just_loaded and self.buffer_manager.needs_load(file_path))
-                return self.load_for_workspace_edit(file_path, files, remaining, reply);
-            if (just_loaded) if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| if (!new_buffer.file_exists) {
+            if (step_ != .loaded and self.buffer_manager.needs_load(file_path))
+                return self.load_for_workspace_edit(file_path, resume_);
+            if (step_ == .loaded) if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| if (!new_buffer.file_exists) {
                 self.buffer_manager.delete_buffer(new_buffer);
                 return self.workspace_edit_failed(file_path, text_edits, "file does not exist", reply);
             };
             const buffer = try self.buffer_manager.open_file(file_path, ctx.now);
 
-            const editor = self.get_editor_for_buffer(buffer);
             if (version) |version_| if (version_ != buffer.lsp_version) {
                 var reason_buf: [128]u8 = undefined;
                 const reason = std.fmt.bufPrint(&reason_buf, "the edit is for document version {d}, but the document is at version {d}, try again", .{ version_, buffer.lsp_version }) catch "document changed";
                 return self.workspace_edit_failed(file_path, text_edits, reason, reply);
             };
 
-            (if (editor) |editor_|
-                editor_.apply_buffer_text_edits(.{ .bytes = text_edits }, ctx.now)
-            else
-                ed.apply_text_edits_to_buffer(self.allocator, buffer, .{ .bytes = text_edits }, self.plane.metrics(tui.config().tab_width), ctx.now)) catch |e|
+            self.apply_text_edits_to_buffer(buffer, text_edits, ctx.now) catch |e|
                 return self.workspace_edit_failed(file_path, text_edits, @errorName(e), reply);
-            // the language server must see the edit before a command that follows it
-            buffer_lsp.sync(buffer) catch {};
         }
         self.workspace_edit_done(reply, .applied, "");
     }
     pub const apply_workspace_edit_meta: Meta = .{ .arguments = &.{.array} };
+
+    pub fn apply_workspace_edit_cancelled(self: *Self, ctx: Ctx) Result {
+        var reply: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract_cbor(&reply)}))
+            return error.InvalidApplyWorkspaceEditArgument;
+        self.workspace_edit_done(reply, .failed, "cancelled");
+    }
+    pub const apply_workspace_edit_cancelled_meta: Meta = .{ .arguments = &.{.array} };
 
     pub fn apply_workspace_edit_load_failed(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -3377,33 +3394,222 @@ fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.Appl
         std.log.err("workspace_edit_done failed: {t}", .{e});
 }
 
-fn load_for_workspace_edit(self: *Self, file_path: []const u8, files: usize, remaining: []const u8, reply_: []const u8) command.Result {
-    const RemainingFiles = struct {
-        files: usize,
-        bytes: []const u8,
-        pub fn cborEncode(remaining_: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
-            try cbor.writeArrayHeader(writer, remaining_.files);
-            try writer.writeAll(remaining_.bytes);
-        }
-    };
-    const reply: ?cbor.Raw = if (reply_.len > 0) .{ .bytes = reply_ } else null;
+const WorkspaceEditStep = enum { start, loaded, confirmed };
 
+// the entries of a workspace edit that are still to do, to run apply_workspace_edit again later
+const WorkspaceEditResume = struct {
+    files: usize,
+    bytes: []const u8,
+    reply: []const u8,
+
+    fn reply_value(self: WorkspaceEditResume) ?cbor.Raw {
+        return if (self.reply.len > 0) .{ .bytes = self.reply } else null;
+    }
+
+    fn write(self: WorkspaceEditResume, writer: *std.Io.Writer, step: WorkspaceEditStep) !void {
+        const Remaining = struct {
+            files: usize,
+            bytes: []const u8,
+            pub fn cborEncode(remaining: @This(), writer_: *std.Io.Writer) std.Io.Writer.Error!void {
+                try cbor.writeArrayHeader(writer_, remaining.files);
+                try writer_.writeAll(remaining.bytes);
+            }
+        };
+        try cbor.writeValue(writer, .{ "cmd", "apply_workspace_edit", .{
+            Remaining{ .files = self.files, .bytes = self.bytes },
+            self.reply_value(),
+            step,
+        } });
+    }
+};
+
+fn load_for_workspace_edit(self: *Self, file_path: []const u8, resume_: WorkspaceEditResume) command.Result {
     var then: std.Io.Writer.Allocating = .init(self.allocator);
     defer then.deinit();
-    try cbor.writeValue(&then.writer, .{ "cmd", "apply_workspace_edit", .{
-        RemainingFiles{ .files = files, .bytes = remaining },
-        reply,
-        true,
-    } });
+    try resume_.write(&then.writer, .loaded);
 
     var on_error: std.Io.Writer.Allocating = .init(self.allocator);
     defer on_error.deinit();
-    try cbor.writeValue(&on_error.writer, .{ "cmd", "apply_workspace_edit_load_failed", .{ file_path, reply } });
+    try cbor.writeValue(&on_error.writer, .{ "cmd", "apply_workspace_edit_load_failed", .{ file_path, resume_.reply_value() } });
 
     return self.buffer_manager.load(file_path, .{
         .then = .{ .bytes = then.written() },
         .on_error = .{ .bytes = on_error.written() },
     });
+}
+
+fn apply_text_edits_to_buffer(self: *Self, buffer: *Buffer, text_edits: []const u8, now: std.Io.Timestamp) !void {
+    try if (self.get_editor_for_buffer(buffer)) |editor|
+        editor.apply_buffer_text_edits(.{ .bytes = text_edits }, now)
+    else
+        ed.apply_text_edits_to_buffer(self.allocator, buffer, .{ .bytes = text_edits }, self.plane.metrics(tui.config().tab_width), now);
+    // the language server must see the edit before a command that follows it
+    buffer_lsp.sync(buffer) catch {};
+}
+
+const FileOperation = struct {
+    kind: project_manager.FileOperation,
+    path: []const u8,
+    to_path: []const u8,
+    conflict: project_manager.FileConflict,
+    scope: project_manager.FileScope,
+};
+
+fn file_exists_on_disk(file_path: []const u8) bool {
+    std.Io.Dir.cwd().access(root.get_io(), file_path, .{}) catch return false;
+    return true;
+}
+
+fn is_directory(file_path: []const u8) bool {
+    const stat = std.Io.Dir.cwd().statFile(root.get_io(), file_path, .{}) catch return false;
+    return stat.kind == .directory;
+}
+
+fn open_buffer_for_file(self: *Self, file_path: []const u8) ?*Buffer {
+    const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return null;
+    return if (buffer.is_hidden()) null else buffer;
+}
+
+// the path of a buffer after dir_or_file is renamed to to_path, or null if the rename does not affect it
+fn renamed_path(buf: []u8, buffer_path: []const u8, dir_or_file: []const u8, to_path: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, buffer_path, dir_or_file)) return to_path;
+    if (buffer_path.len <= dir_or_file.len or !std.mem.startsWith(u8, buffer_path, dir_or_file)) return null;
+    if (buffer_path[dir_or_file.len] != std.fs.path.sep) return null;
+    return std.fmt.bufPrint(buf, "{s}{s}", .{ to_path, buffer_path[dir_or_file.len..] }) catch null;
+}
+
+fn discard_buffer(self: *Self, buffer: *Buffer, ctx: command.Context) command.Result {
+    if (self.get_editor_for_buffer(buffer)) |editor|
+        try editor.close_file_without_saving(.empty_from(ctx));
+    buffer_lsp.close(buffer);
+    self.buffer_manager.delete_buffer(buffer);
+}
+
+const FileOperationResult = enum { done, pending };
+
+fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep, resume_: WorkspaceEditResume, ctx: command.Context) !FileOperationResult {
+    const reply = resume_.reply;
+    switch (op.kind) {
+        .create => {
+            if (step != .loaded) {
+                if (self.open_buffer_for_file(op.path) != null or file_exists_on_disk(op.path)) switch (op.conflict) {
+                    .fail => return self.file_operation_failed(op.path, "file exists", reply),
+                    .ignore => return .done,
+                    .overwrite => {},
+                };
+                if (self.buffer_manager.needs_load(op.path)) {
+                    try self.load_for_workspace_edit(op.path, resume_);
+                    return .pending;
+                }
+            }
+            const buffer = try self.buffer_manager.open_file(op.path, ctx.now);
+            if (op.conflict == .overwrite) {
+                var buf: [64]u8 = undefined;
+                const delete_all = cbor.fmt(&buf, .{.{ 0, 0, buffer.root.lines(), 0, "" }});
+                self.apply_text_edits_to_buffer(buffer, delete_all, ctx.now) catch |e|
+                    return self.file_operation_failed(op.path, @errorName(e), reply);
+            }
+            buffer_lsp.open(buffer);
+        },
+        .rename => {
+            const buffers = try self.buffer_manager.list_unordered(self.allocator);
+            defer self.allocator.free(buffers);
+            var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const on_disk = file_exists_on_disk(op.path);
+            if (!on_disk) {
+                for (buffers) |buffer| {
+                    if (renamed_path(&path_buf, buffer.get_file_path(), op.path, op.to_path)) |_| break;
+                } else return self.file_operation_failed(op.path, "file does not exist", reply);
+            }
+            const target = self.open_buffer_for_file(op.to_path);
+            if (target != null or file_exists_on_disk(op.to_path)) switch (op.conflict) {
+                .fail => return self.file_operation_failed(op.to_path, "file exists", reply),
+                .ignore => return .done,
+                .overwrite => if (target) |buffer| {
+                    if (buffer.is_dirty()) return self.file_operation_failed(op.to_path, "file has unsaved changes", reply);
+                    try self.discard_buffer(buffer, ctx);
+                },
+            };
+            if (self.buffer_manager.get_buffer_for_file(op.to_path)) |hidden| self.buffer_manager.delete_buffer(hidden);
+            if (on_disk) {
+                const cwd = std.Io.Dir.cwd();
+                if (std.fs.path.dirname(op.to_path)) |dir|
+                    cwd.createDirPath(root.get_io(), dir) catch |e| return self.file_operation_failed(op.to_path, @errorName(e), reply);
+                cwd.rename(op.path, cwd, op.to_path, root.get_io()) catch |e|
+                    return self.file_operation_failed(op.path, @errorName(e), reply);
+            }
+            for (buffers) |buffer| {
+                const new_path = renamed_path(&path_buf, buffer.get_file_path(), op.path, op.to_path) orelse continue;
+                const was_open = buffer.lsp_state == .open;
+                buffer_lsp.close(buffer);
+                self.buffer_manager.rename_buffer(buffer, new_path, if (on_disk) .file_on_disk else .buffer_only) catch |e|
+                    return self.file_operation_failed(op.to_path, @errorName(e), reply);
+                if (self.get_editor_for_buffer(buffer)) |editor| try editor.buffer_renamed(buffer.get_file_path());
+                if (was_open) buffer_lsp.open(buffer);
+            }
+            _ = self.widgets_widget.msg(.{"splits_updated"}) catch {};
+            tui.need_render(@src());
+        },
+        .delete => {
+            const buffers = try self.buffer_manager.list_unordered(self.allocator);
+            defer self.allocator.free(buffers);
+            var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var affected: usize = 0;
+            for (buffers) |buffer| {
+                if (renamed_path(&path_buf, buffer.get_file_path(), op.path, op.path) == null) continue;
+                if (buffer.is_dirty()) return self.file_operation_failed(buffer.get_file_path(), "file has unsaved changes", reply);
+                affected += 1;
+            }
+            const on_disk = file_exists_on_disk(op.path);
+            if (!on_disk and affected == 0) return switch (op.conflict) {
+                .ignore => .done,
+                .fail, .overwrite => self.file_operation_failed(op.path, "file does not exist", reply),
+            };
+            const directory = on_disk and is_directory(op.path);
+            if (step != .confirmed) {
+                var message_buf: [std.fs.max_path_bytes + 128]u8 = undefined;
+                var confirmed: std.Io.Writer.Allocating = .init(self.allocator);
+                defer confirmed.deinit();
+                try resume_.write(&confirmed.writer, .confirmed);
+                var cancelled: std.Io.Writer.Allocating = .init(self.allocator);
+                defer cancelled.deinit();
+                try cbor.writeValue(&cancelled.writer, .{ "cmd", "apply_workspace_edit_cancelled", .{resume_.reply_value()} });
+                try tui.open_confirm(.{
+                    .message = std.fmt.bufPrint(&message_buf, "Delete {s}?\n{s}", .{
+                        if (directory) "directory" else "file",
+                        op.path,
+                    }) catch op.path,
+                    .choices = &.{.{
+                        .label = if (directory and op.scope == .recursive) "Delete with all content" else "Delete",
+                        .action = .{ .bytes = confirmed.written() },
+                        .severity = .err,
+                    }},
+                    .on_cancel = .{ .bytes = cancelled.written() },
+                });
+                return .pending;
+            }
+            for (buffers) |buffer| {
+                if (renamed_path(&path_buf, buffer.get_file_path(), op.path, op.path) == null) continue;
+                try self.discard_buffer(buffer, ctx);
+            }
+            if (on_disk) {
+                const cwd = std.Io.Dir.cwd();
+                (if (!directory)
+                    cwd.deleteFile(root.get_io(), op.path)
+                else switch (op.scope) {
+                    .file => cwd.deleteDir(root.get_io(), op.path),
+                    .recursive => cwd.deleteTree(root.get_io(), op.path),
+                }) catch |e| return self.file_operation_failed(op.path, @errorName(e), reply);
+            }
+            tui.need_render(@src());
+        },
+    }
+    return .done;
+}
+
+fn file_operation_failed(self: *Self, file_path: []const u8, reason: []const u8, reply: []const u8) !FileOperationResult {
+    try self.workspace_edit_failed(file_path, &.{}, reason, reply);
+    return .pending;
 }
 
 fn workspace_edit_failed(self: *Self, file_path: []const u8, text_edits_: []const u8, reason: []const u8, reply: []const u8) command.Result {
