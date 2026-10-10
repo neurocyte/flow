@@ -2327,6 +2327,14 @@ const cmds = struct {
     }
     pub const save_as_meta: Meta = .{ .description = "Save as" };
 
+    pub fn rename_file(self: *Self, ctx: Ctx) Result {
+        const editor = get_active_editor() orelse return tp.exit("no file");
+        const buffer = editor.buffer orelse return tp.exit("no file");
+        if (buffer.is_ephemeral()) return tp.exit("not a file");
+        return enter_mini_mode(self, @import("mode/mini/rename_file.zig"), ctx);
+    }
+    pub const rename_file_meta: Meta = .{ .description = "Rename file" };
+
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         const ctx_: command.Context = .empty_from(ctx);
         self.keyboard_focus_outer = self.keyboard_focus;
