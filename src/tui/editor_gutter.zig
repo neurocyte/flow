@@ -40,6 +40,7 @@ symbols: bool,
 width: usize,
 editor: *ed.Editor,
 editor_widget: ?Widget = null,
+indicator_hover: bool = false,
 differ: diffz.AsyncDiffer,
 
 const Self = @This();
@@ -100,6 +101,16 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var line_number_mode: ?LineNumberMode = null;
     var line_number_style: DigitStyle = undefined;
 
+    var hover: bool = false;
+
+    if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.any })) {
+        self.set_indicator_hover(self.is_code_action_indicator(coord));
+        return false;
+    }
+    if (try m.match(.{ "H", tp.extract(&hover) })) {
+        if (!hover) self.set_indicator_hover(false);
+        return false;
+    }
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
         return self.primary_click(coord);
     if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
@@ -456,6 +467,13 @@ fn is_code_action_indicator(self: *const Self, coord: MouseEvent.Coord) bool {
     const cell = coord.to_cell(self.plane.mouse_geometry());
     const y = self.code_action_indicator_y() orelse return false;
     return cell.col == 0 and cell.row == y;
+}
+
+fn set_indicator_hover(self: *Self, hover: bool) void {
+    if (self.indicator_hover == hover) return;
+    self.indicator_hover = hover;
+    tui.rdr().request_mouse_cursor_pointer(hover);
+    tui.need_render(@src());
 }
 
 // the menu opens on release, a release on an open menu would close it again
