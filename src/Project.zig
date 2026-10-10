@@ -1492,6 +1492,19 @@ pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, p
 }
 
 pub const ApplyEditResult = enum { applied, failed };
+pub const CodeActionTrigger = LSPClient.CodeActionTrigger;
+pub const Range = LSPClient.Range;
+
+pub fn code_actions(self: *Self, from: tp.pid_ref, file_path: []const u8, range: LSPClient.Range, only: []const u8, trigger: CodeActionTrigger, token: u32) StartLspError!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    var diagnostics: std.Io.Writer.Allocating = .init(self.allocator);
+    defer diagnostics.deinit();
+    self.write_diagnostics_in_range(&diagnostics.writer, file_path, range) catch {
+        diagnostics.clearRetainingCapacity();
+        try cbor.writeArrayHeader(&diagnostics.writer, 0);
+    };
+    return client.code_actions(from, file_path, range, diagnostics.written(), only, trigger, token);
+}
 
 pub fn set_lsp_capabilities(self: *Self, lsp_name: []const u8, capabilities: []const u8) (error{OutOfMemory} || cbor.Error)!void {
     const client = self.get_existing_lsp_client(lsp_name) orelse return;

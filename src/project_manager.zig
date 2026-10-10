@@ -29,11 +29,14 @@ pub const Error = ProjectError || ProjectManagerError;
 pub const ProjectError = error{NoProject};
 pub const LspStatus = Project.LspStatus;
 pub const ApplyEditResult = Project.ApplyEditResult;
+pub const CodeActionTrigger = Project.CodeActionTrigger;
+pub const CodeActionPreference = @import("LSPClient.zig").CodeActionPreference;
 
 pub const test_internal = struct {
     pub const write_workspace_edit = @import("LSPClient.zig").write_workspace_edit;
     pub const write_diagnostics_in_range = @import("LSPClient.zig").write_diagnostics_in_range;
     pub const ServerCapabilities = @import("LSPClient.zig").ServerCapabilities;
+    pub const write_code_actions = @import("LSPClient.zig").write_code_actions;
 };
 
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
@@ -338,6 +341,13 @@ pub fn completion_resolve(file_path: []const u8, token: u32, item: cbor.Raw) (Pr
     return send(.{ "completion_resolve", project, file_path, token, item });
 }
 
+pub fn code_actions(file_path: []const u8, range: [4]usize, only: []const u8, trigger: CodeActionTrigger, token: u32) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "code_actions", project, file_path, range, only, trigger, token });
+}
+
 pub fn apply_edit_response(reply: cbor.Raw, result: ApplyEditResult, reason: []const u8) (ProjectManagerError || ProjectError)!void {
     return send(.{ "apply_edit_response", reply, result, reason });
 }
@@ -525,6 +535,8 @@ const Process = struct {
         var token: u32 = 0;
         var item: []const u8 = undefined;
         var apply_edit_result: ApplyEditResult = undefined;
+        var code_action_trigger: CodeActionTrigger = undefined;
+        var range: Project.Range = undefined;
 
         var eol_mode: Buffer.EolModeTag = @backingInt(Buffer.EolMode.lf);
         var event_type: file_watcher.EventType = undefined;
@@ -631,6 +643,8 @@ const Process = struct {
             self.completion(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "completion_resolve", tp.extract(&project_directory), tp.extract(&path), tp.extract(&token), tp.extract_cbor(&item) })) {
             self.completion_resolve(from, project_directory, path, token, item) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "code_actions", tp.extract(&project_directory), tp.extract(&path), .{ tp.extract(&range.start.line), tp.extract(&range.start.character), tp.extract(&range.end.line), tp.extract(&range.end.character) }, tp.extract(&text), tp.extract(&code_action_trigger), tp.extract(&token) })) {
+            self.code_actions(from, project_directory, path, range, text, code_action_trigger, token) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "lsp_capabilities", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
             if (self.projects.get(project_directory)) |project|
                 project.set_lsp_capabilities(language_server, params_cb) catch |e| self.logger.err("lsp-capabilities", e);
@@ -1105,6 +1119,13 @@ const Process = struct {
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.completion_resolve(from, file_path, token, item);
+    }
+
+    fn code_actions(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, range: Project.Range, only: []const u8, trigger: CodeActionTrigger, token: u32) (ProjectError || Project.StartLspError)!void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".code_actions" });
+        defer frame.deinit();
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.code_actions(from, file_path, range, only, trigger, token);
     }
 
     fn apply_edit_response(self: *Process, project_directory: []const u8, language_server: []const u8, cbor_id: []const u8, result: ApplyEditResult, reason: []const u8) (ProjectError || Project.LspError)!void {

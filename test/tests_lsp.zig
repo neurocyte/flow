@@ -194,3 +194,52 @@ test "server capabilities: code action options and commands" {
     defer no_resolve.deinit(a);
     try std.testing.expectEqual(.actions, no_resolve.code_action);
 }
+
+const write_code_actions = @import("project_manager").test_internal.write_code_actions;
+
+fn expect_code_actions(json: []const u8, expected_json: []const u8) !void {
+    const actions = try cbor.fromJsonAlloc(a, json);
+    defer a.free(actions);
+    var result: std.Io.Writer.Allocating = .init(a);
+    defer result.deinit();
+    try write_code_actions(&result.writer, actions);
+    const result_json = try cbor.toJsonAlloc(a, result.written());
+    defer a.free(result_json);
+    try std.testing.expectEqualStrings(expected_json, result_json);
+}
+
+test "code actions: empty" {
+    try expect_code_actions("[]", "[]");
+}
+
+test "code actions: code action with all fields" {
+    try expect_code_actions(
+        \\[{"title":"Fix it","kind":"quickfix","isPreferred":true,"data":{"id":1}}]
+    ,
+        \\[["Fix it","quickfix","preferred","",{"title":"Fix it","kind":"quickfix","isPreferred":true,"data":{"id":1}}]]
+    );
+}
+
+test "code actions: disabled action" {
+    try expect_code_actions(
+        \\[{"title":"Extract","kind":"refactor.extract","disabled":{"reason":"no selection"}}]
+    ,
+        \\[["Extract","refactor.extract","normal","no selection",{"title":"Extract","kind":"refactor.extract","disabled":{"reason":"no selection"}}]]
+    );
+}
+
+test "code actions: command item" {
+    try expect_code_actions(
+        \\[{"title":"Run","command":"server.run","arguments":[1,"x"]}]
+    ,
+        \\[["Run","","normal","",{"title":"Run","command":"server.run","arguments":[1,"x"]}]]
+    );
+}
+
+test "code actions: code action with an embedded command" {
+    try expect_code_actions(
+        \\[{"title":"Both","command":{"title":"Run","command":"server.run"},"edit":{"changes":{}}}]
+    ,
+        \\[["Both","","normal","",{"title":"Both","command":{"title":"Run","command":"server.run"},"edit":{"changes":{}}}]]
+    );
+}
