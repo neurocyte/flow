@@ -2067,7 +2067,7 @@ pub const Editor = struct {
         const lines = if (root) |root_| root_.lines() else 0;
 
         if (token_from(self.last.root) != token_from(root)) {
-            try self.send_editor_update(self.last.root, root, eol_mode);
+            try self.send_editor_update();
             if (self.buffer) |buf| {
                 buf.update_longest_line_length(self.metrics) catch |e| switch (e) {
                     else => self.logger.err("update_longest_line_length", e),
@@ -2201,11 +2201,11 @@ pub const Editor = struct {
         return if (p) |p_| @intFromPtr(p_) else 0;
     }
 
-    fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
+    fn send_editor_update(self: *const Self) !void {
         _ = try self.handlers.msg(.{ "E", "update" });
         if (self.buffer) |buffer| {
-            if (self.has_language_server()) if (old_root) |old_root_| if (new_root != null)
-                try buffer_lsp.change(buffer, old_root_, eol_mode);
+            if (self.has_language_server())
+                try buffer_lsp.sync(buffer);
             auto_save_buffer(buffer, .on_document_change);
         }
     }
@@ -8777,7 +8777,7 @@ pub fn apply_text_edits_to_buffer(allocator: Allocator, buffer: *Buffer, text_ed
 
     try buffer.store_undo(&.{});
     buffer.update(root, now);
-    try buffer_lsp.change(buffer, old_root, buffer.file_eol_mode);
+    try buffer_lsp.sync(buffer);
 }
 
 pub const EditorWidget = struct {

@@ -1893,6 +1893,8 @@ const cmds = struct {
             else
                 ed.apply_text_edits_to_buffer(self.allocator, buffer, .{ .bytes = text_edits }, self.plane.metrics(tui.config().tab_width), ctx.now)) catch |e|
                 return self.workspace_edit_failed(file_path, text_edits, @errorName(e), reply);
+            // the language server must see the edit before a command that follows it
+            buffer_lsp.sync(buffer) catch {};
         }
         self.workspace_edit_done(reply, .applied, "");
     }

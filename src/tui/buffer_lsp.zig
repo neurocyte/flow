@@ -22,11 +22,13 @@ pub fn open(buffer: *Buffer) void {
     project_manager.did_open(buffer.get_file_path(), ft, buffer.lsp_version, content, false) catch |e|
         return std.log.err("did_open failed: {t}", .{e});
     buffer.lsp_state = .open;
+    buffer.lsp_root = buffer.root;
 }
 
 pub fn close(buffer: *Buffer) void {
     if (buffer.lsp_state != .open) return;
     buffer.lsp_state = .closed;
+    buffer.lsp_root = null;
     project_manager.did_close(buffer.get_file_path()) catch {};
 }
 
@@ -35,15 +37,19 @@ pub fn reopen(buffer: *Buffer) void {
     open(buffer);
 }
 
-pub fn change(buffer: *Buffer, old_root: Buffer.Root, eol_mode: Buffer.EolMode) !void {
+/// send the difference between the root that the language server has and the current root
+pub fn sync(buffer: *Buffer) !void {
     if (buffer.lsp_state != .open) return open(buffer);
+    const old_root = buffer.lsp_root orelse return;
+    if (old_root == buffer.root) return;
+    const eol_mode = buffer.file_eol_mode;
     const text_dst = try text_from_root(buffer.root, eol_mode);
     const text_src = text_from_root(old_root, eol_mode) catch |e| {
         std.heap.c_allocator.free(text_dst);
         return e;
     };
-    // lsp_version is the version that the language server last received
     buffer.lsp_version += 1;
+    buffer.lsp_root = buffer.root;
     project_manager.did_change(buffer.get_file_path(), buffer.lsp_version, text_dst, text_src, eol_mode) catch {};
 }
 
