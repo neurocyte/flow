@@ -3503,6 +3503,7 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
                 }
             }
             const buffer = try self.buffer_manager.open_file(op.path, ctx.now);
+            if (!buffer.file_exists) buffer.mark_dirty();
             if (op.conflict == .overwrite) {
                 var buf: [64]u8 = undefined;
                 const delete_all = cbor.fmt(&buf, .{.{ 0, 0, buffer.root.lines(), 0, "" }});

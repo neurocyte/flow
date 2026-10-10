@@ -1721,7 +1721,7 @@ pub fn is_auto_save(self: *const Self) bool {
 
 pub fn is_dirty(self: *const Self) bool {
     return if (!self.file_exists)
-        self.root.length() > 0
+        self.root.length() > 0 or self.last_save == null
     else if (self.last_save) |p|
         self.root != p or self.last_save_eol_mode != self.file_eol_mode
     else
