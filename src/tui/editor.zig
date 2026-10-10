@@ -455,6 +455,8 @@ pub const Editor = struct {
         token: u32 = 0,
         root: usize = 0,
         entries: ?[]const u8 = null,
+        only: []const u8 = &.{},
+        then: enum { keep, apply_preferred } = .keep,
     } = .{},
     completion_resolve: struct {
         token: u32 = 0,
@@ -7706,22 +7708,40 @@ pub const Editor = struct {
     pub fn code_action(self: *Self, ctx: Context) Result {
         var only: []const u8 = "";
         _ = ctx.args.match(.{tp.extract(&only)}) catch false;
-        return self.request_code_actions(only, .invoked);
+        return self.request_code_actions(only, .invoked, .keep);
     }
     pub const code_action_meta: Meta = .{ .description = "Language: Code actions", .arguments = &.{.string} };
+
+    pub fn quick_fix(self: *Self, _: Context) Result {
+        return self.request_code_actions("quickfix", .invoked, .apply_preferred);
+    }
+    pub const quick_fix_meta: Meta = .{ .description = "Language: Apply preferred quick fix" };
+
+    pub fn apply_code_action(self: *Self, ctx: Context) Result {
+        var action: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract_cbor(&action)}))
+            return error.InvalidApplyCodeActionArgument;
+        return project_manager.apply_code_action(self.file_path orelse return, .{ .bytes = action });
+    }
+    pub const apply_code_action_meta: Meta = .{ .arguments = &.{.object} };
 
     fn clear_code_actions(self: *Self) void {
         if (self.code_actions.entries) |entries| self.allocator.free(entries);
         self.code_actions.entries = null;
+        self.allocator.free(self.code_actions.only);
+        self.code_actions.only = &.{};
     }
 
-    fn request_code_actions(self: *Self, only: []const u8, trigger: project_manager.CodeActionTrigger) Result {
+    fn request_code_actions(self: *Self, only: []const u8, trigger: project_manager.CodeActionTrigger, then: @FieldType(@FieldType(Self, "code_actions"), "then")) Result {
         const file_path = self.file_path orelse return;
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
         var sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
         sel.normalize();
+        const only_ = try self.allocator.dupe(u8, only);
         self.clear_code_actions();
+        self.code_actions.only = only_;
+        self.code_actions.then = then;
         self.code_actions.token +%= 1;
         self.code_actions.root = token_from(root);
         return project_manager.code_actions(file_path, .{
@@ -7732,23 +7752,77 @@ pub const Editor = struct {
         }, only, trigger, self.code_actions.token);
     }
 
+    const CodeAction = struct {
+        title: []const u8 = "",
+        kind: []const u8 = "",
+        preference: project_manager.CodeActionPreference = .normal,
+        disabled_reason: []const u8 = "",
+        action: []const u8 = "",
+
+        fn extract(self: *CodeAction, iter: *[]const u8) !bool {
+            return cbor.matchValue(iter, .{
+                cbor.extract(&self.title),
+                cbor.extract(&self.kind),
+                cbor.extract(&self.preference),
+                cbor.extract(&self.disabled_reason),
+                cbor.extract_cbor(&self.action),
+            });
+        }
+
+        // a kind matches a filter if it is equal to it or below it in the kind hierarchy
+        fn matches(self: *const CodeAction, only: []const u8) bool {
+            if (only.len == 0) return true;
+            if (!std.mem.startsWith(u8, self.kind, only)) return false;
+            return self.kind.len == only.len or self.kind[only.len] == '.';
+        }
+    };
+
     pub fn code_actions_result(self: *Self, token: u32, entries: cbor.Raw) Result {
         if (token != self.code_actions.token) return;
         if (token_from(self.buf_root() catch return) != self.code_actions.root) return;
-        self.clear_code_actions();
-        self.code_actions.entries = try self.allocator.dupe(u8, entries.bytes);
 
+        var matching: std.Io.Writer.Allocating = .init(self.allocator);
+        defer matching.deinit();
+        var count: usize = 0;
+        var preferred: ?CodeAction = null;
+        var enabled: usize = 0;
+        var disabled_reason: ?[]const u8 = null;
         var iter = entries.bytes;
         var len = try cbor.decodeArrayHeader(&iter);
-        std.log.debug("code actions: {d}", .{len});
         while (len > 0) : (len -= 1) {
-            var title: []const u8 = undefined;
-            var kind: []const u8 = undefined;
-            var preference: project_manager.CodeActionPreference = undefined;
-            var disabled_reason: []const u8 = undefined;
-            if (!try cbor.matchValue(&iter, .{ cbor.extract(&title), cbor.extract(&kind), cbor.extract(&preference), cbor.extract(&disabled_reason), cbor.any }))
-                return error.InvalidCodeActionEntry;
-            std.log.debug("code action: {s} [{s}] {t} {s}", .{ title, kind, preference, disabled_reason });
+            const entry = iter;
+            var action: CodeAction = .{};
+            if (!try action.extract(&iter)) return error.InvalidCodeActionEntry;
+            if (!action.matches(self.code_actions.only)) continue;
+            std.log.debug("code action: {s} [{s}] {t} {s}", .{ action.title, action.kind, action.preference, action.disabled_reason });
+            try matching.writer.writeAll(entry[0 .. entry.len - iter.len]);
+            count += 1;
+            if (action.disabled_reason.len > 0) {
+                if (disabled_reason == null) disabled_reason = action.disabled_reason;
+                continue;
+            }
+            enabled += 1;
+            if (preferred == null and action.preference == .preferred) preferred = action;
+        }
+
+        var stored: std.Io.Writer.Allocating = .init(self.allocator);
+        defer stored.deinit();
+        try cbor.writeArrayHeader(&stored.writer, count);
+        try stored.writer.writeAll(matching.written());
+        if (self.code_actions.entries) |old| self.allocator.free(old);
+        self.code_actions.entries = try stored.toOwnedSlice();
+
+        switch (self.code_actions.then) {
+            .keep => {},
+            .apply_preferred => if (preferred) |action| {
+                self.logger.print("quick fix: {s}", .{action.title});
+                try project_manager.apply_code_action(self.file_path orelse return, .{ .bytes = action.action });
+            } else if (enabled > 0)
+                self.logger.print("no preferred quick fix ({d} available)", .{enabled})
+            else if (disabled_reason) |reason|
+                self.logger.print("quick fix not available: {s}", .{reason})
+            else
+                self.logger.print("no quick fix available", .{}),
         }
     }
 
