@@ -247,6 +247,7 @@
             ["ctrl+shift+o", "show_symbols"],
             ["ctrl+space", "completion"],
             ["ctrl+.", "code_action"],
+            ["alt+shift+enter", "quick_fix"],
             ["f34", "toggle_whitespace_mode"],
             ["escape", "cancel"],
             ["enter", "smart_insert_line"],
