@@ -15,10 +15,15 @@ const Self = @This();
 const module_name = @typeName(Self);
 const widget_type: Widget.Type = .dialog;
 
+pub const Severity = enum { info, warning, err };
+
 pub const Choice = struct {
     label: []const u8,
     /// message sent to the tui when the user activates this choice
     action: cbor.Raw,
+    severity: Severity = .info,
+    /// selected when the dialog opens, cancel is selected if no choice sets this
+    default: bool = false,
 };
 
 pub const Options = struct {
@@ -86,6 +91,8 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
                 for (options.choices, choices) |choice, *copy| copy.* = .{
                     .label = try a.dupe(u8, choice.label),
                     .action = .{ .bytes = try a.dupe(u8, choice.action.bytes) },
+                    .severity = choice.severity,
+                    .default = choice.default,
                 };
                 break :choices choices;
             },
@@ -108,8 +115,14 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
         try self.list_box.add_item_with_handler(cbor.fmt(&buf, pos), on_click);
         self.width = @max(self.width, tui.egc_chunk_width(self.row_label(row), 0, 1) + 2);
     }
-    // cancel is selected first
     self.list_box.selected = self.rows.items.len - 1;
+    for (self.rows.items, 0..) |row, pos| switch (row) {
+        .choice => |idx| if (self.options.choices[idx].default) {
+            self.list_box.selected = pos;
+            break;
+        },
+        else => {},
+    };
 
     layer.ctx = self;
     layer.prepare_resize = prepare_resize_layer;
@@ -236,10 +249,22 @@ fn on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selec
         return false;
     }
     const highlight = selectable(row) and (button.hover or selected);
-    button.plane.set_style(if (selectable(row) and button.active) theme.editor_cursor else if (highlight) theme.editor_selection else style_base);
+    const style_row = if (selectable(row) and button.active) theme.editor_cursor else if (highlight) theme.editor_selection else style_base;
+    button.plane.set_style(style_row);
     button.plane.fill(" ");
     button.plane.home();
     _ = button.plane.putstr(" ") catch {};
+    switch (row) {
+        .choice => |idx| if (!button.active) button.plane.set_style(.{
+            .fg = switch (self.options.choices[idx].severity) {
+                .info => theme.editor_information.fg,
+                .warning => theme.editor_warning.fg,
+                .err => theme.editor_error.fg,
+            },
+            .bg = style_row.bg,
+        }),
+        else => {},
+    }
     _ = button.plane.putstr(self.row_label(row)) catch {};
     return false;
 }

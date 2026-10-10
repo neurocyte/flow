@@ -2146,8 +2146,10 @@ const cmds = struct {
         defer choices.deinit(self.allocator);
         var len = try cbor.decodeArrayHeader(&choices_cbor);
         while (len > 0) : (len -= 1) {
-            var choice: Confirm.Choice = undefined;
-            if (!try cbor.matchValue(&choices_cbor, .{ cbor.extract(&choice.label), cbor.extract(&choice.action) }))
+            var choice: Confirm.Choice = .{ .label = "", .action = .empty };
+            if (!(try cbor.matchValue(&choices_cbor, .{ cbor.extract(&choice.label), cbor.extract(&choice.action) }) or
+                try cbor.matchValue(&choices_cbor, .{ cbor.extract(&choice.label), cbor.extract(&choice.action), cbor.extract(&choice.severity) }) or
+                try cbor.matchValue(&choices_cbor, .{ cbor.extract(&choice.label), cbor.extract(&choice.action), cbor.extract(&choice.severity), cbor.extract(&choice.default) })))
                 return error.InvalidConfirmArgument;
             (try choices.addOne(self.allocator)).* = choice;
         }

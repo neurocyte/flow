@@ -611,14 +611,14 @@ const cmds = struct {
                 .message = std.fmt.bufPrint(&message_buf, "{d} file{s} with unsaved changes", .{ count, if (count == 1) "" else "s" }) catch "unsaved changes",
                 .choices = &.{
                     .{ .label = "Save all and quit", .action = .{ .bytes = cbor.fmt(&save_buf, .{ "cmd", "save_all_and_quit" }) } },
-                    .{ .label = "Quit without saving", .action = .{ .bytes = cbor.fmt(&quit_buf, .{ "cmd", "quit_without_saving" }) } },
+                    .{ .label = "Quit without saving", .action = .{ .bytes = cbor.fmt(&quit_buf, .{ "cmd", "quit_without_saving" }) }, .severity = .err },
                 },
             });
         }
         if (!build_options.gui) return quit_confirmed(self, ctx);
         return tui.open_confirm(.{
             .message = "Quit flow?",
-            .choices = &.{.{ .label = "Quit", .action = .{ .bytes = cbor.fmt(&quit_buf, .{ "cmd", "quit_confirmed" }) } }},
+            .choices = &.{.{ .label = "Quit", .action = .{ .bytes = cbor.fmt(&quit_buf, .{ "cmd", "quit_confirmed" }) }, .default = true }},
         });
     }
     pub const quit_meta: Meta = .{ .description = "Quit" };
