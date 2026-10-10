@@ -246,7 +246,7 @@
             ["f12", "goto_definition"],
             ["ctrl+shift+o", "show_symbols"],
             ["ctrl+space", "completion"],
-            ["ctrl+.", "completion"],
+            ["ctrl+.", "code_action"],
             ["f34", "toggle_whitespace_mode"],
             ["escape", "cancel"],
             ["enter", "smart_insert_line"],
