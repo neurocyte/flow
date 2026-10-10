@@ -1839,6 +1839,60 @@ const cmds = struct {
         },
     };
 
+    pub fn apply_workspace_edit(self: *Self, ctx: Ctx) Result {
+        var workspace_edit: []const u8 = undefined;
+        var reply: []const u8 = &.{};
+        var loaded: bool = false;
+        if (!(try ctx.args.match(.{tp.extract_cbor(&workspace_edit)}) or
+            try ctx.args.match(.{ tp.extract_cbor(&workspace_edit), tp.extract_cbor(&reply) }) or
+            try ctx.args.match(.{ tp.extract_cbor(&workspace_edit), tp.extract_cbor(&reply), tp.extract(&loaded) })))
+            return error.InvalidApplyWorkspaceEditArgument;
+
+        var iter = workspace_edit;
+        var files = try cbor.decodeArrayHeader(&iter);
+        while (files > 0) : (files -= 1) {
+            const remaining = iter;
+            var file_path: []const u8 = undefined;
+            var version: ?usize = null;
+            var text_edits: []const u8 = undefined;
+            if (!try cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.extract(&version), cbor.extract_cbor(&text_edits) }))
+                return error.InvalidApplyWorkspaceEditArgument;
+            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
+
+            if (self.buffer_manager.get_buffer_for_file(file_path) == null)
+                return self.load_for_workspace_edit(file_path, files, remaining, reply);
+            const buffer = try self.buffer_manager.open_file(file_path, ctx.now);
+            if (loaded) {
+                send_buffer_did_open(buffer) catch {};
+                loaded = false;
+            }
+
+            const editor = self.get_editor_for_buffer(buffer);
+            // an editor reports its buffer to the language server with the version before its last update
+            const lsp_version = if (editor) |_| buffer.lsp_version -| 1 else buffer.lsp_version;
+            if (version) |version_| if (version_ != lsp_version)
+                return self.workspace_edit_failed(file_path, text_edits, "document changed since the edit was computed", reply);
+
+            (if (editor) |editor_|
+                editor_.apply_buffer_text_edits(.{ .bytes = text_edits }, ctx.now)
+            else
+                ed.apply_text_edits_to_buffer(self.allocator, buffer, .{ .bytes = text_edits }, self.plane.metrics(tui.config().tab_width), ctx.now)) catch |e|
+                return self.workspace_edit_failed(file_path, text_edits, @errorName(e), reply);
+        }
+        self.workspace_edit_done(reply, .applied, "");
+    }
+    pub const apply_workspace_edit_meta: Meta = .{ .arguments = &.{.array} };
+
+    pub fn apply_workspace_edit_load_failed(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var reply: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&file_path), tp.extract_cbor(&reply) }))
+            return error.InvalidApplyWorkspaceEditArgument;
+        return self.workspace_edit_failed(file_path, &.{}, "failed to load file", reply);
+    }
+    pub const apply_workspace_edit_load_failed_meta: Meta = .{ .arguments = &.{ .string, .array } };
+
     pub fn completion_resolved(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         var token: u32 = undefined;
@@ -3259,6 +3313,71 @@ pub fn vcs_blame_update(self: *Self, m: tp.message) void {
 pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.lsp_info.add_from_event(m.buf) catch return;
     self.foreach_editor(ed.Editor.update_completion_triggers);
+}
+
+const WorkspaceEditResult = enum { applied, failed };
+
+fn workspace_edit_done(_: *Self, reply: []const u8, result: WorkspaceEditResult, reason: []const u8) void {
+    _ = reply;
+    _ = result;
+    _ = reason;
+}
+
+fn load_for_workspace_edit(self: *Self, file_path: []const u8, files: usize, remaining: []const u8, reply_: []const u8) command.Result {
+    const RemainingFiles = struct {
+        files: usize,
+        bytes: []const u8,
+        pub fn cborEncode(remaining_: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            try cbor.writeArrayHeader(writer, remaining_.files);
+            try writer.writeAll(remaining_.bytes);
+        }
+    };
+    const reply: ?cbor.Raw = if (reply_.len > 0) .{ .bytes = reply_ } else null;
+
+    var then: std.Io.Writer.Allocating = .init(self.allocator);
+    defer then.deinit();
+    try cbor.writeValue(&then.writer, .{ "cmd", "apply_workspace_edit", .{
+        RemainingFiles{ .files = files, .bytes = remaining },
+        reply,
+        true,
+    } });
+
+    var on_error: std.Io.Writer.Allocating = .init(self.allocator);
+    defer on_error.deinit();
+    try cbor.writeValue(&on_error.writer, .{ "cmd", "apply_workspace_edit_load_failed", .{ file_path, reply } });
+
+    return self.buffer_manager.load(file_path, .{
+        .then = .{ .bytes = then.written() },
+        .on_error = .{ .bytes = on_error.written() },
+    });
+}
+
+fn workspace_edit_failed(self: *Self, file_path: []const u8, text_edits_: []const u8, reason: []const u8, reply: []const u8) command.Result {
+    var sel: ed.Selection = .{};
+    var text_edits = text_edits_;
+    if (text_edits.len > 0 and (cbor.decodeArrayHeader(&text_edits) catch 0) > 0)
+        _ = cbor.matchValue(&text_edits, .{
+            cbor.extract(&sel.begin.row),
+            cbor.extract(&sel.begin.col),
+            cbor.extract(&sel.end.row),
+            cbor.extract(&sel.end.col),
+            cbor.any,
+        }) catch false;
+    var text_buf: [512]u8 = undefined;
+    const text = std.fmt.bufPrint(&text_buf, "failed to apply edit: {s}", .{reason}) catch reason;
+    const list = try self.filelists.get_or_create_singleton(.references);
+    try self.add_filelist_entry(
+        list.list_id,
+        file_path,
+        sel.begin.row + 1,
+        sel.begin.col,
+        sel.end.row + 1,
+        sel.end.col,
+        text,
+        .Error,
+        .foreground,
+    );
+    self.workspace_edit_done(reply, .failed, reason);
 }
 
 pub fn completion_resolve_provider_update(self: *Self, m: tp.message) void {

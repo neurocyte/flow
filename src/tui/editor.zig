@@ -6317,12 +6317,13 @@ pub const Editor = struct {
         }
     };
 
-    fn apply_text_edits(self: *Self, root: Buffer.Root, text_edits: cbor.Raw, allocator: Allocator) !Buffer.Root {
-        var iter = text_edits.bytes;
-        if (iter.len == 0) return root;
-        var len = try cbor.decodeArrayHeader(&iter);
+    // decode [[row, pos, end_row, end_pos, text], ...] into edits sorted by position
+    fn decode_text_edits(allocator: Allocator, root: Buffer.Root, text_edits: cbor.Raw, metrics: Buffer.Metrics) !std.ArrayList(TextEdit) {
         var edits: std.ArrayList(TextEdit) = .empty;
-        defer edits.deinit(self.allocator);
+        errdefer edits.deinit(allocator);
+        var iter = text_edits.bytes;
+        if (iter.len == 0) return edits;
+        var len = try cbor.decodeArrayHeader(&iter);
         while (len > 0) : (len -= 1) {
             var pos: Selection = .{};
             var text: []const u8 = undefined;
@@ -6333,11 +6334,25 @@ pub const Editor = struct {
                 cbor.extract(&pos.end.col),
                 cbor.extract(&text),
             })) return error.InvalidTextEdit;
-            var sel = pos.from_pos(root, self.metrics);
+            var sel = pos.from_pos(root, metrics);
             sel.normalize();
-            (try edits.addOne(self.allocator)).* = .{ .sel = sel, .text = text };
+            (try edits.addOne(allocator)).* = .{ .sel = sel, .text = text };
         }
         std.mem.sort(TextEdit, edits.items, {}, TextEdit.less_fn);
+        return edits;
+    }
+
+    pub fn apply_buffer_text_edits(self: *Self, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
+        const b = try self.buf_for_update();
+        const root = try self.apply_text_edits(b.root, text_edits, b.allocator);
+        try self.update_buf(root, now);
+        self.clamp(now);
+        self.need_render();
+    }
+
+    fn apply_text_edits(self: *Self, root: Buffer.Root, text_edits: cbor.Raw, allocator: Allocator) !Buffer.Root {
+        var edits = try decode_text_edits(self.allocator, root, text_edits, self.metrics);
+        defer edits.deinit(self.allocator);
 
         var root_ = root;
         var idx = edits.items.len;
@@ -8470,6 +8485,37 @@ pub const Editor = struct {
 
 pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
     return EditorWidget.create(allocator, parent, buffer_manager, now);
+}
+
+/// apply text edits to a buffer that is not shown in any editor
+pub fn apply_text_edits_to_buffer(allocator: Allocator, buffer: *Buffer, text_edits: cbor.Raw, metrics: Buffer.Metrics, now: std.Io.Timestamp) !void {
+    const old_root = buffer.root;
+    var edits = try Editor.decode_text_edits(allocator, old_root, text_edits, metrics);
+    defer edits.deinit(allocator);
+
+    var root = old_root;
+    var idx = edits.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        const edit = edits.items[idx];
+        if (!edit.sel.empty())
+            root, _ = try root.delete_range_char(edit.sel, buffer.allocator, null, metrics);
+        if (edit.text.len > 0)
+            _, _, root = try root.insert_chars(edit.sel.begin.row, edit.sel.begin.col, edit.text, buffer.allocator, metrics);
+    }
+    if (root == old_root) return;
+
+    try buffer.store_undo(&.{});
+    buffer.update(root, now);
+    buffer.lsp_version += 1;
+    const eol_mode = buffer.file_eol_mode;
+    project_manager.did_change(
+        buffer.get_file_path(),
+        buffer.lsp_version,
+        try Editor.text_from_root(root, eol_mode),
+        try Editor.text_from_root(old_root, eol_mode),
+        eol_mode,
+    ) catch {};
 }
 
 pub const EditorWidget = struct {
