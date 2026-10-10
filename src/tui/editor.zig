@@ -869,6 +869,7 @@ pub const Editor = struct {
             false;
 
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc, auto_save);
+        project_manager.resend_diagnostics(file_path) catch {};
     }
 
     fn maybe_enable_buffer_auto_save(self: *Self, buffer: *Buffer) bool {

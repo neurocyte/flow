@@ -1373,17 +1373,33 @@ pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) D
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const file_path = try LSPClient.file_uri_to_path(uri.?, &file_path_buf);
     self.set_diagnostics(file_path, diagnostics) catch {};
+    return self.send_diagnostics(to, file_path, diagnostics);
+}
 
+fn send_diagnostics(self: *Self, to: tp.pid_ref, file_path: []const u8, diagnostics: []const u8) DiagnosticError!void {
     self.send_clear_diagnostics(to, file_path);
-
-    iter = diagnostics;
-    len = try cbor.decodeArrayHeader(&iter);
+    var iter = diagnostics;
+    var len = try cbor.decodeArrayHeader(&iter);
     while (len > 0) : (len -= 1) {
         var diagnostic: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostic))) {
             try self.send_diagnostic(to, file_path, diagnostic);
         } else return error.InvalidDiagnosticField;
     }
+}
+
+/// send the last published diagnostics of file_path again, for an editor that just opened the file
+pub fn resend_diagnostics(self: *Self, to: tp.pid_ref, file_path: []const u8) DiagnosticError!void {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const entry = self.diagnostics.getEntry(self.diagnostics_key(file_path, &buf)) orelse return;
+    return self.send_diagnostics(to, entry.key_ptr.*, entry.value_ptr.*);
+}
+
+fn diagnostics_key(self: *const Self, file_path: []const u8, buf: []u8) []const u8 {
+    return if (std.fs.path.isAbsolute(file_path))
+        file_path
+    else
+        std.fmt.bufPrint(buf, "{s}{c}{s}", .{ self.name, std.fs.path.sep, file_path }) catch file_path;
 }
 
 fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) DiagnosticError!void {
@@ -1543,11 +1559,7 @@ fn set_diagnostics(self: *Self, file_path: []const u8, diagnostics: []const u8) 
 /// write the published diagnostics of file_path that overlap or touch range as an array
 pub fn write_diagnostics_in_range(self: *Self, writer: *std.Io.Writer, file_path: []const u8, range: LSPClient.Range) (LSPClient.RangeError || std.Io.Writer.Error)!void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const key = if (std.fs.path.isAbsolute(file_path))
-        file_path
-    else
-        std.fmt.bufPrint(&buf, "{s}{c}{s}", .{ self.name, std.fs.path.sep, file_path }) catch file_path;
-    const diagnostics = self.diagnostics.get(key) orelse return cbor.writeArrayHeader(writer, 0);
+    const diagnostics = self.diagnostics.get(self.diagnostics_key(file_path, &buf)) orelse return cbor.writeArrayHeader(writer, 0);
     return LSPClient.write_diagnostics_in_range(writer, diagnostics, range);
 }
 

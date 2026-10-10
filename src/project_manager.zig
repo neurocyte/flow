@@ -359,6 +359,13 @@ pub fn apply_code_action(file_path: []const u8, action: cbor.Raw) (ProjectManage
     return send(.{ "apply_code_action", project, file_path, action });
 }
 
+pub fn resend_diagnostics(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "resend_diagnostics", project, file_path });
+}
+
 pub fn symbols(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -652,6 +659,9 @@ const Process = struct {
             self.completion_resolve(from, project_directory, path, token, item) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "code_actions", tp.extract(&project_directory), tp.extract(&path), .{ tp.extract(&range.start.line), tp.extract(&range.start.character), tp.extract(&range.end.line), tp.extract(&range.end.character) }, tp.extract(&text), tp.extract(&code_action_trigger), tp.extract(&token) })) {
             self.code_actions(from, project_directory, path, range, text, code_action_trigger, token) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "resend_diagnostics", tp.extract(&project_directory), tp.extract(&path) })) {
+            if (self.projects.get(project_directory)) |project|
+                project.resend_diagnostics(from, path) catch |e| self.logger.err("resend-diagnostics", e);
         } else if (try cbor.match(m.buf, .{ "lsp_capabilities", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
             if (self.projects.get(project_directory)) |project|
                 project.set_lsp_capabilities(language_server, params_cb) catch |e| self.logger.err("lsp-capabilities", e);
