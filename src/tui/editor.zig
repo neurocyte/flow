@@ -6378,9 +6378,22 @@ pub const Editor = struct {
             cursel.cursor.row, cursel.cursor.col, root_ = try root.insert_chars(edit.sel.end.row, edit.sel.end.col, edit.text, allocator, self.metrics);
             self.nudge_insert(.insert(.{ .begin = edit.sel.end, .end = cursel.cursor }, root, root_, self.metrics), &cursel, edit.text.len);
         }
-        if (!edit.sel.empty())
+        if (!edit.sel.empty()) {
+            const primary = self.primary_index();
             root_, _, _ = try self.delete_range(root_, &cursel, edit.sel, allocator);
+            // an edit must not remove the primary cursor, move it to the end of the edited range
+            if (primary) |idx| if (self.cursels.items[idx] == null) {
+                self.cursels.items[idx] = .{ .cursor = cursel.cursor };
+            };
+        }
         return root_;
+    }
+
+    fn primary_index(self: *const Self) ?usize {
+        var idx = self.cursels.items.len;
+        while (idx > 0) : (idx -= 1)
+            if (self.cursels.items[idx - 1]) |_| return idx - 1;
+        return null;
     }
 
     pub fn update_completion_cursels(self: *Self, sel: Selection, text: []const u8, now: std.Io.Timestamp) Result {
