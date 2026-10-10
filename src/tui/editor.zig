@@ -2182,7 +2182,9 @@ pub const Editor = struct {
 
     fn send_editor_save(self: *const Self, file_path: []const u8, auto_save: bool) !void {
         _ = try self.handlers.msg(.{ "E", "save", file_path, auto_save });
-        if (self.has_language_server()) project_manager.did_save(file_path) catch {};
+        if (!self.has_language_server()) return;
+        if (self.buffer) |buffer| buffer_lsp.sync(buffer) catch {};
+        project_manager.did_save(file_path) catch {};
     }
 
     fn send_editor_dirty(self: *const Self, file_dirty: bool) !void {

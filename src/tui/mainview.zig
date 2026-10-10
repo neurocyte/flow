@@ -1154,11 +1154,14 @@ const cmds = struct {
                     other_editor.close_editor() catch {};
             }
             try self.create_editor(ctx.now);
-            try command.executeName("open_scratch_buffer", command.fmt(.{
-                file_path,
-                "",
-                buffer.file_type_name,
-            }));
+            const file_type = if (buffer.file_type_name) |name|
+                if (std.mem.eql(u8, name, file_type_config.default.name)) null else name
+            else
+                null;
+            try command.executeName("open_scratch_buffer", if (file_type) |name|
+                command.fmt(.{ file_path, "", name })
+            else
+                command.fmt(.{ file_path, "" }));
             if (self.get_active_editor()) |new_editor| {
                 const new_buffer = new_editor.buffer orelse return;
                 if (existing) new_editor.update_buf(new_buffer.root, now) catch {}; // store an undo point
