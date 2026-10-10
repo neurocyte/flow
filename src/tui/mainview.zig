@@ -692,6 +692,12 @@ const cmds = struct {
             logger.print("stored project state for: {s} ({d} bytes)", .{ old_project, state.items.len });
         }
 
+        {
+            const buffers = try self.buffer_manager.list_unordered(self.allocator);
+            defer self.allocator.free(buffers);
+            for (buffers) |buffer| buffer_lsp.close(buffer);
+        }
+
         const project_state = try project_manager.open(project_dir);
 
         {
