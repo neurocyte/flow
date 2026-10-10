@@ -3399,7 +3399,7 @@ fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.Appl
         std.log.err("workspace_edit_done failed: {t}", .{e});
 }
 
-const WorkspaceEditStep = enum { start, loaded, confirmed, missing, file, dir, done, skipped };
+const WorkspaceEditStep = enum { start, loaded, confirmed, missing, file, dir, done, skipped, ask_file, ask_dir };
 
 // the entries of a workspace edit that are still to do, to run apply_workspace_edit again later
 const WorkspaceEditResume = struct {
@@ -3558,7 +3558,8 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
                 affected += 1;
             }
             switch (step) {
-                .missing, .file, .dir => {
+                .file, .dir => return self.request_vcs_file_state(step, op, resume_),
+                .missing, .ask_file, .ask_dir => {
                     if (step == .missing and affected == 0) return switch (op.conflict) {
                         .ignore => .done,
                         .fail, .overwrite => self.file_operation_failed(op.path, "file does not exist", reply),
@@ -3572,11 +3573,11 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
                     try cbor.writeValue(&cancelled.writer, .{ "cmd", "apply_workspace_edit_cancelled", .{resume_.reply_value()} });
                     try tui.open_confirm(.{
                         .message = std.fmt.bufPrint(&message_buf, "Delete {s}?\n{s}", .{
-                            if (step == .dir) "directory" else "file",
+                            if (step == .ask_dir) "directory" else "file",
                             op.path,
                         }) catch op.path,
                         .choices = &.{.{
-                            .label = if (step == .dir and op.scope == .recursive) "Delete with all content" else "Delete",
+                            .label = if (step == .ask_dir and op.scope == .recursive) "Delete with all content" else "Delete",
                             .action = .{ .bytes = confirmed.written() },
                             .severity = .err,
                         }},
@@ -3599,10 +3600,22 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
 }
 
 const FileOperationRequest = struct {
-    op: FileStore.FileOp,
+    op: enum { probe, rename, delete, vcs_file, vcs_dir },
     path: []const u8,
     edit: []const u8,
     reply: []const u8,
+
+    fn init(allocator: std.mem.Allocator, path: []const u8, resume_: WorkspaceEditResume) !FileOperationRequest {
+        var edit: std.Io.Writer.Allocating = .init(allocator);
+        defer edit.deinit();
+        try cbor.writeArrayHeader(&edit.writer, resume_.files);
+        try edit.writer.writeAll(resume_.bytes);
+        const path_ = try allocator.dupe(u8, path);
+        errdefer allocator.free(path_);
+        const reply = try allocator.dupe(u8, resume_.reply);
+        errdefer allocator.free(reply);
+        return .{ .op = .probe, .path = path_, .edit = try edit.toOwnedSlice(), .reply = reply };
+    }
 
     fn deinit(self: FileOperationRequest, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
@@ -3621,16 +3634,48 @@ const FileOperationRequest = struct {
     }
 };
 
+fn request_vcs_file_state(self: *Self, step: WorkspaceEditStep, op: FileOperation, resume_: WorkspaceEditResume) !FileOperationResult {
+    var request: FileOperationRequest = try .init(self.allocator, op.path, resume_);
+    errdefer request.deinit(self.allocator);
+    request.op = if (step == .dir) .vcs_dir else .vcs_file;
+    try self.file_operations.ensureUnusedCapacity(self.allocator, 1);
+    const id = self.buffer_manager.new_request_id();
+    self.file_operations.putAssumeCapacity(id, request);
+    project_manager.request_vcs_file_state(id, op.path) catch
+        self.resume_file_operation(id, if (step == .dir) .ask_dir else .ask_file) catch {};
+    return .pending;
+}
+
+pub fn receive_vcs_file_state(self: *Self, m: tp.message) error{Exit}!void {
+    var id: usize = 0;
+    var state: project_manager.VcsFileState = undefined;
+    if (!try m.match(.{ "PRJ", "vcs_file_state", tp.extract(&id), tp.extract(&state) })) return;
+    const request = self.file_operations.get(id) orelse return;
+    return self.resume_file_operation(id, switch (state) {
+        .clean => .confirmed,
+        .unversioned, .modified => if (request.op == .vcs_dir) .ask_dir else .ask_file,
+    });
+}
+
+fn resume_file_operation(self: *Self, id: usize, step: WorkspaceEditStep) error{Exit}!void {
+    const kv = self.file_operations.fetchRemove(id) orelse return;
+    defer kv.value.deinit(self.allocator);
+    var buf: std.Io.Writer.Allocating = .init(self.allocator);
+    defer buf.deinit();
+    cbor.writeValue(&buf.writer, .{ "cmd", "apply_workspace_edit", .{
+        cbor.Raw{ .bytes = kv.value.edit },
+        if (kv.value.reply.len > 0) cbor.Raw{ .bytes = kv.value.reply } else null,
+        step,
+    } }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    try tp.self_pid().send_raw(.{ .buf = buf.written() });
+}
+
 fn request_file_operation(self: *Self, file_op: FileStore.FileOp, op: FileOperation, resume_: WorkspaceEditResume) !FileOperationResult {
-    var edit: std.Io.Writer.Allocating = .init(self.allocator);
-    defer edit.deinit();
-    try cbor.writeArrayHeader(&edit.writer, resume_.files);
-    try edit.writer.writeAll(resume_.bytes);
-    const request: FileOperationRequest = .{
-        .op = file_op,
-        .path = try self.allocator.dupe(u8, op.path),
-        .edit = try edit.toOwnedSlice(),
-        .reply = try self.allocator.dupe(u8, resume_.reply),
+    var request: FileOperationRequest = try .init(self.allocator, op.path, resume_);
+    request.op = switch (file_op) {
+        .probe => .probe,
+        .rename => .rename,
+        .delete => .delete,
     };
     errdefer request.deinit(self.allocator);
     try self.file_operations.ensureUnusedCapacity(self.allocator, 1);
@@ -3647,16 +3692,8 @@ pub fn receive_file_operation(self: *Self, m: tp.message) error{Exit}!bool {
     var result: FileStore.FileOpResult = undefined;
     var reason: []const u8 = undefined;
     if (try m.match(.{ "FS", "file_op", tp.extract(&id), tp.extract(&result) })) {
-        const kv = self.file_operations.fetchRemove(id) orelse return true;
-        defer kv.value.deinit(self.allocator);
-        var buf: std.Io.Writer.Allocating = .init(self.allocator);
-        defer buf.deinit();
-        cbor.writeValue(&buf.writer, .{ "cmd", "apply_workspace_edit", .{
-            cbor.Raw{ .bytes = kv.value.edit },
-            if (kv.value.reply.len > 0) cbor.Raw{ .bytes = kv.value.reply } else null,
-            kv.value.step(result),
-        } }) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        try tp.self_pid().send_raw(.{ .buf = buf.written() });
+        const request = self.file_operations.get(id) orelse return true;
+        try self.resume_file_operation(id, request.step(result));
         return true;
     } else if (try m.match(.{ "FS", "error", tp.extract(&id), "file_op", tp.extract(&reason) })) {
         const kv = self.file_operations.fetchRemove(id) orelse return true;

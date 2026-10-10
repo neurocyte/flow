@@ -495,7 +495,7 @@ pub fn save_all(self: *Self, options: SaveAllOptions) SaveError!void {
     self.finish_group_member(group_id, true);
 }
 
-fn new_request_id(self: *Self) usize {
+pub fn new_request_id(self: *Self) usize {
     defer self.next_request_id += 1;
     return self.next_request_id;
 }
