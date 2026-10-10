@@ -1302,6 +1302,7 @@ fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {
                 try send_hover_msg(h, false);
             self.hover_focus = w;
             try send_hover_msg(w, true);
+            need_render(@src());
         }
         return w;
     };
@@ -1310,8 +1311,10 @@ fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {
 }
 
 fn clear_hover_focus(self: *Self, src: std.builtin.SourceLocation) tp.result {
-    if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
+    if (self.hover_focus) |h| if (self.is_live_widget_ptr(h)) {
         try send_hover_msg(h, false);
+        need_render(@src());
+    };
     tp.trace(tp.channel.debug, .{ "tui", "clear_hover_focus", if (self.hover_focus) |h| @intFromPtr(h.ptr) else 0, src.fn_name, src.file, src.line });
     self.hover_focus = null;
 }
