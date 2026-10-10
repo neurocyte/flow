@@ -2217,6 +2217,16 @@ pub const Editor = struct {
         return if (p) |p_| @intFromPtr(p_) else 0;
     }
 
+    fn send_did_change(buffer: *Buffer, file_path: []const u8, new_root: ?Buffer.Root, old_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
+        const text_dst = try text_from_root(new_root, eol_mode);
+        const text_src = text_from_root(old_root, eol_mode) catch |e| {
+            std.heap.c_allocator.free(text_dst);
+            return e;
+        };
+        buffer.lsp_version += 1;
+        project_manager.did_change(file_path, buffer.lsp_version, text_dst, text_src, eol_mode) catch {};
+    }
+
     fn text_from_root(root_: ?Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {
         const root = root_ orelse return &.{};
         var text: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
@@ -2229,10 +2239,8 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "update" });
         if (self.buffer) |buffer| {
             // lsp_version is the version that the language server last received
-            if (self.has_language_server()) if (self.file_path) |file_path| if (old_root != null and new_root != null) {
-                buffer.lsp_version += 1;
-                project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
-            };
+            if (self.has_language_server()) if (self.file_path) |file_path| if (old_root != null and new_root != null)
+                try send_did_change(buffer, file_path, new_root, old_root, eol_mode);
             auto_save_buffer(buffer, .on_document_change);
         }
     }
@@ -8815,15 +8823,7 @@ pub fn apply_text_edits_to_buffer(allocator: Allocator, buffer: *Buffer, text_ed
 
     try buffer.store_undo(&.{});
     buffer.update(root, now);
-    buffer.lsp_version += 1;
-    const eol_mode = buffer.file_eol_mode;
-    project_manager.did_change(
-        buffer.get_file_path(),
-        buffer.lsp_version,
-        try Editor.text_from_root(root, eol_mode),
-        try Editor.text_from_root(old_root, eol_mode),
-        eol_mode,
-    ) catch {};
+    try Editor.send_did_change(buffer, buffer.get_file_path(), root, old_root, buffer.file_eol_mode);
 }
 
 pub const EditorWidget = struct {
