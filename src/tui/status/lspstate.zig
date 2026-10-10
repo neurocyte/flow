@@ -77,23 +77,15 @@ fn set(self: *Self, lsp_name: []const u8, status: LspStatus) error{OutOfMemory}!
     gop.value_ptr.* = status;
 }
 
-const Overall = struct { status: ?LspStatus = null, name: []const u8 = "", problems: usize = 0 };
+const Current = struct { status: LspStatus, name: []const u8 };
 
-fn overall(self: *Self) Overall {
-    var result: Overall = .{};
-    var i = self.servers.iterator();
-    while (i.next()) |p| {
-        const status = p.value_ptr.*;
-        switch (status) {
-            .running => {},
-            else => result.problems += 1,
-        }
-        if (@backingInt(status) > @backingInt(result.status orelse .starting)) {
-            result.status = status;
-            result.name = p.key_ptr.*;
-        }
-    }
-    return result;
+fn current(self: *Self) ?Current {
+    const editor = tui.get_active_editor() orelse return null;
+    const file_type = editor.file_type orelse return null;
+    const language_server = file_type.language_server orelse return null;
+    if (language_server.len == 0) return null;
+    const entry = self.servers.getEntry(language_server[0]) orelse return null;
+    return .{ .status = entry.value_ptr.*, .name = entry.key_ptr.* };
 }
 
 fn symbol(status: LspStatus) []const u8 {
@@ -104,17 +96,12 @@ fn symbol(status: LspStatus) []const u8 {
 }
 
 fn format(self: *Self, buf: []u8) []const u8 {
-    const o = self.overall();
-    const status = o.status orelse return "";
+    const server = self.current() orelse return "";
     var writer: std.Io.Writer = .fixed(buf);
-    const sym = symbol(status);
-    switch (status) {
+    const sym = symbol(server.status);
+    switch (server.status) {
         .running => writer.print(" {s}", .{sym}) catch {},
-        .starting => writer.print(" {s}{s}", .{ sym, o.name }) catch {},
-        else => {
-            writer.print(" {s}{s}", .{ sym, o.name }) catch {};
-            if (o.problems > 1) writer.print(" +{d}", .{o.problems - 1}) catch {};
-        },
+        else => writer.print(" {s}{s}", .{ sym, server.name }) catch {},
     }
     writer.print(" ", .{}) catch {};
     return writer.buffered();
@@ -139,7 +126,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     btn.plane.set_style(bg_style);
     btn.plane.fill(" ");
     btn.plane.home();
-    switch (self.overall().status orelse .running) {
+    switch ((self.current() orelse return false).status) {
         .starting => btn.plane.set_style(.{ .fg = theme.editor_warning.fg }),
         .running => btn.plane.set_style(.{ .fg = theme.editor_information.fg }),
         .not_found => {},
