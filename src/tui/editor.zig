@@ -451,6 +451,11 @@ pub const Editor = struct {
     completions: CompletionState = .empty,
     completions_request: ?CompletionState = .done,
     completions_refresh_pending: bool = false,
+    code_actions: struct {
+        token: u32 = 0,
+        root: usize = 0,
+        entries: ?[]const u8 = null,
+    } = .{},
     completion_resolve: struct {
         token: u32 = 0,
         text_edits: ?[]const u8 = null,
@@ -691,6 +696,7 @@ pub const Editor = struct {
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.reset_completion_resolve();
+        self.clear_code_actions();
         self.completions.deinit(self.allocator);
         if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
@@ -7696,6 +7702,55 @@ pub const Editor = struct {
         return project_manager.symbols(file_path);
     }
     pub const show_symbols_meta: Meta = .{ .description = "Language: Show symbols in file" };
+
+    pub fn code_action(self: *Self, ctx: Context) Result {
+        var only: []const u8 = "";
+        _ = ctx.args.match(.{tp.extract(&only)}) catch false;
+        return self.request_code_actions(only, .invoked);
+    }
+    pub const code_action_meta: Meta = .{ .description = "Language: Code actions", .arguments = &.{.string} };
+
+    fn clear_code_actions(self: *Self) void {
+        if (self.code_actions.entries) |entries| self.allocator.free(entries);
+        self.code_actions.entries = null;
+    }
+
+    fn request_code_actions(self: *Self, only: []const u8, trigger: project_manager.CodeActionTrigger) Result {
+        const file_path = self.file_path orelse return;
+        const root = self.buf_root() catch return;
+        const primary = self.get_primary();
+        var sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
+        sel.normalize();
+        self.clear_code_actions();
+        self.code_actions.token +%= 1;
+        self.code_actions.root = token_from(root);
+        return project_manager.code_actions(file_path, .{
+            sel.begin.row,
+            try root.get_line_width_to_pos(sel.begin.row, sel.begin.col, self.metrics),
+            sel.end.row,
+            try root.get_line_width_to_pos(sel.end.row, sel.end.col, self.metrics),
+        }, only, trigger, self.code_actions.token);
+    }
+
+    pub fn code_actions_result(self: *Self, token: u32, entries: cbor.Raw) Result {
+        if (token != self.code_actions.token) return;
+        if (token_from(self.buf_root() catch return) != self.code_actions.root) return;
+        self.clear_code_actions();
+        self.code_actions.entries = try self.allocator.dupe(u8, entries.bytes);
+
+        var iter = entries.bytes;
+        var len = try cbor.decodeArrayHeader(&iter);
+        std.log.debug("code actions: {d}", .{len});
+        while (len > 0) : (len -= 1) {
+            var title: []const u8 = undefined;
+            var kind: []const u8 = undefined;
+            var preference: project_manager.CodeActionPreference = undefined;
+            var disabled_reason: []const u8 = undefined;
+            if (!try cbor.matchValue(&iter, .{ cbor.extract(&title), cbor.extract(&kind), cbor.extract(&preference), cbor.extract(&disabled_reason), cbor.any }))
+                return error.InvalidCodeActionEntry;
+            std.log.debug("code action: {s} [{s}] {t} {s}", .{ title, kind, preference, disabled_reason });
+        }
+    }
 
     pub fn rename_symbol(self: *Self, _: Context) Result {
         return self.pm_with_primary_cursor_pos(project_manager.rename_symbol);

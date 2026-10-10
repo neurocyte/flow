@@ -1893,6 +1893,25 @@ const cmds = struct {
     }
     pub const apply_workspace_edit_load_failed_meta: Meta = .{ .arguments = &.{ .string, .array } };
 
+    pub fn code_actions_result(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var token: u32 = undefined;
+        var entries: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&file_path), tp.extract(&token), tp.extract_cbor(&entries) }))
+            return error.InvalidCodeActionsResultArgument;
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
+        if (self.get_editor_for_file(file_path)) |editor|
+            try editor.code_actions_result(token, .{ .bytes = entries });
+    }
+    pub const code_actions_result_meta: Meta = .{
+        .arguments = &.{
+            .string, // file_path
+            .integer, // token
+            .array, // code action entries
+        },
+    };
+
     pub fn completion_resolved(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         var token: u32 = undefined;
