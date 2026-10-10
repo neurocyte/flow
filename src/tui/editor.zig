@@ -30,6 +30,7 @@ const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
 const Widget = @import("Widget.zig");
 const Menu = @import("Menu.zig");
+const buffer_lsp = @import("buffer_lsp.zig");
 const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
 const IndentMode = @import("config").IndentMode;
@@ -828,20 +829,8 @@ pub const Editor = struct {
                     null;
             };
 
-            if (buffer_meta == null) if (self.file_type) |ft| {
-                const frame_ = tracy.initZone(@src(), .{ .name = "did_open" });
-                defer frame_.deinit();
-                project_manager.did_open(
-                    file_path,
-                    ft,
-                    new_buf.lsp_version,
-                    content,
-                    new_buf.is_ephemeral(),
-                ) catch |e|
-                    self.logger.print("project_manager.did_open failed: {any}", .{e});
-                if (!new_buf.is_ephemeral())
-                    project_manager.request_vcs_id(file_path) catch {};
-            };
+            if (buffer_meta == null) if (self.file_type) |_| if (!new_buf.is_ephemeral())
+                project_manager.request_vcs_id(file_path) catch {};
             break :syntax syn;
         };
         self.syntax_no_render = tp.env.get().is("no-syntax");
@@ -854,6 +843,7 @@ pub const Editor = struct {
             buffer.file_type_name = ftn;
             buffer.file_type_icon = fti;
             buffer.file_type_color = ftc;
+            buffer_lsp.open(buffer);
         }
 
         if (buffer_meta) |meta| {
@@ -941,8 +931,6 @@ pub const Editor = struct {
         self.plane.erase();
         self.plane.home();
         _ = try self.handlers.msg(.{ "E", "close" });
-        if (self.syntax) |_| if (self.file_path) |file_path|
-            project_manager.did_close(file_path) catch {};
     }
 
     fn save(self: *Self, then: ?cbor.Raw) !void {
@@ -2198,7 +2186,7 @@ pub const Editor = struct {
 
     fn send_editor_save(self: *const Self, file_path: []const u8, auto_save: bool) !void {
         _ = try self.handlers.msg(.{ "E", "save", file_path, auto_save });
-        if (self.syntax) |_| project_manager.did_save(file_path) catch {};
+        if (self.has_language_server()) project_manager.did_save(file_path) catch {};
     }
 
     fn send_editor_dirty(self: *const Self, file_dirty: bool) !void {
@@ -2217,30 +2205,11 @@ pub const Editor = struct {
         return if (p) |p_| @intFromPtr(p_) else 0;
     }
 
-    fn send_did_change(buffer: *Buffer, file_path: []const u8, new_root: ?Buffer.Root, old_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
-        const text_dst = try text_from_root(new_root, eol_mode);
-        const text_src = text_from_root(old_root, eol_mode) catch |e| {
-            std.heap.c_allocator.free(text_dst);
-            return e;
-        };
-        buffer.lsp_version += 1;
-        project_manager.did_change(file_path, buffer.lsp_version, text_dst, text_src, eol_mode) catch {};
-    }
-
-    fn text_from_root(root_: ?Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {
-        const root = root_ orelse return &.{};
-        var text: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
-        defer text.deinit();
-        try root.store_node(&text.writer, eol_mode);
-        return text.toOwnedSlice();
-    }
-
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
         _ = try self.handlers.msg(.{ "E", "update" });
         if (self.buffer) |buffer| {
-            // lsp_version is the version that the language server last received
-            if (self.has_language_server()) if (self.file_path) |file_path| if (old_root != null and new_root != null)
-                try send_did_change(buffer, file_path, new_root, old_root, eol_mode);
+            if (self.has_language_server()) if (old_root) |old_root_| if (new_root != null)
+                try buffer_lsp.change(buffer, old_root_, eol_mode);
             auto_save_buffer(buffer, .on_document_change);
         }
     }
@@ -7042,8 +7011,10 @@ pub const Editor = struct {
         if (buffer_) |buffer| if (buffer.is_dirty())
             return tp.exit("unsaved changes");
         try self.close();
-        if (buffer_) |buffer|
+        if (buffer_) |buffer| {
+            buffer_lsp.close(buffer);
             self.buffer_manager.close_buffer(buffer);
+        }
     }
     pub const close_file_meta: Meta = .{ .description = "Close file" };
 
@@ -7052,8 +7023,10 @@ pub const Editor = struct {
         if (buffer_) |buffer|
             buffer.reset_to_last_saved(ctx.now);
         try self.close();
-        if (buffer_) |buffer|
+        if (buffer_) |buffer| {
+            buffer_lsp.close(buffer);
             self.buffer_manager.close_buffer(buffer);
+        }
     }
     pub const close_file_without_saving_meta: Meta = .{ .description = "Close file without saving" };
 
@@ -8738,6 +8711,7 @@ pub const Editor = struct {
         self.syntax_incremental_reparse = false;
 
         const file_type_config_ = try file_type_config.get(file_type);
+        if (self.buffer) |buffer| buffer_lsp.close(buffer);
         self.file_type = file_type_config_;
         self.checked_formatter = false;
         self.formatter = null;
@@ -8748,21 +8722,6 @@ pub const Editor = struct {
             else
                 null;
         };
-
-        if (self.file_type) |ft| {
-            const buffer = self.buffer orelse return error.Stop;
-            const content = buffer.store_to_string_cached(buffer.root, try self.buf_eol_mode());
-
-            if (self.file_path) |file_path|
-                project_manager.did_open(
-                    file_path,
-                    ft,
-                    buffer.lsp_version,
-                    content,
-                    if (self.buffer) |p| p.is_ephemeral() else true,
-                ) catch |e|
-                    self.logger.print("project_manager.did_open failed: {any}", .{e});
-        }
         self.syntax_no_render = tp.env.get().is("no-syntax");
         self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
 
@@ -8773,6 +8732,7 @@ pub const Editor = struct {
             buffer.file_type_name = ftn;
             buffer.file_type_icon = fti;
             buffer.file_type_color = ftc;
+            buffer_lsp.open(buffer);
         }
         const file_exists = if (self.buffer) |b| b.file_exists else false;
         const auto_save = if (self.buffer) |b| b.is_auto_save() and !b.is_ephemeral() else false;
@@ -8823,7 +8783,7 @@ pub fn apply_text_edits_to_buffer(allocator: Allocator, buffer: *Buffer, text_ed
 
     try buffer.store_undo(&.{});
     buffer.update(root, now);
-    try Editor.send_did_change(buffer, buffer.get_file_path(), root, old_root, buffer.file_eol_mode);
+    try buffer_lsp.change(buffer, old_root, buffer.file_eol_mode);
 }
 
 pub const EditorWidget = struct {

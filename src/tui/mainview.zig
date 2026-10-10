@@ -28,6 +28,7 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const WidgetStack = @import("WidgetStack.zig");
 const ed = @import("editor.zig");
+const buffer_lsp = @import("buffer_lsp.zig");
 const home = @import("home.zig");
 const LspInfo = @import("lsp_info.zig");
 
@@ -1132,8 +1133,10 @@ const cmds = struct {
                 if (buffer.is_ephemeral()) "before" else "after",
                 buffer.to_ref(),
             }));
-            if (buffer.is_ephemeral())
+            if (buffer.is_ephemeral()) {
+                buffer_lsp.close(buffer);
                 self.buffer_manager.close_buffer(buffer);
+            }
         }
         self.location_update_from_editor();
     }
@@ -1150,6 +1153,7 @@ const cmds = struct {
             return tp.exit("unsaved changes");
         if (self.get_editor_for_buffer(buffer)) |editor|
             editor.close_file(.empty_from(ctx)) catch |e| return e;
+        buffer_lsp.close(buffer);
         self.buffer_manager.delete_buffer(buffer);
         const logger = log.logger("buffer");
         defer logger.deinit();
@@ -1169,6 +1173,7 @@ const cmds = struct {
             editor.close_file(.empty_from(ctx)) catch |e| return e;
             return;
         }
+        buffer_lsp.close(buffer);
         _ = self.buffer_manager.close_buffer(buffer);
         tui.need_render(@src());
     }
@@ -1860,13 +1865,10 @@ const cmds = struct {
             var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
             file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
 
-            if (self.buffer_manager.get_buffer_for_file(file_path) == null)
+            if (!loaded and self.buffer_manager.needs_load(file_path))
                 return self.load_for_workspace_edit(file_path, files, remaining, reply);
+            loaded = false;
             const buffer = try self.buffer_manager.open_file(file_path, ctx.now);
-            if (loaded) {
-                send_buffer_did_open(buffer) catch {};
-                loaded = false;
-            }
 
             const editor = self.get_editor_for_buffer(buffer);
             if (version) |version_| if (version_ != buffer.lsp_version) {
@@ -2986,16 +2988,7 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
 }
 
 fn send_buffer_did_open(buffer: *Buffer) !void {
-    const ft = try file_type_config.get(buffer.file_type_name orelse return) orelse return;
-    const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
-
-    try project_manager.did_open(
-        buffer.get_file_path(),
-        ft,
-        buffer.lsp_version,
-        content,
-        buffer.is_ephemeral(),
-    );
+    buffer_lsp.reopen(buffer);
     if (!buffer.is_ephemeral())
         project_manager.request_vcs_id(buffer.get_file_path()) catch {};
 }
