@@ -1183,6 +1183,23 @@ const cmds = struct {
     }
     pub const save_file_as_meta: Meta = .{ .arguments = &.{.string} };
 
+    pub fn delete_file(self: *Self, ctx: Ctx) Result {
+        const editor = self.get_active_editor() orelse return tp.exit("no file");
+        const buffer = editor.buffer orelse return tp.exit("no file");
+        if (buffer.is_ephemeral()) return tp.exit("not a file");
+        var edit: std.Io.Writer.Allocating = .init(self.allocator);
+        defer edit.deinit();
+        try cbor.writeValue(&edit.writer, .{.{.{
+            project_manager.FileOperation.delete,
+            buffer.get_file_path(),
+            "",
+            project_manager.FileConflict.overwrite,
+            project_manager.FileScope.file,
+        }}});
+        try command.executeName("apply_workspace_edit", .{ .args = .{ .buf = edit.written() }, .io = ctx.io, .now = ctx.now });
+    }
+    pub const delete_file_meta: Meta = .{ .description = "Delete file" };
+
     pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false)) {
@@ -3552,14 +3569,21 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
             defer self.allocator.free(buffers);
             var path_buf: [std.fs.max_path_bytes]u8 = undefined;
             var affected: usize = 0;
+            var unsaved = false;
             for (buffers) |buffer| {
                 if (renamed_path(&path_buf, buffer.get_file_path(), op.path, op.path) == null) continue;
-                if (buffer.is_dirty()) return self.file_operation_failed(buffer.get_file_path(), "file has unsaved changes", reply);
+                if (buffer.is_dirty()) {
+                    if (op.conflict != .overwrite)
+                        return self.file_operation_failed(buffer.get_file_path(), "file has unsaved changes", reply);
+                    unsaved = true;
+                }
                 affected += 1;
             }
+            const directory = step == .dir or step == .ask_dir;
             switch (step) {
-                .file, .dir => return self.request_vcs_file_state(step, op, resume_),
-                .missing, .ask_file, .ask_dir => {
+                .missing, .file, .dir, .ask_file, .ask_dir => {
+                    if (!unsaved and (step == .file or step == .dir))
+                        return self.request_vcs_file_state(step, op, resume_);
                     if (step == .missing and affected == 0) return switch (op.conflict) {
                         .ignore => .done,
                         .fail, .overwrite => self.file_operation_failed(op.path, "file does not exist", reply),
@@ -3572,12 +3596,13 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
                     defer cancelled.deinit();
                     try cbor.writeValue(&cancelled.writer, .{ "cmd", "apply_workspace_edit_cancelled", .{resume_.reply_value()} });
                     try tui.open_confirm(.{
-                        .message = std.fmt.bufPrint(&message_buf, "Delete {s}?\n{s}", .{
-                            if (step == .ask_dir) "directory" else "file",
+                        .message = std.fmt.bufPrint(&message_buf, "Delete {s}{s}?\n{s}", .{
+                            if (directory) "directory" else "file",
+                            if (unsaved) " with unsaved changes" else "",
                             op.path,
                         }) catch op.path,
                         .choices = &.{.{
-                            .label = if (step == .ask_dir and op.scope == .recursive) "Delete with all content" else "Delete",
+                            .label = if (directory and op.scope == .recursive) "Delete with all content" else "Delete",
                             .action = .{ .bytes = confirmed.written() },
                             .severity = .err,
                         }},

@@ -33,6 +33,7 @@ pub const file: Menu = .{ .label = "File", .items = &.{
     .separator,
     .{ .command = .{ .command = "close_file" } },
     .{ .command = .{ .command = "close_file_without_saving" } },
+    .{ .command = .{ .command = "delete_file" } },
     .{ .command = .{ .command = "restore_closed_tab" } },
     .separator,
     .{ .command = .{ .command = "save_session" } },
