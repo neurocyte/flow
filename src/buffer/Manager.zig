@@ -158,7 +158,7 @@ pub fn open_file(self: *Self, file_path: []const u8, now: std.Io.Timestamp) erro
 
 pub fn needs_load(self: *const Self, file_path: []const u8) bool {
     const buffer = self.get_buffer(file_path) orelse return true;
-    return !buffer.ephemeral and buffer.hidden;
+    return !buffer.is_ephemeral() and buffer.hidden;
 }
 
 pub fn load(self: *Self, file_path: []const u8, options: LoadOptions) LoadError!void {
@@ -339,8 +339,12 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8, now
     };
     buffer.update_last_used_time(now);
     buffer.hidden = false;
-    buffer.ephemeral = true;
+    if (buffer.ephemeral == .no) buffer.ephemeral = .generated;
     return buffer;
+}
+
+pub fn mark_user_created(_: *Self, buffer: *Buffer) void {
+    if (buffer.ephemeral == .generated) buffer.ephemeral = .user_created;
 }
 
 pub fn mark_not_ephemeral(self: *Self, buffer: *Buffer) void {

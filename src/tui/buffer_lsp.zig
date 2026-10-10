@@ -14,7 +14,7 @@ pub fn file_type(buffer: *Buffer) ?file_type_config {
 }
 
 pub fn open(buffer: *Buffer) void {
-    if (buffer.lsp_state == .open or buffer.is_ephemeral()) return;
+    if (buffer.lsp_state == .open or buffer.ephemeral == .generated) return;
     const ft = file_type(buffer) orelse return;
     const language_server = ft.language_server orelse return;
     if (language_server.len == 0) return;

@@ -87,7 +87,7 @@ file_utf8_sanitized: bool = false,
 detected_indent_size: ?usize = null,
 longest_line_len: usize = 0,
 hidden: bool = false,
-ephemeral: bool = false,
+ephemeral: Ephemeral = .no,
 auto_save: bool = false,
 meta: ?[]const u8 = null,
 lsp_version: usize = 1,
@@ -1699,12 +1699,14 @@ pub fn is_hidden(self: *const Self) bool {
     return self.hidden;
 }
 
+pub const Ephemeral = enum { no, generated, user_created };
+
 pub fn is_ephemeral(self: *const Self) bool {
-    return self.ephemeral;
+    return self.ephemeral != .no;
 }
 
 pub fn mark_not_ephemeral(self: *Self) void {
-    self.ephemeral = false;
+    self.ephemeral = .no;
 }
 
 pub fn enable_auto_save(self: *Self) void {
@@ -1825,7 +1827,7 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
         self.file_exists,
         self.file_eol_mode,
         self.hidden,
-        self.ephemeral,
+        self.is_ephemeral(),
         self.auto_save,
         self.last_view,
         dirty,
@@ -1833,6 +1835,7 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
         self.file_type_name,
         self.vcs_id,
         content.written(),
+        self.ephemeral,
     });
 }
 
@@ -1845,13 +1848,15 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
     var meta: ?[]const u8 = null;
     var vcs_id: ?[]const u8 = null;
     var content: []const u8 = undefined;
+    var ephemeral: bool = false;
+    var state = iter.*;
 
-    if (!try cbor.matchValue(iter, .{
+    if (try cbor.matchValue(iter, .{
         cbor.extract(&file_path),
         cbor.extract(&self.file_exists),
         cbor.extract(&self.file_eol_mode),
         cbor.extract(&self.hidden),
-        cbor.extract(&self.ephemeral),
+        cbor.extract(&ephemeral),
         cbor.extract(&self.auto_save),
         cbor.extract(&self.last_view),
         cbor.extract(&dirty),
@@ -1859,8 +1864,24 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
         cbor.extract(&file_type_name),
         cbor.extract(&vcs_id),
         cbor.extract(&content),
-    }))
-        return error.Stop;
+        cbor.extract(&self.ephemeral),
+    })) {} else if (try cbor.matchValue(&state, .{
+        cbor.extract(&file_path),
+        cbor.extract(&self.file_exists),
+        cbor.extract(&self.file_eol_mode),
+        cbor.extract(&self.hidden),
+        cbor.extract(&ephemeral),
+        cbor.extract(&self.auto_save),
+        cbor.extract(&self.last_view),
+        cbor.extract(&dirty),
+        cbor.extract(&meta),
+        cbor.extract(&file_type_name),
+        cbor.extract(&vcs_id),
+        cbor.extract(&content),
+    })) {
+        iter.* = state;
+        self.ephemeral = if (ephemeral) .generated else .no;
+    } else return error.Stop;
 
     self.set_file_path(file_path);
 

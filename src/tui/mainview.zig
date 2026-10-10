@@ -1067,6 +1067,7 @@ const cmds = struct {
 
         try self.create_editor(ctx.now);
         try command.executeName("open_scratch_buffer", .{ .io = ctx.io, .now = ctx.now, .args = args });
+        if (args.buf.len == 0 or (args.match(.{}) catch false)) self.mark_active_buffer_user_created();
         tui.need_render(@src());
         self.location_update_from_editor();
     }
@@ -1087,6 +1088,7 @@ const cmds = struct {
             }
         }
         try command.executeName("create_scratch_buffer", command.fmt(.{name.written()}));
+        self.mark_active_buffer_user_created();
         if (tp.env.get().str("language").len == 0)
             try command.executeName("change_file_type", .empty_from(ctx));
     }
@@ -3413,6 +3415,11 @@ pub fn vcs_blame_update(self: *Self, m: tp.message) void {
 pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.lsp_info.add_from_event(m.buf) catch return;
     self.foreach_editor(ed.Editor.update_completion_triggers);
+}
+
+fn mark_active_buffer_user_created(self: *Self) void {
+    const editor = self.get_active_editor() orelse return;
+    self.buffer_manager.mark_user_created(editor.buffer orelse return);
 }
 
 fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.ApplyEditResult, reason: []const u8) void {
