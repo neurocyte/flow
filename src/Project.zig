@@ -1873,6 +1873,22 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
         const request: *VcsContentRequest = @ptrFromInt(context);
         defer request.deinit();
         parent.send(.{ "PRJ", "vcs_content", request.file_path, request.vcs_id, null }) catch {};
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "ls_tree", tp.string })) {
+        const request: *VcsFileStateRequest = @ptrFromInt(context);
+        request.state = .clean;
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "ls_tree", tp.null_ })) {
+        const request: *VcsFileStateRequest = @ptrFromInt(context);
+        if (request.state == .unversioned) return request.done(parent);
+        git.file_status(context, request.file_path) catch {
+            request.state = .modified;
+            request.done(parent);
+        };
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "file_status", tp.string })) {
+        const request: *VcsFileStateRequest = @ptrFromInt(context);
+        request.state = .modified;
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "file_status", tp.null_ })) {
+        const request: *VcsFileStateRequest = @ptrFromInt(context);
+        request.done(parent);
     } else if (try m.match(.{ tp.any, tp.extract(&context), "blame", tp.extract(&blame_output) })) {
         const request: *GitBlameRequest = @ptrFromInt(context);
         parent.send(.{ "PRJ", "git_blame", request.file_path, blame_output }) catch {};
@@ -1882,6 +1898,33 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
         parent.send(.{ "PRJ", "git_blame", request.file_path, null }) catch {};
     }
 }
+
+pub const VcsFileState = enum { unversioned, modified, clean };
+
+pub fn request_vcs_file_state(self: *Self, from: tp.pid_ref, id: usize, file_path: []const u8) error{OutOfMemory}!void {
+    const request = try self.allocator.create(VcsFileStateRequest);
+    request.* = .{
+        .allocator = self.allocator,
+        .project = @intFromPtr(self),
+        .id = id,
+        .file_path = try self.allocator.dupe(u8, file_path),
+    };
+    git.ls_tree(@intFromPtr(request), "HEAD", file_path) catch request.done(from);
+}
+
+pub const VcsFileStateRequest = struct {
+    allocator: std.mem.Allocator,
+    project: usize,
+    id: usize,
+    file_path: []const u8,
+    state: VcsFileState = .unversioned,
+
+    fn done(self: *@This(), parent: tp.pid_ref) void {
+        parent.send(.{ "PRJ", "vcs_file_state", self.id, self.state }) catch {};
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+};
 
 pub fn request_vcs_blame(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
     const request = try self.allocator.create(GitBlameRequest);

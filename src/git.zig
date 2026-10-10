@@ -290,6 +290,28 @@ pub fn cat_file(context_: usize, object: []const u8) Error!void {
     }.result, exit_null(tag));
 }
 
+pub fn ls_tree(context_: usize, rev: []const u8, file_path: []const u8) Error!void {
+    const tag = @src().fn_name;
+    try git(context_, .{ "ls-tree", "--name-only", rev, "--", file_path }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            var it = std.mem.splitScalar(u8, output, '\n');
+            while (it.next()) |value| if (value.len > 0)
+                parent.send(.{ module_name, context, tag, value }) catch {};
+        }
+    }.result, exit_null(tag));
+}
+
+pub fn file_status(context_: usize, file_path: []const u8) Error!void {
+    const tag = @src().fn_name;
+    try git(context_, .{ "status", "--porcelain", "--ignored", "--untracked-files=normal", "--", file_path }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            var it = std.mem.splitScalar(u8, output, '\n');
+            while (it.next()) |value| if (value.len > 0)
+                parent.send(.{ module_name, context, tag, value }) catch {};
+        }
+    }.result, exit_null(tag));
+}
+
 pub fn check_ignore(context_: usize, file_path: []const u8) Error!void {
     const tag = @src().fn_name;
     try git(context_, .{ "check-ignore", "-q", file_path }, struct {

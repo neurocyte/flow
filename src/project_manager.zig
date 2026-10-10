@@ -218,6 +218,15 @@ pub fn request_vcs_id(file_path: []const u8) (ProjectManagerError || ProjectErro
     return send(.{ "request_vcs_id", project, file_path });
 }
 
+pub const VcsFileState = Project.VcsFileState;
+
+pub fn request_vcs_file_state(id: usize, file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_file_state", project, id, file_path });
+}
+
 pub fn request_vcs_content(file_path: []const u8, vcs_id: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -587,6 +596,12 @@ const Process = struct {
             const request: *Project.VcsContentRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
                 project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-cat-file", e);
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "ls_tree", tp.more }) or
+            try cbor.match(m.buf, .{ "git", tp.extract(&context), "file_status", tp.more }))
+        {
+            const request: *Project.VcsFileStateRequest = @ptrFromInt(context);
+            if (self.project_from_ref(request.project)) |project|
+                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-file-state", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "blame", tp.more })) {
             const request: *Project.GitBlameRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
@@ -631,6 +646,11 @@ const Process = struct {
             self.request_vcs_status(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_id", tp.extract(&project_directory), tp.extract(&path) })) {
             self.request_vcs_id(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_file_state", tp.extract(&project_directory), tp.extract(&n), tp.extract(&path) })) {
+            const project = self.projects.get(project_directory) orelse
+                return from.send(.{ "PRJ", "vcs_file_state", n, VcsFileState.unversioned }) catch error.ClientFailed;
+            project.request_vcs_file_state(from, n, path) catch
+                return from.send(.{ "PRJ", "vcs_file_state", n, VcsFileState.unversioned }) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_content", tp.extract(&project_directory), tp.extract(&path), tp.extract(&vcs_id) })) {
             self.request_vcs_content(from, project_directory, path, vcs_id) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "add_task", tp.extract(&project_directory), tp.extract(&task) })) {
