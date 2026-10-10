@@ -1068,26 +1068,68 @@ fn handle_system_clipboard(self: *Self, text: []const u8) !void {
     return command.executeName("paste", command.fmt(.{text}));
 }
 
-fn find_coord_widget(self: *Self, coord: MouseEvent.Coord) ?Widget {
+const CoordWidgets = struct {
+    event: ?Widget = null,
+    hover: ?Widget = null,
+};
+
+fn find_coord_widgets(self: *Self, coord: MouseEvent.Coord) CoordWidgets {
     const Ctx = struct {
         coord: MouseEvent.Coord,
-        best: ?Widget = null,
-        best_rank: i32 = std.math.minInt(i32),
-        fn find(ctx_: *anyopaque, w: Widget, evt: Widget.WalkEvent) bool {
-            if (evt == .begin) return false;
-            const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            if (!w.is_coord_inside(ctx.coord)) return false;
+        result: CoordWidgets = .{},
+        best_event_rank: i32 = std.math.minInt(i32),
+        best_hover_rank: i32 = std.math.minInt(i32),
+        best_hover_depth: usize = 0,
+        depth: usize = 0,
+
+        fn consider(ctx: *@This(), w: Widget, depth: usize) void {
+            if (!w.is_coord_inside(ctx.coord)) return;
             const rank = w.z_rank();
-            if (ctx.best == null or rank > ctx.best_rank) {
-                ctx.best = w;
-                ctx.best_rank = rank;
+            if (ctx.result.event == null or rank > ctx.best_event_rank) {
+                ctx.result.event = w;
+                ctx.best_event_rank = rank;
+            }
+            if (ctx.result.hover == null or
+                hit_target_is_better(rank, depth, ctx.best_hover_rank, ctx.best_hover_depth))
+            {
+                ctx.result.hover = w;
+                ctx.best_hover_rank = rank;
+                ctx.best_hover_depth = depth;
+            }
+        }
+
+        fn find(ctx_: *anyopaque, w: Widget, evt: Widget.WalkEvent) bool {
+            const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+            switch (evt) {
+                .begin => {
+                    ctx.depth += 1;
+                },
+                .visit => ctx.consider(w, ctx.depth),
+                .end => {
+                    ctx.depth -= 1;
+                    ctx.consider(w, ctx.depth);
+                },
             }
             return false; // never stop: visit every containing widget
         }
     };
     var ctx: Ctx = .{ .coord = coord };
     if (self.mainview_) |*mv| _ = mv.walk(&ctx, Ctx.find);
-    return ctx.best;
+    return ctx.result;
+}
+
+fn find_coord_widget(self: *Self, coord: MouseEvent.Coord) ?Widget {
+    return self.find_coord_widgets(coord).event;
+}
+
+fn hit_target_is_better(rank: i32, depth: usize, best_rank: i32, best_depth: usize) bool {
+    return rank > best_rank or (rank == best_rank and depth > best_depth);
+}
+
+test "hit testing prefers the deepest widget at the same z rank" {
+    try std.testing.expect(hit_target_is_better(1, 2, 1, 1));
+    try std.testing.expect(hit_target_is_better(2, 0, 1, 3));
+    try std.testing.expect(!hit_target_is_better(1, 0, 2, 0));
 }
 
 fn is_live_widget_ptr(self: *Self, w_: Widget) bool {
@@ -1295,16 +1337,19 @@ fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp
 fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {
     self.last_hover = coord;
     @import("keyhints.zig").mouse_moved();
-    if (coord.x >= 0 and coord.y >= 0) if (self.find_coord_widget(coord)) |w| {
-        if (if (self.hover_focus) |h| h.ptr != w.ptr else true) {
-            tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @as(u64, @intFromPtr(h.ptr)) else 0, @as(u64, @intFromPtr(w.ptr)) });
-            if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
-                try send_hover_msg(h, false);
-            self.hover_focus = w;
-            try send_hover_msg(w, true);
+    if (coord.x >= 0 and coord.y >= 0) {
+        const targets = self.find_coord_widgets(coord);
+        if (targets.hover) |w| {
+            if (if (self.hover_focus) |h| h.ptr != w.ptr else true) {
+                tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @as(u64, @intFromPtr(h.ptr)) else 0, @as(u64, @intFromPtr(w.ptr)) });
+                if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
+                    try send_hover_msg(h, false);
+                self.hover_focus = w;
+                try send_hover_msg(w, true);
+            }
+            return targets.event;
         }
-        return w;
-    };
+    }
     try self.clear_hover_focus(@src());
     return null;
 }
