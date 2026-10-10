@@ -3315,12 +3315,10 @@ pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.foreach_editor(ed.Editor.update_completion_triggers);
 }
 
-const WorkspaceEditResult = enum { applied, failed };
-
-fn workspace_edit_done(_: *Self, reply: []const u8, result: WorkspaceEditResult, reason: []const u8) void {
-    _ = reply;
-    _ = result;
-    _ = reason;
+fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.ApplyEditResult, reason: []const u8) void {
+    if (reply.len == 0 or (cbor.match(reply, cbor.null_) catch false)) return;
+    project_manager.apply_edit_response(.{ .bytes = reply }, result, reason) catch |e|
+        std.log.err("apply_edit_response failed: {t}", .{e});
 }
 
 fn load_for_workspace_edit(self: *Self, file_path: []const u8, files: usize, remaining: []const u8, reply_: []const u8) command.Result {

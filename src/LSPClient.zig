@@ -1660,8 +1660,10 @@ fn send_init_request(
         },
         .capabilities = .{
             .workspace = .{
+                .applyEdit = true,
                 .workspaceEdit = .{
                     .documentChanges = true,
+                    .failureHandling = "abort",
                 },
                 // .configuration = true,
                 .didChangeWatchedFiles = .{

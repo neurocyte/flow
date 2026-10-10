@@ -28,6 +28,7 @@ pub const Error = ProjectError || ProjectManagerError;
 
 pub const ProjectError = error{NoProject};
 pub const LspStatus = Project.LspStatus;
+pub const ApplyEditResult = Project.ApplyEditResult;
 
 pub const test_internal = struct {
     pub const write_workspace_edit = @import("LSPClient.zig").write_workspace_edit;
@@ -335,6 +336,10 @@ pub fn completion_resolve(file_path: []const u8, token: u32, item: cbor.Raw) (Pr
     return send(.{ "completion_resolve", project, file_path, token, item });
 }
 
+pub fn apply_edit_response(reply: cbor.Raw, result: ApplyEditResult, reason: []const u8) (ProjectManagerError || ProjectError)!void {
+    return send(.{ "apply_edit_response", reply, result, reason });
+}
+
 pub fn symbols(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -517,6 +522,7 @@ const Process = struct {
         var source_location: SourceLocation = undefined;
         var token: u32 = 0;
         var item: []const u8 = undefined;
+        var apply_edit_result: ApplyEditResult = undefined;
 
         var eol_mode: Buffer.EolModeTag = @backingInt(Buffer.EolMode.lf);
         var event_type: file_watcher.EventType = undefined;
@@ -623,6 +629,8 @@ const Process = struct {
             self.completion(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "completion_resolve", tp.extract(&project_directory), tp.extract(&path), tp.extract(&token), tp.extract_cbor(&item) })) {
             self.completion_resolve(from, project_directory, path, token, item) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "apply_edit_response", .{ tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&cbor_id) }, tp.extract(&apply_edit_result), tp.extract(&text) })) {
+            self.apply_edit_response(project_directory, language_server, cbor_id, apply_edit_result, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&source_location) })) {
             self.rename_symbol(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "hover", tp.extract(&project_directory), tp.extract(&source_location) })) {
@@ -1094,6 +1102,11 @@ const Process = struct {
         return project.completion_resolve(from, file_path, token, item);
     }
 
+    fn apply_edit_response(self: *Process, project_directory: []const u8, language_server: []const u8, cbor_id: []const u8, result: ApplyEditResult, reason: []const u8) (ProjectError || Project.LspError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.apply_edit_response(language_server, cbor_id, result, reason);
+    }
+
     fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.GetLineOfFileError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".rename_symbol" });
         defer frame.deinit();
@@ -1134,10 +1147,11 @@ const Process = struct {
     }
 
     fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, cbor_id: []const u8, params_cb: []const u8) (ProjectError || Project.LspError || cbor.Error || cbor.JsonEncodeError || UnsupportedError)!void {
-        _ = language_server;
         const project = if (self.projects.get(project_directory)) |p| p else return error.NoProject;
         return if (std.mem.eql(u8, method, "client/registerCapability"))
             project.register_capability(from, cbor_id, params_cb)
+        else if (std.mem.eql(u8, method, "workspace/applyEdit"))
+            project.apply_edit(from, self.parent.ref(), language_server, cbor_id, params_cb)
         else if (std.mem.eql(u8, method, "window/workDoneProgress/create"))
             project.workDoneProgress_create(from, cbor_id, params_cb)
         else {

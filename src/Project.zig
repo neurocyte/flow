@@ -1483,6 +1483,44 @@ pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, p
     return LSP.send_response(self.allocator, from, cbor_id, null) catch error.LspFailed;
 }
 
+pub const ApplyEditResult = enum { applied, failed };
+
+pub fn apply_edit(self: *Self, from: tp.pid_ref, to: tp.pid_ref, language_server: []const u8, cbor_id: []const u8, params_cb: []const u8) LspError!void {
+    var workspace_edit: std.Io.Writer.Allocating = .init(self.allocator);
+    defer workspace_edit.deinit();
+    write_apply_edit_params(&workspace_edit.writer, params_cb) catch |e|
+        return LSP.send_response(self.allocator, from, cbor_id, .{ .applied = false, .failureReason = @errorName(e) }) catch error.LspFailed;
+    to.send(.{ "cmd", "apply_workspace_edit", .{
+        cbor.Raw{ .bytes = workspace_edit.written() },
+        .{ self.name, language_server, cbor.Raw{ .bytes = cbor_id } },
+    } }) catch return error.LspFailed;
+}
+
+fn write_apply_edit_params(writer: *std.Io.Writer, params_cb: []const u8) (LSPClient.WorkspaceEditError || error{InvalidApplyEditParams})!void {
+    var iter = params_cb;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidApplyEditParams;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidApplyEditParams;
+        if (std.mem.eql(u8, field_name, "edit")) {
+            var edit: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&edit)))) return error.InvalidApplyEditParams;
+            return LSPClient.write_workspace_edit(writer, edit);
+        }
+        try cbor.skipValue(&iter);
+    }
+    return error.InvalidApplyEditParams;
+}
+
+pub fn apply_edit_response(self: *Self, language_server: []const u8, cbor_id: []const u8, result: ApplyEditResult, reason: []const u8) LspError!void {
+    const client = self.get_existing_lsp_client(language_server) orelse return error.NoLsp;
+    const to = client.lsp.pid.ref();
+    return (switch (result) {
+        .applied => LSP.send_response(self.allocator, to, cbor_id, .{ .applied = true }),
+        .failed => LSP.send_response(self.allocator, to, cbor_id, .{ .applied = false, .failureReason = reason }),
+    }) catch error.LspFailed;
+}
+
 pub fn workDoneProgress_create(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) LspError!void {
     _ = params_cb;
     return LSP.send_response(self.allocator, from, cbor_id, null) catch error.LspFailed;
