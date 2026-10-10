@@ -262,7 +262,12 @@ pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usi
     return send(.{ "did_open", project, file_path, file_type.name, language_server, language_server_options, language_server_protocol, version, text });
 }
 
+/// takes ownership of text_dst and text_src, which must be allocated with std.heap.c_allocator
 pub fn did_change(file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectManagerError || ProjectError)!void {
+    errdefer {
+        std.heap.c_allocator.free(text_dst);
+        std.heap.c_allocator.free(text_src);
+    }
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
@@ -634,6 +639,10 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len), tp.extract(&eol_mode) })) {
             const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
             const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
+            defer {
+                std.heap.c_allocator.free(text_dst);
+                std.heap.c_allocator.free(text_src);
+            }
             self.did_change(project_directory, path, version, text_dst, text_src, @fromBackingInt(@intCast(eol_mode))) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;

@@ -1840,8 +1840,6 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, versi
 
 pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
     _ = eol_mode;
-    defer std.heap.c_allocator.free(text_dst);
-    defer std.heap.c_allocator.free(text_src);
     const uri = try make_URI(self.allocator, self.project_name, file_path);
 
     var arena_ = std.heap.ArenaAllocator.init(self.allocator);
