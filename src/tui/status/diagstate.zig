@@ -41,7 +41,6 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
         .on_click3 = on_click3,
         .on_layout = layout,
         .on_render = render,
-        .on_receive = receive,
         .on_event = event_handler,
     });
 }
@@ -57,10 +56,12 @@ fn on_click3(_: *Self, btn: *ButtonType, _: Widget.Pos) void {
 
 pub fn layout(self: *Self, _: *ButtonType) Widget.Layout {
     if (tui.screen().w < 80) return .{ .static = 0 };
+    self.update();
     return .{ .static = self.rendered.len };
 }
 
 pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
+    self.update();
     const bg_style = if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar;
     btn.plane.set_base_style(theme.editor);
     btn.plane.erase();
@@ -82,8 +83,15 @@ fn format(self: *Self) void {
     self.buf[self.rendered.len] = 0;
 }
 
-pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "E", "diag", tp.extract(&self.errors), tp.extract(&self.warnings), tp.extract(&self.info), tp.extract(&self.hints) }))
-        self.format();
-    return false;
+fn update(self: *Self) void {
+    const errors, const warnings, const info, const hints = if (tui.get_active_editor()) |editor|
+        .{ editor.diag_errors, editor.diag_warnings, editor.diag_info, editor.diag_hints }
+    else
+        .{ 0, 0, 0, 0 };
+    if (errors == self.errors and warnings == self.warnings and info == self.info and hints == self.hints) return;
+    self.errors = errors;
+    self.warnings = warnings;
+    self.info = info;
+    self.hints = hints;
+    self.format();
 }
