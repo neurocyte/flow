@@ -2156,10 +2156,6 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "view", lines, view.rows, view.row });
     }
 
-    fn send_editor_diagnostics(self: *const Self) !void {
-        _ = try self.handlers.msg(.{ "E", "diag", self.diag_errors, self.diag_warnings, self.diag_info, self.diag_hints });
-    }
-
     fn send_editor_modified(self: *Self) !void {
         try self.send_editor_cursel_msg("modified", self.get_primary());
     }
@@ -8181,7 +8177,6 @@ pub const Editor = struct {
             .Information => self.diag_info += 1,
             .Hint => self.diag_hints += 1,
         }
-        self.send_editor_diagnostics() catch {};
         self.need_render();
     }
 
@@ -8191,7 +8186,6 @@ pub const Editor = struct {
         self.diag_warnings = 0;
         self.diag_info = 0;
         self.diag_hints = 0;
-        self.send_editor_diagnostics() catch {};
         self.need_render();
     }
 
