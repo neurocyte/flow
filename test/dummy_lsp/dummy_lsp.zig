@@ -25,6 +25,8 @@
 // A hover request makes the server send a workspace/applyEdit request. The
 // edit inserts a line at the top of the hovered file and at the top of a
 // second file with the same name plus ".other".
+// The edit of the hovered file carries the document version that the client
+// last sent for that file, so the client must accept it.
 // On line 1 the edit carries a wrong document version, so the client must
 // answer with "applied: false".
 
@@ -124,6 +126,8 @@ fn handle(io: std.Io, arena: std.mem.Allocator, out: *std.Io.Writer, msg: std.js
 
     if (std.mem.eql(u8, method, "exit")) return false;
     if (std.mem.eql(u8, method, "textDocument/didOpen")) try publish_diagnostics(arena, out, params);
+    if (std.mem.eql(u8, method, "textDocument/didOpen") or std.mem.eql(u8, method, "textDocument/didChange"))
+        synced.set(get(params, "textDocument") orelse .null);
     const id_ = id orelse return true;
 
     if (std.mem.eql(u8, method, "initialize")) {
@@ -285,10 +289,29 @@ fn execute_command(arena: std.mem.Allocator, out: *std.Io.Writer, params: std.js
     });
 }
 
+// the document that the client last opened or changed, and its version
+var synced: struct {
+    uri_buf: [4096]u8 = undefined,
+    uri: []const u8 = "",
+    version: ?i64 = null,
+
+    fn set(self: *@This(), text_document: std.json.Value) void {
+        const uri = get_string(text_document, "uri") orelse return;
+        if (uri.len > self.uri_buf.len) return;
+        @memcpy(self.uri_buf[0..uri.len], uri);
+        self.uri = self.uri_buf[0..uri.len];
+        self.version = get_int(text_document, "version");
+    }
+
+    fn get(self: *const @This(), uri: []const u8) ?i64 {
+        return if (std.mem.eql(u8, self.uri, uri)) self.version else null;
+    }
+} = .{};
+
 fn send_apply_edit(arena: std.mem.Allocator, out: *std.Io.Writer, params: std.json.Value) !void {
     const uri = get_string(get(params, "textDocument") orelse .null, "uri") orelse return;
     const line = get_int(get(params, "position") orelse .null, "line") orelse 0;
-    const version: ?i64 = if (line == 0) 999 else null;
+    const version: ?i64 = if (line == 0) 999 else synced.get(uri);
     const edits: []const TextEdit = &.{.{ .range = top, .newText = "applied by dummy_lsp\n" }};
     try send(arena, out, .{
         .jsonrpc = "2.0",

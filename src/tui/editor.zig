@@ -2084,7 +2084,6 @@ pub const Editor = struct {
                 buf.update_longest_line_length(self.metrics) catch |e| switch (e) {
                     else => self.logger.err("update_longest_line_length", e),
                 };
-                buf.lsp_version += 1;
             }
         }
 
@@ -2229,8 +2228,11 @@ pub const Editor = struct {
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
         _ = try self.handlers.msg(.{ "E", "update" });
         if (self.buffer) |buffer| {
-            if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
+            // lsp_version is the version that the language server last received
+            if (self.has_language_server()) if (self.file_path) |file_path| if (old_root != null and new_root != null) {
+                buffer.lsp_version += 1;
                 project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
+            };
             auto_save_buffer(buffer, .on_document_change);
         }
     }
@@ -6272,6 +6274,11 @@ pub const Editor = struct {
             cbor.skipValue(&iter) catch return false;
         }
         return false;
+    }
+
+    fn has_language_server(self: *const Self) bool {
+        const ft = self.file_type orelse return false;
+        return if (ft.language_server) |ls| ls.len > 0 else false;
     }
 
     fn can_resolve_completions(self: *const Self) bool {

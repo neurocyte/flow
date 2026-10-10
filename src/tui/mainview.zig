@@ -1869,10 +1869,11 @@ const cmds = struct {
             }
 
             const editor = self.get_editor_for_buffer(buffer);
-            // an editor reports its buffer to the language server with the version before its last update
-            const lsp_version = if (editor) |_| buffer.lsp_version -| 1 else buffer.lsp_version;
-            if (version) |version_| if (version_ != lsp_version)
-                return self.workspace_edit_failed(file_path, text_edits, "document changed since the edit was computed", reply);
+            if (version) |version_| if (version_ != buffer.lsp_version) {
+                var reason_buf: [128]u8 = undefined;
+                const reason = std.fmt.bufPrint(&reason_buf, "the edit is for document version {d}, but the document is at version {d}, try again", .{ version_, buffer.lsp_version }) catch "document changed";
+                return self.workspace_edit_failed(file_path, text_edits, reason, reply);
+            };
 
             (if (editor) |editor_|
                 editor_.apply_buffer_text_edits(.{ .bytes = text_edits }, ctx.now)
