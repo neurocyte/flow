@@ -21,6 +21,13 @@
 // The server reports "resolveProvider: false" and puts a data field on the
 // items that need a resolve. rust-analyzer does the same.
 
+// Hover
+// A hover request makes the server send a workspace/applyEdit request. The
+// edit inserts a line at the top of the hovered file and at the top of a
+// second file with the same name plus ".other".
+// On line 1 the edit carries a wrong document version, so the client must
+// answer with "applied: false".
+
 const std = @import("std");
 
 const Position = struct { line: usize, character: usize };
@@ -48,6 +55,7 @@ const capabilities = .{
     .positionEncoding = "utf-8",
     .textDocumentSync = 1,
     .completionProvider = .{ .resolveProvider = false },
+    .hoverProvider = true,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -101,6 +109,9 @@ fn handle(io: std.Io, arena: std.mem.Allocator, out: *std.Io.Writer, msg: std.js
         try respond(arena, out, id_, .{ .isIncomplete = false, .items = try completion_items(arena, params) });
     } else if (std.mem.eql(u8, method, "completionItem/resolve")) {
         try resolve(io, arena, out, id_, params);
+    } else if (std.mem.eql(u8, method, "textDocument/hover")) {
+        try send_apply_edit(arena, out, params);
+        try respond(arena, out, id_, .{ .contents = "dummy_lsp sent workspace/applyEdit" });
     } else {
         try respond(arena, out, id_, null);
     }
@@ -142,6 +153,25 @@ fn completion_items(arena: std.mem.Allocator, params: std.json.Value) ![]const C
                 .{ .range = top, .newText = "use make;\n" },
                 .{ .range = .{ .start = .{ .line = line, .character = 0 }, .end = .{ .line = line, .character = 1 } }, .newText = "    " },
             }),
+        },
+    });
+}
+
+fn send_apply_edit(arena: std.mem.Allocator, out: *std.Io.Writer, params: std.json.Value) !void {
+    const uri = get_string(get(params, "textDocument") orelse .null, "uri") orelse return;
+    const line = get_int(get(params, "position") orelse .null, "line") orelse 0;
+    const version: ?i64 = if (line == 0) 999 else null;
+    const edits: []const TextEdit = &.{.{ .range = top, .newText = "applied by dummy_lsp\n" }};
+    try send(arena, out, .{
+        .jsonrpc = "2.0",
+        .id = "apply-edit",
+        .method = "workspace/applyEdit",
+        .params = .{
+            .label = "dummy edit",
+            .edit = .{ .documentChanges = .{
+                .{ .textDocument = .{ .uri = uri, .version = version }, .edits = edits },
+                .{ .textDocument = .{ .uri = try std.fmt.allocPrint(arena, "{s}.other", .{uri}), .version = null }, .edits = edits },
+            } },
         },
     });
 }
