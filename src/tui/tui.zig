@@ -822,6 +822,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
             need_render(@src());
             return;
         }
+        if (mainview()) |mv| if (try mv.receive_file_operation(m))
+            return;
         self.invalidate_probe(m);
         if (get_buffer_manager()) |buffer_manager| {
             switch (buffer_manager.receive_file_store_message(from, m)) {

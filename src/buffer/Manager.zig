@@ -11,7 +11,6 @@ allocator: std.mem.Allocator,
 buffers: std.StringHashMapUnmanaged(*Buffer),
 file_store: ?FileStore = null,
 watched: std.AutoHashMapUnmanaged(*Buffer, []const u8) = .empty,
-own_renames: std.StringHashMapUnmanaged(void) = .empty,
 next_request_id: usize = 1,
 saves: std.AutoHashMapUnmanaged(usize, PendingSave) = .empty,
 save_groups: std.AutoHashMapUnmanaged(usize, SaveGroup) = .empty,
@@ -115,9 +114,6 @@ pub fn deinit(self: *Self) void {
     }
     self.buffers.deinit(self.allocator);
     self.watched.deinit(self.allocator);
-    var own_renames = self.own_renames.keyIterator();
-    while (own_renames.next()) |path| self.allocator.free(path.*);
-    self.own_renames.deinit(self.allocator);
     var saves = self.saves.valueIterator();
     while (saves.next()) |pending| {
         if (self.file_store) |*file_store| pending.stream.abort(file_store);
@@ -382,9 +378,7 @@ pub fn get_buffer_for_file(self: *const Self, file_path: []const u8) ?*Buffer {
     return self.get_buffer(file_path);
 }
 
-pub const RenameScope = enum { buffer_only, file_on_disk };
-
-pub fn rename_buffer(self: *Self, buffer: *Buffer, file_path: []const u8, scope: RenameScope) error{ OutOfMemory, BufferNotFound, BufferExists }!void {
+pub fn rename_buffer(self: *Self, buffer: *Buffer, file_path: []const u8) error{ OutOfMemory, BufferNotFound, BufferExists }!void {
     if (self.buffers.contains(file_path)) return error.BufferExists;
     const new_key = try self.allocator.dupe(u8, file_path);
     errdefer self.allocator.free(new_key);
@@ -395,15 +389,6 @@ pub fn rename_buffer(self: *Self, buffer: *Buffer, file_path: []const u8, scope:
     buffer.set_file_path(file_path);
     self.buffers.putAssumeCapacity(new_key, buffer);
     self.watch_buffer(buffer);
-    // the file watcher reports our own rename of the file on disk as a change to the new path
-    if (scope == .file_on_disk) if (self.watched.get(buffer)) |abs_path| if (!self.own_renames.contains(abs_path))
-        try self.own_renames.put(self.allocator, try self.allocator.dupe(u8, abs_path), {});
-}
-
-fn is_own_rename(self: *Self, abs_path: []const u8) bool {
-    const kv = self.own_renames.fetchRemove(abs_path) orelse return false;
-    self.allocator.free(kv.key);
-    return true;
 }
 
 pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
@@ -644,6 +629,19 @@ pub fn probe(self: *Self, id: usize, file_path: []const u8) ProbeError!void {
     return file_store.probe(id, abs_path);
 }
 
+pub const FileOpError = error{ OutOfMemory, FileStoreNotReady, FileStoreSendFailed, FileOpNoFileName };
+
+pub fn file_op(self: *Self, op: FileStore.FileOp, file_path: []const u8, to_file_path: []const u8, conflict: FileStore.Conflict, scope: FileStore.Scope) FileOpError!usize {
+    const file_store = self.file_store orelse return error.FileStoreNotReady;
+    const abs_path = try self.resolve_path(file_path) orelse return error.FileOpNoFileName;
+    defer self.allocator.free(abs_path);
+    const to_abs_path = if (to_file_path.len > 0) try self.resolve_path(to_file_path) orelse return error.FileOpNoFileName else null;
+    defer if (to_abs_path) |p| self.allocator.free(p);
+    const id = self.new_request_id();
+    try file_store.file_op(id, op, abs_path, to_abs_path orelse "", conflict, scope);
+    return id;
+}
+
 pub fn is_file_store(self: *const Self, pid: tp.pid_ref) bool {
     const file_store = self.file_store orelse return false;
     return file_store.pid.instance_id() == pid.instance_id();
@@ -829,7 +827,7 @@ fn file_changed(self: *Self, abs_path: []const u8, event_type: FileStore.EventTy
     const buffer = self.buffer_for_watched_path(abs_path) orelse return .nochange;
     return switch (event_type) {
         .deleted => file_gone(buffer, null),
-        .created, .modified => if (self.is_own_rename(abs_path)) .nochange else self.file_replaced(buffer),
+        .created, .modified => self.file_replaced(buffer),
         .closed => .nochange,
     };
 }
@@ -838,7 +836,7 @@ fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8, _: File
     var result: LoadResult = .nochange;
     if (self.buffer_for_watched_path(from_path)) |buffer|
         result = file_gone(buffer, to_path);
-    if (self.buffer_for_watched_path(to_path)) |buffer| if (!self.is_own_rename(to_path))
+    if (self.buffer_for_watched_path(to_path)) |buffer|
         if (self.file_replaced(buffer) == .modified) {
             result = .modified;
         };

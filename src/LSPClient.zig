@@ -1756,8 +1756,8 @@ fn write_workspace_edit_document_changes(writer: *std.Io.Writer, document_change
 }
 
 pub const FileOperation = enum { create, rename, delete };
-pub const FileConflict = enum { fail, overwrite, ignore };
-pub const FileScope = enum { file, recursive };
+pub const FileConflict = FileStore.Conflict;
+pub const FileScope = FileStore.Scope;
 
 // CreateFile, RenameFile or DeleteFile as [kind, path, to_path, on_conflict, scope]
 fn write_file_operation(writer: *std.Io.Writer, change: []const u8) WorkspaceEditError!void {
