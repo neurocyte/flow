@@ -1142,6 +1142,7 @@ const cmds = struct {
             const buffer = editor.buffer orelse return;
             const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
             const now = root.get_now();
+            const primary = editor.get_primary().*;
 
             var existing = false;
             if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| {
@@ -1168,6 +1169,7 @@ const cmds = struct {
                 try new_buffer.reset_from_string_and_update(content, now);
                 self.buffer_manager.mark_not_ephemeral(new_buffer);
                 new_buffer.mark_dirty();
+                new_editor.get_primary().* = primary;
                 new_editor.clamp(ctx.now);
                 new_editor.update_buf(new_buffer.root, now) catch {};
                 tui.need_render(@src());
