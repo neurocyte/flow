@@ -1607,17 +1607,8 @@ fn send_init_request(
         },
         .capabilities = .{
             .workspace = .{
-                .applyEdit = true,
                 .workspaceEdit = .{
                     .documentChanges = true,
-                    .resourceOperations = .{
-                        "create",
-                        "rename",
-                        "delete",
-                    },
-                    .failureHandling = "textOnlyTransactional",
-                    .normalizesLineEndings = true,
-                    .changeAnnotationSupport = .{ .groupsOnLabel = true },
                 },
                 // .configuration = true,
                 .didChangeWatchedFiles = .{
@@ -1633,7 +1624,6 @@ fn send_init_request(
                     .resolveSupport = .{ .properties = .{"location.range"} },
                 },
                 .codeLens = .{ .refreshSupport = false },
-                .executeCommand = .{ .dynamicRegistration = true },
                 // .didChangeConfiguration = .{ .dynamicRegistration = true },
                 .workspaceFolders = true,
                 .semanticTokens = .{ .refreshSupport = false },
@@ -1726,28 +1716,6 @@ fn send_init_request(
                     .hierarchicalDocumentSymbolSupport = true,
                     .tagSupport = .{ .valueSet = .{1} },
                     .labelSupport = true,
-                },
-                .codeAction = .{
-                    .dynamicRegistration = true,
-                    .isPreferredSupport = true,
-                    .disabledSupport = true,
-                    .dataSupport = true,
-                    .resolveSupport = .{ .properties = .{"edit"} },
-                    .codeActionLiteralSupport = .{
-                        .codeActionKind = .{
-                            .valueSet = .{
-                                "",
-                                "quickfix",
-                                "refactor",
-                                "refactor.extract",
-                                "refactor.inline",
-                                "refactor.rewrite",
-                                "source",
-                                "source.organizeImports",
-                            },
-                        },
-                    },
-                    .honorsChangeAnnotations = false,
                 },
                 .codeLens = .{ .dynamicRegistration = true },
                 .formatting = .{ .dynamicRegistration = true },
