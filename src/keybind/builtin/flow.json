@@ -507,6 +507,24 @@
             ["space", "menu_activate"]
         ]
     },
+    "overlay/confirm": {
+        "inherit": "project",
+        "press": [
+            ["ctrl+c", "confirm_cancel"],
+            ["ctrl+g", "confirm_cancel"],
+            ["escape", "confirm_cancel"],
+            ["up", "confirm_toggle"],
+            ["down", "confirm_toggle"],
+            ["left", "confirm_toggle"],
+            ["right", "confirm_toggle"],
+            ["tab", "confirm_toggle"],
+            ["shift+tab", "confirm_toggle"],
+            ["ctrl+p", "confirm_toggle"],
+            ["ctrl+n", "confirm_toggle"],
+            ["enter", "confirm_activate"],
+            ["space", "confirm_activate"]
+        ]
+    },
     "mini/numeric": {
         "inherit": "mini_editor",
         "press": [

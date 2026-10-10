@@ -2135,6 +2135,23 @@ const cmds = struct {
     }
     pub const switch_terminals_meta: Meta = .{ .description = "Switch terminals" };
 
+    pub fn confirm(_: *Self, ctx: Ctx) Result {
+        var text: []const u8 = undefined;
+        var confirm_label: []const u8 = undefined;
+        var on_confirm: cbor.Raw = .empty;
+        var on_cancel: ?cbor.Raw = null;
+        if (!(try ctx.args.match(.{ tp.extract(&text), tp.extract(&confirm_label), tp.extract(&on_confirm) }) or
+            try ctx.args.match(.{ tp.extract(&text), tp.extract(&confirm_label), tp.extract(&on_confirm), tp.extract(&on_cancel) })))
+            return error.InvalidConfirmArgument;
+        return open_confirm(.{
+            .message = text,
+            .confirm_label = confirm_label,
+            .on_confirm = on_confirm,
+            .on_cancel = on_cancel,
+        });
+    }
+    pub const confirm_meta: Meta = .{ .arguments = &.{ .string, .string, .array } };
+
     pub fn exit_overlay_mode(self: *Self, ctx: Ctx) Result {
         if (self.input_mode_outer_ == null) return enter_mode_default(self, ctx);
         if (self.input_mode_) |*mode| mode.deinit();
@@ -2569,6 +2586,12 @@ pub fn open_overlay(mode: type, ctx: command.Context) command.Result {
 
 pub fn open_overlay_create(mode: type, ctx: command.Context, args: anytype) command.Result {
     return current().enter_overlay_mode_create(mode, ctx, args);
+}
+
+pub const Confirm = @import("mode/overlay/confirm.zig");
+
+pub fn open_confirm(options: Confirm.Options) command.Result {
+    return open_overlay_create(Confirm, .empty(), .{options});
 }
 
 pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor, owner: ?MenuPopup.Owner) command.Result {
