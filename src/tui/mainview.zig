@@ -1871,9 +1871,14 @@ const cmds = struct {
             var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
             file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
 
-            if (!loaded and self.buffer_manager.needs_load(file_path))
-                return self.load_for_workspace_edit(file_path, files, remaining, reply);
+            const just_loaded = loaded;
             loaded = false;
+            if (!just_loaded and self.buffer_manager.needs_load(file_path))
+                return self.load_for_workspace_edit(file_path, files, remaining, reply);
+            if (just_loaded) if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| if (!new_buffer.file_exists) {
+                self.buffer_manager.delete_buffer(new_buffer);
+                return self.workspace_edit_failed(file_path, text_edits, "file does not exist", reply);
+            };
             const buffer = try self.buffer_manager.open_file(file_path, ctx.now);
 
             const editor = self.get_editor_for_buffer(buffer);
