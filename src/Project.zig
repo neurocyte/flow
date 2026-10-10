@@ -1507,7 +1507,10 @@ pub fn execute_command(self: *Self, language_server: []const u8, command: []cons
 }
 
 pub fn code_actions(self: *Self, from: tp.pid_ref, file_path: []const u8, range: LSPClient.Range, only: []const u8, trigger: CodeActionTrigger, token: u32) StartLspError!void {
-    const client = try self.get_lsp_client_for_file(file_path);
+    const client = self.get_lsp_client_for_file(file_path) catch |e| switch (e) {
+        error.NoLsp => return LSPClient.send_code_actions_result(from, file_path, token, null) catch error.LspFailed,
+        else => |e_| return e_,
+    };
     var diagnostics: std.Io.Writer.Allocating = .init(self.allocator);
     defer diagnostics.deinit();
     self.write_diagnostics_in_range(&diagnostics.writer, file_path, range) catch {

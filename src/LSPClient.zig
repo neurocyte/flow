@@ -306,7 +306,7 @@ pub const CodeActionError = error{
     InvalidCodeActionFieldName,
 } || std.Io.Writer.Error;
 
-fn send_code_actions_result(to: tp.pid_ref, file_path: []const u8, token: u32, actions: ?[]const u8) CodeActionError!void {
+pub fn send_code_actions_result(to: tp.pid_ref, file_path: []const u8, token: u32, actions: ?[]const u8) CodeActionError!void {
     var entries: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
     defer entries.deinit();
     if (actions) |actions_|
