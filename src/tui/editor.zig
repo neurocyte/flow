@@ -29,6 +29,7 @@ const Diff = @import("diff").LineDiff;
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
 const Widget = @import("Widget.zig");
+const Menu = @import("Menu.zig");
 const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
 const IndentMode = @import("config").IndentMode;
@@ -456,7 +457,8 @@ pub const Editor = struct {
         root: usize = 0,
         entries: ?[]const u8 = null,
         only: []const u8 = &.{},
-        then: enum { keep, apply_preferred } = .keep,
+        then: enum { keep, apply_preferred, open_menu, fill_submenu } = .keep,
+        menu: ?*CodeActionMenu = null,
     } = .{},
     completion_resolve: struct {
         token: u32 = 0,
@@ -699,6 +701,7 @@ pub const Editor = struct {
         self.diagnostics.deinit(self.allocator);
         self.reset_completion_resolve();
         self.clear_code_actions();
+        if (self.code_actions.menu) |menu| menu.destroy(self.allocator);
         self.completions.deinit(self.allocator);
         if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
@@ -7721,9 +7724,14 @@ pub const Editor = struct {
     pub fn code_action(self: *Self, ctx: Context) Result {
         var only: []const u8 = "";
         _ = ctx.args.match(.{tp.extract(&only)}) catch false;
-        return self.request_code_actions(only, .invoked, .keep);
+        return self.request_code_actions(only, .invoked, .open_menu);
     }
     pub const code_action_meta: Meta = .{ .description = "Language: Code actions", .arguments = &.{.string} };
+
+    pub fn code_action_submenu(self: *Self, _: Context) Result {
+        return self.request_code_actions("", .invoked, .fill_submenu);
+    }
+    pub const code_action_submenu_meta: Meta = .{};
 
     pub fn quick_fix(self: *Self, _: Context) Result {
         return self.request_code_actions("quickfix", .invoked, .apply_preferred);
@@ -7743,6 +7751,97 @@ pub const Editor = struct {
         self.code_actions.entries = null;
         self.allocator.free(self.code_actions.only);
         self.code_actions.only = &.{};
+    }
+
+    const CodeActionMenu = struct {
+        arena: std.heap.ArenaAllocator,
+        menu: Menu,
+
+        const Group = struct {
+            kind: []const u8,
+            items: std.ArrayList(Menu.Item) = .empty,
+        };
+
+        // preferred actions first, then quick fixes and actions without a kind, then a submenu per other kind
+        fn create(allocator: Allocator, entries: []const u8) !*CodeActionMenu {
+            const self = try allocator.create(CodeActionMenu);
+            errdefer allocator.destroy(self);
+            self.* = .{ .arena = .init(allocator), .menu = .{ .label = "Code actions", .items = &.{} } };
+            errdefer self.arena.deinit();
+            const arena = self.arena.allocator();
+
+            var items: std.ArrayList(Menu.Item) = .empty;
+            var groups: std.ArrayList(Group) = .empty;
+            for ([_]enum { preferred, top, grouped }{ .preferred, .top, .grouped }) |pass| {
+                var iter = entries;
+                var len = try cbor.decodeArrayHeader(&iter);
+                while (len > 0) : (len -= 1) {
+                    var action: CodeAction = .{};
+                    if (!try action.extract(&iter)) return error.InvalidCodeActionEntry;
+                    const preferred = action.preference == .preferred and action.disabled_reason.len == 0;
+                    const top = action.kind.len == 0 or action.matches("quickfix");
+                    const list = switch (pass) {
+                        .preferred => if (preferred) &items else continue,
+                        .top => if (!preferred and top) &items else continue,
+                        .grouped => if (!preferred and !top) blk: {
+                            const kind = action.kind[0 .. std.mem.indexOfScalar(u8, action.kind, '.') orelse action.kind.len];
+                            for (groups.items) |*group| if (std.mem.eql(u8, group.kind, kind)) break :blk &group.items;
+                            (try groups.addOne(arena)).* = .{ .kind = try arena.dupe(u8, kind) };
+                            break :blk &groups.items[groups.items.len - 1].items;
+                        } else continue,
+                    };
+                    var args: std.Io.Writer.Allocating = .init(arena);
+                    try cbor.writeValue(&args.writer, .{cbor.Raw{ .bytes = action.action }});
+                    (try list.addOne(arena)).* = .{ .command = .{
+                        .command = "apply_code_action",
+                        .args = args.written(),
+                        .label = try arena.dupe(u8, action.title),
+                        .state = if (action.disabled_reason.len > 0) .{ .disabled = try arena.dupe(u8, action.disabled_reason) } else .enabled,
+                    } };
+                }
+            }
+
+            if (items.items.len == 0 and groups.items.len == 1) {
+                items = groups.items[0].items;
+            } else {
+                if (items.items.len > 0 and groups.items.len > 0) (try items.addOne(arena)).* = .separator;
+                for (groups.items) |*group| {
+                    const submenu = try arena.create(Menu);
+                    const label = try arena.dupe(u8, group.kind);
+                    label[0] = std.ascii.toUpper(label[0]);
+                    submenu.* = .{ .label = label, .items = group.items.items };
+                    (try items.addOne(arena)).* = .{ .submenu = submenu };
+                }
+            }
+            if (items.items.len == 0)
+                (try items.addOne(arena)).* = .{ .command = .{ .command = "code_action", .label = "No code actions available", .state = .{ .disabled = "" } } };
+            self.menu.items = items.items;
+            return self;
+        }
+
+        fn destroy(self: *CodeActionMenu, allocator: Allocator) void {
+            self.arena.deinit();
+            allocator.destroy(self);
+        }
+    };
+
+    fn show_code_action_menu(self: *Self, count: usize) Result {
+        const then = self.code_actions.then;
+        if (then == .open_menu and count == 0)
+            return self.logger.print("no code actions available", .{});
+        const menu = try CodeActionMenu.create(self.allocator, self.code_actions.entries orelse return);
+        const old = self.code_actions.menu;
+        self.code_actions.menu = menu;
+        defer if (old) |old_| old_.destroy(self.allocator);
+        switch (then) {
+            .open_menu => {
+                const cursor = self.get_primary_abs() orelse return;
+                try tui.open_menu(&menu.menu, .below(.{ .y = @intCast(cursor.row), .x = @intCast(cursor.col) }), null);
+            },
+            .fill_submenu => if (command.get_id("menu_update")) |_|
+                try command.executeName("menu_update", command.fmt(.{ @intFromPtr(&@import("menu/Editor.zig").code_actions), @intFromPtr(&menu.menu) })),
+            else => {},
+        }
     }
 
     fn request_code_actions(self: *Self, only: []const u8, trigger: project_manager.CodeActionTrigger, then: @FieldType(@FieldType(Self, "code_actions"), "then")) Result {
@@ -7829,6 +7928,7 @@ pub const Editor = struct {
 
         switch (self.code_actions.then) {
             .keep => {},
+            .open_menu, .fill_submenu => try self.show_code_action_menu(count),
             .apply_preferred => if (preferred orelse if (enabled == 1) first_enabled else null) |action| {
                 self.logger.print("quick fix: {s}", .{action.title});
                 try project_manager.apply_code_action(self.file_path orelse return, .{ .bytes = action.action });

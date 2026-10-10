@@ -2202,6 +2202,7 @@ fn send_init_request(
                 },
                 .codeAction = .{
                     .isPreferredSupport = true,
+                    .disabledSupport = true,
                     .dataSupport = true,
                     .resolveSupport = .{ .properties = .{"edit"} },
                     .codeActionLiteralSupport = .{
