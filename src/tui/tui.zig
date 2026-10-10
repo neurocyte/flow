@@ -1018,12 +1018,20 @@ fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8
     send_func(self, coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
     var btn: MouseEvent.Button = .none;
     _ = m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false;
-    if (m.match(.{ MouseEvent.Type.press, tp.more }) catch false)
-        self.drag_press = .{ .coord = coord, .button = btn }
-    else if (self.drag_press) |press| if (press.button == btn) {
+    if (m.match(.{ MouseEvent.Type.press, tp.more }) catch false) {
+        if (is_drag_button(btn))
+            self.drag_press = .{ .coord = coord, .button = btn };
+    } else if (self.drag_press) |press| if (press.button == btn) {
         self.drag_press = null;
     };
     self.maybe_reset_drag_source(btn);
+}
+
+fn is_drag_button(btn: MouseEvent.Button) bool {
+    return switch (btn) {
+        .left, .middle, .right, .button_8, .button_9, .button_10, .button_11 => true,
+        else => false,
+    };
 }
 
 fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void {
@@ -1034,13 +1042,20 @@ fn dispatch_mouse_drag(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []con
     self.unrendered_input_events_count += 1;
     self.input_listeners_.send(from, m) catch {};
     var btn: MouseEvent.Button = .none;
-    if (m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false)
+    if (!(m.match(.{ tp.any, tp.extract(&btn), tp.more }) catch false))
+        return;
+    if (self.drag_press) |press| if (press.button == btn) {
         if (self.drag_source == null) {
-            const press_coord = if (self.drag_press) |press| if (press.button == btn) press.coord else coord else coord;
-            if (press_coord.x >= 0 and press_coord.y >= 0)
-                self.set_drag_source(self.find_coord_widget(press_coord), btn);
-        };
-    self.send_mouse_drag(coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
+            if (press.coord.x >= 0 and press.coord.y >= 0)
+                self.set_drag_source(self.find_coord_widget(press.coord), btn);
+        }
+        self.send_mouse_drag(coord, from, m) catch |e| self.logger.err("dispatch mouse", e);
+        return;
+    };
+
+    if (self.drag_source != null and self.drag_button == btn)
+        self.set_drag_source(null, .none);
+    _ = self.update_hover(coord) catch {};
 }
 
 fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
