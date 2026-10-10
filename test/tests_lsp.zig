@@ -200,6 +200,23 @@ test "server capabilities: none" {
     try std.testing.expectEqual(0, capabilities.execute_commands.len);
 }
 
+test "server capabilities: text document sync" {
+    const cases = [_]struct { []const u8, ServerCapabilities.TextDocumentSync }{
+        .{ "{\"hoverProvider\":true}", .incremental },
+        .{ "{\"textDocumentSync\":0}", .none },
+        .{ "{\"textDocumentSync\":1}", .full },
+        .{ "{\"textDocumentSync\":2}", .incremental },
+        .{ "{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{\"includeText\":true}}}", .full },
+        .{ "{\"textDocumentSync\":{\"change\":2,\"openClose\":true}}", .incremental },
+        .{ "{\"textDocumentSync\":{\"openClose\":true}}", .none },
+    };
+    for (cases) |case| {
+        var capabilities = try read_capabilities(case[0]);
+        defer capabilities.deinit(a);
+        try std.testing.expectEqual(case[1], capabilities.sync);
+    }
+}
+
 test "server capabilities: boolean code action provider" {
     var capabilities = try read_capabilities("{\"codeActionProvider\":true}");
     defer capabilities.deinit(a);

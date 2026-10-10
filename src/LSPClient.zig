@@ -33,8 +33,10 @@ const Self = @This();
 pub const ServerCapabilities = struct {
     code_action: CodeActionProvider = .none,
     execute_commands: []const []const u8 = &.{},
+    sync: TextDocumentSync = .incremental,
 
     pub const CodeActionProvider = enum { none, actions, actions_with_resolve };
+    pub const TextDocumentSync = enum(u2) { none = 0, full = 1, incremental = 2 };
 
     pub fn read(allocator: std.mem.Allocator, capabilities: []const u8) (OutOfMemoryError || cbor.Error)!ServerCapabilities {
         var self: ServerCapabilities = .{};
@@ -48,6 +50,8 @@ pub const ServerCapabilities = struct {
                 self.code_action = try read_code_action_provider(&iter);
             } else if (std.mem.eql(u8, field_name, "executeCommandProvider")) {
                 self.execute_commands = try read_execute_commands(allocator, &iter);
+            } else if (std.mem.eql(u8, field_name, "textDocumentSync")) {
+                self.sync = try read_text_document_sync(&iter);
             } else {
                 try cbor.skipValue(&iter);
             }
@@ -71,6 +75,27 @@ pub const ServerCapabilities = struct {
             }
         }
         return if (resolve_provider) .actions_with_resolve else .actions;
+    }
+
+    fn read_text_document_sync(iter: *[]const u8) cbor.Error!TextDocumentSync {
+        var kind: usize = 0;
+        if (try cbor.matchValue(iter, cbor.extract(&kind)))
+            return std.enums.fromInt(TextDocumentSync, kind) orelse .incremental;
+        var sync: TextDocumentSync = .none;
+        var len = cbor.decodeMapHeader(iter) catch {
+            try cbor.skipValue(iter);
+            return .incremental;
+        };
+        while (len > 0) : (len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(iter, &field_name))) return error.InvalidType;
+            if (std.mem.eql(u8, field_name, "change") and try cbor.matchValue(iter, cbor.extract(&kind))) {
+                sync = std.enums.fromInt(TextDocumentSync, kind) orelse .incremental;
+            } else {
+                try cbor.skipValue(iter);
+            }
+        }
+        return sync;
     }
 
     fn read_execute_commands(allocator: std.mem.Allocator, iter: *[]const u8) (OutOfMemoryError || cbor.Error)![]const []const u8 {
@@ -386,10 +411,11 @@ pub fn set_server_capabilities(self: *Self, capabilities: []const u8) (OutOfMemo
     const server_capabilities: ServerCapabilities = try .read(self.allocator, capabilities);
     self.server_capabilities.deinit(self.allocator);
     self.server_capabilities = server_capabilities;
-    std.log.debug("{f}: code actions: {t}, commands: {d}", .{
+    std.log.debug("{f}: code actions: {t}, commands: {d}, sync: {t}", .{
         fmt_lsp_name_func(self.language_server),
         server_capabilities.code_action,
         server_capabilities.execute_commands.len,
+        server_capabilities.sync,
     });
 }
 
@@ -1899,6 +1925,11 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, versi
 
 pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
     _ = eol_mode;
+    switch (self.server_capabilities.sync) {
+        .none => return,
+        .full => return self.did_change_full(file_path, version, text_dst),
+        .incremental => {},
+    }
     const uri = try make_URI(self.allocator, self.project_name, file_path);
 
     var arena_ = std.heap.ArenaAllocator.init(self.allocator);
@@ -1985,6 +2016,15 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: 
 
         self.lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
     }
+}
+
+fn did_change_full(self: *Self, file_path: []const u8, version: usize, text: []const u8) LspError!void {
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
+    defer self.allocator.free(uri);
+    self.lsp.send_notification("textDocument/didChange", .{
+        .textDocument = .{ .uri = uri, .version = version },
+        .contentChanges = .{.{ .text = text }},
+    }) catch return error.LspFailed;
 }
 
 fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) void {
