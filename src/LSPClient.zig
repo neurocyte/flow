@@ -112,6 +112,158 @@ pub const ServerCapabilities = struct {
     }
 };
 
+pub const CodeActionTrigger = enum { invoked, automatic };
+
+pub fn code_actions(
+    self: *Self,
+    from: tp.pid_ref,
+    file_path: []const u8,
+    range: Range,
+    diagnostics: []const u8,
+    only: []const u8,
+    trigger: CodeActionTrigger,
+    token: u32,
+) LspError!void {
+    if (self.server_capabilities.code_action == .none)
+        return send_code_actions_result(from, file_path, token, null) catch error.LspFailed;
+
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
+    defer self.allocator.free(uri);
+
+    const handler: struct {
+        from: tp.pid,
+        file_path: []const u8,
+        token: u32,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.file_path);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) (CodeActionError || cbor.Error)!void {
+            var result: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+                    return send_code_actions_result(self_.from.ref(), self_.file_path, self_.token, result);
+            }
+            return send_code_actions_result(self_.from.ref(), self_.file_path, self_.token, null);
+        }
+    } = .{
+        .from = from.clone(),
+        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+        .token = token,
+    };
+
+    const Context = struct {
+        diagnostics: []const u8,
+        only: []const u8,
+        trigger: CodeActionTrigger,
+
+        pub fn cborEncode(ctx: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            try cbor.writeMapHeader(writer, if (ctx.only.len > 0) 3 else 2);
+            try cbor.writeValue(writer, "diagnostics");
+            try writer.writeAll(ctx.diagnostics);
+            if (ctx.only.len > 0) {
+                try cbor.writeValue(writer, "only");
+                try cbor.writeValue(writer, .{ctx.only});
+            }
+            try cbor.writeValue(writer, "triggerKind");
+            try cbor.writeValue(writer, @as(u8, switch (ctx.trigger) {
+                .invoked => 1,
+                .automatic => 2,
+            }));
+        }
+    };
+
+    self.lsp.send_request(self.allocator, "textDocument/codeAction", .{
+        .textDocument = .{ .uri = uri },
+        .range = range,
+        .context = Context{ .diagnostics = diagnostics, .only = only, .trigger = trigger },
+    }, handler) catch return error.LspFailed;
+}
+
+pub const CodeActionError = error{
+    InvalidCodeAction,
+    InvalidCodeActionField,
+    InvalidCodeActionFieldName,
+} || std.Io.Writer.Error;
+
+fn send_code_actions_result(to: tp.pid_ref, file_path: []const u8, token: u32, actions: ?[]const u8) CodeActionError!void {
+    var entries: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+    defer entries.deinit();
+    if (actions) |actions_|
+        try write_code_actions(&entries.writer, actions_)
+    else
+        try cbor.writeArrayHeader(&entries.writer, 0);
+    to.send(.{ "cmd", "code_actions_result", .{ file_path, token, cbor.Raw{ .bytes = entries.written() } } }) catch |e| {
+        std.log.err("send code_actions_result failed: {t}", .{e});
+    };
+}
+
+pub const CodeActionPreference = enum { normal, preferred };
+
+/// write the result of a textDocument/codeAction request, an array of CodeAction or Command items,
+/// as [[title, kind, preference, disabled_reason, action], ...]
+pub fn write_code_actions(writer: *std.Io.Writer, actions: []const u8) CodeActionError!void {
+    var iter = actions;
+    var len = cbor.decodeArrayHeader(&iter) catch return error.InvalidCodeAction;
+    try cbor.writeArrayHeader(writer, len);
+    while (len > 0) : (len -= 1) {
+        var action: []const u8 = undefined;
+        if (!(cbor.matchValue(&iter, cbor.extract_cbor(&action)) catch false)) return error.InvalidCodeAction;
+        try write_code_action(writer, action);
+    }
+}
+
+fn write_code_action(writer: *std.Io.Writer, action: []const u8) CodeActionError!void {
+    var title: []const u8 = "";
+    var kind: []const u8 = "";
+    var is_preferred: bool = false;
+    var disabled_reason: []const u8 = "";
+    var iter = action;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidCodeAction;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(cbor.matchString(&iter, &field_name) catch false)) return error.InvalidCodeActionFieldName;
+        if (std.mem.eql(u8, field_name, "title")) {
+            if (!(cbor.matchValue(&iter, cbor.extract(&title)) catch false)) return error.InvalidCodeActionField;
+        } else if (std.mem.eql(u8, field_name, "kind")) {
+            if (!(cbor.matchValue(&iter, cbor.extract(&kind)) catch false)) cbor.skipValue(&iter) catch return error.InvalidCodeActionField;
+        } else if (std.mem.eql(u8, field_name, "isPreferred")) {
+            if (!(cbor.matchValue(&iter, cbor.extract(&is_preferred)) catch false)) cbor.skipValue(&iter) catch return error.InvalidCodeActionField;
+        } else if (std.mem.eql(u8, field_name, "disabled")) {
+            var disabled: []const u8 = undefined;
+            if (!(cbor.matchValue(&iter, cbor.extract_cbor(&disabled)) catch false)) return error.InvalidCodeActionField;
+            disabled_reason = read_disabled_reason(disabled);
+        } else {
+            cbor.skipValue(&iter) catch return error.InvalidCodeActionField;
+        }
+    }
+    try cbor.writeValue(writer, .{
+        title,
+        kind,
+        @as(CodeActionPreference, if (is_preferred) .preferred else .normal),
+        disabled_reason,
+        cbor.Raw{ .bytes = action },
+    });
+}
+
+fn read_disabled_reason(disabled: []const u8) []const u8 {
+    var reason: []const u8 = "disabled";
+    var iter = disabled;
+    var len = cbor.decodeMapHeader(&iter) catch return reason;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(cbor.matchString(&iter, &field_name) catch false)) return reason;
+        if (std.mem.eql(u8, field_name, "reason")) {
+            _ = cbor.matchValue(&iter, cbor.extract(&reason)) catch false;
+            return reason;
+        }
+        cbor.skipValue(&iter) catch return reason;
+    }
+    return reason;
+}
+
 pub fn set_server_capabilities(self: *Self, capabilities: []const u8) (OutOfMemoryError || cbor.Error)!void {
     const server_capabilities: ServerCapabilities = try .read(self.allocator, capabilities);
     self.server_capabilities.deinit(self.allocator);
@@ -1928,6 +2080,25 @@ fn send_init_request(
                     .hierarchicalDocumentSymbolSupport = true,
                     .tagSupport = .{ .valueSet = .{1} },
                     .labelSupport = true,
+                },
+                .codeAction = .{
+                    .isPreferredSupport = true,
+                    .dataSupport = true,
+                    .codeActionLiteralSupport = .{
+                        .codeActionKind = .{
+                            .valueSet = .{
+                                "",
+                                "quickfix",
+                                "refactor",
+                                "refactor.extract",
+                                "refactor.inline",
+                                "refactor.rewrite",
+                                "source",
+                                "source.organizeImports",
+                                "source.fixAll",
+                            },
+                        },
+                    },
                 },
                 .codeLens = .{ .dynamicRegistration = true },
                 .formatting = .{ .dynamicRegistration = true },
