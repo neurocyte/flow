@@ -7785,6 +7785,7 @@ pub const Editor = struct {
         defer matching.deinit();
         var count: usize = 0;
         var preferred: ?CodeAction = null;
+        var first_enabled: ?CodeAction = null;
         var enabled: usize = 0;
         var disabled_reason: ?[]const u8 = null;
         var iter = entries.bytes;
@@ -7802,6 +7803,7 @@ pub const Editor = struct {
                 continue;
             }
             enabled += 1;
+            if (first_enabled == null) first_enabled = action;
             if (preferred == null and action.preference == .preferred) preferred = action;
         }
 
@@ -7814,7 +7816,7 @@ pub const Editor = struct {
 
         switch (self.code_actions.then) {
             .keep => {},
-            .apply_preferred => if (preferred) |action| {
+            .apply_preferred => if (preferred orelse if (enabled == 1) first_enabled else null) |action| {
                 self.logger.print("quick fix: {s}", .{action.title});
                 try project_manager.apply_code_action(self.file_path orelse return, .{ .bytes = action.action });
             } else if (enabled > 0)
