@@ -698,6 +698,9 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "resend_diagnostics", tp.extract(&project_directory), tp.extract(&path) })) {
             if (self.projects.get(project_directory)) |project|
                 project.resend_diagnostics(from, path) catch |e| self.logger.err("resend-diagnostics", e);
+        } else if (try cbor.match(m.buf, .{ "lsp_initialized", tp.extract(&project_directory), tp.extract(&language_server) })) {
+            if (self.projects.get(project_directory)) |project|
+                project.lsp_initialized(language_server) catch |e| self.logger.err("lsp-initialized", e);
         } else if (try cbor.match(m.buf, .{ "lsp_capabilities", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
             if (self.projects.get(project_directory)) |project|
                 project.set_lsp_capabilities(language_server, params_cb) catch |e| self.logger.err("lsp-capabilities", e);

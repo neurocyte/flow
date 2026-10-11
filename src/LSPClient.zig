@@ -2110,6 +2110,12 @@ pub fn did_save(self: *Self, file_path: []const u8) LspError!void {
     }) catch return error.LspFailed;
 }
 
+pub fn did_change_configuration(self: *Self, settings: ?cbor.Raw) LspError!void {
+    self.lsp.send_notification("workspace/didChangeConfiguration", .{
+        .settings = settings,
+    }) catch return error.LspFailed;
+}
+
 pub fn did_close(self: *Self, file_path: []const u8) LspError!void {
     const uri = try make_URI(self.allocator, self.project_name, file_path);
     defer self.allocator.free(uri);
@@ -2156,11 +2162,11 @@ fn send_init_request(
             if (self_.lsp.pid.expired()) return error.LspFailed;
             std.log.info("initialized LSP: {f}", .{fmt_lsp_name_func(self_.language_server)});
 
-            if (self_.notify_restart) {
-                var lsp_name: []const u8 = "";
-                _ = cbor.match(self_.language_server, .{ cbor.extract(&lsp_name), cbor.more }) catch false;
+            var lsp_name: []const u8 = "";
+            _ = cbor.match(self_.language_server, .{ cbor.extract(&lsp_name), cbor.more }) catch false;
+            self_.project_manager.send(.{ "lsp_initialized", self_.project_path, lsp_name }) catch {};
+            if (self_.notify_restart)
                 self_.from.send(.{ "PRJ", "lsp_restarted", self_.project_path, lsp_name }) catch {};
-            }
 
             var result: []const u8 = undefined;
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
@@ -2269,7 +2275,7 @@ fn send_init_request(
                 },
                 .codeLens = .{ .refreshSupport = false },
                 .configuration = true,
-                // .didChangeConfiguration = .{ .dynamicRegistration = true },
+                .didChangeConfiguration = .{ .dynamicRegistration = false },
                 .workspaceFolders = true,
                 .semanticTokens = .{ .refreshSupport = false },
                 .fileOperations = .{

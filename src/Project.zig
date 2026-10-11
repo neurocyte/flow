@@ -1545,6 +1545,16 @@ pub fn code_actions(self: *Self, from: tp.pid_ref, file_path: []const u8, range:
     return client.code_actions(from, file_path, range, diagnostics.written(), only, trigger, token);
 }
 
+pub fn lsp_initialized(self: *Self, lsp_name: []const u8) LspError!void {
+    const json = self.lsp_settings.get(lsp_name) orelse return;
+    if (json.len == 0) return;
+    const client = self.get_existing_lsp_client(lsp_name) orelse return;
+    const settings = cbor.fromJsonAlloc(self.allocator, json) catch
+        return self.logger_lsp.print_err("configuration", "ignored invalid JSON in LSP settings for {s}", .{lsp_name});
+    defer self.allocator.free(settings);
+    return client.did_change_configuration(.{ .bytes = settings });
+}
+
 pub fn set_lsp_capabilities(self: *Self, lsp_name: []const u8, capabilities: []const u8) (error{OutOfMemory} || cbor.Error)!void {
     const client = self.get_existing_lsp_client(lsp_name) orelse return;
     return client.set_server_capabilities(capabilities);
