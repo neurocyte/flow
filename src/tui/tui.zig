@@ -1369,6 +1369,8 @@ fn config_file_changed(self: *Self, path: []const u8) void {
         self.reload_config();
     if (self.config_.desktop_theme_file.len > 0 and std.mem.eql(u8, self.config_.desktop_theme_file, path))
         self.read_desktop_theme_file() catch {};
+    if (@import("lsp_config").settings_server_name(path, tp.env.get().str("project"))) |lsp_name|
+        project_manager.lsp_settings_changed(lsp_name, .if_changed) catch {};
     @import("Vt.zig").profile_config_changed(path);
 }
 

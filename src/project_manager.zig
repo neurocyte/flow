@@ -249,6 +249,17 @@ pub fn restart_language_server(file_path: []const u8) (ProjectManagerError || Pr
     return send(.{ "restart_language_server", project, file_path });
 }
 
+pub const SendSettings = Project.SendSettings;
+
+pub fn lsp_settings_changed(lsp_name: []const u8, mode: SendSettings) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    const settings = lsp_config.get_settings(project, lsp_name) orelse &.{};
+    defer lsp_config.allocator.free(settings);
+    return send(.{ "lsp_settings_changed", project, lsp_name, settings, mode });
+}
+
 pub fn add_task(task: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -549,6 +560,7 @@ const Process = struct {
         var language_server: []const u8 = undefined;
         var language_server_options: []const u8 = undefined;
         var language_server_settings: []const u8 = undefined;
+        var send_settings: SendSettings = undefined;
         var language_server_protocol: file_type_config.ProtocolLevel = undefined;
         var method: []const u8 = undefined;
         var cbor_id: []const u8 = undefined;
@@ -743,6 +755,9 @@ const Process = struct {
             return;
         } else if (try cbor.match(m.buf, .{ "request_vcs_blame", tp.extract(&project_directory), tp.extract(&path) })) {
             self.request_vcs_blame(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "lsp_settings_changed", tp.extract(&project_directory), tp.extract(&language_server), tp.extract(&language_server_settings), tp.extract(&send_settings) })) {
+            if (self.projects.get(project_directory)) |project|
+                project.lsp_settings_changed(language_server, language_server_settings, send_settings) catch |e| self.logger.err("lsp-settings", e);
         } else if (try cbor.match(m.buf, .{ "restart_language_server", tp.extract(&project_directory), tp.extract(&path) })) {
             self.restart_language_server(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{"subscribe_lsp_status"})) {

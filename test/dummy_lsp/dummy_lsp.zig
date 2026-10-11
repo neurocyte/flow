@@ -35,7 +35,8 @@
 // characters of line 2. The diagnostic carries a data field.
 
 // Configuration
-// After "initialized" the server sends a workspace/configuration request for
+// After "initialized" and after each workspace/didChangeConfiguration
+// notification the server sends a workspace/configuration request for
 // the sections "dummy", "dummy.greeting" and "dummy.missing", and for one
 // item without a section. If the answer for "dummy.greeting" is a string,
 // the server publishes the warning again with that string as its message.
@@ -140,7 +141,8 @@ fn handle(io: std.Io, arena: std.mem.Allocator, out: *std.Io.Writer, msg: std.js
     const params = get(msg, "params") orelse .null;
 
     if (std.mem.eql(u8, method, "exit")) return false;
-    if (std.mem.eql(u8, method, "initialized")) try send_configuration_request(arena, out);
+    if (std.mem.eql(u8, method, "initialized") or std.mem.eql(u8, method, "workspace/didChangeConfiguration"))
+        try send_configuration_request(arena, out);
     if (std.mem.eql(u8, method, "textDocument/didOpen") or std.mem.eql(u8, method, "textDocument/didChange"))
         synced.set(get(params, "textDocument") orelse .null);
     if (std.mem.eql(u8, method, "textDocument/didOpen")) try publish_diagnostics(arena, out, synced.uri);

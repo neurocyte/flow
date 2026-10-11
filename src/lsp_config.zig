@@ -27,6 +27,23 @@ fn read(project: []const u8, lsp_name: []const u8, scope: Scope, kind: Kind) ?[]
     return buf[0..size];
 }
 
+const settings_suffix = ".settings.json";
+
+/// the server name if path is the global settings file or the settings file of project
+pub fn settings_server_name(path: []const u8, project: []const u8) ?[]const u8 {
+    if (!std.mem.endsWith(u8, path, settings_suffix)) return null;
+    const dir_name = std.fs.path.dirname(path) orelse return null;
+    const lsp_name = std.fs.path.basename(path[0 .. path.len - settings_suffix.len]);
+    if (lsp_name.len == 0) return null;
+    for ([_]Scope{ .global, .project }) |scope| {
+        if (scope == .project and project.len == 0) continue;
+        const dir = get_config_dir_path(project, scope, .no_create) catch continue;
+        defer allocator.free(dir);
+        if (std.mem.eql(u8, std.mem.trimEnd(u8, dir, std.fs.path.sep_str), dir_name)) return lsp_name;
+    }
+    return null;
+}
+
 pub fn get_config_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode: Mode) ![]u8 {
     return get_file_path(project, lsp_name, scope, mode, .options);
 }
@@ -42,7 +59,7 @@ fn get_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode:
     defer stream.deinit();
     try stream.writer.print("{s}{s}{s}", .{ config_dir_path, lsp_name, switch (kind) {
         .options => ".json",
-        .settings => ".settings.json",
+        .settings => settings_suffix,
     } });
     return stream.toOwnedSlice();
 }

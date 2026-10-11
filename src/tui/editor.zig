@@ -8097,6 +8097,15 @@ pub const Editor = struct {
     }
     pub const restart_language_server_meta: Meta = .{ .description = "Language: Restart language server" };
 
+    pub fn send_language_server_settings(self: *Self, _: Context) Result {
+        const file_type = self.file_type orelse return;
+        const language_server = file_type.language_server orelse return;
+        if (language_server.len == 0) return;
+        project_manager.lsp_settings_changed(language_server[0], .always) catch |e|
+            self.logger.print("project_manager.lsp_settings_changed failed: {any}", .{e});
+    }
+    pub const send_language_server_settings_meta: Meta = .{ .description = "Language: Send settings to language server" };
+
     pub fn hover_at_abs(self: *Self, y: usize, x: usize) Result {
         const row: usize = self.view.row + y;
         const col: usize = self.view.col + x;

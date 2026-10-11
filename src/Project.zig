@@ -1259,7 +1259,12 @@ pub fn did_open(
     text: []const u8,
 ) StartLspError!void {
     self.update_mru(&.{ .src = .{ .path = file_path, .line = 0, .column = 0 } }) catch {};
-    try self.set_lsp_settings(language_server, language_server_settings);
+    var lsp_name: []const u8 = "";
+    _ = cbor.match(language_server, .{ cbor.extract(&lsp_name), cbor.more }) catch false;
+    self.lsp_settings_changed(lsp_name, language_server_settings, .if_changed) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {},
+    };
     const client = try self.get_or_start_lsp_client(from, file_path, language_server, language_server_options, language_server_protocol);
     return client.did_open(file_path, file_type, version, text);
 }
@@ -1623,10 +1628,24 @@ pub fn workDoneProgress_create(self: *Self, from: tp.pid_ref, cbor_id: []const u
     return LSP.send_response(self.allocator, from, cbor_id, null) catch error.LspFailed;
 }
 
-fn set_lsp_settings(self: *Self, language_server: []const u8, settings: []const u8) error{OutOfMemory}!void {
-    var lsp_name: []const u8 = "";
-    _ = cbor.match(language_server, .{ cbor.extract(&lsp_name), cbor.more }) catch false;
+pub const SendSettings = enum { if_changed, always };
+
+pub fn lsp_settings_changed(self: *Self, lsp_name: []const u8, settings: []const u8, mode: SendSettings) LspError!void {
     if (lsp_name.len == 0) return;
+    const known = self.lsp_settings.get(lsp_name);
+    const changed = if (known) |old| !std.mem.eql(u8, old, settings) else false;
+    if (known == null or changed) try self.store_lsp_settings(lsp_name, settings);
+    if (known == null or (mode == .if_changed and !changed)) return;
+    const client = self.get_existing_lsp_client(lsp_name) orelse return;
+    if (settings.len == 0)
+        return if (changed) client.did_change_configuration(null);
+    const settings_cb = cbor.fromJsonAlloc(self.allocator, settings) catch
+        return self.logger_lsp.print_err("configuration", "ignored invalid JSON in LSP settings for {s}", .{lsp_name});
+    defer self.allocator.free(settings_cb);
+    return client.did_change_configuration(.{ .bytes = settings_cb });
+}
+
+fn store_lsp_settings(self: *Self, lsp_name: []const u8, settings: []const u8) error{OutOfMemory}!void {
     const value = try self.allocator.dupe(u8, settings);
     errdefer self.allocator.free(value);
     const gop = try self.lsp_settings.getOrPut(self.allocator, lsp_name);
