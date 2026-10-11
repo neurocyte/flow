@@ -273,6 +273,83 @@ command. You can also create a new file type by adding a new `.conf` file
 to the `file_type` directory. Have a look at an existing file type to see
 what options are available.
 
+### Language servers
+
+The file type configuration names the language server of a file type in its
+`language_server` option. When you open a file of that type, flow starts
+the server.
+
+You can give a language server two JSON files. Each file exists in a global
+form and in a project form. If the project file exists, flow uses it and
+ignores the global file. Flow does not merge the two.
+
+In the file names below, `<server>` is the name of the server program, for
+example `rust-analyzer`. `<project>` is the path of the project directory
+with each path separator replaced by `__`.
+
+#### Initialization options
+
+The initialization options file holds the value that flow sends to the
+server once, when the server starts (`initializationOptions` in the
+`initialize` request).
+
+- Global: `~/.config/flow/lsp/<server>.json`
+- Project: `~/.config/flow/project/<project>/<server>.json`
+
+Open these files with the commands `Edit LSP configuration (global)` and
+`Edit LSP configuration (project)`.
+
+Example, `~/.config/flow/lsp/rust-analyzer.json`:
+
+```json
+{
+  "check": {
+    "command": "clippy"
+  }
+}
+```
+
+If you change this file, restart the server with the command
+`Language: Restart language server`.
+
+#### Settings
+
+The settings file holds the values that the server asks for while it runs
+(the `workspace/configuration` request). Some servers, for example `nixd`,
+read their values only this way.
+
+- Global: `~/.config/flow/lsp/<server>.settings.json`
+- Project: `~/.config/flow/project/<project>/<server>.settings.json`
+
+Open these files with the commands `Edit LSP settings (global)` and
+`Edit LSP settings (project)`.
+
+A server asks for a section by name, for example `nixd` or
+`nixd.formatting`. Flow looks up that name as a path in the file, so the
+file must have the shape that the server asks for. Most servers put all
+values below a top key with the name of the server. The documentation of a
+server usually shows this shape as its VS Code settings.
+
+Example, `~/.config/flow/lsp/nixd.settings.json`:
+
+```json
+{
+  "nixd": {
+    "formatting": {
+      "command": ["nixfmt"]
+    }
+  }
+}
+```
+
+When you save a settings file, flow tells the running server of the current
+project (`workspace/didChangeConfiguration`). You do not need to restart
+the server. If a server does not react, use the command
+`Language: Send settings to language server`, or restart the server.
+
+Some servers accept the same values in both files, but in different shapes.
+Read the documentation of the server to find out which file it uses.
+
 ## Flags and options
 
 As every respectable terminal program, flow provide various invoking
