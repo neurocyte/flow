@@ -296,6 +296,8 @@ const settings: Menu = .{ .label = "Settings", .items = &.{
     .{ .command = .{ .command = "open_home_style_config" } },
     .{ .command = .{ .command = "open_lsp_config_global" } },
     .{ .command = .{ .command = "open_lsp_config_project" } },
+    .{ .command = .{ .command = "open_lsp_settings_global" } },
+    .{ .command = .{ .command = "open_lsp_settings_project" } },
     .{ .command = .{ .command = "open_file_type_config" } },
 } };
 

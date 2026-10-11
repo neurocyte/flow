@@ -36,6 +36,7 @@ diagnostics: std.StringHashMapUnmanaged([]const u8) = .empty,
 file_language_server_name: std.StringHashMap([]const u8),
 lsp_unavailable: std.StringHashMapUnmanaged(void) = .empty,
 lsp_commands: std.StringHashMapUnmanaged(LspCommand) = .empty,
+lsp_settings: std.StringHashMapUnmanaged([]const u8) = .empty,
 lsp_status_subscribers: std.AutoHashMapUnmanaged(tp.piid, void) = .empty,
 tasks: std.ArrayList(Task),
 persistent: bool = false,
@@ -196,6 +197,12 @@ pub fn deinit(self: *Self) void {
         self.allocator.free(p.value_ptr.language_server_options);
     }
     self.lsp_commands.deinit(self.allocator);
+    var i_settings = self.lsp_settings.iterator();
+    while (i_settings.next()) |p| {
+        self.allocator.free(p.key_ptr.*);
+        self.allocator.free(p.value_ptr.*);
+    }
+    self.lsp_settings.deinit(self.allocator);
     self.lsp_status_subscribers.deinit(self.allocator);
     for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
     self.new_or_modified_files.deinit(self.allocator);
@@ -1246,11 +1253,13 @@ pub fn did_open(
     file_type: []const u8,
     language_server: []const u8,
     language_server_options: []const u8,
+    language_server_settings: []const u8,
     language_server_protocol: file_type_config.ProtocolLevel,
     version: usize,
     text: []const u8,
 ) StartLspError!void {
     self.update_mru(&.{ .src = .{ .path = file_path, .line = 0, .column = 0 } }) catch {};
+    try self.set_lsp_settings(language_server, language_server_settings);
     const client = try self.get_or_start_lsp_client(from, file_path, language_server, language_server_options, language_server_protocol);
     return client.did_open(file_path, file_type, version, text);
 }
@@ -1602,6 +1611,38 @@ pub fn apply_edit_response(self: *Self, language_server: []const u8, cbor_id: []
 pub fn workDoneProgress_create(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) LspError!void {
     _ = params_cb;
     return LSP.send_response(self.allocator, from, cbor_id, null) catch error.LspFailed;
+}
+
+fn set_lsp_settings(self: *Self, language_server: []const u8, settings: []const u8) error{OutOfMemory}!void {
+    var lsp_name: []const u8 = "";
+    _ = cbor.match(language_server, .{ cbor.extract(&lsp_name), cbor.more }) catch false;
+    if (lsp_name.len == 0) return;
+    const value = try self.allocator.dupe(u8, settings);
+    errdefer self.allocator.free(value);
+    const gop = try self.lsp_settings.getOrPut(self.allocator, lsp_name);
+    if (gop.found_existing) {
+        self.allocator.free(gop.value_ptr.*);
+    } else {
+        gop.key_ptr.* = self.allocator.dupe(u8, lsp_name) catch |e| {
+            self.lsp_settings.removeByPtr(gop.key_ptr);
+            return e;
+        };
+    }
+    gop.value_ptr.* = value;
+}
+
+pub fn workspace_configuration(self: *Self, from: tp.pid_ref, language_server: []const u8, cbor_id: []const u8, params_cb: []const u8) LspError!void {
+    const json = self.lsp_settings.get(language_server) orelse "";
+    const settings = if (json.len == 0) "" else cbor.fromJsonAlloc(self.allocator, json) catch blk: {
+        self.logger_lsp.print_err("configuration", "ignored invalid JSON in LSP settings for {s}", .{language_server});
+        break :blk "";
+    };
+    defer self.allocator.free(settings);
+    var result: std.Io.Writer.Allocating = .init(self.allocator);
+    defer result.deinit();
+    LSPClient.write_configuration(&result.writer, settings, params_cb) catch |e|
+        return LSP.send_error_response(self.allocator, from, cbor_id, LSP.ErrorCode.InvalidParams, @errorName(e)) catch error.LspFailed;
+    return LSP.send_response(self.allocator, from, cbor_id, cbor.Raw{ .bytes = result.written() }) catch error.LspFailed;
 }
 
 pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u8, method: []const u8) LspError!void {

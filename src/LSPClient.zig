@@ -419,6 +419,69 @@ pub fn set_server_capabilities(self: *Self, capabilities: []const u8) (OutOfMemo
     });
 }
 
+pub const ConfigurationError = cbor.Error || std.Io.Writer.Error || error{InvalidConfigurationParams};
+
+pub fn write_configuration(writer: *std.Io.Writer, settings: []const u8, params: []const u8) ConfigurationError!void {
+    var iter = params;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidConfigurationParams;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidConfigurationParams;
+        if (!std.mem.eql(u8, field_name, "items")) {
+            try cbor.skipValue(&iter);
+            continue;
+        }
+        var items = cbor.decodeArrayHeader(&iter) catch return error.InvalidConfigurationParams;
+        try cbor.writeArrayHeader(writer, items);
+        while (items > 0) : (items -= 1) {
+            const section = try read_configuration_section(&iter);
+            if (configuration_section(settings, section)) |value|
+                try writer.writeAll(value)
+            else
+                try cbor.writeValue(writer, null);
+        }
+        return;
+    }
+    return error.InvalidConfigurationParams;
+}
+
+fn read_configuration_section(iter: *[]const u8) ConfigurationError!?[]const u8 {
+    var section: ?[]const u8 = null;
+    var len = cbor.decodeMapHeader(iter) catch return error.InvalidConfigurationParams;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(iter, &field_name))) return error.InvalidConfigurationParams;
+        var value: []const u8 = undefined;
+        if (std.mem.eql(u8, field_name, "section") and try cbor.matchString(iter, &value)) {
+            section = value;
+        } else {
+            try cbor.skipValue(iter);
+        }
+    }
+    return section;
+}
+
+fn configuration_section(settings: []const u8, section: ?[]const u8) ?[]const u8 {
+    if (settings.len == 0) return null;
+    var value = settings;
+    var path = std.mem.splitScalar(u8, section orelse return settings, '.');
+    while (path.next()) |key| value = map_value(value, key) orelse return null;
+    return value;
+}
+
+fn map_value(map: []const u8, key: []const u8) ?[]const u8 {
+    var iter = map;
+    var len = cbor.decodeMapHeader(&iter) catch return null;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(cbor.matchString(&iter, &field_name) catch return null)) return null;
+        const value = iter;
+        cbor.skipValue(&iter) catch return null;
+        if (std.mem.eql(u8, field_name, key)) return value[0 .. value.len - iter.len];
+    }
+    return null;
+}
+
 /// write the diagnostics that overlap or touch range as an array
 pub fn write_diagnostics_in_range(writer: *std.Io.Writer, diagnostics: []const u8, range: Range) (RangeError || std.Io.Writer.Error)!void {
     var count: usize = 0;
@@ -2205,6 +2268,7 @@ fn send_init_request(
                     .resolveSupport = .{ .properties = .{"location.range"} },
                 },
                 .codeLens = .{ .refreshSupport = false },
+                .configuration = true,
                 // .didChangeConfiguration = .{ .dynamicRegistration = true },
                 .workspaceFolders = true,
                 .semanticTokens = .{ .refreshSupport = false },

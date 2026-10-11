@@ -34,6 +34,14 @@
 // When a file opens, the server publishes one warning for the first three
 // characters of line 2. The diagnostic carries a data field.
 
+// Configuration
+// After "initialized" the server sends a workspace/configuration request for
+// the sections "dummy", "dummy.greeting" and "dummy.missing", and for one
+// item without a section. If the answer for "dummy.greeting" is a string,
+// the server publishes the warning again with that string as its message.
+// Example settings file (dummy_lsp.settings.json):
+//   {"dummy": {"greeting": "hello from the settings file"}}
+
 // Code actions
 // A code action request returns these items. The server ignores the "only"
 // filter of the request, so the client must filter.
@@ -123,14 +131,19 @@ fn read_message(in: *std.Io.Reader, arena: std.mem.Allocator) !?[]const u8 {
 }
 
 fn handle(io: std.Io, arena: std.mem.Allocator, out: *std.Io.Writer, msg: std.json.Value) !bool {
-    const method = get_string(msg, "method") orelse return true;
     const id = get(msg, "id");
+    const method = get_string(msg, "method") orelse {
+        if (id) |id_| if (id_ == .string and std.mem.eql(u8, id_.string, configuration_id))
+            try configuration_result(arena, out, get(msg, "result") orelse .null);
+        return true;
+    };
     const params = get(msg, "params") orelse .null;
 
     if (std.mem.eql(u8, method, "exit")) return false;
-    if (std.mem.eql(u8, method, "textDocument/didOpen")) try publish_diagnostics(arena, out, params);
+    if (std.mem.eql(u8, method, "initialized")) try send_configuration_request(arena, out);
     if (std.mem.eql(u8, method, "textDocument/didOpen") or std.mem.eql(u8, method, "textDocument/didChange"))
         synced.set(get(params, "textDocument") orelse .null);
+    if (std.mem.eql(u8, method, "textDocument/didOpen")) try publish_diagnostics(arena, out, synced.uri);
     const id_ = id orelse return true;
 
     if (std.mem.eql(u8, method, "initialize")) {
@@ -194,8 +207,41 @@ fn completion_items(arena: std.mem.Allocator, params: std.json.Value) ![]const C
     });
 }
 
-fn publish_diagnostics(arena: std.mem.Allocator, out: *std.Io.Writer, params: std.json.Value) !void {
-    const uri = get_string(get(params, "textDocument") orelse .null, "uri") orelse return;
+const configuration_id = "configuration";
+
+var greeting: struct {
+    buf: [256]u8 = undefined,
+    text: []const u8 = "dummy warning",
+} = .{};
+
+fn send_configuration_request(arena: std.mem.Allocator, out: *std.Io.Writer) !void {
+    try send(arena, out, .{
+        .jsonrpc = "2.0",
+        .id = configuration_id,
+        .method = "workspace/configuration",
+        .params = .{ .items = .{
+            .{ .section = "dummy" },
+            .{ .section = "dummy.greeting" },
+            .{ .section = "dummy.missing" },
+            .{ .scopeUri = "file:///" },
+        } },
+    });
+}
+
+fn configuration_result(arena: std.mem.Allocator, out: *std.Io.Writer, result: std.json.Value) !void {
+    if (result != .array or result.array.items.len < 2) return;
+    const text = switch (result.array.items[1]) {
+        .string => |text| text,
+        else => return,
+    };
+    if (text.len > greeting.buf.len) return;
+    @memcpy(greeting.buf[0..text.len], text);
+    greeting.text = greeting.buf[0..text.len];
+    try publish_diagnostics(arena, out, synced.uri);
+}
+
+fn publish_diagnostics(arena: std.mem.Allocator, out: *std.Io.Writer, uri: []const u8) !void {
+    if (uri.len == 0) return;
     try send(arena, out, .{
         .jsonrpc = "2.0",
         .method = "textDocument/publishDiagnostics",
@@ -205,7 +251,7 @@ fn publish_diagnostics(arena: std.mem.Allocator, out: *std.Io.Writer, params: st
                 .range = Range{ .start = .{ .line = 1, .character = 0 }, .end = .{ .line = 1, .character = 3 } },
                 .severity = 2,
                 .source = "dummy_lsp",
-                .message = "dummy warning",
+                .message = greeting.text,
                 .data = .{ .id = 7 },
             }},
         },

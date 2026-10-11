@@ -1046,6 +1046,27 @@ const cmds = struct {
     }
     pub const open_lsp_config_project_meta: Meta = .{ .description = "Edit LSP configuration (project)" };
 
+    pub fn open_lsp_settings_global(self: *Self, _: Ctx) Result {
+        const editor = self.get_active_editor() orelse return no_lsp_error();
+        const file_type = editor.file_type orelse return no_lsp_error();
+        const language_server = file_type.language_server orelse return no_lsp_error();
+        const lsp_name = language_server[0];
+        const file_name = try lsp_config.get_settings_file_path(null, lsp_name, .global, .mk_parents);
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+    }
+    pub const open_lsp_settings_global_meta: Meta = .{ .description = "Edit LSP settings (global)" };
+
+    pub fn open_lsp_settings_project(self: *Self, _: Ctx) Result {
+        const editor = self.get_active_editor() orelse return no_lsp_error();
+        const file_type = editor.file_type orelse return no_lsp_error();
+        const language_server = file_type.language_server orelse return no_lsp_error();
+        const lsp_name = language_server[0];
+        const project = tp.env.get().str("project");
+        const file_name = try lsp_config.get_settings_file_path(project, lsp_name, .project, .mk_parents);
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+    }
+    pub const open_lsp_settings_project_meta: Meta = .{ .description = "Edit LSP settings (project)" };
+
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         const args = try ctx.args.clone(self.allocator);
         defer self.allocator.free(args.buf);

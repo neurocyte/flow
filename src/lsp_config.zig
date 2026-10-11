@@ -1,27 +1,20 @@
 pub fn get(project: []const u8, lsp_name: []const u8) ?[]const u8 {
-    if (project.len == 0) return get_global(lsp_name);
-    if (get_project(project, lsp_name)) |conf| return conf;
-    return get_global(lsp_name);
+    return get_kind(project, lsp_name, .options);
 }
 
-fn get_project(project: []const u8, lsp_name: []const u8) ?[]const u8 {
-    const io = root.get_io();
-    const file_name = get_config_file_path(project, lsp_name, .project, .no_create) catch return null;
-    defer allocator.free(file_name);
-    var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch return null;
-    defer file.close(io);
-    const stat = file.stat(io) catch return null;
-    const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
-    const size = file.readPositionalAll(io, buf, 0) catch {
-        allocator.free(buf);
-        return null;
-    };
-    return buf[0..size];
+pub fn get_settings(project: []const u8, lsp_name: []const u8) ?[]const u8 {
+    return get_kind(project, lsp_name, .settings);
 }
 
-fn get_global(lsp_name: []const u8) ?[]const u8 {
+fn get_kind(project: []const u8, lsp_name: []const u8, kind: Kind) ?[]const u8 {
+    if (project.len == 0) return read(&.{}, lsp_name, .global, kind);
+    if (read(project, lsp_name, .project, kind)) |conf| return conf;
+    return read(&.{}, lsp_name, .global, kind);
+}
+
+fn read(project: []const u8, lsp_name: []const u8, scope: Scope, kind: Kind) ?[]const u8 {
     const io = root.get_io();
-    const file_name = get_config_file_path(&.{}, lsp_name, .global, .no_create) catch return null;
+    const file_name = get_file_path(project, lsp_name, scope, .no_create, kind) catch return null;
     defer allocator.free(file_name);
     var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch return null;
     defer file.close(io);
@@ -35,11 +28,22 @@ fn get_global(lsp_name: []const u8) ?[]const u8 {
 }
 
 pub fn get_config_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode: Mode) ![]u8 {
+    return get_file_path(project, lsp_name, scope, mode, .options);
+}
+
+pub fn get_settings_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode: Mode) ![]u8 {
+    return get_file_path(project, lsp_name, scope, mode, .settings);
+}
+
+fn get_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode: Mode, kind: Kind) ![]u8 {
     const config_dir_path = try get_config_dir_path(project, scope, mode);
     defer allocator.free(config_dir_path);
     var stream: std.Io.Writer.Allocating = .init(allocator);
     defer stream.deinit();
-    try stream.writer.print("{s}{s}.json", .{ config_dir_path, lsp_name });
+    try stream.writer.print("{s}{s}{s}", .{ config_dir_path, lsp_name, switch (kind) {
+        .options => ".json",
+        .settings => ".settings.json",
+    } });
     return stream.toOwnedSlice();
 }
 
@@ -75,6 +79,7 @@ fn get_config_dir_path(project: ?[]const u8, scope: Scope, mode: Mode) ![]u8 {
 }
 
 pub const Scope = enum { project, global };
+const Kind = enum { options, settings };
 pub const Mode = enum { mk_parents, no_create };
 
 pub const allocator = std.heap.c_allocator;

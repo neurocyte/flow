@@ -200,6 +200,65 @@ test "server capabilities: none" {
     try std.testing.expectEqual(0, capabilities.execute_commands.len);
 }
 
+const write_configuration = @import("project_manager").test_internal.write_configuration;
+
+fn expect_configuration(settings_json: []const u8, params_json: []const u8, expected_json: []const u8) !void {
+    const settings = if (settings_json.len > 0) try cbor.fromJsonAlloc(a, settings_json) else try a.dupe(u8, "");
+    defer a.free(settings);
+    const params = try cbor.fromJsonAlloc(a, params_json);
+    defer a.free(params);
+    var result: std.Io.Writer.Allocating = .init(a);
+    defer result.deinit();
+    try write_configuration(&result.writer, settings, params);
+    const json = try cbor.toJsonAlloc(a, result.written());
+    defer a.free(json);
+    try std.testing.expectEqualStrings(expected_json, json);
+}
+
+const nixd_settings =
+    \\{"nixd":{"formatting":{"command":["nixfmt"]},"n":1},"other":true}
+;
+
+test "workspace configuration: sections" {
+    try expect_configuration(nixd_settings, "{\"items\":[{\"section\":\"other\"}]}", "[true]");
+    try expect_configuration(nixd_settings, "{\"items\":[{\"section\":\"nixd.formatting\"}]}", "[{\"command\":[\"nixfmt\"]}]");
+    try expect_configuration(nixd_settings, "{\"items\":[{\"section\":\"nixd.formatting.command\"}]}", "[[\"nixfmt\"]]");
+    try expect_configuration(nixd_settings, "{\"items\":[{\"scopeUri\":\"file:///x\",\"section\":\"nixd.n\"}]}", "[1]");
+}
+
+test "workspace configuration: missing paths give null" {
+    try expect_configuration(nixd_settings, "{\"items\":[{\"section\":\"formatting\"}]}", "[null]");
+    try expect_configuration(nixd_settings, "{\"items\":[{\"section\":\"nixd.missing\"}]}", "[null]");
+    try expect_configuration(nixd_settings, "{\"items\":[{\"section\":\"other.deeper\"}]}", "[null]");
+    try expect_configuration(nixd_settings, "{\"items\":[{\"section\":\"nixd.n.deeper\"}]}", "[null]");
+}
+
+test "workspace configuration: an item without a section gets everything" {
+    try expect_configuration("{\"a\":1}", "{\"items\":[{}]}", "[{\"a\":1}]");
+    try expect_configuration("{\"a\":1}", "{\"items\":[{\"scopeUri\":\"file:///x\"}]}", "[{\"a\":1}]");
+}
+
+test "workspace configuration: several items keep their order" {
+    try expect_configuration(
+        nixd_settings,
+        "{\"items\":[{\"section\":\"nixd.n\"},{\"section\":\"missing\"},{\"section\":\"other\"}]}",
+        "[1,null,true]",
+    );
+    try expect_configuration(nixd_settings, "{\"items\":[]}", "[]");
+}
+
+test "workspace configuration: no settings gives null for each item" {
+    try expect_configuration("", "{\"items\":[{\"section\":\"nixd\"},{}]}", "[null,null]");
+}
+
+test "workspace configuration: invalid params" {
+    const params = try cbor.fromJsonAlloc(a, "{\"other\":1}");
+    defer a.free(params);
+    var result: std.Io.Writer.Allocating = .init(a);
+    defer result.deinit();
+    try std.testing.expectError(error.InvalidConfigurationParams, write_configuration(&result.writer, "", params));
+}
+
 test "server capabilities: text document sync" {
     const cases = [_]struct { []const u8, ServerCapabilities.TextDocumentSync }{
         .{ "{\"hoverProvider\":true}", .incremental },
