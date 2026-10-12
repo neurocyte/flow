@@ -730,6 +730,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", "vcs_id", tp.more }))
         return if (mainview()) |mv| mv.vcs_id_update(m);
 
+    var out_of_sync_path: []const u8 = undefined;
+    if (try m.match(.{ "PRJ", "lsp_out_of_sync", tp.extract(&out_of_sync_path) })) {
+        if (get_buffer_manager()) |buffer_manager| if (buffer_manager.get_buffer_for_file(out_of_sync_path)) |buffer|
+            @import("buffer_lsp.zig").reopen(buffer);
+        return;
+    }
+
     if (try m.match(.{ "PRJ", "vcs_file_state", tp.more }))
         return if (mainview()) |mv| mv.receive_vcs_file_state(m);
 

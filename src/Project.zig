@@ -1271,9 +1271,17 @@ pub fn did_open(
     return client.did_open(file_path, file_type, version, hash, text);
 }
 
-pub fn did_change(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) StartLspError!void {
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, edit_set: cbor.Raw) StartLspError!void {
     const client = try self.get_lsp_client_for_file(file_path);
-    return client.did_change(file_path, version, hash, text_dst, text_src, eol_mode);
+    client.did_change(file_path, version, hash, edit_set) catch |e| switch (e) {
+        error.OutOfSync => self.parent.send(.{ "PRJ", "lsp_out_of_sync", file_path }) catch {},
+        else => |e_| return e_,
+    };
+}
+
+pub fn did_change_full(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, text: []const u8) StartLspError!void {
+    const client = try self.get_lsp_client_for_file(file_path);
+    return client.did_change_full(file_path, version, hash, text);
 }
 
 pub fn did_save(self: *Self, file_path: []const u8) StartLspError!void {

@@ -291,18 +291,18 @@ pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usi
     return send(.{ "did_open", project, file_path, file_type.name, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text });
 }
 
-/// takes ownership of text_dst and text_src, which must be allocated with std.heap.c_allocator
-pub fn did_change(file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectManagerError || ProjectError)!void {
-    errdefer {
-        std.heap.c_allocator.free(text_dst);
-        std.heap.c_allocator.free(text_src);
-    }
+pub fn did_change(file_path: []const u8, version: usize, hash: EditSet.Hash, edit_set: cbor.Raw) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
-    const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;
-    return send(.{ "did_change", project, file_path, version, hash, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len, @backingInt(eol_mode) });
+    return send(.{ "did_change", project, file_path, version, hash, edit_set });
+}
+
+pub fn did_change_full(file_path: []const u8, version: usize, hash: EditSet.Hash, text: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "did_change_full", project, file_path, version, hash, text });
 }
 
 pub fn did_save(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -572,10 +572,6 @@ const Process = struct {
         var version: usize = 0;
         var hash: EditSet.Hash = 0;
         var text: []const u8 = undefined;
-        var text_dst_ptr: usize = 0;
-        var text_dst_len: usize = 0;
-        var text_src_ptr: usize = 0;
-        var text_src_len: usize = 0;
         var n: usize = 0;
         var task: []const u8 = undefined;
         var context: usize = undefined;
@@ -589,7 +585,6 @@ const Process = struct {
         var code_action_trigger: CodeActionTrigger = undefined;
         var range: Project.Range = undefined;
 
-        var eol_mode: Buffer.EolModeTag = @backingInt(Buffer.EolMode.lf);
         var event_type: file_watcher.EventType = undefined;
         var object_type: file_watcher.ObjectType = undefined;
         var from_path: []const u8 = undefined;
@@ -679,14 +674,10 @@ const Process = struct {
             self.delete_task(project_directory, task) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&language_server_options), tp.extract(&language_server_settings), tp.extract(&language_server_protocol), tp.extract(&version), tp.extract(&hash), tp.extract(&text) })) {
             self.did_open(project_directory, path, file_type, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&hash), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len), tp.extract(&eol_mode) })) {
-            const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
-            const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
-            defer {
-                std.heap.c_allocator.free(text_dst);
-                std.heap.c_allocator.free(text_src);
-            }
-            self.did_change(project_directory, path, version, hash, text_dst, text_src, @fromBackingInt(@intCast(eol_mode))) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&hash), tp.extract_cbor(&params_cb) })) {
+            self.did_change(project_directory, path, version, hash, .{ .bytes = params_cb }) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "did_change_full", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&hash), tp.extract(&text) })) {
+            self.did_change_full(project_directory, path, version, hash, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -1122,11 +1113,18 @@ const Process = struct {
         return project.did_open(self.parent.ref(), file_path, file_type, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text);
     }
 
-    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectError || Project.StartLspError)!void {
+    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, hash: EditSet.Hash, edit_set: cbor.Raw) (ProjectError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_change" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.did_change(file_path, version, hash, text_dst, text_src, eol_mode);
+        return project.did_change(file_path, version, hash, edit_set);
+    }
+
+    fn did_change_full(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, hash: EditSet.Hash, text: []const u8) (ProjectError || Project.StartLspError)!void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_change" });
+        defer frame.deinit();
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.did_change_full(file_path, version, hash, text);
     }
 
     fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {

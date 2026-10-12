@@ -43,19 +43,11 @@ pub fn sync(buffer: *Buffer) !void {
     const old_root = buffer.lsp_root orelse return;
     if (old_root == buffer.root) return;
     const eol_mode = buffer.file_eol_mode;
-    const text_dst = try text_from_root(buffer.root, eol_mode);
-    const text_src = text_from_root(old_root, eol_mode) catch |e| {
-        std.heap.c_allocator.free(text_dst);
-        return e;
-    };
+    const edit_set = try buffer.edit_set_between(old_root, buffer.root, eol_mode);
     buffer.lsp_version += 1;
     buffer.lsp_root = buffer.root;
-    project_manager.did_change(buffer.get_file_path(), buffer.lsp_version, buffer.content_hash(), text_dst, text_src, eol_mode) catch {};
-}
-
-fn text_from_root(root: Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {
-    var text: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
-    defer text.deinit();
-    try root.store_node(&text.writer, eol_mode);
-    return text.toOwnedSlice();
+    (if (edit_set) |edit_set_|
+        project_manager.did_change(buffer.get_file_path(), buffer.lsp_version, buffer.content_hash(), .{ .bytes = edit_set_ })
+    else
+        project_manager.did_change_full(buffer.get_file_path(), buffer.lsp_version, buffer.content_hash(), buffer.store_to_string_cached(buffer.root, eol_mode))) catch {};
 }

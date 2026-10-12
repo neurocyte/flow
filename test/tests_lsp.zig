@@ -159,7 +159,10 @@ fn line_offset(text: []const u8, line: usize, character: usize) usize {
 fn expect_did_change(src: []const u8, dst: []const u8, expected_changes: ?usize) !void {
     var params: std.Io.Writer.Allocating = .init(a);
     defer params.deinit();
-    try write_did_change(a, &params.writer, "file:///a", 7, src, dst);
+    var edit_set: std.Io.Writer.Allocating = .init(a);
+    defer edit_set.deinit();
+    try @import("EditSet").diff_strings(a, &edit_set, src, dst);
+    try write_did_change(a, &params.writer, "file:///a", 7, .{ .bytes = edit_set.written() });
     const json = try cbor.toJsonAlloc(a, params.written());
     defer a.free(json);
     const parsed = try std.json.parseFromSlice(struct {

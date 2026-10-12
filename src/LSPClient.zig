@@ -28,6 +28,8 @@ language_server_protocol: file_type_config.ProtocolLevel,
 owner: tp.pid,
 server_capabilities: ServerCapabilities = .{},
 document_hashes: DocumentHashes = .{},
+documents: Documents = .{},
+capabilities_known: bool = false,
 
 const Self = @This();
 
@@ -469,6 +471,8 @@ pub fn set_server_capabilities(self: *Self, capabilities: []const u8) (OutOfMemo
     const server_capabilities: ServerCapabilities = try .read(self.allocator, capabilities);
     self.server_capabilities.deinit(self.allocator);
     self.server_capabilities = server_capabilities;
+    self.capabilities_known = true;
+    if (!self.keeps_documents()) self.documents.deinit(self.allocator);
     std.log.debug("{f}: code actions: {t}, commands: {d}, sync: {t}", .{
         fmt_lsp_name_func(self.language_server),
         server_capabilities.code_action,
@@ -654,6 +658,7 @@ pub fn deinit(self: *Self) void {
     self.lsp.term();
     self.server_capabilities.deinit(self.allocator);
     self.document_hashes.deinit(self.allocator);
+    self.documents.deinit(self.allocator);
     self.logger_lsp.deinit();
     self.allocator.free(self.language_server_options);
     self.allocator.free(self.language_server);
@@ -2043,44 +2048,78 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, versi
     const uri = try make_URI(self.allocator, self.project_name, file_path);
     defer self.allocator.free(uri);
     try self.document_hashes.open(self.allocator, uri, version, hash);
+    self.documents.close(self.allocator, uri);
+    if (self.keeps_documents()) try self.documents.open(self.allocator, uri, text);
     self.lsp.send_notification("textDocument/didOpen", .{
         .textDocument = .{ .uri = uri, .languageId = file_type, .version = version, .text = text },
     }) catch return error.LspFailed;
 }
 
-pub fn did_change(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
-    _ = eol_mode;
-    {
-        const uri = try make_URI(self.allocator, self.project_name, file_path);
-        defer self.allocator.free(uri);
-        self.document_hashes.change(uri, version, hash);
-    }
-    switch (self.server_capabilities.sync) {
-        .none => return,
-        .full => return self.did_change_full(file_path, version, text_dst),
-        .incremental => {},
-    }
-    const uri = try make_URI(self.allocator, self.project_name, file_path);
-    defer self.allocator.free(uri);
-    var msg: std.Io.Writer.Allocating = .init(self.allocator);
-    defer msg.deinit();
-    write_did_change(self.allocator, &msg.writer, uri, version, text_src, text_dst) catch |e| switch (e) {
-        error.InputTooLarge => return self.did_change_full(file_path, version, text_dst),
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return error.LspFailed,
-    };
-    self.lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
+fn keeps_documents(self: *const Self) bool {
+    return !self.capabilities_known or self.server_capabilities.sync == .full;
 }
 
-pub fn write_did_change(allocator: std.mem.Allocator, writer: *std.Io.Writer, uri: []const u8, version: usize, text_src: []const u8, text_dst: []const u8) !void {
-    var edit_set: std.Io.Writer.Allocating = .init(allocator);
-    defer edit_set.deinit();
-    {
-        const frame = tracy.initZone(@src(), .{ .name = "diff" });
-        defer frame.deinit();
-        try EditSet.diff_strings(allocator, &edit_set, text_src, text_dst);
+const Documents = struct {
+    texts: std.StringHashMapUnmanaged(std.ArrayList(u8)) = .empty,
+
+    fn deinit(self: *Documents, allocator: std.mem.Allocator) void {
+        var it = self.texts.iterator();
+        while (it.next()) |p| {
+            allocator.free(p.key_ptr.*);
+            p.value_ptr.deinit(allocator);
+        }
+        self.texts.deinit(allocator);
+        self.* = .{};
     }
-    const edits = try EditSet.collect(allocator, .{ .bytes = edit_set.written() });
+
+    fn open(self: *Documents, allocator: std.mem.Allocator, uri: []const u8, text: []const u8) error{OutOfMemory}!void {
+        const key = try allocator.dupe(u8, uri);
+        errdefer allocator.free(key);
+        var content: std.ArrayList(u8) = .empty;
+        errdefer content.deinit(allocator);
+        try content.appendSlice(allocator, text);
+        try self.texts.put(allocator, key, content);
+    }
+
+    fn close(self: *Documents, allocator: std.mem.Allocator, uri: []const u8) void {
+        var kv = self.texts.fetchRemove(uri) orelse return;
+        allocator.free(kv.key);
+        kv.value.deinit(allocator);
+    }
+};
+
+pub const DidChangeError = LspError || error{OutOfSync};
+
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, edit_set: cbor.Raw) DidChangeError!void {
+    const uri = try make_URI(self.allocator, self.project_name, file_path);
+    defer self.allocator.free(uri);
+    self.document_hashes.change(uri, version, hash);
+    const document = self.documents.texts.getPtr(uri);
+    if (document) |text| EditSet.apply_to_string(self.allocator, text, edit_set) catch |e| {
+        self.documents.close(self.allocator, uri);
+        std.log.err("{s}: the text for the language server is out of sync: {t}", .{ file_path, e });
+        return error.OutOfSync;
+    };
+    switch (self.server_capabilities.sync) {
+        .none => {},
+        .full => self.lsp.send_notification("textDocument/didChange", .{
+            .textDocument = .{ .uri = uri, .version = version },
+            .contentChanges = .{.{ .text = (document orelse return error.OutOfSync).items }},
+        }) catch return error.LspFailed,
+        .incremental => {
+            var msg: std.Io.Writer.Allocating = .init(self.allocator);
+            defer msg.deinit();
+            write_did_change(self.allocator, &msg.writer, uri, version, edit_set) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return error.LspFailed,
+            };
+            self.lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
+        },
+    }
+}
+
+pub fn write_did_change(allocator: std.mem.Allocator, writer: *std.Io.Writer, uri: []const u8, version: usize, edit_set: cbor.Raw) !void {
+    const edits = try EditSet.collect(allocator, edit_set);
     defer allocator.free(edits);
 
     try cbor.writeMapHeader(writer, 2);
@@ -2103,9 +2142,13 @@ pub fn write_did_change(allocator: std.mem.Allocator, writer: *std.Io.Writer, ur
     }
 }
 
-fn did_change_full(self: *Self, file_path: []const u8, version: usize, text: []const u8) LspError!void {
+pub fn did_change_full(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, text: []const u8) LspError!void {
     const uri = try make_URI(self.allocator, self.project_name, file_path);
     defer self.allocator.free(uri);
+    self.document_hashes.change(uri, version, hash);
+    self.documents.close(self.allocator, uri);
+    if (self.keeps_documents()) try self.documents.open(self.allocator, uri, text);
+    if (self.server_capabilities.sync == .none) return;
     self.lsp.send_notification("textDocument/didChange", .{
         .textDocument = .{ .uri = uri, .version = version },
         .contentChanges = .{.{ .text = text }},
@@ -2130,6 +2173,7 @@ pub fn did_close(self: *Self, file_path: []const u8) LspError!void {
     const uri = try make_URI(self.allocator, self.project_name, file_path);
     defer self.allocator.free(uri);
     self.document_hashes.close(self.allocator, uri);
+    self.documents.close(self.allocator, uri);
     self.lsp.send_notification("textDocument/didClose", .{
         .textDocument = .{ .uri = uri },
     }) catch return error.LspFailed;
