@@ -6680,7 +6680,7 @@ pub const Editor = struct {
     }
     pub const smart_insert_pair_close_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
-    fn update_syntax(self: *Self, _: std.Io.Timestamp) !void {
+    fn update_syntax(self: *Self, now: std.Io.Timestamp) !void {
         const buffer = self.buffer orelse return error.Stop;
         const root = buffer.root;
         const eol_mode = try self.buf_eol_mode();
@@ -6720,6 +6720,11 @@ pub const Editor = struct {
             } else {
                 if (self.syntax_last_rendered_root) |root_src| {
                     self.syntax_last_rendered_root = null;
+                    // check if the roots differ too much for a diff
+                    const edit_set = try buffer.edit_set_between(root_src, root, eol_mode) orelse {
+                        self.syntax_refresh_full = true;
+                        return self.update_syntax(now);
+                    };
                     var old_content: std.Io.Writer.Allocating = .init(self.allocator);
                     defer old_content.deinit();
                     {
@@ -6730,10 +6735,7 @@ pub const Editor = struct {
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
                         defer frame.deinit();
-                        var edit_set: std.Io.Writer.Allocating = .init(self.allocator);
-                        defer edit_set.deinit();
-                        try EditSet.diff_strings(self.allocator, &edit_set, old_content.written(), content);
-                        const edits = try EditSet.byte_edits(self.allocator, .{ .bytes = edit_set.written() }, old_content.written());
+                        const edits = try EditSet.byte_edits(self.allocator, .{ .bytes = edit_set }, old_content.written());
                         defer self.allocator.free(edits);
                         // tree-sitter takes the edits one after the other, last edit first keeps the offsets valid
                         var index = edits.len;
