@@ -208,6 +208,19 @@ const OffsetScan = struct {
     }
 };
 
+pub fn apply_to_string(allocator: std.mem.Allocator, text: *std.ArrayList(u8), edit_set: cbor.Raw) !void {
+    const iter: Iterator = try .init(edit_set);
+    if (iter.tail.base_hash) |expected| if (expected != hash(text.items)) return error.BaseMismatch;
+    const edits = try byte_edits(allocator, edit_set, text.items);
+    defer allocator.free(edits);
+    var index = edits.len;
+    while (index > 0) {
+        index -= 1;
+        try text.replaceRange(allocator, edits[index].begin, edits[index].end - edits[index].begin, edits[index].text);
+    }
+    if (iter.tail.result_hash) |expected| if (expected != hash(text.items)) return error.ResultMismatch;
+}
+
 pub fn is_empty(edit_set: cbor.Raw) bool {
     if (edit_set.bytes.len == 0) return true;
     const iter = Iterator.init(edit_set) catch return true;
@@ -429,7 +442,7 @@ fn offset_of(text: []const u8, position: Position) usize {
     return offset + position.pos;
 }
 
-fn apply_to_string(allocator: std.mem.Allocator, src: []const u8, edit_set: []const u8) ![]u8 {
+fn applied_copy(allocator: std.mem.Allocator, src: []const u8, edit_set: []const u8) ![]u8 {
     var result: std.ArrayList(u8) = .empty;
     errdefer result.deinit(allocator);
     var iter: Iterator = try .init(.{ .bytes = edit_set });
@@ -453,7 +466,7 @@ fn expect_diff(src: []const u8, dst: []const u8, expected: []const Edit) !void {
 }
 
 fn expect_round_trip(src: []const u8, dst: []const u8, edit_set: []const u8) !void {
-    const result = try apply_to_string(testing.allocator, src, edit_set);
+    const result = try applied_copy(testing.allocator, src, edit_set);
     defer testing.allocator.free(result);
     try testing.expectEqualStrings(dst, result);
     const iter: Iterator = try .init(.{ .bytes = edit_set });
@@ -602,6 +615,21 @@ test "byte_edits: applied last edit first they give the target" {
         index -= 1;
         try text.replaceRange(testing.allocator, result[index].begin, result[index].end - result[index].begin, result[index].text);
     }
+    try testing.expectEqualStrings(dst, text.items);
+}
+
+test "apply_to_string" {
+    const src = "let a = 1;\nlet b = 2;\n\u{e9}t\u{e9}\n";
+    const dst = "let a = 10;\nconst c = 2;\n\u{e8}t\u{e9}!\nmore\n";
+    var edit_set: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer edit_set.deinit();
+    try diff_strings(testing.allocator, &edit_set, src, dst);
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(testing.allocator);
+    try text.appendSlice(testing.allocator, src);
+    try apply_to_string(testing.allocator, &text, .{ .bytes = edit_set.written() });
+    try testing.expectEqualStrings(dst, text.items);
+    try testing.expectError(error.BaseMismatch, apply_to_string(testing.allocator, &text, .{ .bytes = edit_set.written() }));
     try testing.expectEqualStrings(dst, text.items);
 }
 
