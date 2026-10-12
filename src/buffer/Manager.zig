@@ -3,6 +3,7 @@ const cbor = @import("cbor");
 const tp = @import("thespian");
 const get_now = @import("soft_root").root.get_now;
 const FileStore = @import("FileStore");
+const EditSet = @import("EditSet");
 const Buffer = @import("Buffer.zig");
 
 const Self = @This();
@@ -10,6 +11,7 @@ const Self = @This();
 allocator: std.mem.Allocator,
 buffers: std.StringHashMapUnmanaged(*Buffer),
 file_store: ?FileStore = null,
+edit_set_applier: ?EditSetApplier = null,
 watched: std.AutoHashMapUnmanaged(*Buffer, []const u8) = .empty,
 next_request_id: usize = 1,
 saves: std.AutoHashMapUnmanaged(usize, PendingSave) = .empty,
@@ -214,9 +216,21 @@ fn add_load(self: *Self, file_path: []const u8, reload_of: @FieldType(PendingLoa
     return self.loads.getPtr(id).?;
 }
 
+pub const EditSetApplier = struct {
+    ctx: *anyopaque,
+    apply: *const fn (ctx: *anyopaque, buffer: *Buffer, edit_set: []const u8, now: std.Io.Timestamp) anyerror!void,
+};
+
+fn start_stream(self: *Self, file_store: *const FileStore, pending: *PendingLoad) FileStore.Error!FileStore.ReadStream {
+    if (self.edit_set_applier) |_| if (pending.reload) |reload_of| if (self.buffer_from_ref(reload_of.buffer)) |buffer|
+        if (buffer.root == reload_of.root)
+            return .start_diff(file_store, self.allocator, pending.id, pending.abs_path, buffer.store_to_string_cached(buffer.root, .lf), .{});
+    return .start(file_store, self.allocator, pending.id, pending.abs_path, .{});
+}
+
 fn start_load_stream(self: *Self, pending: *PendingLoad) void {
     const file_store = self.file_store orelse return; // started by set_file_store
-    pending.stream = FileStore.ReadStream.start(&file_store, self.allocator, pending.id, pending.abs_path, .{}) catch |e| {
+    pending.stream = self.start_stream(&file_store, pending) catch |e| {
         log.err("open {s} failed: {t}", .{ pending.file_path, e });
         return self.finish_load(pending.id, false);
     };
@@ -265,6 +279,17 @@ fn complete_load(self: *Self, pending: *PendingLoad, ok: bool) error{LoadFailed}
     if (!ok) return error.LoadFailed;
     const stream = if (pending.stream) |*stream| stream else return error.LoadFailed;
     const stream_us = pending.started.durationTo(get_now()).toMicroseconds();
+    if (stream.edit_set) |edit_set| {
+        try self.apply_reload_edit_set(pending, edit_set, stream.eol);
+        perf_log.debug("reload {s} total {d:.3}ms edit set {d} [stream {d:.3}]", .{
+            pending.file_path,
+            to_ms(pending.started.durationTo(get_now()).toMicroseconds()),
+            edit_set.len,
+            to_ms(stream_us),
+        });
+        for (pending.thens.items) |then| tp.self_pid().send_raw(.{ .buf = then.bytes }) catch {};
+        return;
+    }
     const bytes = stream.take_content() catch |e| {
         log.err("open {s} failed: {t}", .{ pending.file_path, e });
         return error.LoadFailed;
@@ -285,6 +310,30 @@ fn complete_load(self: *Self, pending: *PendingLoad, ok: bool) error{LoadFailed}
         to_ms(total_us - stream_us),
     });
     for (pending.thens.items) |then| tp.self_pid().send_raw(.{ .buf = then.bytes }) catch {};
+}
+
+fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u8, eol: FileStore.Eol) error{LoadFailed}!void {
+    const now: std.Io.Timestamp = get_now();
+    const reload_of = pending.reload orelse return error.LoadFailed;
+    const applier = self.edit_set_applier orelse return error.LoadFailed;
+    const buffer = self.buffer_from_ref(reload_of.buffer) orelse return;
+    if (buffer.root != reload_of.root)
+        return log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path});
+    if (!EditSet.is_empty(.{ .bytes = edit_set }))
+        applier.apply(applier.ctx, buffer, edit_set, now) catch |e| switch (e) {
+            error.BaseMismatch => return log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path}),
+            else => {
+                log.err("reload {s} failed: {t}", .{ pending.file_path, e });
+                return error.LoadFailed;
+            },
+        };
+    buffer.reloaded(switch (eol) {
+        .lf => .lf,
+        .crlf => .crlf,
+    }, now);
+    buffer.update_last_used_time(now);
+    if (reload_of.reason == .external)
+        log.info("reloaded {s} from disk", .{pending.file_path});
 }
 
 fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*Buffer {

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const EditSet = @import("EditSet");
 const log = @import("log");
 const file_watcher = @import("file_watcher");
 const root = @import("soft_root").root;
@@ -166,12 +167,18 @@ fn copy_error_name(buf: []u8, name: []const u8) []const u8 {
     return buf[0..n];
 }
 
+pub const Eol = enum { lf, crlf };
+pub const max_diff_bytes = 8 * 1024 * 1024;
+pub const max_diff_middle_bytes = 32 * 1024;
+
 pub const ReadStream = struct {
     allocator: std.mem.Allocator,
     id: usize,
     ack_interval: usize,
     exists: bool = false,
     content: std.ArrayList(u8) = .empty,
+    edit_set: ?[]const u8 = null,
+    eol: Eol = .lf,
     next_seq: usize = 0,
     acked: usize = 0,
     error_buf: [64]u8 = undefined,
@@ -183,8 +190,15 @@ pub const ReadStream = struct {
         return .{ .allocator = allocator, .id = id, .ack_interval = ack_interval(window) };
     }
 
+    pub fn start_diff(store: *const Self, allocator: std.mem.Allocator, id: usize, abs_path: []const u8, base: []const u8, options: StreamOptions) Error!ReadStream {
+        const window = clamp_window(options.window);
+        try store.send(.{ "read_diff", id, abs_path, clamp_chunk_size(options.chunk_size), window, cbor.Bytes.init(base) });
+        return .{ .allocator = allocator, .id = id, .ack_interval = ack_interval(window) };
+    }
+
     pub fn receive(self: *ReadStream, store: *const Self, m: tp.message) ReceiveError!StreamResult {
         var id: usize = 0;
+        var edit_set: cbor.Raw = undefined;
         var path: []const u8 = undefined;
         var size: u64 = 0;
         var seq: usize = 0;
@@ -203,6 +217,11 @@ pub const ReadStream = struct {
         } else if (m.match(.{ "FS", "read_begin", tp.extract(&id), tp.extract(&path), tp.extract(&self.exists), tp.extract(&size) }) catch false) {
             if (id != self.id) return .pending;
             try self.content.ensureTotalCapacity(self.allocator, @intCast(size));
+        } else if (m.match(.{ "FS", "read_diff", tp.extract(&id), tp.extract(&self.eol), tp.extract(&edit_set) }) catch false) {
+            if (id != self.id) return .pending;
+            self.exists = true;
+            self.edit_set = try self.allocator.dupe(u8, edit_set.bytes);
+            return .done;
         } else if (m.match(.{ "FS", "read_done", tp.extract(&id) }) catch false) {
             if (id == self.id) return .done;
         } else if (m.match(.{ "FS", "error", tp.extract(&id), tp.extract(&op), tp.extract(&name) }) catch false) {
@@ -223,6 +242,8 @@ pub const ReadStream = struct {
 
     pub fn deinit(self: *ReadStream) void {
         self.content.deinit(self.allocator);
+        if (self.edit_set) |edit_set| self.allocator.free(edit_set);
+        self.edit_set = null;
     }
 };
 
@@ -466,6 +487,8 @@ const Process = struct {
             self.handle_rename(from_path, path, object_type);
         } else if (try cbor.match(m.buf, .{ "read", tp.extract(&id), tp.extract(&path), tp.extract(&chunk_size), tp.extract(&window) })) {
             self.read_begin(from, id, path, chunk_size, window);
+        } else if (try cbor.match(m.buf, .{ "read_diff", tp.extract(&id), tp.extract(&path), tp.extract(&chunk_size), tp.extract(&window), tp.extract(&bytes) })) {
+            self.read_diff(from, id, path, chunk_size, window, bytes.data);
         } else if (try cbor.match(m.buf, .{ "read_cancel", tp.extract(&id) })) {
             self.remove_stream(.{ .client = from.instance_id(), .id = id });
         } else if (try cbor.match(m.buf, .{ "write_begin", tp.extract(&id), tp.extract(&path), tp.extract(&size), tp.extract(&retain_symlinks), tp.extract(&window) })) {
@@ -625,6 +648,50 @@ const Process = struct {
         };
         from.send(.{ "FS", "read_begin", id, path, true, stat_.size }) catch {};
         self.read_pump(key);
+    }
+
+    fn read_diff(self: *@This(), from: tp.pid_ref, id: usize, path: []const u8, chunk_size: usize, window: usize, base: []const u8) void {
+        var edit_set: std.Io.Writer.Allocating = .init(self.allocator);
+        defer edit_set.deinit();
+        const started: std.Io.Timestamp = .now(root.get_io(), .awake);
+        const eol_mode = self.diff_file(&edit_set, path, base) catch
+            return self.read_begin(from, id, path, chunk_size, window);
+        perf_log.debug("read_diff {s} total {d:.3}ms base {d} edit set {d}", .{
+            path,
+            to_ms(us_since(root.get_io(), started)),
+            base.len,
+            edit_set.written().len,
+        });
+        from.send(.{ "FS", "read_diff", id, eol_mode, cbor.Raw{ .bytes = edit_set.written() } }) catch {};
+    }
+
+    fn diff_file(self: *@This(), edit_set: *std.Io.Writer.Allocating, path: []const u8, base: []const u8) !Eol {
+        const io = root.get_io();
+        const file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
+        defer file.close(io);
+        const stat_ = try file.stat(io);
+        if (stat_.kind == .directory) return error.IsDir;
+        if (stat_.size + base.len > max_diff_bytes) return error.InputTooLarge;
+        const content = try self.allocator.alloc(u8, @intCast(stat_.size));
+        defer self.allocator.free(content);
+        if (try file.readPositionalAll(io, content, 0) != content.len) return error.FileChangedDuringRead;
+        if (!Fingerprint.of(try file.stat(io)).eql(.of(stat_))) return error.FileChangedDuringRead;
+        if (!std.unicode.utf8ValidateSlice(content)) return error.InvalidUtf8;
+
+        if (std.mem.indexOf(u8, content, "\r\n") == null) {
+            try diff_text(self.allocator, edit_set, base, content);
+            return .lf;
+        }
+        const text = try self.allocator.alloc(u8, std.mem.replacementSize(u8, content, "\r\n", "\n"));
+        defer self.allocator.free(text);
+        _ = std.mem.replace(u8, content, "\r\n", "\n", text);
+        try diff_text(self.allocator, edit_set, base, text);
+        return .crlf;
+    }
+
+    fn diff_text(allocator: std.mem.Allocator, edit_set: *std.Io.Writer.Allocating, base: []const u8, text: []const u8) !void {
+        if (EditSet.middle_size(base, text) > max_diff_middle_bytes) return error.InputTooLarge;
+        return EditSet.diff_strings(allocator, edit_set, base, text);
     }
 
     fn read_ack(self: *@This(), key: StreamKey, seq: usize) void {

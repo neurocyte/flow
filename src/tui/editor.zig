@@ -46,6 +46,7 @@ const Allocator = std.mem.Allocator;
 const time = std.time;
 
 const double_click_time_ms = 350;
+const max_filter_diff_bytes = 32 * 1024;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
 const syntax_full_reparse_error_threshold = 3; // number of tree-sitter errors that trigger a full reparse
 
@@ -8442,10 +8443,14 @@ pub const Editor = struct {
             } else {
                 self.cancel_all_selections();
                 self.cancel_all_matches();
-                state.work_root = try b.load_from_string(buf.items, &state.eol_mode, &state.utf8_sanitized);
+                primary.cursor = state.old_primary.cursor;
+                state.work_root = if (try self.filter_edit_set(buffer, root, buf.items)) |edit_set| blk: {
+                    defer self.allocator.free(edit_set);
+                    state.eol_mode = .lf;
+                    break :blk try self.apply_text_edits(root, .{ .bytes = edit_set }, b.allocator);
+                } else try b.load_from_string(buf.items, &state.eol_mode, &state.utf8_sanitized);
                 state.bytes = buf.items.len;
                 state.chunks = 1;
-                primary.cursor = state.old_primary.cursor;
             }
         } else {
             self.cancel_all_selections();
@@ -8471,6 +8476,20 @@ pub const Editor = struct {
             defer if (then_msg) |msg| self.allocator.free(msg.bytes);
             try self.save_overwrite(then_msg, info.overwrite);
         }
+    }
+
+    fn filter_edit_set(self: *Self, buffer: *Buffer, root: Buffer.Root, output: []const u8) !?[]const u8 {
+        if (try self.buf_eol_mode() != .lf) return null;
+        if (std.mem.indexOfScalar(u8, output, '\r') != null or !std.unicode.utf8ValidateSlice(output)) return null;
+        const content = buffer.store_to_string_cached(root, .lf);
+        if (EditSet.middle_size(content, output) > max_filter_diff_bytes) return null;
+        var edit_set: std.Io.Writer.Allocating = .init(self.allocator);
+        defer edit_set.deinit();
+        EditSet.diff_strings(self.allocator, &edit_set, content, output) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return null,
+        };
+        return try edit_set.toOwnedSlice();
     }
 
     fn filter_deinit(self: *Self) void {

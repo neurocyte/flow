@@ -546,22 +546,23 @@ pub fn build_exe(
         },
     });
 
-    const FileStore_mod = b.createModule(.{
-        .root_source_file = b.path("src/FileStore.zig"),
-        .imports = &.{
-            .{ .name = "cbor", .module = cbor_mod },
-            .{ .name = "thespian", .module = thespian_mod },
-            .{ .name = "log", .module = log_mod },
-            .{ .name = "file_watcher", .module = file_watcher_mod },
-            .{ .name = "soft_root", .module = soft_root_mod },
-        },
-    });
-
     const EditSet_mod = b.createModule(.{
         .root_source_file = b.path("src/EditSet.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
+        },
+    });
+
+    const FileStore_mod = b.createModule(.{
+        .root_source_file = b.path("src/FileStore.zig"),
+        .imports = &.{
+            .{ .name = "EditSet", .module = EditSet_mod },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "log", .module = log_mod },
+            .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
 
@@ -1151,6 +1152,7 @@ pub fn build_exe(
                 .target = target,
                 .optimize = optimize,
                 .imports = &.{
+                    .{ .name = "EditSet", .module = EditSet_mod },
                     .{ .name = "cbor", .module = cbor_mod },
                     .{ .name = "thespian", .module = thespian_mod },
                     .{ .name = "log", .module = log_mod },

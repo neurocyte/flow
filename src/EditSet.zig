@@ -260,19 +260,22 @@ pub const DiffError = Writer.Error || error{ OutOfMemory, InputTooLarge };
 /// Writes the edit set that turns src into dst. The positions count lines
 /// by LF, so text for a buffer must use LF line endings in both strings.
 pub fn diff_strings(allocator: std.mem.Allocator, edit_set: *std.Io.Writer.Allocating, src: []const u8, dst: []const u8) DiffError!void {
-    if (src.len + dst.len > std.math.maxInt(i32) / 4) return error.InputTooLarge;
+    const middle: Middle = .of(src, dst);
+    const middle_src = src[middle.prefix .. src.len - middle.suffix];
+    const middle_dst = dst[middle.prefix .. dst.len - middle.suffix];
+    if (middle_src.len + middle_dst.len > std.math.maxInt(i32) / 4) return error.InputTooLarge;
 
     var arena_: std.heap.ArenaAllocator = .init(allocator);
     defer arena_.deinit();
     const arena = arena_.allocator();
 
     var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
-    const scratch = try arena.alloc(u32, 4 * (src.len + dst.len) + 2);
-    try dizzy.PrimitiveSliceDiffer(u8).diff(arena, &dizzy_edits, src, dst, scratch);
+    const scratch = try arena.alloc(u32, 4 * (middle_src.len + middle_dst.len) + 2);
+    try dizzy.PrimitiveSliceDiffer(u8).diff(arena, &dizzy_edits, middle_src, middle_dst, scratch);
 
     var hunks: std.ArrayList(Hunk) = .empty;
-    var src_pos: usize = 0;
-    var dst_pos: usize = 0;
+    var src_pos: usize = middle.prefix;
+    var dst_pos: usize = middle.prefix;
     for (dizzy_edits.items) |dizzy_edit| {
         const len = dizzy_edit.range.end - dizzy_edit.range.start;
         switch (dizzy_edit.kind) {
@@ -315,6 +318,25 @@ pub fn diff_strings(allocator: std.mem.Allocator, edit_set: *std.Io.Writer.Alloc
         });
     }
     try writer.finish(.{ .base_hash = hash(src), .result_hash = hash(dst) });
+}
+
+const Middle = struct {
+    prefix: usize,
+    suffix: usize,
+
+    fn of(src: []const u8, dst: []const u8) Middle {
+        const prefix = std.mem.indexOfDiff(u8, src, dst) orelse @min(src.len, dst.len);
+        const max_suffix = @min(src.len, dst.len) - prefix;
+        var suffix: usize = 0;
+        while (suffix < max_suffix and src[src.len - 1 - suffix] == dst[dst.len - 1 - suffix]) suffix += 1;
+        return .{ .prefix = prefix, .suffix = suffix };
+    }
+};
+
+/// number of bytes between common beginning and end
+pub fn middle_size(src: []const u8, dst: []const u8) usize {
+    const middle: Middle = .of(src, dst);
+    return src.len + dst.len - 2 * (middle.prefix + middle.suffix);
 }
 
 const Hunk = struct {
@@ -692,6 +714,37 @@ test "diff_strings: fixed cases" {
         .{ .begin = .{ .row = 0, .pos = 9 }, .end = .{ .row = 0, .pos = 9 }, .text = "0" },
         .{ .begin = .{ .row = 1, .pos = 4 }, .end = .{ .row = 1, .pos = 5 }, .text = "c" },
     });
+}
+
+test "middle_size" {
+    try testing.expectEqual(0, middle_size("same", "same"));
+    try testing.expectEqual(1, middle_size("abcdef", "abcXdef"));
+    try testing.expectEqual(2, middle_size("abcdef", "abXdef"));
+    try testing.expectEqual(3, middle_size("aaa", ""));
+    try testing.expectEqual(1, middle_size("aaa", "aaaa"));
+    try testing.expectEqual(6, middle_size("abc", "xyz"));
+}
+
+test "diff_strings: a change in the middle of a long text" {
+    var part: std.ArrayList(u8) = .empty;
+    defer part.deinit(testing.allocator);
+    for (0..2000) |_| try part.appendSlice(testing.allocator, "0123456789abcdef\n");
+    const src = try std.mem.concat(testing.allocator, u8, &.{ part.items, "old line\n", part.items });
+    defer testing.allocator.free(src);
+    const dst = try std.mem.concat(testing.allocator, u8, &.{ part.items, "new line\n", part.items });
+    defer testing.allocator.free(dst);
+    try expect_diff(src, dst, &.{
+        .{ .begin = .{ .row = 2000, .pos = 0 }, .end = .{ .row = 2000, .pos = 3 }, .text = "new" },
+    });
+    const added = try std.mem.concat(testing.allocator, u8, &.{ part.items, "added\n", part.items });
+    defer testing.allocator.free(added);
+    const both = try std.mem.concat(testing.allocator, u8, &.{ part.items, part.items });
+    defer testing.allocator.free(both);
+    try testing.expectEqual(6, middle_size(both, added));
+    var edit_set: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer edit_set.deinit();
+    try diff_strings(testing.allocator, &edit_set, both, added);
+    try expect_round_trip(both, added, edit_set.written());
 }
 
 test "diff_strings: a replacement is one edit" {

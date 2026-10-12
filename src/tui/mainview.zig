@@ -106,6 +106,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .lsp_info = .init(allocator),
         .filelists = FileList.Manager.init(allocator),
     };
+    self.set_edit_set_applier();
     project_manager.request_file_store() catch |e| std.log.err("request_file_store: {}", .{e});
     self.startup_render_block = tui.block_render(startup_render_block_timeout_ms);
     errdefer self.unblock_startup_render();
@@ -751,6 +752,7 @@ const cmds = struct {
             const file_store = self.buffer_manager.take_file_store();
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
+            self.set_edit_set_applier();
             if (file_store) |store| self.buffer_manager.set_file_store(store);
             tui.clear_probe_cache();
         }
@@ -3496,6 +3498,15 @@ fn load_for_workspace_edit(self: *Self, file_path: []const u8, resume_: Workspac
         .then = .{ .bytes = then.written() },
         .on_error = .{ .bytes = on_error.written() },
     });
+}
+
+fn set_edit_set_applier(self: *Self) void {
+    self.buffer_manager.edit_set_applier = .{ .ctx = self, .apply = struct {
+        fn apply(ctx: *anyopaque, buffer: *Buffer, edit_set: []const u8, now: std.Io.Timestamp) anyerror!void {
+            const self_: *Self = @ptrCast(@alignCast(ctx));
+            return self_.apply_text_edits_to_buffer(buffer, edit_set, now);
+        }
+    }.apply };
 }
 
 fn apply_text_edits_to_buffer(self: *Self, buffer: *Buffer, text_edits: []const u8, now: std.Io.Timestamp) !void {

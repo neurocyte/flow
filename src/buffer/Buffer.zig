@@ -1654,6 +1654,16 @@ pub fn reset_from_string_and_update(self: *Self, s: []const u8, now: std.Io.Time
     self.mtime = now.toMilliseconds();
 }
 
+pub fn reloaded(self: *Self, eol_mode: EolMode, now: std.Io.Timestamp) void {
+    self.last_save = self.root;
+    self.file_exists = true;
+    self.file_state = .in_sync;
+    self.file_eol_mode = eol_mode;
+    self.file_utf8_sanitized = false;
+    self.last_save_eol_mode = eol_mode;
+    self.mtime = now.toMilliseconds();
+}
+
 pub fn load_from_owned_bytes_and_update(self: *Self, file_path: []const u8, bytes: []u8, file_exists: bool, now: std.Io.Timestamp) LoadError!void {
     const zone = tracy.initZone(@src(), .{ .name = "buffer.load" });
     defer zone.deinit();
