@@ -43,6 +43,7 @@ pub const test_internal = struct {
     pub const write_code_actions = @import("LSPClient.zig").write_code_actions;
     pub const write_configuration = @import("LSPClient.zig").write_configuration;
     pub const DocumentHashes = @import("LSPClient.zig").DocumentHashes;
+    pub const write_did_change = @import("LSPClient.zig").write_did_change;
 };
 
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});

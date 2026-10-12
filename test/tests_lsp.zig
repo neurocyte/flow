@@ -138,6 +138,86 @@ test "workspace edit: neither changes nor documentChanges" {
     try std.testing.expectError(error.InvalidWorkspaceEdit, write_workspace_edit(&result.writer, workspace_edit, null));
 }
 
+const write_did_change = @import("project_manager").test_internal.write_did_change;
+
+const ContentChange = struct {
+    range: struct {
+        start: struct { line: usize, character: usize },
+        end: struct { line: usize, character: usize },
+    },
+    text: []const u8,
+};
+
+fn line_offset(text: []const u8, line: usize, character: usize) usize {
+    var offset: usize = 0;
+    var row = line;
+    while (row > 0) : (row -= 1) offset = std.mem.indexOfScalarPos(u8, text, offset, '\n').? + 1;
+    return offset + character;
+}
+
+// apply the content changes one after the other, as a language server does
+fn expect_did_change(src: []const u8, dst: []const u8, expected_changes: ?usize) !void {
+    var params: std.Io.Writer.Allocating = .init(a);
+    defer params.deinit();
+    try write_did_change(a, &params.writer, "file:///a", 7, src, dst);
+    const json = try cbor.toJsonAlloc(a, params.written());
+    defer a.free(json);
+    const parsed = try std.json.parseFromSlice(struct {
+        textDocument: struct { uri: []const u8, version: usize },
+        contentChanges: []const ContentChange,
+    }, a, json, .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("file:///a", parsed.value.textDocument.uri);
+    try std.testing.expectEqual(7, parsed.value.textDocument.version);
+    if (expected_changes) |count| try std.testing.expectEqual(count, parsed.value.contentChanges.len);
+
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(a);
+    try text.appendSlice(a, src);
+    for (parsed.value.contentChanges) |change| {
+        const begin = line_offset(text.items, change.range.start.line, change.range.start.character);
+        const end = line_offset(text.items, change.range.end.line, change.range.end.character);
+        try text.replaceRange(a, begin, end - begin, change.text);
+    }
+    try std.testing.expectEqualStrings(dst, text.items);
+}
+
+test "did change: the changes applied in order give the new text" {
+    try expect_did_change("one\ntwo\n", "one\ntwo\n", 0);
+    try expect_did_change("one\ntwo\n", "one\n2\n", 1);
+    try expect_did_change("let a = 1;\nlet b = 2;\n", "let a = 10;\nlet c = 2;\nlet d;\n", 3);
+    try expect_did_change("one\r\ntwo\r\n", "one\r\nthree\r\ntwo\r\n", 1);
+    try expect_did_change("", "new\nfile\n", 1);
+    try expect_did_change("old\nfile\n", "", 1);
+    try expect_did_change("caf\u{e9}\n", "caf\u{e8}\n", 1);
+}
+
+test "did change: random texts" {
+    const pieces = [_][]const u8{ "a", "b", " ", "\n", "\n", "\u{e9}", "\u{65e5}", "fn ", "x = 1;" };
+    var prng: std.Random.DefaultPrng = .init(0x5eed);
+    const random = prng.random();
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(a);
+    var dst: std.ArrayList(u8) = .empty;
+    defer dst.deinit(a);
+    for (0..300) |_| {
+        src.clearRetainingCapacity();
+        dst.clearRetainingCapacity();
+        for (0..random.uintLessThan(usize, 40)) |_| {
+            const piece = pieces[random.uintLessThan(usize, pieces.len)];
+            switch (random.uintLessThan(u8, 10)) {
+                0 => try src.appendSlice(a, piece),
+                1 => try dst.appendSlice(a, piece),
+                else => {
+                    try src.appendSlice(a, piece);
+                    try dst.appendSlice(a, piece);
+                },
+            }
+        }
+        try expect_did_change(src.items, dst.items, null);
+    }
+}
+
 const DocumentHashes = @import("project_manager").test_internal.DocumentHashes;
 
 test "document hashes: lookup by version and of the last version" {

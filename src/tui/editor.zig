@@ -6729,11 +6729,17 @@ pub const Editor = struct {
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
                         defer frame.deinit();
-                        const diff = @import("diff");
-                        const edits = try diff.dizzy.diff(self.allocator, content, old_content.written());
+                        var edit_set: std.Io.Writer.Allocating = .init(self.allocator);
+                        defer edit_set.deinit();
+                        try EditSet.diff_strings(self.allocator, &edit_set, old_content.written(), content);
+                        const edits = try EditSet.byte_edits(self.allocator, .{ .bytes = edit_set.written() }, old_content.written());
                         defer self.allocator.free(edits);
-                        for (edits) |edit|
-                            syntax_process_edit(syn, edit);
+                        // tree-sitter takes the edits one after the other, last edit first keeps the offsets valid
+                        var index = edits.len;
+                        while (index > 0) {
+                            index -= 1;
+                            syntax_process_edit(syn, edits[index]);
+                        }
                         edit_count = edits.len;
                     }
                     {
@@ -6774,25 +6780,15 @@ pub const Editor = struct {
         }
     }
 
-    fn syntax_process_edit(syn: *syntax, edit: @import("diff").Diff) void {
-        switch (edit.kind) {
-            .insert => syn.edit(.{
-                .start_byte = @intCast(edit.start),
-                .old_end_byte = @intCast(edit.start),
-                .new_end_byte = @intCast(edit.start + edit.bytes.len),
-                .start_point = .{ .row = 0, .column = 0 },
-                .old_end_point = .{ .row = 0, .column = 0 },
-                .new_end_point = .{ .row = 0, .column = 0 },
-            }),
-            .delete => syn.edit(.{
-                .start_byte = @intCast(edit.start),
-                .old_end_byte = @intCast(edit.start + edit.bytes.len),
-                .new_end_byte = @intCast(edit.start),
-                .start_point = .{ .row = 0, .column = 0 },
-                .old_end_point = .{ .row = 0, .column = 0 },
-                .new_end_point = .{ .row = 0, .column = 0 },
-            }),
-        }
+    fn syntax_process_edit(syn: *syntax, edit: EditSet.ByteEdit) void {
+        syn.edit(.{
+            .start_byte = @intCast(edit.begin),
+            .old_end_byte = @intCast(edit.end),
+            .new_end_byte = @intCast(edit.begin + edit.text.len),
+            .start_point = .{ .row = 0, .column = 0 },
+            .old_end_point = .{ .row = 0, .column = 0 },
+            .new_end_point = .{ .row = 0, .column = 0 },
+        });
     }
 
     fn reset_syntax(self: *Self) void {
@@ -7994,47 +7990,27 @@ pub const Editor = struct {
         const root = buffer.root;
         const eol_mode = self.buf_eol_mode() catch return;
         const content = buffer.store_to_string_cached(root, eol_mode);
-        var last_begin_row: usize = 0;
-        var last_begin_col_pos: usize = 0;
-        var last_end_row: usize = 0;
-        var last_end_col_pos: usize = 0;
+        var edit_set: std.Io.Writer.Allocating = .init(self.allocator);
+        defer edit_set.deinit();
+        try EditSet.diff_strings(self.allocator, &edit_set, content, new_content);
+        var edits: EditSet.Iterator = try .init(.{ .bytes = edit_set.written() });
+        var last: ?EditSet.Edit = null;
+        while (try edits.next()) |edit_| {
+            var edit = edit_;
+            if (edit.begin.order(edit.end) == .eq) continue;
+            if (last) |last_| {
+                if (last_.end.order(edit.begin) == .eq) edit.begin = last_.begin else try self.push_cursor();
+            } else self.cancel_all_selections();
+            last = edit;
 
-        const diffs = try @import("diff").dizzy.diff(self.allocator, new_content, content);
-        defer self.allocator.free(diffs);
-        var first = true;
-        for (diffs) |diff| {
-            switch (diff.kind) {
-                .delete => {
-                    var begin_row, var begin_col_pos = count_lines(content[0..diff.start]);
-                    const end_row, const end_col_pos = count_lines(content[0 .. diff.start + diff.bytes.len]);
-                    if (begin_row == last_end_row and begin_col_pos == last_end_col_pos) {
-                        begin_row = last_begin_row;
-                        begin_col_pos = last_begin_col_pos;
-                    } else {
-                        if (first) {
-                            self.cancel_all_selections();
-                        } else {
-                            try self.push_cursor();
-                        }
-                        first = false;
-                    }
-
-                    last_begin_row = begin_row;
-                    last_begin_col_pos = begin_col_pos;
-                    last_end_row = end_row;
-                    last_end_col_pos = end_col_pos;
-
-                    const sel = Selection.from_pos(.{
-                        .begin = .{ .row = begin_row, .col = begin_col_pos },
-                        .end = .{ .row = end_row, .col = end_col_pos },
-                    }, root, self.metrics);
-                    const primary = self.get_primary();
-                    primary.selection = sel;
-                    primary.cursor = sel.end;
-                    self.need_render();
-                },
-                else => {},
-            }
+            const sel = Selection.from_pos(.{
+                .begin = .{ .row = edit.begin.row, .col = edit.begin.pos },
+                .end = .{ .row = edit.end.row, .col = edit.end.pos },
+            }, root, self.metrics);
+            const primary = self.get_primary();
+            primary.selection = sel;
+            primary.cursor = sel.end;
+            self.need_render();
         }
     }
 
@@ -8055,17 +8031,6 @@ pub const Editor = struct {
         for (cursels[0 .. idx + 1]) |*cursel_| if (cursel_.*) |*cursel| {
             (try self.cursels.addOne(self.allocator)).* = cursel.*;
         };
-    }
-
-    fn count_lines(content: []const u8) struct { usize, usize } {
-        var pos = content;
-        var offset = content.len;
-        var lines: usize = 0;
-        while (pos.len > 0) : (pos = pos[1..]) if (pos[0] == '\n') {
-            offset = pos.len - 1;
-            lines += 1;
-        };
-        return .{ lines, offset };
     }
 
     pub fn hover(self: *Self, _: Context) Result {

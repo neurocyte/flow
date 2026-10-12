@@ -6,7 +6,6 @@ const root = @import("soft_root").root;
 const file_link = @import("file_link");
 
 const filelist_stream_references: usize = 1;
-const dizzy = @import("dizzy");
 const tracy = @import("tracy");
 const Buffer = @import("Buffer");
 const FileStore = @import("FileStore");
@@ -2062,90 +2061,45 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, hash: Edit
         .incremental => {},
     }
     const uri = try make_URI(self.allocator, self.project_name, file_path);
-
-    var arena_ = std.heap.ArenaAllocator.init(self.allocator);
-    const arena = arena_.allocator();
-    var scratch_alloc: ?[]u32 = null;
-    defer {
-        const frame = tracy.initZone(@src(), .{ .name = "deinit" });
-        self.allocator.free(uri);
-        arena_.deinit();
-        frame.deinit();
-        if (scratch_alloc) |scratch|
-            self.allocator.free(scratch);
-    }
-
-    var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
-    var edits_cb: std.Io.Writer.Allocating = .init(self.allocator);
-    const writer = &edits_cb.writer;
-
-    const scratch_len = 4 * (text_dst.len + text_src.len) + 2;
-    const scratch = blk: {
-        const frame = tracy.initZone(@src(), .{ .name = "scratch" });
-        defer frame.deinit();
-        break :blk try self.allocator.alloc(u32, scratch_len);
+    defer self.allocator.free(uri);
+    var msg: std.Io.Writer.Allocating = .init(self.allocator);
+    defer msg.deinit();
+    write_did_change(self.allocator, &msg.writer, uri, version, text_src, text_dst) catch |e| switch (e) {
+        error.InputTooLarge => return self.did_change_full(file_path, version, text_dst),
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.LspFailed,
     };
-    scratch_alloc = scratch;
+    self.lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
+}
 
+pub fn write_did_change(allocator: std.mem.Allocator, writer: *std.Io.Writer, uri: []const u8, version: usize, text_src: []const u8, text_dst: []const u8) !void {
+    var edit_set: std.Io.Writer.Allocating = .init(allocator);
+    defer edit_set.deinit();
     {
         const frame = tracy.initZone(@src(), .{ .name = "diff" });
         defer frame.deinit();
-        try dizzy.PrimitiveSliceDiffer(u8).diff(arena, &dizzy_edits, text_src, text_dst, scratch);
+        try EditSet.diff_strings(allocator, &edit_set, text_src, text_dst);
     }
-    var lines_dst: usize = 0;
-    var last_offset: usize = 0;
-    var edits_count: usize = 0;
+    const edits = try EditSet.collect(allocator, .{ .bytes = edit_set.written() });
+    defer allocator.free(edits);
 
-    {
-        const frame = tracy.initZone(@src(), .{ .name = "transform" });
-        defer frame.deinit();
-        for (dizzy_edits.items) |dizzy_edit| {
-            switch (dizzy_edit.kind) {
-                .equal => {
-                    scan_char(text_src[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
-                },
-                .insert => {
-                    const line_start_dst: usize = lines_dst;
-                    try cbor.writeValue(writer, .{
-                        .range = .{
-                            .start = .{ .line = line_start_dst, .character = last_offset },
-                            .end = .{ .line = line_start_dst, .character = last_offset },
-                        },
-                        .text = text_dst[dizzy_edit.range.start..dizzy_edit.range.end],
-                    });
-                    edits_count += 1;
-                    scan_char(text_dst[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
-                },
-                .delete => {
-                    var line_end_dst: usize = lines_dst;
-                    var offset_end_dst: usize = last_offset;
-                    scan_char(text_src[dizzy_edit.range.start..dizzy_edit.range.end], &line_end_dst, '\n', &offset_end_dst);
-                    try cbor.writeValue(writer, .{
-                        .range = .{
-                            .start = .{ .line = lines_dst, .character = last_offset },
-                            .end = .{ .line = line_end_dst, .character = offset_end_dst },
-                        },
-                        .text = "",
-                    });
-                    edits_count += 1;
-                },
-            }
-        }
-    }
-    {
-        const frame = tracy.initZone(@src(), .{ .name = "send" });
-        defer frame.deinit();
-        var msg: std.Io.Writer.Allocating = .init(self.allocator);
-        defer msg.deinit();
-        const msg_writer = &msg.writer;
-        try cbor.writeMapHeader(msg_writer, 2);
-        try cbor.writeValue(msg_writer, "textDocument");
-        try cbor.writeValue(msg_writer, .{ .uri = uri, .version = version });
-        try cbor.writeValue(msg_writer, "contentChanges");
-        try cbor.writeArrayHeader(msg_writer, edits_count);
-        _ = try msg_writer.write(edits_cb.written());
-
-        self.lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
+    try cbor.writeMapHeader(writer, 2);
+    try cbor.writeValue(writer, "textDocument");
+    try cbor.writeValue(writer, .{ .uri = uri, .version = version });
+    try cbor.writeValue(writer, "contentChanges");
+    try cbor.writeArrayHeader(writer, edits.len);
+    // the server applies the changes one after the other, last edit first keeps the positions of the base document valid
+    var index = edits.len;
+    while (index > 0) {
+        index -= 1;
+        const edit = edits[index];
+        try cbor.writeValue(writer, .{
+            .range = .{
+                .start = .{ .line = edit.begin.row, .character = edit.begin.pos },
+                .end = .{ .line = edit.end.row, .character = edit.end.pos },
+            },
+            .text = edit.text,
+        });
     }
 }
 
@@ -2156,18 +2110,6 @@ fn did_change_full(self: *Self, file_path: []const u8, version: usize, text: []c
         .textDocument = .{ .uri = uri, .version = version },
         .contentChanges = .{.{ .text = text }},
     }) catch return error.LspFailed;
-}
-
-fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) void {
-    var pos = chars;
-    if (last_offset) |off| off.* += pos.len;
-    while (pos.len > 0) {
-        if (pos[0] == char) {
-            if (last_offset) |off| off.* = pos.len - 1;
-            lines.* += 1;
-        }
-        pos = pos[1..];
-    }
 }
 
 pub fn did_save(self: *Self, file_path: []const u8) LspError!void {

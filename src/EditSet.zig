@@ -132,18 +132,67 @@ pub const Iterator = struct {
 /// provide `fn hash(doc) Hash` and `fn replace(doc, edit: Edit) !void`.
 /// After an error the document may hold a part of the edits.
 pub fn apply(allocator: std.mem.Allocator, edit_set: cbor.Raw, doc: anytype) !void {
-    var iter: Iterator = try .init(edit_set);
+    const iter: Iterator = try .init(edit_set);
     if (iter.tail.base_hash) |expected| if (expected != doc.hash()) return error.BaseMismatch;
-    var edits: std.ArrayList(Edit) = try .initCapacity(allocator, iter.remaining);
-    defer edits.deinit(allocator);
-    while (try iter.next()) |edit| edits.appendAssumeCapacity(edit);
-    var index = edits.items.len;
+    const edits = try collect(allocator, edit_set);
+    defer allocator.free(edits);
+    var index = edits.len;
     while (index > 0) {
         index -= 1;
-        try doc.replace(edits.items[index]);
+        try doc.replace(edits[index]);
     }
     if (iter.tail.result_hash) |expected| if (expected != doc.hash()) return error.ResultMismatch;
 }
+
+/// The edits of an edit set as a slice. The texts point into edit_set.
+pub fn collect(allocator: std.mem.Allocator, edit_set: cbor.Raw) (Iterator.Error || error{OutOfMemory})![]Edit {
+    var iter: Iterator = try .init(edit_set);
+    const result = try allocator.alloc(Edit, iter.remaining);
+    errdefer allocator.free(result);
+    for (result) |*edit| edit.* = (try iter.next()).?;
+    return result;
+}
+
+pub const ByteEdit = struct {
+    begin: usize,
+    end: usize,
+    text: []const u8,
+};
+
+/// The edits of an edit set with byte offsets in src, the base document.
+/// For a consumer that takes the edits one after the other, for example
+/// tree-sitter or LSP didChange, give them last edit first. Then each
+/// offset is still valid when its edit is applied.
+pub fn byte_edits(allocator: std.mem.Allocator, edit_set: cbor.Raw, src: []const u8) (Iterator.Error || error{OutOfMemory})![]ByteEdit {
+    var iter: Iterator = try .init(edit_set);
+    const result = try allocator.alloc(ByteEdit, iter.remaining);
+    errdefer allocator.free(result);
+    var scan: OffsetScan = .{};
+    for (result) |*byte_edit| {
+        const edit = (try iter.next()).?;
+        byte_edit.* = .{
+            .begin = scan.offset(src, edit.begin) orelse return error.InvalidEditSet,
+            .end = scan.offset(src, edit.end) orelse return error.InvalidEditSet,
+            .text = edit.text,
+        };
+    }
+    return result;
+}
+
+const OffsetScan = struct {
+    row: usize = 0,
+    line_begin: usize = 0,
+
+    fn offset(self: *OffsetScan, text: []const u8, position: Position) ?usize {
+        while (self.row < position.row) {
+            const eol = std.mem.indexOfScalarPos(u8, text, self.line_begin, '\n') orelse return null;
+            self.row += 1;
+            self.line_begin = eol + 1;
+        }
+        const result = self.line_begin + position.pos;
+        return if (result <= text.len) result else null;
+    }
+};
 
 pub fn is_empty(edit_set: cbor.Raw) bool {
     if (edit_set.bytes.len == 0) return true;
@@ -469,6 +518,48 @@ test "write rejects unsorted edits" {
         .{ .begin = .{ .row = 1 }, .end = .{ .row = 1 }, .text = "a" },
         .{ .begin = .{}, .end = .{}, .text = "b" },
     }, .{}));
+}
+
+test "byte_edits: offsets in the base document" {
+    const src = "one\ntwo\nthree\n";
+    var edit_set: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer edit_set.deinit();
+    try write(&edit_set.writer, &.{
+        .{ .begin = .{ .row = 0, .pos = 1 }, .end = .{ .row = 0, .pos = 3 }, .text = "N" },
+        .{ .begin = .{ .row = 1, .pos = 3 }, .end = .{ .row = 2, .pos = 0 }, .text = "" },
+        .{ .begin = .{ .row = 3, .pos = 0 }, .end = .{ .row = 3, .pos = 0 }, .text = "end" },
+    }, .{});
+    const result = try byte_edits(testing.allocator, .{ .bytes = edit_set.written() }, src);
+    defer testing.allocator.free(result);
+    try testing.expectEqual(3, result.len);
+    try testing.expectEqual(1, result[0].begin);
+    try testing.expectEqual(3, result[0].end);
+    try testing.expectEqual(7, result[1].begin);
+    try testing.expectEqual(8, result[1].end);
+    try testing.expectEqual(14, result[2].begin);
+    try testing.expectEqual(14, result[2].end);
+    try testing.expectEqualStrings("end", result[2].text);
+
+    try testing.expectError(error.InvalidEditSet, byte_edits(testing.allocator, .{ .bytes = edit_set.written() }, "one\n"));
+}
+
+test "byte_edits: applied last edit first they give the target" {
+    const src = "let a = 1;\nlet b = 2;\n\u{e9}t\u{e9}\n";
+    const dst = "let a = 10;\nconst c = 2;\n\u{e8}t\u{e9}!\nmore\n";
+    var edit_set: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer edit_set.deinit();
+    try diff_strings(testing.allocator, &edit_set, src, dst);
+    const result = try byte_edits(testing.allocator, .{ .bytes = edit_set.written() }, src);
+    defer testing.allocator.free(result);
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(testing.allocator);
+    try text.appendSlice(testing.allocator, src);
+    var index = result.len;
+    while (index > 0) {
+        index -= 1;
+        try text.replaceRange(testing.allocator, result[index].begin, result[index].end - result[index].begin, result[index].text);
+    }
+    try testing.expectEqualStrings(dst, text.items);
 }
 
 test "empty edit set without hashes" {
