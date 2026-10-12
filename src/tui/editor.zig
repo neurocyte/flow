@@ -5,6 +5,7 @@ const cbor = @import("cbor");
 const bin_path = @import("bin_path");
 const log = @import("log");
 const Buffer = @import("Buffer");
+const EditSet = @import("EditSet");
 const ripgrep = @import("ripgrep");
 const tracy = @import("tracy");
 const text_manip = @import("text_manip");
@@ -6233,9 +6234,7 @@ pub const Editor = struct {
     }
 
     fn has_text_edits(text_edits: cbor.Raw) bool {
-        var iter = text_edits.bytes;
-        if (iter.len == 0) return false;
-        return (cbor.decodeArrayHeader(&iter) catch 0) > 0;
+        return !EditSet.is_empty(text_edits);
     }
 
     fn completion_item_has_data(item: cbor.Raw) bool {
@@ -6308,40 +6307,6 @@ pub const Editor = struct {
         self.clamp(now);
     }
 
-    const TextEdit = struct {
-        sel: Selection,
-        text: []const u8,
-
-        fn less_fn(_: void, lhs: TextEdit, rhs: TextEdit) bool {
-            return rhs.sel.begin.right_of(lhs.sel.begin);
-        }
-    };
-
-    // decode [[row, pos, end_row, end_pos, text], ...] into edits sorted by position
-    fn decode_text_edits(allocator: Allocator, root: Buffer.Root, text_edits: cbor.Raw, metrics: Buffer.Metrics) !std.ArrayList(TextEdit) {
-        var edits: std.ArrayList(TextEdit) = .empty;
-        errdefer edits.deinit(allocator);
-        var iter = text_edits.bytes;
-        if (iter.len == 0) return edits;
-        var len = try cbor.decodeArrayHeader(&iter);
-        while (len > 0) : (len -= 1) {
-            var pos: Selection = .{};
-            var text: []const u8 = undefined;
-            if (!try cbor.matchValue(&iter, .{
-                cbor.extract(&pos.begin.row),
-                cbor.extract(&pos.begin.col),
-                cbor.extract(&pos.end.row),
-                cbor.extract(&pos.end.col),
-                cbor.extract(&text),
-            })) return error.InvalidTextEdit;
-            var sel = pos.from_pos(root, metrics);
-            sel.normalize();
-            (try edits.addOne(allocator)).* = .{ .sel = sel, .text = text };
-        }
-        std.mem.sort(TextEdit, edits.items, {}, TextEdit.less_fn);
-        return edits;
-    }
-
     pub fn apply_buffer_text_edits(self: *Self, text_edits: cbor.Raw, now: std.Io.Timestamp) Result {
         const b = try self.buf_for_update();
         const root = try self.apply_text_edits(b.root, text_edits, b.allocator);
@@ -6350,29 +6315,48 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    fn apply_text_edits(self: *Self, root: Buffer.Root, text_edits: cbor.Raw, allocator: Allocator) !Buffer.Root {
-        var edits = try decode_text_edits(self.allocator, root, text_edits, self.metrics);
-        defer edits.deinit(self.allocator);
+    const EditSetDocument = struct {
+        editor: *Self,
+        base: Buffer.Root,
+        root: Buffer.Root,
+        allocator: Allocator,
 
-        var root_ = root;
-        var idx = edits.items.len;
-        while (idx > 0) {
-            idx -= 1;
-            root_ = try self.apply_text_edit(root_, edits.items[idx], allocator);
+        pub fn hash(doc: *const @This()) EditSet.Hash {
+            return doc.root.hash();
         }
-        return root_;
+
+        pub fn replace(doc: *@This(), edit: EditSet.Edit) !void {
+            const pos: Selection = .{
+                .begin = .{ .row = edit.begin.row, .col = edit.begin.pos },
+                .end = .{ .row = edit.end.row, .col = edit.end.pos },
+            };
+            doc.root = try doc.editor.apply_text_edit(doc.root, pos.from_pos(doc.base, doc.editor.metrics), edit.text, doc.allocator);
+        }
+    };
+
+    fn apply_text_edits(self: *Self, root: Buffer.Root, text_edits: cbor.Raw, allocator: Allocator) !Buffer.Root {
+        if (text_edits.bytes.len == 0) return root;
+        var saved = try self.cursels.clone(self.allocator);
+        defer saved.deinit(self.allocator);
+        var doc: EditSetDocument = .{ .editor = self, .base = root, .root = root, .allocator = allocator };
+        EditSet.apply(self.allocator, text_edits, &doc) catch |e| {
+            std.mem.swap(CurSel.List, &self.cursels, &saved);
+            log_edit_set_error(self.file_path orelse "", text_edits, e);
+            return e;
+        };
+        return doc.root;
     }
 
-    fn apply_text_edit(self: *Self, root: Buffer.Root, edit: TextEdit, allocator: Allocator) !Buffer.Root {
-        var cursel: CurSel = .{ .cursor = edit.sel.end };
+    fn apply_text_edit(self: *Self, root: Buffer.Root, sel: Selection, text: []const u8, allocator: Allocator) !Buffer.Root {
+        var cursel: CurSel = .{ .cursor = sel.end };
         var root_ = root;
-        if (edit.text.len > 0) {
-            cursel.cursor.row, cursel.cursor.col, root_ = try root.insert_chars(edit.sel.end.row, edit.sel.end.col, edit.text, allocator, self.metrics);
-            self.nudge_insert(.insert(.{ .begin = edit.sel.end, .end = cursel.cursor }, root, root_, self.metrics), &cursel, edit.text.len);
+        if (text.len > 0) {
+            cursel.cursor.row, cursel.cursor.col, root_ = try root.insert_chars(sel.end.row, sel.end.col, text, allocator, self.metrics);
+            self.nudge_insert(.insert(.{ .begin = sel.end, .end = cursel.cursor }, root, root_, self.metrics), &cursel, text.len);
         }
-        if (!edit.sel.empty()) {
+        if (!sel.empty()) {
             const primary = self.primary_index();
-            root_, _, _ = try self.delete_range(root_, &cursel, edit.sel, allocator);
+            root_, _, _ = try self.delete_range(root_, &cursel, sel, allocator);
             // an edit must not remove the primary cursor, move it to the end of the edited range
             if (primary) |idx| if (self.cursels.items[idx] == null) {
                 self.cursels.items[idx] = .{ .cursor = cursel.cursor };
@@ -8776,24 +8760,25 @@ pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manag
 /// apply text edits to a buffer that is not shown in any editor
 pub fn apply_text_edits_to_buffer(allocator: Allocator, buffer: *Buffer, text_edits: cbor.Raw, metrics: Buffer.Metrics, now: std.Io.Timestamp) !void {
     const old_root = buffer.root;
-    var edits = try Editor.decode_text_edits(allocator, old_root, text_edits, metrics);
-    defer edits.deinit(allocator);
-
-    var root = old_root;
-    var idx = edits.items.len;
-    while (idx > 0) {
-        idx -= 1;
-        const edit = edits.items[idx];
-        if (!edit.sel.empty())
-            root, _ = try root.delete_range_char(edit.sel, buffer.allocator, null, metrics);
-        if (edit.text.len > 0)
-            _, _, root = try root.insert_chars(edit.sel.begin.row, edit.sel.begin.col, edit.text, buffer.allocator, metrics);
-    }
+    const root = old_root.apply_edit_set(buffer.allocator, allocator, text_edits, metrics) catch |e| {
+        log_edit_set_error(buffer.get_file_path(), text_edits, e);
+        return e;
+    };
     if (root == old_root) return;
 
     try buffer.store_undo(&.{});
     buffer.update(root, now);
     try buffer_lsp.sync(buffer);
+}
+
+fn log_edit_set_error(file_path: []const u8, edit_set: cbor.Raw, e: anyerror) void {
+    if (e != error.ResultMismatch) return;
+    const iter = EditSet.Iterator.init(edit_set) catch return;
+    std.log.err("{s}: edit set gave the wrong result, the content is unchanged (base {?x}, result {?x})", .{
+        file_path,
+        iter.tail.base_hash,
+        iter.tail.result_hash,
+    });
 }
 
 pub const EditorWidget = struct {

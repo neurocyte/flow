@@ -9,7 +9,7 @@ fn expect_workspace_edit(json: []const u8, expected_json: []const u8) !void {
     defer a.free(workspace_edit);
     var result: std.Io.Writer.Allocating = .init(a);
     defer result.deinit();
-    try write_workspace_edit(&result.writer, workspace_edit);
+    try write_workspace_edit(&result.writer, workspace_edit, null);
     const result_json = try cbor.toJsonAlloc(a, result.written());
     defer a.free(result_json);
     try std.testing.expectEqualStrings(expected_json, result_json);
@@ -25,7 +25,7 @@ test "workspace edit: changes" {
         \\    {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"bar\n"}]
         \\}}
     ,
-        \\[["/src/a.zig",null,[[1,2,1,5,"foo"],[7,0,8,0,""]]],["/src/b.zig",null,[[0,0,0,0,"bar\n"]]]]
+        \\[["/src/a.zig",null,[[[1,2,1,5,"foo"],[7,0,8,0,""]],null,null,null,null]],["/src/b.zig",null,[[[0,0,0,0,"bar\n"]],null,null,null,null]]]
     );
 }
 
@@ -39,8 +39,34 @@ test "workspace edit: documentChanges" {
         \\   "textDocument":{"version":null,"uri":"file:///src/b.zig"}}
         \\]}
     ,
-        \\[["/src/a.zig",4,[[1,2,1,5,"foo"]]],["/src/b.zig",null,[[3,0,3,1,"x"]]]]
+        \\[["/src/a.zig",4,[[[1,2,1,5,"foo"]],null,null,null,null]],["/src/b.zig",null,[[[3,0,3,1,"x"]],null,null,null,null]]]
     );
+}
+
+test "workspace edit: edits are sorted, two inserts at one position keep their order" {
+    try expect_workspace_edit(
+        \\{"changes":{"file:///src/a.zig":[
+        \\  {"range":{"start":{"line":7,"character":0},"end":{"line":8,"character":0}},"newText":""},
+        \\  {"range":{"start":{"line":1,"character":2},"end":{"line":1,"character":2}},"newText":"first"},
+        \\  {"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":1}},"newText":"x"},
+        \\  {"range":{"start":{"line":1,"character":2},"end":{"line":1,"character":2}},"newText":"second"}]
+        \\}}
+    ,
+        \\[["/src/a.zig",null,[[[0,1,0,4,"x"],[1,2,1,2,"first"],[1,2,1,2,"second"],[7,0,8,0,""]],null,null,null,null]]]
+    );
+}
+
+test "workspace edit: overlapping edits are invalid" {
+    const workspace_edit = try cbor.fromJsonAlloc(a,
+        \\{"changes":{"file:///src/a.zig":[
+        \\  {"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"a"},
+        \\  {"range":{"start":{"line":1,"character":3},"end":{"line":1,"character":8}},"newText":"b"}]
+        \\}}
+    );
+    defer a.free(workspace_edit);
+    var result: std.Io.Writer.Allocating = .init(a);
+    defer result.deinit();
+    try std.testing.expectError(error.InvalidTextEdit, write_workspace_edit(&result.writer, workspace_edit, null));
 }
 
 test "workspace edit: documentChanges is preferred over changes" {
@@ -48,7 +74,7 @@ test "workspace edit: documentChanges is preferred over changes" {
         \\{"changes":{"file:///src/a.zig":[]},
         \\ "documentChanges":[{"textDocument":{"uri":"file:///src/b.zig","version":1},"edits":[]}]}
     ,
-        \\[["/src/b.zig",1,[]]]
+        \\[["/src/b.zig",1,[[],null,null,null,null]]]
     );
 }
 
@@ -62,7 +88,7 @@ test "workspace edit: file operations" {
         \\  {"kind":"delete","uri":"file:///src/c.zig"}
         \\]}
     ,
-        \\[["create","/src/new.zig","","fail","file"],["/src/new.zig",null,[[0,0,0,0,"x"]]],["rename","/src/a.zig","/src/sub/b.zig","fail","file"],["delete","/src/c.zig","","fail","file"]]
+        \\[["create","/src/new.zig","","fail","file"],["/src/new.zig",null,[[[0,0,0,0,"x"]],null,null,null,null]],["rename","/src/a.zig","/src/sub/b.zig","fail","file"],["delete","/src/c.zig","","fail","file"]]
     );
 }
 
@@ -92,7 +118,7 @@ test "workspace edit: invalid file operations" {
         defer a.free(workspace_edit);
         var result: std.Io.Writer.Allocating = .init(a);
         defer result.deinit();
-        try std.testing.expectError(error.InvalidWorkspaceEditField, write_workspace_edit(&result.writer, workspace_edit));
+        try std.testing.expectError(error.InvalidWorkspaceEditField, write_workspace_edit(&result.writer, workspace_edit, null));
     }
 }
 
@@ -100,7 +126,7 @@ test "workspace edit: percent encoded uri" {
     try expect_workspace_edit(
         \\{"changes":{"file:///src/a%20b.zig":[]}}
     ,
-        \\[["/src/a b.zig",null,[]]]
+        \\[["/src/a b.zig",null,[[],null,null,null,null]]]
     );
 }
 
@@ -109,7 +135,74 @@ test "workspace edit: neither changes nor documentChanges" {
     defer a.free(workspace_edit);
     var result: std.Io.Writer.Allocating = .init(a);
     defer result.deinit();
-    try std.testing.expectError(error.InvalidWorkspaceEdit, write_workspace_edit(&result.writer, workspace_edit));
+    try std.testing.expectError(error.InvalidWorkspaceEdit, write_workspace_edit(&result.writer, workspace_edit, null));
+}
+
+const DocumentHashes = @import("project_manager").test_internal.DocumentHashes;
+
+test "document hashes: lookup by version and of the last version" {
+    var hashes: DocumentHashes = .{};
+    defer hashes.deinit(a);
+    try std.testing.expectEqual(null, hashes.base_hash("file:///a", null));
+    try hashes.open(a, "file:///a", 1, 100);
+    hashes.change("file:///a", 2, 200);
+    hashes.change("file:///a", 3, 300);
+    hashes.change("file:///other", 9, 900);
+    try std.testing.expectEqual(100, hashes.base_hash("file:///a", 1).?);
+    try std.testing.expectEqual(200, hashes.base_hash("file:///a", 2).?);
+    try std.testing.expectEqual(300, hashes.base_hash("file:///a", null).?);
+    try std.testing.expectEqual(null, hashes.base_hash("file:///a", 4));
+    try std.testing.expectEqual(null, hashes.base_hash("file:///other", null));
+}
+
+test "document hashes: only the last versions are kept" {
+    var hashes: DocumentHashes = .{};
+    defer hashes.deinit(a);
+    try hashes.open(a, "file:///a", 0, 1000);
+    for (1..DocumentHashes.max_versions + 5) |version| hashes.change("file:///a", version, 1000 + version);
+    const last = DocumentHashes.max_versions + 4;
+    try std.testing.expectEqual(1000 + last, hashes.base_hash("file:///a", null).?);
+    try std.testing.expectEqual(1000 + last, hashes.base_hash("file:///a", last).?);
+    try std.testing.expectEqual(1000 + last - 31, hashes.base_hash("file:///a", last - 31).?);
+    try std.testing.expectEqual(null, hashes.base_hash("file:///a", last - 32));
+    try std.testing.expectEqual(null, hashes.base_hash("file:///a", 0));
+}
+
+test "document hashes: open again and close forget the versions" {
+    var hashes: DocumentHashes = .{};
+    defer hashes.deinit(a);
+    try hashes.open(a, "file:///a", 1, 100);
+    hashes.change("file:///a", 2, 200);
+    try hashes.open(a, "file:///a", 1, 111);
+    try std.testing.expectEqual(111, hashes.base_hash("file:///a", null).?);
+    try std.testing.expectEqual(null, hashes.base_hash("file:///a", 2));
+    hashes.close(a, "file:///a");
+    try std.testing.expectEqual(null, hashes.base_hash("file:///a", null));
+}
+
+test "workspace edit: text edits get the hash of their document version" {
+    var hashes: DocumentHashes = .{};
+    defer hashes.deinit(a);
+    try hashes.open(a, "file:///src/a.zig", 4, 44);
+    hashes.change("file:///src/a.zig", 5, 55);
+    try hashes.open(a, "file:///src/b.zig", 1, 11);
+    const workspace_edit = try cbor.fromJsonAlloc(a,
+        \\{"documentChanges":[
+        \\  {"textDocument":{"uri":"file:///src/a.zig","version":4},"edits":[]},
+        \\  {"textDocument":{"uri":"file:///src/a.zig","version":9},"edits":[]},
+        \\  {"textDocument":{"uri":"file:///src/b.zig","version":null},"edits":[]},
+        \\  {"textDocument":{"uri":"file:///src/c.zig","version":null},"edits":[]}
+        \\]}
+    );
+    defer a.free(workspace_edit);
+    var result: std.Io.Writer.Allocating = .init(a);
+    defer result.deinit();
+    try write_workspace_edit(&result.writer, workspace_edit, &hashes);
+    const result_json = try cbor.toJsonAlloc(a, result.written());
+    defer a.free(result_json);
+    try std.testing.expectEqualStrings(
+        \\[["/src/a.zig",4,[[],44,null,null,null]],["/src/a.zig",9,[[],null,null,null,null]],["/src/b.zig",null,[[],11,null,null,null]],["/src/c.zig",null,[[],null,null,null,null]]]
+    , result_json);
 }
 
 const write_diagnostics_in_range = @import("project_manager").test_internal.write_diagnostics_in_range;

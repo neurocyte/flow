@@ -360,6 +360,112 @@ test "insert_chars" {
     try std.testing.expectEqual(col, 1);
 }
 
+const EditSet = @import("EditSet");
+
+fn load(buffer: *Buffer, text: []const u8) !Buffer.Root {
+    var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
+    return buffer.load_from_string(text, &eol_mode, &sanitized);
+}
+
+fn expect_content(root: Buffer.Root, expected: []const u8) !void {
+    var text: std.Io.Writer.Allocating = .init(a);
+    defer text.deinit();
+    try root.store_node(&text.writer, .lf);
+    try std.testing.expectEqualStrings(expected, text.written());
+}
+
+test "hash: a root and its text give the same hash" {
+    for ([_][]const u8{ "", "one", "one\n", "one\ntwo\n\nfour", "tab\there\n", "one\r\ntwo\r\n" }) |text| {
+        const buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+        defer buffer.deinit();
+        try std.testing.expectEqual(EditSet.hash(text), (try load(buffer, text)).hash());
+    }
+}
+
+test "hash: Buffer.content_hash follows the root" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try load(buffer, "one\n"), now);
+    try std.testing.expectEqual(EditSet.hash("one\n"), buffer.content_hash());
+    try std.testing.expectEqual(EditSet.hash("one\n"), buffer.content_hash());
+    _, _, const root = try buffer.root.insert_chars(0, 3, "two", buffer.allocator, metrics());
+    buffer.update(root, now);
+    try std.testing.expectEqual(EditSet.hash("onetwo\n"), buffer.content_hash());
+}
+
+// the test metrics count a tab as one column, so these tests use no tabs
+fn expect_apply_edit_set(src: []const u8, dst: []const u8) !void {
+    const buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+    defer buffer.deinit();
+    var edit_set: std.Io.Writer.Allocating = .init(a);
+    defer edit_set.deinit();
+    try EditSet.diff_strings(a, &edit_set, src, dst);
+    const root = try load(buffer, src);
+    const result = try root.apply_edit_set(buffer.allocator, a, .{ .bytes = edit_set.written() }, metrics());
+    try expect_content(result, dst);
+    try std.testing.expectEqual(EditSet.hash(dst), result.hash());
+}
+
+test "apply_edit_set: fixed cases" {
+    try expect_apply_edit_set("", "new\n");
+    try expect_apply_edit_set("old\n", "");
+    try expect_apply_edit_set("one\ntwo\nthree\n", "one\nthree\n");
+    try expect_apply_edit_set("one\ntwo\n", "zero\none\n2\nthree");
+}
+
+test "apply_edit_set: a wrong base hash changes nothing" {
+    const buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+    defer buffer.deinit();
+    var edit_set: std.Io.Writer.Allocating = .init(a);
+    defer edit_set.deinit();
+    try EditSet.diff_strings(a, &edit_set, "one\ntwo\n", "one\n2\n");
+    const root = try load(buffer, "one\nTWO\n");
+    try std.testing.expectError(error.BaseMismatch, root.apply_edit_set(buffer.allocator, a, .{ .bytes = edit_set.written() }, metrics()));
+}
+
+test "apply_edit_set: a wrong result hash is an error" {
+    const buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+    defer buffer.deinit();
+    var edit_set: std.Io.Writer.Allocating = .init(a);
+    defer edit_set.deinit();
+    try EditSet.write(&edit_set.writer, &.{.{ .begin = .{}, .end = .{}, .text = "x" }}, .{ .result_hash = EditSet.hash("other") });
+    const root = try load(buffer, "one\n");
+    try std.testing.expectError(error.ResultMismatch, root.apply_edit_set(buffer.allocator, a, .{ .bytes = edit_set.written() }, metrics()));
+}
+
+test "apply_edit_set: random strings round trip on a rope" {
+    const pieces = [_][]const u8{ "a", "b", "c", " ", "\n", "\n", "fn ", "end", "x = 1;" };
+    var prng: std.Random.DefaultPrng = .init(0x5eed);
+    const random = prng.random();
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(a);
+    var dst: std.ArrayList(u8) = .empty;
+    defer dst.deinit(a);
+
+    for (0..300) |_| {
+        src.clearRetainingCapacity();
+        dst.clearRetainingCapacity();
+        for (0..random.uintLessThan(usize, 40)) |_| {
+            const piece = pieces[random.uintLessThan(usize, pieces.len)];
+            switch (random.uintLessThan(u8, 10)) {
+                0 => try src.appendSlice(a, piece),
+                1 => try dst.appendSlice(a, piece),
+                2 => {
+                    try src.appendSlice(a, piece);
+                    try dst.appendSlice(a, pieces[random.uintLessThan(usize, pieces.len)]);
+                },
+                else => {
+                    try src.appendSlice(a, piece);
+                    try dst.appendSlice(a, piece);
+                },
+            }
+        }
+        try expect_apply_edit_set(src.items, dst.items);
+    }
+}
+
 test "get_from_pos" {
     const now = std.Io.Clock.real.now(std.testing.io);
     var eol_mode: Buffer.EolMode = .lf;

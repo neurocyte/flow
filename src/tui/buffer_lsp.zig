@@ -19,7 +19,7 @@ pub fn open(buffer: *Buffer) void {
     const language_server = ft.language_server orelse return;
     if (language_server.len == 0) return;
     const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
-    project_manager.did_open(buffer.get_file_path(), ft, buffer.lsp_version, content, false) catch |e|
+    project_manager.did_open(buffer.get_file_path(), ft, buffer.lsp_version, buffer.content_hash(), content, false) catch |e|
         return std.log.err("did_open failed: {t}", .{e});
     buffer.lsp_state = .open;
     buffer.lsp_root = buffer.root;
@@ -50,7 +50,7 @@ pub fn sync(buffer: *Buffer) !void {
     };
     buffer.lsp_version += 1;
     buffer.lsp_root = buffer.root;
-    project_manager.did_change(buffer.get_file_path(), buffer.lsp_version, text_dst, text_src, eol_mode) catch {};
+    project_manager.did_change(buffer.get_file_path(), buffer.lsp_version, buffer.content_hash(), text_dst, text_src, eol_mode) catch {};
 }
 
 fn text_from_root(root: Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {

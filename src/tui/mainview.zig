@@ -20,6 +20,7 @@ const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const Buffer = @import("Buffer");
 const FileStore = @import("FileStore");
+const EditSet = @import("EditSet");
 const keybind = @import("keybind");
 
 const tui = @import("tui.zig");
@@ -1976,14 +1977,18 @@ const cmds = struct {
             };
             const buffer = try self.buffer_manager.open_file(file_path, ctx.now);
 
-            if (version) |version_| if (version_ != buffer.lsp_version) {
+            const has_base_hash = if (EditSet.Iterator.init(.{ .bytes = text_edits })) |edits| edits.tail.base_hash != null else |_| false;
+            if (!has_base_hash) if (version) |version_| if (version_ != buffer.lsp_version) {
                 var reason_buf: [128]u8 = undefined;
                 const reason = std.fmt.bufPrint(&reason_buf, "the edit is for document version {d}, but the document is at version {d}, try again", .{ version_, buffer.lsp_version }) catch "document changed";
                 return self.workspace_edit_failed(file_path, text_edits, reason, reply);
             };
 
             self.apply_text_edits_to_buffer(buffer, text_edits, ctx.now) catch |e|
-                return self.workspace_edit_failed(file_path, text_edits, @errorName(e), reply);
+                return self.workspace_edit_failed(file_path, text_edits, switch (e) {
+                    error.BaseMismatch => "the document changed since the edit was computed, try again",
+                    else => @errorName(e),
+                }, reply);
         }
         self.workspace_edit_done(reply, .applied, "");
     }
@@ -3554,8 +3559,9 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
             if (!buffer.file_exists) buffer.mark_dirty();
             if (op.conflict == .overwrite) {
                 var buf: [64]u8 = undefined;
-                const delete_all = cbor.fmt(&buf, .{.{ 0, 0, buffer.root.lines(), 0, "" }});
-                self.apply_text_edits_to_buffer(buffer, delete_all, ctx.now) catch |e|
+                var delete_all: std.Io.Writer = .fixed(&buf);
+                try EditSet.write(&delete_all, &.{.{ .begin = .{}, .end = .{ .row = buffer.root.lines() }, .text = "" }}, .{});
+                self.apply_text_edits_to_buffer(buffer, delete_all.buffered(), ctx.now) catch |e|
                     return self.file_operation_failed(op.path, @errorName(e), reply);
             }
             buffer_lsp.open(buffer);
@@ -3775,15 +3781,13 @@ fn file_operation_failed(self: *Self, file_path: []const u8, reason: []const u8,
 
 fn workspace_edit_failed(self: *Self, file_path: []const u8, text_edits_: []const u8, reason: []const u8, reply: []const u8) command.Result {
     var sel: ed.Selection = .{};
-    var text_edits = text_edits_;
-    if (text_edits.len > 0 and (cbor.decodeArrayHeader(&text_edits) catch 0) > 0)
-        _ = cbor.matchValue(&text_edits, .{
-            cbor.extract(&sel.begin.row),
-            cbor.extract(&sel.begin.col),
-            cbor.extract(&sel.end.row),
-            cbor.extract(&sel.end.col),
-            cbor.any,
-        }) catch false;
+    if (text_edits_.len > 0) if (EditSet.Iterator.init(.{ .bytes = text_edits_ })) |iter_| {
+        var iter = iter_;
+        if (iter.next() catch null) |edit| sel = .{
+            .begin = .{ .row = edit.begin.row, .col = edit.begin.pos },
+            .end = .{ .row = edit.end.row, .col = edit.end.pos },
+        };
+    } else |_| {};
     var text_buf: [512]u8 = undefined;
     const text = std.fmt.bufPrint(&text_buf, "failed to apply edit: {s}", .{reason}) catch reason;
     const list = try self.filelists.get_or_create_singleton(.references);

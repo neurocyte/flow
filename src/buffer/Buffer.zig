@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const cbor = @import("cbor");
+const EditSet = @import("EditSet");
 const TypedInt = @import("TypedInt");
 pub const VcsBlame = @import("VcsBlame");
 const file_type_config = @import("file_type_config");
@@ -100,6 +101,7 @@ last_view: ?usize = null,
 
 cache: ?StringCache = null,
 last_save_cache: ?StringCache = null,
+hash_cache: ?struct { ref: Node.Ref, hash: EditSet.Hash } = null,
 
 undo_head: ?*UndoNode = null,
 redo_head: ?*UndoNode = null,
@@ -1048,6 +1050,53 @@ const Node = union(enum) {
         }
     }
 
+    pub fn hash(self: *const Node) EditSet.Hash {
+        var hasher: EditSet.Hasher = .init();
+        self.hash_update(&hasher);
+        return hasher.final();
+    }
+
+    fn hash_update(self: *const Node, hasher: *EditSet.Hasher) void {
+        switch (self.*) {
+            .node => |*node| {
+                node.left.hash_update(hasher);
+                node.right.hash_update(hasher);
+            },
+            .leaf => |*leaf| {
+                hasher.update(leaf.buf);
+                if (leaf.eol) hasher.update("\n");
+            },
+        }
+    }
+
+    pub fn apply_edit_set(self: *const Node, allocator: Allocator, temp_allocator: Allocator, edit_set: cbor.Raw, metrics: Metrics) !Root {
+        const Document = struct {
+            base: Root,
+            root: Root,
+            allocator: Allocator,
+            metrics: Metrics,
+
+            pub fn hash(doc: *const @This()) EditSet.Hash {
+                return doc.root.hash();
+            }
+
+            pub fn replace(doc: *@This(), edit: EditSet.Edit) !void {
+                const pos: Selection = .{
+                    .begin = .{ .row = edit.begin.row, .col = edit.begin.pos },
+                    .end = .{ .row = edit.end.row, .col = edit.end.pos },
+                };
+                const sel = pos.from_pos(doc.base, doc.metrics);
+                if (!sel.empty())
+                    doc.root, _ = try doc.root.delete_range_char(sel, doc.allocator, null, doc.metrics);
+                if (edit.text.len > 0)
+                    _, _, doc.root = try doc.root.insert_chars(sel.begin.row, sel.begin.col, edit.text, doc.allocator, doc.metrics);
+            }
+        };
+        var doc: Document = .{ .base = self, .root = self, .allocator = allocator, .metrics = metrics };
+        try EditSet.apply(temp_allocator, edit_set, &doc);
+        return doc.root;
+    }
+
     pub const FindAllCallback = fn (data: *anyopaque, begin_row: usize, begin_col: usize, end_row: usize, end_col: usize) error{Stop}!void;
     pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, mode: FindMode, allocator: Allocator) error{ OutOfMemory, Stop }!void {
         const Ctx = struct {
@@ -1657,6 +1706,14 @@ pub fn store_last_save_to_string_cached(self: *Self, eol_mode: EolMode) ?[]const
     var s: std.Io.Writer.Allocating = std.Io.Writer.Allocating.initCapacity(self.external_allocator, root.weights_sum().len) catch @panic("OOM store_last_save_to_string_cached");
     root.store(&s.writer, eol_mode) catch @panic("store_last_save_to_string_cached");
     return self.store_cached_text(&self.last_save_cache, root.to_ref(), eol_mode, s.toOwnedSliceSentinel(0) catch @panic("OOM store_last_save_to_string_cached"));
+}
+
+pub fn content_hash(self: *Self) EditSet.Hash {
+    const ref = self.root.to_ref();
+    if (self.hash_cache) |cache| if (cache.ref == ref) return cache.hash;
+    const hash = self.root.hash();
+    self.hash_cache = .{ .ref = ref, .hash = hash };
+    return hash;
 }
 
 fn get_cached_text(cache_: ?StringCache, ref: Node.Ref, eol_mode: EolMode) ?[:0]const u8 {

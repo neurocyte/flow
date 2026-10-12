@@ -29,6 +29,9 @@
 // last sent for that file, so the client must accept it.
 // On line 1 the edit carries a wrong document version, so the client must
 // answer with "applied: false".
+// On line 3 the edit carries the version that the document had when it was
+// opened. The client must refuse it if the content changed since then, and
+// accept it if the content is the same again, for example after an undo.
 
 // Diagnostics
 // When a file opens, the server publishes one warning for the first three
@@ -373,10 +376,12 @@ var synced: struct {
     uri_buf: [4096]u8 = undefined,
     uri: []const u8 = "",
     version: ?i64 = null,
+    first_version: ?i64 = null,
 
     fn set(self: *@This(), text_document: std.json.Value) void {
         const uri = get_string(text_document, "uri") orelse return;
         if (uri.len > self.uri_buf.len) return;
+        if (!std.mem.eql(u8, self.uri, uri)) self.first_version = get_int(text_document, "version");
         @memcpy(self.uri_buf[0..uri.len], uri);
         self.uri = self.uri_buf[0..uri.len];
         self.version = get_int(text_document, "version");
@@ -390,7 +395,11 @@ var synced: struct {
 fn send_apply_edit(arena: std.mem.Allocator, out: *std.Io.Writer, params: std.json.Value) !void {
     const uri = get_string(get(params, "textDocument") orelse .null, "uri") orelse return;
     const line = get_int(get(params, "position") orelse .null, "line") orelse 0;
-    const version: ?i64 = if (line == 0) 999 else synced.get(uri);
+    const version: ?i64 = switch (line) {
+        0 => 999,
+        2 => synced.first_version,
+        else => synced.get(uri),
+    };
     const edits: []const TextEdit = &.{.{ .range = top, .newText = "applied by dummy_lsp\n" }};
     try send(arena, out, .{
         .jsonrpc = "2.0",

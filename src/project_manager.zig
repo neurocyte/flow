@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const EditSet = @import("EditSet");
 const log = @import("log");
 const tracy = @import("tracy");
 const file_watcher = @import("file_watcher");
@@ -41,6 +42,7 @@ pub const test_internal = struct {
     pub const ServerCapabilities = @import("LSPClient.zig").ServerCapabilities;
     pub const write_code_actions = @import("LSPClient.zig").write_code_actions;
     pub const write_configuration = @import("LSPClient.zig").write_configuration;
+    pub const DocumentHashes = @import("LSPClient.zig").DocumentHashes;
 };
 
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
@@ -274,7 +276,7 @@ pub fn delete_task(task: []const u8) (ProjectManagerError || ProjectError)!void 
     return send(.{ "delete_task", project, task });
 }
 
-pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usize, text: []const u8, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
+pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usize, hash: EditSet.Hash, text: []const u8, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
     if (ephemeral) return;
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -285,11 +287,11 @@ pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usi
     defer lsp_config.allocator.free(language_server_options);
     const language_server_settings = if (file_type.language_server) |lsp| lsp_config.get_settings(project, lsp[0]) orelse &.{} else &.{};
     defer lsp_config.allocator.free(language_server_settings);
-    return send(.{ "did_open", project, file_path, file_type.name, language_server, language_server_options, language_server_settings, language_server_protocol, version, text });
+    return send(.{ "did_open", project, file_path, file_type.name, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text });
 }
 
 /// takes ownership of text_dst and text_src, which must be allocated with std.heap.c_allocator
-pub fn did_change(file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectManagerError || ProjectError)!void {
+pub fn did_change(file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectManagerError || ProjectError)!void {
     errdefer {
         std.heap.c_allocator.free(text_dst);
         std.heap.c_allocator.free(text_src);
@@ -299,7 +301,7 @@ pub fn did_change(file_path: []const u8, version: usize, text_dst: []const u8, t
         return error.NoProject;
     const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
     const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;
-    return send(.{ "did_change", project, file_path, version, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len, @backingInt(eol_mode) });
+    return send(.{ "did_change", project, file_path, version, hash, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len, @backingInt(eol_mode) });
 }
 
 pub fn did_save(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -567,6 +569,7 @@ const Process = struct {
         var params_cb: []const u8 = undefined;
         var max: usize = 0;
         var version: usize = 0;
+        var hash: EditSet.Hash = 0;
         var text: []const u8 = undefined;
         var text_dst_ptr: usize = 0;
         var text_dst_len: usize = 0;
@@ -673,16 +676,16 @@ const Process = struct {
             self.add_task(project_directory, task) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "delete_task", tp.extract(&project_directory), tp.extract(&task) })) {
             self.delete_task(project_directory, task) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&language_server_options), tp.extract(&language_server_settings), tp.extract(&language_server_protocol), tp.extract(&version), tp.extract(&text) })) {
-            self.did_open(project_directory, path, file_type, language_server, language_server_options, language_server_settings, language_server_protocol, version, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len), tp.extract(&eol_mode) })) {
+        } else if (try cbor.match(m.buf, .{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&language_server_options), tp.extract(&language_server_settings), tp.extract(&language_server_protocol), tp.extract(&version), tp.extract(&hash), tp.extract(&text) })) {
+            self.did_open(project_directory, path, file_type, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&hash), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len), tp.extract(&eol_mode) })) {
             const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
             const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
             defer {
                 std.heap.c_allocator.free(text_dst);
                 std.heap.c_allocator.free(text_src);
             }
-            self.did_change(project_directory, path, version, text_dst, text_src, @fromBackingInt(@intCast(eol_mode))) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+            self.did_change(project_directory, path, version, hash, text_dst, text_src, @fromBackingInt(@intCast(eol_mode))) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -710,6 +713,9 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "resend_diagnostics", tp.extract(&project_directory), tp.extract(&path) })) {
             if (self.projects.get(project_directory)) |project|
                 project.resend_diagnostics(from, path) catch |e| self.logger.err("resend-diagnostics", e);
+        } else if (try cbor.match(m.buf, .{ "execute_code_action", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
+            if (self.projects.get(project_directory)) |project|
+                project.execute_code_action(self.parent.ref(), language_server, params_cb) catch |e| self.logger.err("lsp-code-action", e);
         } else if (try cbor.match(m.buf, .{ "lsp_initialized", tp.extract(&project_directory), tp.extract(&language_server) })) {
             if (self.projects.get(project_directory)) |project|
                 project.lsp_initialized(language_server) catch |e| self.logger.err("lsp-initialized", e);
@@ -1108,18 +1114,18 @@ const Process = struct {
         try project.request_vcs_blame(file_path);
     }
 
-    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_settings: []const u8, language_server_protocol: file_type_config.ProtocolLevel, version: usize, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {
+    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_settings: []const u8, language_server_protocol: file_type_config.ProtocolLevel, version: usize, hash: EditSet.Hash, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.did_open(self.parent.ref(), file_path, file_type, language_server, language_server_options, language_server_settings, language_server_protocol, version, text);
+        return project.did_open(self.parent.ref(), file_path, file_type, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text);
     }
 
-    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectError || Project.StartLspError)!void {
+    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectError || Project.StartLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_change" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.did_change(file_path, version, text_dst, text_src, eol_mode);
+        return project.did_change(file_path, version, hash, text_dst, text_src, eol_mode);
     }
 
     fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {

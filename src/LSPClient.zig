@@ -10,6 +10,7 @@ const dizzy = @import("dizzy");
 const tracy = @import("tracy");
 const Buffer = @import("Buffer");
 const FileStore = @import("FileStore");
+const EditSet = @import("EditSet");
 const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 
@@ -27,6 +28,7 @@ language_server_options: []const u8,
 language_server_protocol: file_type_config.ProtocolLevel,
 owner: tp.pid,
 server_capabilities: ServerCapabilities = .{},
+document_hashes: DocumentHashes = .{},
 
 const Self = @This();
 
@@ -134,6 +136,64 @@ pub const ServerCapabilities = struct {
     pub fn can_execute(self: *const ServerCapabilities, command: []const u8) bool {
         for (self.execute_commands) |command_| if (std.mem.eql(u8, command_, command)) return true;
         return false;
+    }
+};
+
+pub const DocumentHashes = struct {
+    documents: std.StringHashMapUnmanaged(Versions) = .empty,
+
+    pub const max_versions = 32;
+
+    const Versions = struct {
+        entries: [max_versions]Entry = undefined,
+        len: usize = 0,
+        next: usize = 0,
+
+        const Entry = struct { version: usize, hash: EditSet.Hash };
+
+        fn add(self: *Versions, version: usize, hash: EditSet.Hash) void {
+            self.entries[self.next] = .{ .version = version, .hash = hash };
+            self.next = (self.next + 1) % max_versions;
+            self.len = @min(self.len + 1, max_versions);
+        }
+
+        fn latest(self: *const Versions) ?Entry {
+            return if (self.len == 0) null else self.entries[(self.next + max_versions - 1) % max_versions];
+        }
+
+        fn get(self: *const Versions, version: usize) ?EditSet.Hash {
+            for (self.entries[0..self.len]) |entry| if (entry.version == version) return entry.hash;
+            return null;
+        }
+    };
+
+    pub fn deinit(self: *DocumentHashes, allocator: std.mem.Allocator) void {
+        var keys = self.documents.keyIterator();
+        while (keys.next()) |key| allocator.free(key.*);
+        self.documents.deinit(allocator);
+        self.* = .{};
+    }
+
+    pub fn open(self: *DocumentHashes, allocator: std.mem.Allocator, uri: []const u8, version: usize, hash: EditSet.Hash) error{OutOfMemory}!void {
+        self.close(allocator, uri);
+        const key = try allocator.dupe(u8, uri);
+        errdefer allocator.free(key);
+        var versions: Versions = .{};
+        versions.add(version, hash);
+        try self.documents.put(allocator, key, versions);
+    }
+
+    pub fn change(self: *DocumentHashes, uri: []const u8, version: usize, hash: EditSet.Hash) void {
+        if (self.documents.getPtr(uri)) |versions| versions.add(version, hash);
+    }
+
+    pub fn close(self: *DocumentHashes, allocator: std.mem.Allocator, uri: []const u8) void {
+        if (self.documents.fetchRemove(uri)) |kv| allocator.free(kv.key);
+    }
+
+    pub fn base_hash(self: *const DocumentHashes, uri: []const u8, version: ?usize) ?EditSet.Hash {
+        const versions = self.documents.getPtr(uri) orelse return null;
+        return if (version) |version_| versions.get(version_) else if (versions.latest()) |entry| entry.hash else null;
     }
 };
 
@@ -245,10 +305,9 @@ pub fn apply_code_action(self: *Self, from: tp.pid_ref, action: []const u8) (Lsp
     const fields = try read_code_action(action);
     const can_resolve = self.server_capabilities.code_action == .actions_with_resolve or fields.has_data;
     if (fields.edit != null or fields.command != null or !can_resolve)
-        return execute_code_action(from, tp.self_pid(), self.project_name, self.get_lsp_name(), action) catch error.LspFailed;
+        return self.execute_code_action(from, action) catch error.LspFailed;
 
     const handler: struct {
-        from: tp.pid,
         project_manager: tp.pid,
         project: []const u8,
         lsp_name: []const u8,
@@ -257,7 +316,6 @@ pub fn apply_code_action(self: *Self, from: tp.pid_ref, action: []const u8) (Lsp
             std.heap.c_allocator.free(self_.project);
             std.heap.c_allocator.free(self_.lsp_name);
             self_.project_manager.deinit();
-            self_.from.deinit();
         }
 
         pub fn receive(self_: @This(), response: tp.message) !void {
@@ -265,10 +323,9 @@ pub fn apply_code_action(self: *Self, from: tp.pid_ref, action: []const u8) (Lsp
             if (!try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map }))
                 return std.log.err("failed to resolve code action", .{});
             if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
-                try execute_code_action(self_.from.ref(), self_.project_manager.ref(), self_.project, self_.lsp_name, result);
+                try self_.project_manager.send(.{ "execute_code_action", self_.project, self_.lsp_name, cbor.Raw{ .bytes = result } });
         }
     } = .{
-        .from = from.clone(),
         .project_manager = tp.self_pid().clone(),
         .project = try std.heap.c_allocator.dupe(u8, self.project_name),
         .lsp_name = try std.heap.c_allocator.dupe(u8, self.get_lsp_name()),
@@ -278,15 +335,17 @@ pub fn apply_code_action(self: *Self, from: tp.pid_ref, action: []const u8) (Lsp
 }
 
 // apply the edit of a code action first, then execute its command
-fn execute_code_action(to: tp.pid_ref, project_manager: tp.pid_ref, project: []const u8, lsp_name_: []const u8, action: []const u8) !void {
+pub fn execute_code_action(self: *Self, to: tp.pid_ref, action: []const u8) !void {
+    const project = self.project_name;
+    const lsp_name_ = self.get_lsp_name();
     const fields = try read_code_action(action);
     const edit = fields.edit orelse {
         const command = fields.command orelse return std.log.warn("code action has no edit and no command", .{});
-        return project_manager.send(.{ "execute_command", project, lsp_name_, cbor.Raw{ .bytes = command } });
+        return tp.self_pid().send(.{ "execute_command", project, lsp_name_, cbor.Raw{ .bytes = command } });
     };
     var workspace_edit: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
     defer workspace_edit.deinit();
-    try write_workspace_edit(&workspace_edit.writer, edit);
+    try write_workspace_edit(&workspace_edit.writer, edit, &self.document_hashes);
     return if (fields.command) |command|
         to.send(.{ "cmd", "apply_workspace_edit", .{
             cbor.Raw{ .bytes = workspace_edit.written() },
@@ -595,6 +654,7 @@ pub fn deinit(self: *Self) void {
     self.owner.deinit();
     self.lsp.term();
     self.server_capabilities.deinit(self.allocator);
+    self.document_hashes.deinit(self.allocator);
     self.logger_lsp.deinit();
     self.allocator.free(self.language_server_options);
     self.allocator.free(self.language_server);
@@ -1162,13 +1222,13 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
         } else if (std.mem.eql(u8, field_name, "additionalTextEdits")) {
             if (try cbor.matchValue(&iter, cbor.null_)) continue;
             additionalTextEdits.clearRetainingCapacity();
-            try write_text_edits(&additionalTextEdits.writer, &iter);
+            try write_text_edits(&additionalTextEdits.writer, &iter, null);
         } else {
             try cbor.skipValue(&iter);
         }
     }
     if (additionalTextEdits.written().len == 0)
-        try cbor.writeArrayHeader(&additionalTextEdits.writer, 0);
+        try write_no_text_edits(&additionalTextEdits.writer);
     const insert = textEdit.insert orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     const replace = textEdit.replace orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     return to.send(.{
@@ -1209,20 +1269,31 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     };
 }
 
-fn write_text_edits(writer: *std.Io.Writer, iter: *[]const u8) (TextEditError || std.Io.Writer.Error)!void {
+/// write an LSP TextEdit[] as an edit set, a server may send the edits in any order
+fn write_text_edits(writer: *std.Io.Writer, iter: *[]const u8, base_hash: ?EditSet.Hash) (TextEditError || std.Io.Writer.Error)!void {
+    const allocator = std.heap.c_allocator;
     var len = cbor.decodeArrayHeader(iter) catch return invalid_text_edit_field("textEdits");
-    try cbor.writeArrayHeader(writer, len);
+    var edits: std.ArrayList(EditSet.Edit) = try .initCapacity(allocator, len);
+    defer edits.deinit(allocator);
     while (len > 0) : (len -= 1) {
         const edit = try read_textEdit(iter);
         const range = edit.replace orelse edit.insert orelse return invalid_text_edit_field("textEdits.range");
-        try cbor.writeValue(writer, .{
-            range.start.line,
-            range.start.character,
-            range.end.line,
-            range.end.character,
-            edit.newText,
-        });
+        const begin: EditSet.Position = .{ .row = range.start.line, .pos = range.start.character };
+        const end: EditSet.Position = .{ .row = range.end.line, .pos = range.end.character };
+        edits.appendAssumeCapacity(if (end.order(begin) == .lt)
+            .{ .begin = end, .end = begin, .text = edit.newText }
+        else
+            .{ .begin = begin, .end = end, .text = edit.newText });
     }
+    std.mem.sort(EditSet.Edit, edits.items, {}, EditSet.less_than);
+    EditSet.write(writer, edits.items, .{ .base_hash = base_hash }) catch |e| return switch (e) {
+        error.InvalidEditSet, error.TooManyEdits => error.InvalidTextEdit,
+        error.WriteFailed => error.WriteFailed,
+    };
+}
+
+fn write_no_text_edits(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    EditSet.write(writer, &.{}, .{}) catch return error.WriteFailed;
 }
 
 pub fn completion_resolve(self: *Self, from: tp.pid_ref, file_path: []const u8, token: u32, item: []const u8) LspError!void {
@@ -1252,14 +1323,14 @@ pub fn completion_resolve(self: *Self, from: tp.pid_ref, file_path: []const u8, 
                         if (std.mem.eql(u8, field_name, "additionalTextEdits")) {
                             if (try cbor.matchValue(&iter, cbor.null_)) continue;
                             text_edits.clearRetainingCapacity();
-                            try write_text_edits(&text_edits.writer, &iter);
+                            try write_text_edits(&text_edits.writer, &iter, null);
                         } else {
                             try cbor.skipValue(&iter);
                         }
                     }
                 }
                 if (text_edits.written().len == 0)
-                    try cbor.writeArrayHeader(&text_edits.writer, 0);
+                    try write_no_text_edits(&text_edits.writer);
             }
             self_.from.send(.{ "cmd", "completion_resolved", .{
                 self_.file_path,
@@ -1729,7 +1800,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
                 if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
                     var workspace_edit: std.Io.Writer.Allocating = .init(allocator);
                     defer workspace_edit.deinit();
-                    try write_workspace_edit(&workspace_edit.writer, result);
+                    try write_workspace_edit(&workspace_edit.writer, result, null);
 
                     // send the renames as a single, atomic message
                     var msg_buf: std.Io.Writer.Allocating = .init(allocator);
@@ -1749,25 +1820,16 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const Sour
                             try cbor.skipValue(&iter);
                             continue;
                         }
-                        var edits = try cbor.decodeArrayHeader(&text_edits);
-                        while (edits > 0) : (edits -= 1) {
-                            var range: Range = undefined;
-                            var new_text: []const u8 = undefined;
-                            if (!try cbor.matchValue(&text_edits, .{
-                                cbor.extract(&range.start.line),
-                                cbor.extract(&range.start.character),
-                                cbor.extract(&range.end.line),
-                                cbor.extract(&range.end.character),
-                                cbor.extract(&new_text),
-                            })) return error.InvalidWorkspaceEdit;
-                            const line = try get_line_of_file(allocator, file_path, range.start.line);
+                        var edits = EditSet.Iterator.init(.{ .bytes = text_edits }) catch return error.InvalidWorkspaceEdit;
+                        while (edits.next() catch return error.InvalidWorkspaceEdit) |edit| {
+                            const line = try get_line_of_file(allocator, file_path, edit.begin.row);
                             try cbor.writeValue(w, .{
                                 file_path,
-                                range.start.line,
-                                range.start.character,
-                                range.end.line,
-                                range.end.character,
-                                new_text,
+                                edit.begin.row,
+                                edit.begin.pos,
+                                edit.end.row,
+                                edit.end.pos,
+                                edit.text,
                                 line,
                             });
                         }
@@ -1794,7 +1856,7 @@ pub const WorkspaceEditError = error{
     InvalidTargetURI,
 } || TextEditError || std.Io.Writer.Error;
 
-pub fn write_workspace_edit(writer: *std.Io.Writer, workspace_edit: []const u8) WorkspaceEditError!void {
+pub fn write_workspace_edit(writer: *std.Io.Writer, workspace_edit: []const u8, hashes: ?*const DocumentHashes) WorkspaceEditError!void {
     var iter = workspace_edit;
     var len = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEdit;
     var changes: ?[]const u8 = null;
@@ -1812,25 +1874,25 @@ pub fn write_workspace_edit(writer: *std.Io.Writer, workspace_edit: []const u8) 
         }
     }
     return if (document_changes) |value|
-        write_workspace_edit_document_changes(writer, value)
+        write_workspace_edit_document_changes(writer, value, hashes)
     else if (changes) |value|
-        write_workspace_edit_changes(writer, value)
+        write_workspace_edit_changes(writer, value, hashes)
     else
         error.InvalidWorkspaceEdit;
 }
 
-fn write_workspace_edit_changes(writer: *std.Io.Writer, changes: []const u8) WorkspaceEditError!void {
+fn write_workspace_edit_changes(writer: *std.Io.Writer, changes: []const u8, hashes: ?*const DocumentHashes) WorkspaceEditError!void {
     var iter = changes;
     var files = cbor.decodeMapHeader(&iter) catch return error.InvalidWorkspaceEditField;
     try cbor.writeArrayHeader(writer, files);
     while (files > 0) : (files -= 1) {
         var file_uri: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidWorkspaceEditFieldName;
-        try write_workspace_edit_file(writer, file_uri, null, &iter);
+        try write_workspace_edit_file(writer, file_uri, null, &iter, hashes);
     }
 }
 
-fn write_workspace_edit_document_changes(writer: *std.Io.Writer, document_changes: []const u8) WorkspaceEditError!void {
+fn write_workspace_edit_document_changes(writer: *std.Io.Writer, document_changes: []const u8, hashes: ?*const DocumentHashes) WorkspaceEditError!void {
     var iter = document_changes;
     var len = cbor.decodeArrayHeader(&iter) catch return error.InvalidWorkspaceEditField;
     try cbor.writeArrayHeader(writer, len);
@@ -1839,7 +1901,7 @@ fn write_workspace_edit_document_changes(writer: *std.Io.Writer, document_change
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&change)))) return error.InvalidWorkspaceEditField;
         if (try read_text_document_edit(change)) |edit_| {
             var edit = edit_;
-            try write_workspace_edit_file(writer, edit.uri, edit.version, &edit.edits);
+            try write_workspace_edit_file(writer, edit.uri, edit.version, &edit.edits, hashes);
         } else try write_file_operation(writer, change);
     }
 }
@@ -1955,12 +2017,12 @@ fn read_text_document_edit(change: []const u8) WorkspaceEditError!?TextDocumentE
     };
 }
 
-fn write_workspace_edit_file(writer: *std.Io.Writer, file_uri: []const u8, version: ?usize, text_edits: *[]const u8) WorkspaceEditError!void {
+fn write_workspace_edit_file(writer: *std.Io.Writer, file_uri: []const u8, version: ?usize, text_edits: *[]const u8, hashes: ?*const DocumentHashes) WorkspaceEditError!void {
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     try cbor.writeArrayHeader(writer, 3);
     try cbor.writeValue(writer, try file_uri_to_path(file_uri, &file_path_buf));
     try cbor.writeValue(writer, version);
-    try write_text_edits(writer, text_edits);
+    try write_text_edits(writer, text_edits, if (hashes) |hashes_| hashes_.base_hash(file_uri, version) else null);
 }
 
 fn count_workspace_edit_text_edits(workspace_edit: []const u8) cbor.Error!usize {
@@ -1973,21 +2035,27 @@ fn count_workspace_edit_text_edits(workspace_edit: []const u8) cbor.Error!usize 
             try cbor.skipValue(&iter);
             continue;
         }
-        count += try cbor.decodeArrayHeader(&text_edits);
+        count += (EditSet.Iterator.init(.{ .bytes = text_edits }) catch return error.InvalidArrayType).remaining;
     }
     return count;
 }
 
-pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, version: usize, text: []const u8) LspError!void {
+pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, version: usize, hash: EditSet.Hash, text: []const u8) LspError!void {
     const uri = try make_URI(self.allocator, self.project_name, file_path);
     defer self.allocator.free(uri);
+    try self.document_hashes.open(self.allocator, uri, version, hash);
     self.lsp.send_notification("textDocument/didOpen", .{
         .textDocument = .{ .uri = uri, .languageId = file_type, .version = version, .text = text },
     }) catch return error.LspFailed;
 }
 
-pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
     _ = eol_mode;
+    {
+        const uri = try make_URI(self.allocator, self.project_name, file_path);
+        defer self.allocator.free(uri);
+        self.document_hashes.change(uri, version, hash);
+    }
     switch (self.server_capabilities.sync) {
         .none => return,
         .full => return self.did_change_full(file_path, version, text_dst),
@@ -2119,6 +2187,7 @@ pub fn did_change_configuration(self: *Self, settings: ?cbor.Raw) LspError!void 
 pub fn did_close(self: *Self, file_path: []const u8) LspError!void {
     const uri = try make_URI(self.allocator, self.project_name, file_path);
     defer self.allocator.free(uri);
+    self.document_hashes.close(self.allocator, uri);
     self.lsp.send_notification("textDocument/didClose", .{
         .textDocument = .{ .uri = uri },
     }) catch return error.LspFailed;

@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const EditSet = @import("EditSet");
 const log = @import("log");
 const root = @import("soft_root").root;
 const fuzzig = @import("fuzzig");
@@ -1256,6 +1257,7 @@ pub fn did_open(
     language_server_settings: []const u8,
     language_server_protocol: file_type_config.ProtocolLevel,
     version: usize,
+    hash: EditSet.Hash,
     text: []const u8,
 ) StartLspError!void {
     self.update_mru(&.{ .src = .{ .path = file_path, .line = 0, .column = 0 } }) catch {};
@@ -1266,12 +1268,12 @@ pub fn did_open(
         else => {},
     };
     const client = try self.get_or_start_lsp_client(from, file_path, language_server, language_server_options, language_server_protocol);
-    return client.did_open(file_path, file_type, version, text);
+    return client.did_open(file_path, file_type, version, hash, text);
 }
 
-pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) StartLspError!void {
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, hash: EditSet.Hash, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) StartLspError!void {
     const client = try self.get_lsp_client_for_file(file_path);
-    return client.did_change(file_path, version, text_dst, text_src, eol_mode);
+    return client.did_change(file_path, version, hash, text_dst, text_src, eol_mode);
 }
 
 pub fn did_save(self: *Self, file_path: []const u8) StartLspError!void {
@@ -1531,6 +1533,11 @@ pub fn apply_code_action(self: *Self, from: tp.pid_ref, file_path: []const u8, a
     return client.apply_code_action(from, action);
 }
 
+pub fn execute_code_action(self: *Self, to: tp.pid_ref, language_server: []const u8, action: []const u8) !void {
+    const client = self.get_existing_lsp_client(language_server) orelse return error.NoLsp;
+    return client.execute_code_action(to, action);
+}
+
 pub fn execute_command(self: *Self, language_server: []const u8, command: []const u8) LspError!void {
     const client = self.get_existing_lsp_client(language_server) orelse return error.NoLsp;
     return client.execute_command(command);
@@ -1590,7 +1597,8 @@ pub fn write_diagnostics_in_range(self: *Self, writer: *std.Io.Writer, file_path
 pub fn apply_edit(self: *Self, from: tp.pid_ref, to: tp.pid_ref, language_server: []const u8, cbor_id: []const u8, params_cb: []const u8) LspError!void {
     var workspace_edit: std.Io.Writer.Allocating = .init(self.allocator);
     defer workspace_edit.deinit();
-    write_apply_edit_params(&workspace_edit.writer, params_cb) catch |e|
+    const hashes = if (self.get_existing_lsp_client(language_server)) |client| &client.document_hashes else null;
+    write_apply_edit_params(&workspace_edit.writer, params_cb, hashes) catch |e|
         return LSP.send_response(self.allocator, from, cbor_id, .{ .applied = false, .failureReason = @errorName(e) }) catch error.LspFailed;
     to.send(.{ "cmd", "apply_workspace_edit", .{
         cbor.Raw{ .bytes = workspace_edit.written() },
@@ -1598,7 +1606,7 @@ pub fn apply_edit(self: *Self, from: tp.pid_ref, to: tp.pid_ref, language_server
     } }) catch return error.LspFailed;
 }
 
-fn write_apply_edit_params(writer: *std.Io.Writer, params_cb: []const u8) (LSPClient.WorkspaceEditError || error{InvalidApplyEditParams})!void {
+fn write_apply_edit_params(writer: *std.Io.Writer, params_cb: []const u8, hashes: ?*const LSPClient.DocumentHashes) (LSPClient.WorkspaceEditError || error{InvalidApplyEditParams})!void {
     var iter = params_cb;
     var len = cbor.decodeMapHeader(&iter) catch return error.InvalidApplyEditParams;
     while (len > 0) : (len -= 1) {
@@ -1607,7 +1615,7 @@ fn write_apply_edit_params(writer: *std.Io.Writer, params_cb: []const u8) (LSPCl
         if (std.mem.eql(u8, field_name, "edit")) {
             var edit: []const u8 = undefined;
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&edit)))) return error.InvalidApplyEditParams;
-            return LSPClient.write_workspace_edit(writer, edit);
+            return LSPClient.write_workspace_edit(writer, edit, hashes);
         }
         try cbor.skipValue(&iter);
     }

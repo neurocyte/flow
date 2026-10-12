@@ -557,9 +557,18 @@ pub fn build_exe(
         },
     });
 
+    const EditSet_mod = b.createModule(.{
+        .root_source_file = b.path("src/EditSet.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
+        },
+    });
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
+            .{ .name = "EditSet", .module = EditSet_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "cbor", .module = cbor_mod },
@@ -1060,6 +1069,22 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const edit_set_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-edit_set",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/EditSet.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("dizzy", dizzy_dep.module("dizzy"));
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const match_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-match",
@@ -1372,6 +1397,7 @@ pub fn build_exe(
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
+            .{ .name = "EditSet", .module = EditSet_mod },
             .{ .name = "gitignore", .module = gitignore_mod },
         },
     });
@@ -1400,6 +1426,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "file_watcher", .module = file_watcher_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
+            .{ .name = "EditSet", .module = EditSet_mod },
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "crash", .module = crash_mod },
             .{ .name = "file_link", .module = file_link_mod },
@@ -1615,6 +1642,7 @@ pub fn build_exe(
     tests.root_module.addImport("Buffer", Buffer_mod);
     tests.root_module.addImport("color", color_mod);
     tests.root_module.addImport("tui", tui_mod);
+    tests.root_module.addImport("EditSet", EditSet_mod);
     tests.root_module.addImport("cbor", cbor_mod);
     tests.root_module.addImport("command", command_mod);
     tests.root_module.addImport("project_manager", project_manager_mod);
@@ -1628,6 +1656,7 @@ pub fn build_exe(
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
+    test_step.dependOn(&edit_set_test_run_cmd.step);
     test_step.dependOn(&gitignore_test_run_cmd.step);
     test_step.dependOn(&dbus_test_run_cmd.step);
     test_step.dependOn(&file_store_test_run_cmd.step);
