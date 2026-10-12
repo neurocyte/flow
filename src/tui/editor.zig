@@ -6679,7 +6679,7 @@ pub const Editor = struct {
     }
     pub const smart_insert_pair_close_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
-    fn update_syntax(self: *Self, now: std.Io.Timestamp) !void {
+    fn update_syntax(self: *Self, _: std.Io.Timestamp) !void {
         const buffer = self.buffer orelse return error.Stop;
         const root = buffer.root;
         const eol_mode = try self.buf_eol_mode();
@@ -6687,7 +6687,7 @@ pub const Editor = struct {
             return;
         var kind: enum { full, incremental, none } = .none;
         var edit_count: usize = 0;
-        const start_time = now.toMilliseconds();
+        const start_time = root_mod.get_now().toMilliseconds();
         if (self.syntax) |syn| {
             if (self.syntax_no_render) {
                 const frame = tracy.initZone(@src(), .{ .name = "editor reset syntax" });
@@ -6771,23 +6771,24 @@ pub const Editor = struct {
                 }
             }
         }
-        const end_time = now.toMilliseconds();
+        const end_time = root_mod.get_now().toMilliseconds();
         if (kind == .full or kind == .incremental) {
             const update_time = end_time - start_time;
-            self.syntax_incremental_reparse = end_time - start_time > syntax_full_reparse_time_limit;
+            self.syntax_incremental_reparse = update_time >= syntax_full_reparse_time_limit;
             if (self.syntax_report_timing)
                 self.logger.print("syntax update {t} time: {d}ms ({d} edits)", .{ kind, update_time, edit_count });
         }
     }
 
     fn syntax_process_edit(syn: *syntax, edit: EditSet.ByteEdit) void {
+        const new_end = edit.new_end_position();
         syn.edit(.{
             .start_byte = @intCast(edit.begin),
             .old_end_byte = @intCast(edit.end),
             .new_end_byte = @intCast(edit.begin + edit.text.len),
-            .start_point = .{ .row = 0, .column = 0 },
-            .old_end_point = .{ .row = 0, .column = 0 },
-            .new_end_point = .{ .row = 0, .column = 0 },
+            .start_point = .{ .row = @intCast(edit.begin_position.row), .column = @intCast(edit.begin_position.pos) },
+            .old_end_point = .{ .row = @intCast(edit.end_position.row), .column = @intCast(edit.end_position.pos) },
+            .new_end_point = .{ .row = @intCast(new_end.row), .column = @intCast(new_end.pos) },
         });
     }
 

@@ -157,6 +157,18 @@ pub const ByteEdit = struct {
     begin: usize,
     end: usize,
     text: []const u8,
+    begin_position: Position,
+    end_position: Position,
+
+    /// the position of the end of text after the edit
+    pub fn new_end_position(self: ByteEdit) Position {
+        const eol = std.mem.lastIndexOfScalar(u8, self.text, '\n') orelse
+            return .{ .row = self.begin_position.row, .pos = self.begin_position.pos + self.text.len };
+        return .{
+            .row = self.begin_position.row + std.mem.count(u8, self.text, "\n"),
+            .pos = self.text.len - eol - 1,
+        };
+    }
 };
 
 /// The edits of an edit set with byte offsets in src, the base document.
@@ -174,6 +186,8 @@ pub fn byte_edits(allocator: std.mem.Allocator, edit_set: cbor.Raw, src: []const
             .begin = scan.offset(src, edit.begin) orelse return error.InvalidEditSet,
             .end = scan.offset(src, edit.end) orelse return error.InvalidEditSet,
             .text = edit.text,
+            .begin_position = edit.begin,
+            .end_position = edit.end,
         };
     }
     return result;
@@ -539,6 +553,13 @@ test "byte_edits: offsets in the base document" {
     try testing.expectEqual(14, result[2].begin);
     try testing.expectEqual(14, result[2].end);
     try testing.expectEqualStrings("end", result[2].text);
+    try testing.expectEqual(Position{ .row = 0, .pos = 2 }, result[0].new_end_position());
+    try testing.expectEqual(Position{ .row = 1, .pos = 3 }, result[1].new_end_position());
+    try testing.expectEqual(Position{ .row = 3, .pos = 3 }, result[2].new_end_position());
+    const multi_line: ByteEdit = .{ .begin = 0, .end = 0, .text = "a\nbc\nd", .begin_position = .{ .row = 4, .pos = 7 }, .end_position = .{ .row = 4, .pos = 7 } };
+    try testing.expectEqual(Position{ .row = 6, .pos = 1 }, multi_line.new_end_position());
+    const ends_with_eol: ByteEdit = .{ .begin = 0, .end = 0, .text = "a\n", .begin_position = .{ .row = 4, .pos = 7 }, .end_position = .{ .row = 4, .pos = 7 } };
+    try testing.expectEqual(Position{ .row = 5, .pos = 0 }, ends_with_eol.new_end_position());
 
     try testing.expectError(error.InvalidEditSet, byte_edits(testing.allocator, .{ .bytes = edit_set.written() }, "one\n"));
 }
