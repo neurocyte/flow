@@ -466,6 +466,124 @@ test "apply_edit_set: random strings round trip on a rope" {
     }
 }
 
+fn expect_diff_roots(src_root: Buffer.Root, dst_root: Buffer.Root, src: []const u8, dst: []const u8) !usize {
+    var edit_set: std.Io.Writer.Allocating = .init(a);
+    defer edit_set.deinit();
+    var byte_ranges: std.ArrayList(EditSet.ByteRange) = .empty;
+    defer byte_ranges.deinit(a);
+    try EditSet.diff_roots(a, &edit_set, src_root, dst_root, .{ .base_hash = EditSet.hash(src), .result_hash = EditSet.hash(dst) }, std.math.maxInt(usize), &byte_ranges);
+
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(a);
+    try text.appendSlice(a, src);
+    try EditSet.apply_to_string(a, &text, .{ .bytes = edit_set.written() });
+    try std.testing.expectEqualStrings(dst, text.items);
+
+    const edits = try EditSet.collect(a, .{ .bytes = edit_set.written() });
+    defer a.free(edits);
+    try std.testing.expectEqual(edits.len, byte_ranges.items.len);
+    text.clearRetainingCapacity();
+    try text.appendSlice(a, src);
+    var index = edits.len;
+    while (index > 0) {
+        index -= 1;
+        const range = byte_ranges.items[index];
+        try text.replaceRange(a, range.begin, range.end - range.begin, edits[index].text);
+    }
+    try std.testing.expectEqualStrings(dst, text.items);
+    return edits.len;
+}
+
+test "diff_roots: equal roots give no edits" {
+    const buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+    defer buffer.deinit();
+    const root = try load(buffer, "one\ntwo\n");
+    try std.testing.expectEqual(0, try expect_diff_roots(root, root, "one\ntwo\n", "one\ntwo\n"));
+}
+
+test "diff_roots: roots that share nodes" {
+    const buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+    defer buffer.deinit();
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(a);
+    for (0..500) |i| try text.print(a, "line number {d}\n", .{i});
+    const src_root = try load(buffer, text.items);
+
+    _, _, const one_insert = try src_root.insert_chars(250, 4, "XYZ", buffer.allocator, metrics());
+    var dst: std.Io.Writer.Allocating = .init(a);
+    defer dst.deinit();
+    try one_insert.store_node(&dst.writer, .lf);
+    try std.testing.expectEqual(1, try expect_diff_roots(src_root, one_insert, text.items, dst.written()));
+
+    // with a limit of a few lines the diff only works if the shared nodes are skipped
+    var small: std.Io.Writer.Allocating = .init(a);
+    defer small.deinit();
+    try EditSet.diff_roots(a, &small, src_root, one_insert, .{}, 8, null);
+    try EditSet.diff_roots(a, &small, one_insert, src_root, .{}, 8, null);
+    const other_buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+    defer other_buffer.deinit();
+    try std.testing.expectError(error.InputTooLarge, EditSet.diff_roots(a, &small, src_root, try load(other_buffer, "other\n"), .{}, 8, null));
+
+    _, _, var two_edits = try one_insert.insert_chars(10, 0, "new line\n", buffer.allocator, metrics());
+    two_edits = try two_edits.delete_bytes(480, 0, 12, buffer.allocator, metrics());
+    dst.clearRetainingCapacity();
+    try two_edits.store_node(&dst.writer, .lf);
+    try std.testing.expectEqual(3, try expect_diff_roots(src_root, two_edits, text.items, dst.written()));
+
+    _, _, const at_end = try src_root.insert_chars(500, 0, "tail", buffer.allocator, metrics());
+    dst.clearRetainingCapacity();
+    try at_end.store_node(&dst.writer, .lf);
+    try std.testing.expectEqual(1, try expect_diff_roots(src_root, at_end, text.items, dst.written()));
+
+    _, _, const at_begin = try src_root.insert_chars(0, 0, "head\n", buffer.allocator, metrics());
+    dst.clearRetainingCapacity();
+    try at_begin.store_node(&dst.writer, .lf);
+    try std.testing.expectEqual(1, try expect_diff_roots(src_root, at_begin, text.items, dst.written()));
+}
+
+test "diff_roots: random texts, with shared nodes and without" {
+    const pieces = [_][]const u8{ "a", "b", "c", " ", "\n", "\n", "fn ", "end", "x = 1;", "\u{e9}" };
+    var prng: std.Random.DefaultPrng = .init(0x5eed);
+    const random = prng.random();
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(a);
+    var dst: std.ArrayList(u8) = .empty;
+    defer dst.deinit(a);
+
+    for (0..300) |_| {
+        src.clearRetainingCapacity();
+        dst.clearRetainingCapacity();
+        for (0..random.uintLessThan(usize, 60)) |_| {
+            const piece = pieces[random.uintLessThan(usize, pieces.len)];
+            switch (random.uintLessThan(u8, 12)) {
+                0 => try src.appendSlice(a, piece),
+                1 => try dst.appendSlice(a, piece),
+                2 => {
+                    try src.appendSlice(a, piece);
+                    try dst.appendSlice(a, pieces[random.uintLessThan(usize, pieces.len)]);
+                },
+                else => {
+                    try src.appendSlice(a, piece);
+                    try dst.appendSlice(a, piece);
+                },
+            }
+        }
+        const src_buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+        defer src_buffer.deinit();
+        const dst_buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+        defer dst_buffer.deinit();
+        const src_root = try load(src_buffer, src.items);
+        _ = try expect_diff_roots(src_root, try load(dst_buffer, dst.items), src.items, dst.items);
+
+        var edit_set: std.Io.Writer.Allocating = .init(a);
+        defer edit_set.deinit();
+        try EditSet.diff_strings(a, &edit_set, src.items, dst.items);
+        const shared = try src_root.apply_edit_set(src_buffer.allocator, a, .{ .bytes = edit_set.written() }, metrics());
+        _ = try expect_diff_roots(src_root, shared, src.items, dst.items);
+        _ = try expect_diff_roots(shared, src_root, dst.items, src.items);
+    }
+}
+
 test "get_from_pos" {
     const now = std.Io.Clock.real.now(std.testing.io);
     var eol_mode: Buffer.EolMode = .lf;

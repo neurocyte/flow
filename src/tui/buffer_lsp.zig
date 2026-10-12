@@ -47,7 +47,7 @@ pub fn sync(buffer: *Buffer) !void {
     buffer.lsp_version += 1;
     buffer.lsp_root = buffer.root;
     (if (edit_set) |edit_set_|
-        project_manager.did_change(buffer.get_file_path(), buffer.lsp_version, buffer.content_hash(), .{ .bytes = edit_set_ })
+        project_manager.did_change(buffer.get_file_path(), buffer.lsp_version, buffer.content_hash(), .{ .bytes = edit_set_.edit_set })
     else
         project_manager.did_change_full(buffer.get_file_path(), buffer.lsp_version, buffer.content_hash(), buffer.store_to_string_cached(buffer.root, eol_mode))) catch {};
 }

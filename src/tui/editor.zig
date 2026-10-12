@@ -46,7 +46,6 @@ const Allocator = std.mem.Allocator;
 const time = std.time;
 
 const double_click_time_ms = 350;
-const max_filter_diff_bytes = 32 * 1024;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
 const syntax_full_reparse_error_threshold = 3; // number of tree-sitter errors that trigger a full reparse
 
@@ -6721,21 +6720,14 @@ pub const Editor = struct {
                 if (self.syntax_last_rendered_root) |root_src| {
                     self.syntax_last_rendered_root = null;
                     // check if the roots differ too much for a diff
-                    const edit_set = try buffer.edit_set_between(root_src, root, eol_mode) orelse {
+                    const diff = try buffer.edit_set_between(root_src, root, eol_mode) orelse {
                         self.syntax_refresh_full = true;
                         return self.update_syntax(now);
                     };
-                    var old_content: std.Io.Writer.Allocating = .init(self.allocator);
-                    defer old_content.deinit();
-                    {
-                        const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
-                        defer frame.deinit();
-                        try root_src.store_node(&old_content.writer, eol_mode);
-                    }
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
                         defer frame.deinit();
-                        const edits = try EditSet.byte_edits(self.allocator, .{ .bytes = edit_set }, old_content.written());
+                        const edits = try self.syntax_byte_edits(diff, root_src, eol_mode);
                         defer self.allocator.free(edits);
                         // tree-sitter takes the edits one after the other, last edit first keeps the offsets valid
                         var index = edits.len;
@@ -6781,6 +6773,23 @@ pub const Editor = struct {
             if (self.syntax_report_timing)
                 self.logger.print("syntax update {t} time: {d}ms ({d} edits)", .{ kind, update_time, edit_count });
         }
+    }
+
+    fn syntax_byte_edits(self: *Self, diff: *const Buffer.EditSetCache, root_src: Buffer.Root, eol_mode: Buffer.EolMode) ![]EditSet.ByteEdit {
+        const byte_ranges = diff.byte_ranges orelse {
+            var old_content: std.Io.Writer.Allocating = .init(self.allocator);
+            defer old_content.deinit();
+            try root_src.store_node(&old_content.writer, eol_mode);
+            return EditSet.byte_edits(self.allocator, .{ .bytes = diff.edit_set }, old_content.written());
+        };
+        const edits = try self.allocator.alloc(EditSet.ByteEdit, byte_ranges.len);
+        errdefer self.allocator.free(edits);
+        var iter: EditSet.Iterator = try .init(.{ .bytes = diff.edit_set });
+        for (edits, byte_ranges) |*byte_edit, range| {
+            const edit = try iter.next() orelse return error.InvalidEditSet;
+            byte_edit.* = .{ .begin = range.begin, .end = range.end, .text = edit.text, .begin_position = edit.begin, .end_position = edit.end };
+        }
+        return edits;
     }
 
     fn syntax_process_edit(syn: *syntax, edit: EditSet.ByteEdit) void {
@@ -8484,7 +8493,7 @@ pub const Editor = struct {
         if (try self.buf_eol_mode() != .lf) return null;
         if (std.mem.indexOfScalar(u8, output, '\r') != null or !std.unicode.utf8ValidateSlice(output)) return null;
         const content = buffer.store_to_string_cached(root, .lf);
-        if (EditSet.middle_size(content, output) > max_filter_diff_bytes) return null;
+        if (EditSet.middle_lines(content, output) > Buffer.max_edit_set_middle_lines) return null;
         var edit_set: std.Io.Writer.Allocating = .init(self.allocator);
         defer edit_set.deinit();
         EditSet.diff_strings(self.allocator, &edit_set, content, output) catch |e| switch (e) {

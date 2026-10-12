@@ -101,7 +101,7 @@ last_view: ?usize = null,
 
 cache: ?StringCache = null,
 last_save_cache: ?StringCache = null,
-hash_cache: ?struct { ref: Node.Ref, hash: EditSet.Hash } = null,
+hash_cache: [2]?struct { ref: Node.Ref, hash: EditSet.Hash } = .{ null, null },
 edit_set_cache: ?EditSetCache = null,
 
 undo_head: ?*UndoNode = null,
@@ -346,7 +346,7 @@ const Node = union(enum) {
         return node;
     }
 
-    fn weights_sum(self: *const Node) Weights {
+    pub fn weights_sum(self: *const Node) Weights {
         return switch (self.*) {
             .node => |*n| n.weights_sum,
             .leaf => |*l| l.weights(),
@@ -1353,7 +1353,7 @@ pub fn deinit(self: *Self) void {
     self.vcs_blame.reset(self.external_allocator);
     if (self.cache) |*cache| cache.deinit(self.external_allocator);
     if (self.last_save_cache) |*cache| cache.deinit(self.external_allocator);
-    if (self.edit_set_cache) |cache| self.external_allocator.free(cache.edit_set);
+    if (self.edit_set_cache) |cache| cache.deinit(self.external_allocator);
     if (self.vcs_id) |buf| self.external_allocator.free(buf);
     if (self.meta) |buf| self.external_allocator.free(buf);
     if (self.file_buf) |buf| self.external_allocator.free(buf);
@@ -1720,42 +1720,68 @@ pub fn store_last_save_to_string_cached(self: *Self, eol_mode: EolMode) ?[]const
     return self.store_cached_text(&self.last_save_cache, root.to_ref(), eol_mode, s.toOwnedSliceSentinel(0) catch @panic("OOM store_last_save_to_string_cached"));
 }
 
-pub const max_edit_set_middle_bytes = 16 * 1024;
+pub const max_edit_set_middle_lines = 5_000;
 
-const EditSetCache = struct {
+pub const EditSetCache = struct {
     from: Node.Ref,
     to: Node.Ref,
     eol_mode: EolMode,
     edit_set: []const u8,
+    byte_ranges: ?[]const EditSet.ByteRange, // in from
+
+    fn deinit(self: EditSetCache, allocator: Allocator) void {
+        allocator.free(self.edit_set);
+        if (self.byte_ranges) |byte_ranges| allocator.free(byte_ranges);
+    }
 };
 
-pub fn edit_set_between(self: *Self, from: Root, to: Root, eol_mode: EolMode) error{OutOfMemory}!?[]const u8 {
-    if (self.edit_set_cache) |cache|
+pub fn edit_set_between(self: *Self, from: Root, to: Root, eol_mode: EolMode) error{OutOfMemory}!?*const EditSetCache {
+    if (self.edit_set_cache) |*cache|
         if (cache.from == from.to_ref() and cache.to == to.to_ref() and cache.eol_mode == eol_mode)
-            return cache.edit_set;
+            return cache;
     const allocator = self.external_allocator;
-    var src: std.Io.Writer.Allocating = .init(allocator);
-    defer src.deinit();
-    from.store_node(&src.writer, eol_mode) catch return error.OutOfMemory;
-    const dst = self.store_to_string_cached(to, eol_mode);
-    if (EditSet.middle_size(src.written(), dst) > max_edit_set_middle_bytes) return null;
     var edit_set: std.Io.Writer.Allocating = .init(allocator);
     defer edit_set.deinit();
-    EditSet.diff_strings(allocator, &edit_set, src.written(), dst) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return null,
-    };
-    if (self.edit_set_cache) |cache| allocator.free(cache.edit_set);
-    self.edit_set_cache = null;
-    self.edit_set_cache = .{ .from = from.to_ref(), .to = to.to_ref(), .eol_mode = eol_mode, .edit_set = try edit_set.toOwnedSlice() };
-    return self.edit_set_cache.?.edit_set;
+    var byte_ranges: std.ArrayList(EditSet.ByteRange) = .empty;
+    defer byte_ranges.deinit(allocator);
+
+    if (eol_mode == .lf) {
+        EditSet.diff_roots(allocator, &edit_set, from, to, .{
+            .base_hash = self.root_hash(from),
+            .result_hash = self.root_hash(to),
+        }, max_edit_set_middle_lines, &byte_ranges) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return null,
+        };
+    } else {
+        var src: std.Io.Writer.Allocating = .init(allocator);
+        defer src.deinit();
+        from.store_node(&src.writer, eol_mode) catch return error.OutOfMemory;
+        const dst = self.store_to_string_cached(to, eol_mode);
+        if (EditSet.middle_lines(src.written(), dst) > max_edit_set_middle_lines) return null;
+        EditSet.diff_strings(allocator, &edit_set, src.written(), dst) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return null,
+        };
+    }
+    const owned_ranges = if (eol_mode == .lf) try byte_ranges.toOwnedSlice(allocator) else null;
+    errdefer if (owned_ranges) |ranges| allocator.free(ranges);
+    const owned_edit_set = try edit_set.toOwnedSlice();
+    if (self.edit_set_cache) |cache| cache.deinit(allocator);
+    self.edit_set_cache = .{ .from = from.to_ref(), .to = to.to_ref(), .eol_mode = eol_mode, .edit_set = owned_edit_set, .byte_ranges = owned_ranges };
+    return &self.edit_set_cache.?;
 }
 
 pub fn content_hash(self: *Self) EditSet.Hash {
-    const ref = self.root.to_ref();
-    if (self.hash_cache) |cache| if (cache.ref == ref) return cache.hash;
-    const hash = self.root.hash();
-    self.hash_cache = .{ .ref = ref, .hash = hash };
+    return self.root_hash(self.root);
+}
+
+fn root_hash(self: *Self, root: Root) EditSet.Hash {
+    const ref = root.to_ref();
+    for (self.hash_cache) |entry| if (entry) |cache| if (cache.ref == ref) return cache.hash;
+    const hash = root.hash();
+    self.hash_cache[1] = self.hash_cache[0];
+    self.hash_cache[0] = .{ .ref = ref, .hash = hash };
     return hash;
 }
 

@@ -169,7 +169,7 @@ fn copy_error_name(buf: []u8, name: []const u8) []const u8 {
 
 pub const Eol = enum { lf, crlf };
 pub const max_diff_bytes = 8 * 1024 * 1024;
-pub const max_diff_middle_bytes = 32 * 1024;
+pub const max_diff_cost = 400_000_000;
 
 pub const ReadStream = struct {
     allocator: std.mem.Allocator,
@@ -690,7 +690,7 @@ const Process = struct {
     }
 
     fn diff_text(allocator: std.mem.Allocator, edit_set: *std.Io.Writer.Allocating, base: []const u8, text: []const u8) !void {
-        if (EditSet.middle_size(base, text) > max_diff_middle_bytes) return error.InputTooLarge;
+        if ((try EditSet.estimate(allocator, base, text)).cost() > max_diff_cost) return error.InputTooLarge;
         return EditSet.diff_strings(allocator, edit_set, base, text);
     }
 
