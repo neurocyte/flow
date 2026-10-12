@@ -314,11 +314,6 @@ pub fn build_exe(
         .optimize = optimize,
     });
 
-    const diffz_dep = b.dependency("diffz", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const fuzzig_dep = b.dependency("fuzzig", .{
         .target = target,
         .optimize = optimize,
@@ -1410,7 +1405,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
-            .{ .name = "diffz", .module = diffz_dep.module("diffz") },
+            .{ .name = "EditSet", .module = EditSet_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
         },

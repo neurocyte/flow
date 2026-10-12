@@ -4,7 +4,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 const Diff = @import("diff").LineDiff;
 const Kind = @import("diff").LineDiffKind;
-const diffz = @import("diff").diffz;
+const diff = @import("diff");
 const cbor = @import("cbor");
 const root = @import("soft_root").root;
 
@@ -41,7 +41,7 @@ width: usize,
 editor: *ed.Editor,
 editor_widget: ?Widget = null,
 indicator_hover: bool = false,
-differ: diffz.AsyncDiffer,
+differ: diff.AsyncDiffer,
 
 const Self = @This();
 
@@ -58,7 +58,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .symbols = tui.config().gutter_symbols,
         .width = undefined,
         .editor = editor,
-        .differ = try diffz.create(),
+        .differ = try diff.create(),
     };
     self.update_width();
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));

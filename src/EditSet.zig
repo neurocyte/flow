@@ -488,9 +488,11 @@ const Middle = struct {
         const max_suffix = @min(src.len, dst.len) - prefix;
         var suffix: usize = 0;
         while (suffix < max_suffix and src[src.len - 1 - suffix] == dst[dst.len - 1 - suffix]) suffix += 1;
-        // the common end must begin at the begin of a line
+        // the common end must begin at the begin of a line in both texts
         const tail = src[src.len - suffix ..];
-        if (suffix > 0 and suffix < src.len and src[src.len - suffix - 1] != '\n')
+        const src_at_line = suffix == src.len or src[src.len - suffix - 1] == '\n';
+        const dst_at_line = suffix == dst.len or dst[dst.len - suffix - 1] == '\n';
+        if (suffix > 0 and !(src_at_line and dst_at_line))
             suffix = if (std.mem.indexOfScalar(u8, tail, '\n')) |eol| suffix - eol - 1 else 0;
         return .{ .begin = begin, .src_end = src.len - suffix, .dst_end = dst.len - suffix };
     }
@@ -569,6 +571,17 @@ const Lines = struct {
         offsets[count] = base_offset + text.len;
         return .{ .lines = lines, .hashes = hashes, .offsets = offsets };
     }
+
+    fn with_tail(self: Lines, allocator: std.mem.Allocator, text: []const u8, offset: usize, count: usize) error{OutOfMemory}!Lines {
+        var end = offset;
+        for (0..count) |_| end = if (std.mem.indexOfScalarPos(u8, text, end, '\n')) |eol| eol + 1 else text.len;
+        const tail: Lines = try .split(allocator, text[offset..end], offset);
+        return .{
+            .lines = try std.mem.concat(allocator, []const u8, &.{ self.lines, tail.lines }),
+            .hashes = try std.mem.concat(allocator, u64, &.{ self.hashes, tail.hashes }),
+            .offsets = try std.mem.concat(allocator, usize, &.{ self.offsets[0..self.lines.len], tail.offsets }),
+        };
+    }
 };
 
 const LineContext = struct {
@@ -584,50 +597,181 @@ const LineContext = struct {
 /// a block of changed lines up to this size, both sides together, gets a byte diff
 const max_block_refine_bytes = 2 * 1024;
 
-fn diff_lines(arena: std.mem.Allocator, hunks: *std.ArrayList(Hunk), src: []const u8, dst: []const u8) (error{ OutOfMemory, InputTooLarge })!void {
-    const middle: Middle = .of(src, dst);
-    const src_lines: Lines = try .split(arena, src[middle.begin..middle.src_end], middle.begin);
-    const dst_lines: Lines = try .split(arena, dst[middle.begin..middle.dst_end], middle.begin);
-    const total = src_lines.lines.len + dst_lines.lines.len;
-    if (total > std.math.maxInt(i32) / 4) return error.InputTooLarge;
+/// a block of changed lines, as line indexes in the two middles
+const RawBlock = struct {
+    src_line: usize,
+    src_end: usize,
+    dst_line: usize,
+    dst_end: usize,
+};
 
-    var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
-    const scratch = try arena.alloc(u32, 4 * total + 2);
-    try dizzy.Differ(LineContext).diff(arena, &dizzy_edits, @intCast(src_lines.lines.len), @intCast(dst_lines.lines.len), scratch, .{ .src = src_lines, .dst = dst_lines });
+const LineDiff = struct {
+    middle: Middle,
+    src: Lines,
+    dst: Lines,
+    blocks: []const RawBlock,
 
-    var src_line: usize = 0;
-    var dst_line: usize = 0;
-    var block: ?struct { src_line: usize, dst_line: usize } = null;
-    for (dizzy_edits.items) |dizzy_edit| {
-        const len = dizzy_edit.range.end - dizzy_edit.range.start;
-        switch (dizzy_edit.kind) {
-            .equal => {
-                if (block) |block_| try diff_block(arena, hunks, src, dst, .{
-                    .src_begin = src_lines.offsets[block_.src_line],
-                    .src_end = src_lines.offsets[src_line],
-                    .dst_begin = dst_lines.offsets[block_.dst_line],
-                    .dst_end = dst_lines.offsets[dst_line],
-                });
-                block = null;
+    fn of(arena: std.mem.Allocator, src: []const u8, dst: []const u8) (error{ OutOfMemory, InputTooLarge })!LineDiff {
+        const middle: Middle = .of(src, dst);
+        const src_lines: Lines = try .split(arena, src[middle.begin..middle.src_end], middle.begin);
+        const dst_lines: Lines = try .split(arena, dst[middle.begin..middle.dst_end], middle.begin);
+        const total = src_lines.lines.len + dst_lines.lines.len;
+        if (total > std.math.maxInt(i32) / 4) return error.InputTooLarge;
+
+        var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
+        const scratch = try arena.alloc(u32, 4 * total + 2);
+        try dizzy.Differ(LineContext).diff(arena, &dizzy_edits, @intCast(src_lines.lines.len), @intCast(dst_lines.lines.len), scratch, .{ .src = src_lines, .dst = dst_lines });
+
+        var blocks: std.ArrayList(RawBlock) = .empty;
+        var src_line: usize = 0;
+        var dst_line: usize = 0;
+        var open = false;
+        for (dizzy_edits.items) |dizzy_edit| {
+            const len = dizzy_edit.range.end - dizzy_edit.range.start;
+            if (dizzy_edit.kind == .equal) {
+                open = false;
                 src_line += len;
                 dst_line += len;
-            },
-            .delete => {
-                if (block == null) block = .{ .src_line = src_line, .dst_line = dst_line };
-                src_line += len;
-            },
-            .insert => {
-                if (block == null) block = .{ .src_line = src_line, .dst_line = dst_line };
-                dst_line += len;
-            },
+                continue;
+            }
+            if (!open) (try blocks.addOne(arena)).* = .{ .src_line = src_line, .src_end = src_line, .dst_line = dst_line, .dst_end = dst_line };
+            open = true;
+            if (dizzy_edit.kind == .delete) src_line += len else dst_line += len;
+            const block = &blocks.items[blocks.items.len - 1];
+            block.src_end = src_line;
+            block.dst_end = dst_line;
+        }
+        var src_all = src_lines;
+        var dst_all = dst_lines;
+        if (blocks.items.len > 0) {
+            // the last block can slide into the common last lines, which are not part of the middle
+            const last = blocks.items[blocks.items.len - 1];
+            const tail_lines = try slide_room(arena, last, src_lines, dst_lines, src[middle.src_end..]);
+            if (tail_lines > 0) {
+                src_all = try src_lines.with_tail(arena, src, middle.src_end, tail_lines);
+                dst_all = try dst_lines.with_tail(arena, dst, middle.dst_end, tail_lines);
+            }
+        }
+        slide_blocks(&blocks, src_all, dst_all);
+        return .{ .middle = middle, .src = src_all, .dst = dst_all, .blocks = blocks.items };
+    }
+
+    /// the number of lines of tail that the block can slide down, if it is at the end of both middles
+    fn slide_room(arena: std.mem.Allocator, block: RawBlock, src: Lines, dst: Lines, tail: []const u8) error{OutOfMemory}!usize {
+        if (block.src_end != src.lines.len or block.dst_end != dst.lines.len) return 0;
+        const inserted = block.src_line == block.src_end;
+        const removed = block.dst_line == block.dst_end;
+        if (inserted == removed) return 0;
+        const block_lines = if (inserted) dst.lines[block.dst_line..block.dst_end] else src.lines[block.src_line..block.src_end];
+        var seen: std.ArrayList([]const u8) = .empty;
+        var offset: usize = 0;
+        while (offset < tail.len) {
+            const end = if (std.mem.indexOfScalarPos(u8, tail, offset, '\n')) |eol| eol + 1 else tail.len;
+            const line = tail[offset..end];
+            const index = seen.items.len;
+            const expected = if (index < block_lines.len) block_lines[index] else seen.items[index - block_lines.len];
+            if (!std.mem.eql(u8, line, expected)) break;
+            try seen.append(arena, line);
+            offset = end;
+        }
+        return seen.items.len;
+    }
+
+    /// A block of only new lines or only removed lines can often move down
+    /// with the same result, if the line after it equals its first line. Git
+    /// moves such a block down as far as it goes, and so does this. A block
+    /// that reaches the next block joins it.
+    fn slide_blocks(blocks: *std.ArrayList(RawBlock), src: Lines, dst: Lines) void {
+        var index: usize = 0;
+        while (index < blocks.items.len) {
+            const block = &blocks.items[index];
+            const has_next = index + 1 < blocks.items.len;
+            const src_limit = if (has_next) blocks.items[index + 1].src_line else src.lines.len;
+            const dst_limit = if (has_next) blocks.items[index + 1].dst_line else dst.lines.len;
+            const inserted = block.src_line == block.src_end;
+            const removed = block.dst_line == block.dst_end;
+            if (inserted != removed) {
+                const side = if (inserted) dst else src;
+                while (block.src_end < src_limit and block.dst_end < dst_limit) {
+                    const first = if (inserted) block.dst_line else block.src_line;
+                    const after = if (inserted) block.dst_end else block.src_end;
+                    if (side.hashes[first] != side.hashes[after] or !std.mem.eql(u8, side.lines[first], side.lines[after])) break;
+                    block.src_line += 1;
+                    block.src_end += 1;
+                    block.dst_line += 1;
+                    block.dst_end += 1;
+                }
+            }
+            if (has_next and block.src_end == src_limit and block.dst_end == dst_limit) {
+                block.src_end = blocks.items[index + 1].src_end;
+                block.dst_end = blocks.items[index + 1].dst_end;
+                _ = blocks.orderedRemove(index + 1);
+                continue;
+            }
+            index += 1;
         }
     }
-    if (block) |block_| try diff_block(arena, hunks, src, dst, .{
-        .src_begin = src_lines.offsets[block_.src_line],
-        .src_end = src_lines.offsets[src_line],
-        .dst_begin = dst_lines.offsets[block_.dst_line],
-        .dst_end = dst_lines.offsets[dst_line],
+};
+
+fn diff_lines(arena: std.mem.Allocator, hunks: *std.ArrayList(Hunk), src: []const u8, dst: []const u8) (error{ OutOfMemory, InputTooLarge })!void {
+    const diff: LineDiff = try .of(arena, src, dst);
+    for (diff.blocks) |block| try diff_block(arena, hunks, src, dst, .{
+        .src_begin = diff.src.offsets[block.src_line],
+        .src_end = diff.src.offsets[block.src_end],
+        .dst_begin = diff.dst.offsets[block.dst_line],
+        .dst_end = diff.dst.offsets[block.dst_end],
     });
+}
+
+/// a block of changed lines: src_rows lines from src_row on were replaced by dst_rows lines from dst_row on
+pub const LineBlock = struct {
+    src_row: usize,
+    src_rows: usize,
+    dst_row: usize,
+    dst_rows: usize,
+};
+
+/// The blocks of changed lines between two texts, in the order of the texts.
+/// This is the line level of diff_strings, the same kind of result as the
+/// hunks of `git diff --unified=0`.
+pub fn line_blocks(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) (error{ OutOfMemory, InputTooLarge })![]LineBlock {
+    var arena_: std.heap.ArenaAllocator = .init(allocator);
+    defer arena_.deinit();
+    const diff: LineDiff = try .of(arena_.allocator(), src, dst);
+    const first_row = std.mem.count(u8, src[0..diff.middle.begin], "\n");
+    const blocks = try allocator.alloc(LineBlock, diff.blocks.len);
+    for (blocks, diff.blocks) |*block, raw| block.* = .{
+        .src_row = first_row + raw.src_line,
+        .src_rows = raw.src_end - raw.src_line,
+        .dst_row = first_row + raw.dst_line,
+        .dst_rows = raw.dst_end - raw.dst_line,
+    };
+    return blocks;
+}
+
+pub const LineMark = struct {
+    kind: Kind,
+    line: usize,
+    lines: usize,
+
+    pub const Kind = enum { insert, modify, delete };
+};
+
+/// The marks for the lines of the new text. A delete mark has one line, the
+/// line that now follows the removed lines.
+pub fn line_marks(allocator: std.mem.Allocator, blocks: []const LineBlock) error{OutOfMemory}![]LineMark {
+    var marks: std.ArrayList(LineMark) = .empty;
+    errdefer marks.deinit(allocator);
+    for (blocks) |block| {
+        const modified = @min(block.src_rows, block.dst_rows);
+        if (modified > 0)
+            (try marks.addOne(allocator)).* = .{ .kind = .modify, .line = block.dst_row, .lines = modified };
+        if (block.dst_rows > modified)
+            (try marks.addOne(allocator)).* = .{ .kind = .insert, .line = block.dst_row + modified, .lines = block.dst_rows - modified };
+        if (block.src_rows > modified)
+            (try marks.addOne(allocator)).* = .{ .kind = .delete, .line = block.dst_row + modified, .lines = 1 };
+    }
+    return marks.toOwnedSlice(allocator);
 }
 
 fn diff_block(arena: std.mem.Allocator, hunks: *std.ArrayList(Hunk), src: []const u8, dst: []const u8, block: Hunk) error{OutOfMemory}!void {
@@ -1058,6 +1202,62 @@ test "diff_strings: fixed cases" {
         .{ .begin = .{ .row = 0, .pos = 9 }, .end = .{ .row = 0, .pos = 9 }, .text = "0" },
         .{ .begin = .{ .row = 1, .pos = 4 }, .end = .{ .row = 1, .pos = 5 }, .text = "c" },
     });
+}
+
+fn expect_line_blocks(src: []const u8, dst: []const u8, expected: []const LineBlock) !void {
+    const blocks = try line_blocks(testing.allocator, src, dst);
+    defer testing.allocator.free(blocks);
+    try testing.expectEqualSlices(LineBlock, expected, blocks);
+}
+
+test "line_blocks" {
+    try expect_line_blocks("a\nb\nc\n", "a\nb\nc\n", &.{});
+    try expect_line_blocks("a\nb\nc\n", "a\nX\nc\n", &.{.{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 1 }});
+    try expect_line_blocks("a\nc\n", "a\nb1\nb2\nc\n", &.{.{ .src_row = 1, .src_rows = 0, .dst_row = 1, .dst_rows = 2 }});
+    try expect_line_blocks("a\nb\nc\nd\n", "a\nd\n", &.{.{ .src_row = 1, .src_rows = 2, .dst_row = 1, .dst_rows = 0 }});
+    try expect_line_blocks("a\nb\nc\nd\ne\n", "A\nb\nc\nd\nE1\nE2\n", &.{
+        .{ .src_row = 0, .src_rows = 1, .dst_row = 0, .dst_rows = 1 },
+        .{ .src_row = 4, .src_rows = 1, .dst_row = 4, .dst_rows = 2 },
+    });
+    try expect_line_blocks("", "a\nb\n", &.{.{ .src_row = 0, .src_rows = 0, .dst_row = 0, .dst_rows = 2 }});
+    try expect_line_blocks("a\nb", "a\nb\nc", &.{.{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 2 }});
+    try expect_line_blocks("a\nconst b\nc\n", "a\npub const b\nc\n", &.{.{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 1 }});
+    try expect_line_blocks("a\npub const b\nc\n", "a\nconst b\nc\n", &.{.{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 1 }});
+    try expect_line_blocks("const b\nc\n", "pub const b\nc\n", &.{.{ .src_row = 0, .src_rows = 1, .dst_row = 0, .dst_rows = 1 }});
+    // a block of new lines slides down as far as it goes, as in git
+    try expect_line_blocks("a;\n}\n\nfn c {\nz\n", "a;\n}\n\nconst m;\nb;\n}\n\nfn c {\nz\n", &.{.{ .src_row = 3, .src_rows = 0, .dst_row = 3, .dst_rows = 4 }});
+    try expect_line_blocks("h\nX\nm\na;\n}\n\nfn c {\nz\n", "h\nY\nm\na;\n}\n\nconst m;\nb;\n}\n\nfn c {\nz\n", &.{
+        .{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 1 },
+        .{ .src_row = 6, .src_rows = 0, .dst_row = 6, .dst_rows = 4 },
+    });
+    try expect_line_blocks("h\nX\nm\nx\nx\nx\nend\n", "h\nY\nm\nx\nx\nx\nx\nx\nend\n", &.{
+        .{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 1 },
+        .{ .src_row = 6, .src_rows = 0, .dst_row = 6, .dst_rows = 2 },
+    });
+    try expect_line_blocks("h\nX\na\n}\n\nb\n}\n\nc\n", "h\nY\na\n}\n\nc\n", &.{
+        .{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 1 },
+        .{ .src_row = 5, .src_rows = 3, .dst_row = 5, .dst_rows = 0 },
+    });
+}
+
+test "line_marks" {
+    const marks = try line_marks(testing.allocator, &.{
+        .{ .src_row = 1, .src_rows = 1, .dst_row = 1, .dst_rows = 1 },
+        .{ .src_row = 4, .src_rows = 0, .dst_row = 4, .dst_rows = 3 },
+        .{ .src_row = 9, .src_rows = 2, .dst_row = 12, .dst_rows = 0 },
+        .{ .src_row = 20, .src_rows = 1, .dst_row = 21, .dst_rows = 3 },
+        .{ .src_row = 30, .src_rows = 3, .dst_row = 33, .dst_rows = 1 },
+    });
+    defer testing.allocator.free(marks);
+    try testing.expectEqualSlices(LineMark, &.{
+        .{ .kind = .modify, .line = 1, .lines = 1 },
+        .{ .kind = .insert, .line = 4, .lines = 3 },
+        .{ .kind = .delete, .line = 12, .lines = 1 },
+        .{ .kind = .modify, .line = 21, .lines = 1 },
+        .{ .kind = .insert, .line = 22, .lines = 2 },
+        .{ .kind = .modify, .line = 33, .lines = 1 },
+        .{ .kind = .delete, .line = 34, .lines = 1 },
+    }, marks);
 }
 
 test "estimate" {

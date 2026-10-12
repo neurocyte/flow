@@ -77,10 +77,6 @@
             .hash = "flow_gui_headers-0.8.0-dev-SSnatcOWAACx5I7ZRi5hfCXzxalQUzCqJ1XHCWX6XUUo",
             .lazy = true,
         },
-        .diffz = .{
-            .url = "git+https://github.com/ziglibs/diffz.git?ref=main#aac8aa99c436ab8277b0711922aad062c0167b12",
-            .hash = "diffz-0.0.1-G2tlISvOAQDORzPTSxDgiKwlHuADKeJMdJrw4kRfLufj",
-        },
         .flow_sprite = .{
             .url = "git+https://github.com/neurocyte/flow-sprite?ref=master#f5ee2bff856c480d5fcfcff4e9013e0171f4fc8b",
             .hash = "flow_sprite-1.3.2-dev-71wnMq2ZBQDDi2QX8r1OjM7uTLlpZe1vmfY6aBjIRhnI",
