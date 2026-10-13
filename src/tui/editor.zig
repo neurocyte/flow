@@ -6777,7 +6777,11 @@ pub const Editor = struct {
     };
 
     fn syntax_in_background(root: Buffer.Root) bool {
-        return root.lines() > root_mod.background_syntax_lines;
+        return switch (tui.config().background_syntax) {
+            .auto => root.lines() > tui.config().background_syntax_threshold,
+            .always => true,
+            .never => false,
+        };
     }
 
     fn start_syntax_job(self: *Self, buffer: *Buffer, root: Buffer.Root, eol_mode: Buffer.EolMode) !bool {

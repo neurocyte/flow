@@ -68,6 +68,8 @@ indent_size: usize = 4,
 tab_width: usize = 8,
 indent_mode: IndentMode = .auto,
 reflow_width: usize = 76,
+background_syntax: BackgroundSyntax = .auto,
+background_syntax_threshold: usize = 20000, // lines
 
 top_bar: []const u8 = "tabs",
 bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch lsp linenumber clock spacer",
@@ -186,6 +188,12 @@ pub const IndentMode = enum {
     auto,
     spaces,
     tabs,
+};
+
+pub const BackgroundSyntax = enum {
+    auto,
+    always,
+    never,
 };
 
 pub const WidgetType = enum {

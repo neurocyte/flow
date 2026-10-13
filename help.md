@@ -268,6 +268,16 @@ when changed interactively with keybindings.
 rendering scrolling animations. Set to 0 to disable scrolling animation
 altogether.
 
+`background_syntax` controls where Flow Control does parsing for syntax
+highlighting.
+
+- `"auto"`: parse files with more than `background_syntax_threshold`
+  lines in the background. This is the default.
+- `"always"`: parse all files in the background.
+- `"never"`: parse all files before they are shown.
+
+`background_syntax_threshold` is a number of lines. The default is 20000.
+
 File types may be configured with the `Edit file type configuration`
 command. You can also create a new file type by adding a new `.conf` file
 to the `file_type` directory. Have a look at an existing file type to see
