@@ -620,67 +620,6 @@ pub fn addPromptMark(
     });
 }
 
-pub const CommandOutputRange = struct {
-    start: u32,
-    end: u32,
-    exit_code: ?i32,
-};
-
-pub fn lastCommandOutputRange(self: *const Screen) ?CommandOutputRange {
-    var i: usize = self.prompt_marks.items.len;
-    while (i > 0) {
-        i -= 1;
-        const start_mark = self.prompt_marks.items[i];
-        if (start_mark.kind != .output_start) continue;
-        for (self.prompt_marks.items[i + 1 ..]) |later| switch (later.kind) {
-            .output_end => return .{
-                .start = start_mark.row,
-                .end = later.row,
-                .exit_code = later.exit_code,
-            },
-            .prompt_start => return .{
-                .start = start_mark.row,
-                .end = later.row,
-                .exit_code = null,
-            },
-            else => {},
-        };
-        return .{
-            .start = start_mark.row,
-            .end = @intCast(self.visible_top + self.height),
-            .exit_code = null,
-        };
-    }
-    return null;
-}
-
-/// The output range of the command shown at `top_row` or the first command
-/// if `top_row` is above all of them.
-pub fn commandOutputRangeAt(self: *const Screen, top_row: usize) ?CommandOutputRange {
-    var cmd_idx: ?usize = null;
-    var first_idx: ?usize = null;
-    for (self.prompt_marks.items, 0..) |mark, i| {
-        if (mark.kind != .prompt_start) continue;
-        if (first_idx == null) first_idx = i;
-        if (self.commandTopRow(mark.row) <= top_row) cmd_idx = i;
-    }
-    const start_i = cmd_idx orelse first_idx orelse return null;
-    var output_start: ?u32 = null;
-    for (self.prompt_marks.items[start_i + 1 ..]) |m| switch (m.kind) {
-        .output_start => output_start = m.row,
-        .output_end => if (output_start) |s| return .{ .start = s, .end = m.row, .exit_code = m.exit_code },
-        .prompt_start => return if (output_start) |s|
-            .{ .start = s, .end = m.row, .exit_code = null }
-        else
-            null,
-        else => {},
-    };
-    return if (output_start) |s|
-        .{ .start = s, .end = @intCast(self.visible_top + self.height), .exit_code = null }
-    else
-        null;
-}
-
 pub const ShellState = union(enum) {
     at_prompt: struct { last_exit_code: ?i32 = null },
     at_prompt_with_input: struct { last_exit_code: ?i32 = null },
@@ -720,38 +659,6 @@ fn lastExitCode(self: *const Screen) ?i32 {
 
 pub fn commandTopRow(self: *const Screen, mark_row: u32) u32 {
     return if (self.rowIsBlank(mark_row)) mark_row + 1 else mark_row;
-}
-
-pub fn prevCommandRow(self: *const Screen, row: usize) ?u32 {
-    var best: ?u32 = null;
-    for (self.prompt_marks.items) |mark| {
-        if (mark.kind != .prompt_start) continue;
-        const top = self.commandTopRow(mark.row);
-        if (top >= row) continue;
-        if (best == null or top > best.?) best = top;
-    }
-    return best;
-}
-
-pub fn nextCommandRow(self: *const Screen, row: usize) ?u32 {
-    var best: ?u32 = null;
-    for (self.prompt_marks.items) |mark| {
-        if (mark.kind != .prompt_start) continue;
-        const top = self.commandTopRow(mark.row);
-        if (top <= row) continue;
-        if (best == null or top < best.?) best = top;
-    }
-    return best;
-}
-
-pub fn lastCommandRow(self: *const Screen) ?u32 {
-    var best: ?u32 = null;
-    for (self.prompt_marks.items) |mark| {
-        if (mark.kind != .prompt_start) continue;
-        const top = self.commandTopRow(mark.row);
-        if (best == null or top > best.?) best = top;
-    }
-    return best;
 }
 
 pub fn rowIsBlank(self: *const Screen, row: usize) bool {
