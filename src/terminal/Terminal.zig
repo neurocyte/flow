@@ -154,7 +154,10 @@ back_screen: *Screen = undefined,
 back_screen_pri: Screen,
 back_screen_alt: Screen,
 // only applies to primary screen
-scroll_offset: usize = 0,
+/// written by the tui, read at each publish
+scroll_offset: std.atomic.Value(usize) = .init(0),
+/// history rows of the last published frame
+history_rows: std.atomic.Value(usize) = .init(0),
 cold_view: ?ColdView = null,
 back_mutex: std.Io.Mutex = .init,
 // dirty is protected by back_mutex. Only access this field when you hold that mutex
@@ -413,7 +416,7 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
         try self.frames.resize(self.allocator, ws.cols, ws.rows);
         self.back_screen_alt.deinit(self.allocator);
         self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
-        self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+        self.setScrollOffset(@min(self.scrollOffset(), self.back_screen_pri.historySize()));
     } else if (reflow) {
         try self.resizeReflow(ws);
     } else {
@@ -427,7 +430,7 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
         self.back_screen_pri = new_pri;
         self.back_screen_alt.deinit(self.allocator);
         self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
-        self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
+        self.setScrollOffset(@min(self.scrollOffset(), self.back_screen_pri.historySize()));
     }
 
     _ = try self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent);
@@ -441,9 +444,10 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
     const old = &self.back_screen_pri;
     const content_rows = old.contentRows();
     const first = @min(old.cold_overlap, content_rows);
-    const in_cold = self.scroll_offset > old.hotHistorySize();
-    const preserve = self.scroll_offset > 0 and !in_cold;
-    const split = if (preserve) @max(first, @min(old.visible_top -| self.scroll_offset, content_rows)) else content_rows;
+    const scroll_offset = self.scrollOffset();
+    const in_cold = scroll_offset > old.hotHistorySize();
+    const preserve = scroll_offset > 0 and !in_cold;
+    const split = if (preserve) @max(first, @min(old.visible_top -| scroll_offset, content_rows)) else content_rows;
     const ow: usize = old.width;
     const hard_break = preserve and split > 0 and split < content_rows and
         !old.buf[(split - 1) * ow + ow - 1].wrapped;
@@ -483,12 +487,12 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
     const new_view_top = pri.visible_top + pri.cursor.row;
     _ = self.processOutput(&parser, below.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
 
-    self.scroll_offset = if (preserve)
+    self.setScrollOffset(if (preserve)
         @min(pri.visible_top -| new_view_top, pri.historySize())
     else if (in_cold)
-        @min(self.scroll_offset, pri.historySize())
+        @min(scroll_offset, pri.historySize())
     else
-        0;
+        0);
 }
 
 /// rows of the cold store, as cells at the current width
@@ -556,13 +560,29 @@ fn coldView(self: *Terminal, first_row: usize, rows: usize) !?*ColdView {
     return &self.cold_view.?;
 }
 
+pub fn scrollOffset(self: *const Terminal) usize {
+    return self.scroll_offset.load(.acquire);
+}
+
+fn setScrollOffset(self: *Terminal, offset: usize) void {
+    self.scroll_offset.store(offset, .release);
+}
+
+/// history rows of the last published frame
 pub fn historyRows(self: *const Terminal) usize {
+    return if (self.back_screen == &self.back_screen_pri) self.history_rows.load(.acquire) else 0;
+}
+
+/// history rows of the back screen at this moment
+pub fn liveHistoryRows(self: *Terminal) usize {
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
     return self.back_screen.historySize();
 }
 
 pub fn viewTop(self: *const Terminal) usize {
     const history = self.historyRows();
-    return history - @min(history, self.scroll_offset);
+    return history - @min(history, self.scrollOffset());
 }
 
 pub fn droppedRows(self: *const Terminal) usize {
@@ -757,6 +777,7 @@ fn replay(self: *Terminal, screen: *Screen, text: []const u8) !void {
 /// triple buffer of screens
 const Frames = struct {
     screens: [3]Screen,
+    scroll_offsets: [3]usize = @splat(0),
     writer: u8 = 0,
     reader: u8 = 1,
     shared: std.atomic.Value(u8) = .init(2),
@@ -820,25 +841,36 @@ fn publishLocked(self: *Terminal, mode: PublishMode, context: *Event.HandlerCont
     }
     const now = root.get_now().toMicroseconds();
     if (mode == .if_due and now >= self.last_publish_us and now - self.last_publish_us < self.frame_time_us) return .pending;
-    try self.copyView(self.frames.back());
+    var scroll_offset: usize = 0;
+    if (self.back_screen == &self.back_screen_pri) {
+        const history = self.back_screen_pri.historySize();
+        scroll_offset = self.scrollOffset();
+        if (scroll_offset > history) {
+            _ = self.scroll_offset.cmpxchgStrong(scroll_offset, history, .acq_rel, .acquire);
+            scroll_offset = history;
+        }
+        self.history_rows.store(history, .release);
+    }
+    try self.copyView(self.frames.back(), scroll_offset);
+    self.frames.scroll_offsets[self.frames.writer] = scroll_offset;
     self.dirty = false;
     self.last_publish_us = now;
     if (self.frames.publish()) try handle_event(context, .redraw);
     return .published;
 }
 
-fn copyView(self: *Terminal, frame: *Screen) !void {
+fn copyView(self: *Terminal, frame: *Screen, scroll_offset: usize) !void {
     const allocator = self.allocator;
     const back = self.back_screen;
     const height: usize = back.height;
     try frame.cursor.copyFrom(back.cursor, allocator);
     const hot_history = back.hotHistorySize();
-    if (back != &self.back_screen_pri or self.scroll_offset <= hot_history) {
+    if (back != &self.back_screen_pri or scroll_offset <= hot_history) {
         self.dropColdView();
-        return back.copyRowsTo(allocator, frame, back.visible_top -| self.scroll_offset, 0, height, .all);
+        return back.copyRowsTo(allocator, frame, back.visible_top -| scroll_offset, 0, height, .all);
     }
     const cold_rows = back.coldRows();
-    const back_rows = @min(self.scroll_offset - hot_history, cold_rows);
+    const back_rows = @min(scroll_offset - hot_history, cold_rows);
     const from_cold = @min(height, back_rows);
     const view = try self.coldView(cold_rows - back_rows, from_cold) orelse
         return back.copyRowsTo(allocator, frame, back.cold_overlap, 0, height, .all);
@@ -874,7 +906,7 @@ pub fn draw(
     if (self.mode.cursor) {
         const cur_col = front.cursor.col;
         const live_row = front.cursor.row;
-        const visual_row = @as(usize, live_row) + self.scroll_offset;
+        const visual_row = @as(usize, live_row) + self.frames.scroll_offsets[self.frames.reader];
         const visible: ?u16 = if (visual_row < front.height)
             @intCast(visual_row)
         else
@@ -891,26 +923,23 @@ pub fn draw(
 /// returns true if the offset changed
 pub fn scroll(self: *Terminal, delta: i32) bool {
     if (self.back_screen != &self.back_screen_pri) return false;
-    const history = self.back_screen_pri.historySize();
+    const history = self.history_rows.load(.acquire);
+    const offset = self.scrollOffset();
     const new_offset: usize = if (delta > 0)
-        @min(history, self.scroll_offset + @as(usize, @intCast(delta)))
+        @min(history, offset + @as(usize, @intCast(delta)))
     else
-        self.scroll_offset -| @as(usize, @intCast(-@as(i64, delta)));
-    if (new_offset == self.scroll_offset) return false;
-    self.scroll_offset = new_offset;
-    self.back_mutex.lockUncancelable(self.io);
-    defer self.back_mutex.unlock(self.io);
-    _ = self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent) catch {};
+        offset -| @as(usize, @intCast(-@as(i64, delta)));
+    if (new_offset == offset) return false;
+    self.setScrollOffset(new_offset);
     return true;
 }
 
 /// return to the live view
-pub fn scrollToBottom(self: *Terminal) void {
-    if (self.scroll_offset == 0) return;
-    self.scroll_offset = 0;
-    self.back_mutex.lockUncancelable(self.io);
-    defer self.back_mutex.unlock(self.io);
-    _ = self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent) catch {};
+/// returns true if the offset changed
+pub fn scrollToBottom(self: *Terminal) bool {
+    if (self.scrollOffset() == 0) return false;
+    self.setScrollOffset(0);
+    return true;
 }
 
 pub fn isAltScreen(self: *const Terminal) bool {
@@ -1936,7 +1965,7 @@ fn hardReset(self: *Terminal) !void {
     self.back_screen_alt.deinit(self.allocator);
     self.back_screen_alt = new_alt;
     self.back_screen = &self.back_screen_pri;
-    self.scroll_offset = 0;
+    self.setScrollOffset(0);
 
     self.mode = .{};
     self.charset_g0 = .ascii;

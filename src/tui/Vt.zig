@@ -134,8 +134,27 @@ pub fn resize(self: *@This(), pos: Box) void {
 }
 
 pub fn paste(self: *@This(), text: []const u8) void {
-    self.vt.scrollToBottom();
+    _ = self.scroll_to_bottom();
     self.vt.paste(text);
+}
+
+pub fn scroll(self: *@This(), delta: i32) bool {
+    if (!self.vt.scroll(delta)) return false;
+    self.request_publish();
+    return true;
+}
+
+pub fn scroll_to_bottom(self: *@This()) bool {
+    if (!self.vt.scrollToBottom()) return false;
+    self.request_publish();
+    return true;
+}
+
+fn request_publish(self: *@This()) void {
+    if (self.pty_pid) |pid|
+        pid.send(.{"publish"}) catch {}
+    else
+        _ = self.vt.publish(.now, self, process_terminal_event) catch {};
 }
 
 pub fn kill(self: *@This()) void {

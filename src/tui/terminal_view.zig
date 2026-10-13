@@ -255,13 +255,13 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 // Scroll wheel: forward to vt if reporting active, else scroll scrollback
                 .wheel_up => {
                     if (self.vt.vt.mode.mouse == .none) {
-                        if (self.vt.vt.scroll(3)) tui.need_render(@src());
+                        if (self.vt.scroll(3)) tui.need_render(@src());
                         return true;
                     }
                 },
                 .wheel_down => {
                     if (self.vt.vt.mode.mouse == .none) {
-                        if (self.vt.vt.scroll(-3)) tui.need_render(@src());
+                        if (self.vt.scroll(-3)) tui.need_render(@src());
                         return true;
                     }
                 },
@@ -390,7 +390,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             }
         }
         if (!input.is_modifier(keypress))
-            self.vt.vt.scrollToBottom();
+            _ = self.vt.scroll_to_bottom();
     }
     self.vt.vt.update(switch (event) {
         input.event.release => .{ .key_release = key },
@@ -995,10 +995,10 @@ pub fn send_text(self: *Self, text: []const u8) void {
 }
 
 fn scroll_command_to_top(self: *Self, target_row: usize) void {
-    const desired: i64 = @as(i64, @intCast(self.vt.vt.back_screen_pri.historySize())) - @as(i64, @intCast(target_row));
-    const current: i64 = @intCast(self.vt.vt.scroll_offset);
+    const desired: i64 = @as(i64, @intCast(self.vt.vt.liveHistoryRows())) - @as(i64, @intCast(target_row));
+    const current: i64 = @intCast(self.vt.vt.scrollOffset());
     const delta: i64 = desired - current;
-    if (self.vt.vt.scroll(@intCast(std.math.clamp(delta, std.math.minInt(i32), std.math.maxInt(i32)))))
+    if (self.vt.scroll(@intCast(std.math.clamp(delta, std.math.minInt(i32), std.math.maxInt(i32)))))
         tui.need_render(@src());
 }
 
@@ -1030,14 +1030,14 @@ const cmds = struct {
 
     pub fn terminal_scroll_up(self: *Self, _: Ctx) Result {
         const half_page = @max(1, self.vt.vt.frames.front().height / 2);
-        if (self.vt.vt.scroll(@intCast(half_page)))
+        if (self.vt.scroll(@intCast(half_page)))
             tui.need_render(@src());
     }
     pub const terminal_scroll_up_meta: Meta = .{ .description = "Terminal: Scroll up" };
 
     pub fn terminal_scroll_down(self: *Self, _: Ctx) Result {
         const half_page = @max(1, self.vt.vt.frames.front().height / 2);
-        if (self.vt.vt.scroll(-@as(i32, @intCast(half_page))))
+        if (self.vt.scroll(-@as(i32, @intCast(half_page))))
             tui.need_render(@src());
     }
     pub const terminal_scroll_down_meta: Meta = .{ .description = "Terminal: Scroll down" };
@@ -1056,14 +1056,14 @@ const cmds = struct {
         defer self.allocator.free(marks);
         if (Vt.Terminal.nextCommandRow(marks, self.vt.vt.viewTop())) |target| {
             self.scroll_command_to_top(target);
-        } else if (screen.historySize() < screen.height) {
+        } else if (self.vt.vt.historyRows() < screen.height) {
             // Less than a screenful of scrollback: keep the last command
             // pinned at the top rather than jumping past it.
             if (Vt.Terminal.lastCommandRow(marks)) |target|
                 self.scroll_command_to_top(target);
-        } else if (self.vt.vt.scroll_offset != 0) {
+        } else if (self.vt.vt.scrollOffset() != 0) {
             // Past the last command: return to the active terminal position.
-            self.vt.vt.scrollToBottom();
+            _ = self.vt.scroll_to_bottom();
             tui.need_render(@src());
         }
     }
@@ -1073,9 +1073,9 @@ const cmds = struct {
         const probed = ctx.args.match(.{"probed"}) catch false;
         const marks = try self.vt.vt.commandMarks(self.allocator);
         defer self.allocator.free(marks);
-        const end_row = self.vt.vt.back_screen_pri.historySize() + self.vt.vt.back_screen_pri.height;
+        const end_row = self.vt.vt.liveHistoryRows() + self.vt.vt.back_screen_pri.height;
         // When scrolled up, grab the command whose output is currently shown
-        const range = (if (self.vt.vt.scroll_offset == 0)
+        const range = (if (self.vt.vt.scrollOffset() == 0)
             Vt.Terminal.lastCommandOutputRange(marks, end_row)
         else
             Vt.Terminal.commandOutputRangeAt(marks, self.vt.vt.viewTop(), end_row)) orelse {
@@ -1188,7 +1188,7 @@ const cmds = struct {
     pub fn terminal_open_last_command_output(self: *Self, _: Ctx) Result {
         const marks = try self.vt.vt.commandMarks(self.allocator);
         defer self.allocator.free(marks);
-        const end_row = self.vt.vt.back_screen_pri.historySize() + self.vt.vt.back_screen_pri.height;
+        const end_row = self.vt.vt.liveHistoryRows() + self.vt.vt.back_screen_pri.height;
         const range = Vt.Terminal.lastCommandOutputRange(marks, end_row) orelse return;
 
         var content: std.ArrayList(u8) = .empty;
