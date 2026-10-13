@@ -3237,6 +3237,26 @@ pub fn set_filelist_label(self: *Self, list_id: FileList.Id, label: []const u8) 
     tui.need_render(@src());
 }
 
+pub fn show_keybind_load_failures(self: *Self, failures: []const keybind.LoadFailure) !void {
+    const list_id = try self.new_filelist(.diagnostics);
+    self.set_filelist_label(list_id, "Keybinding errors");
+    for (failures) |failure| {
+        var text_buf: [256]u8 = undefined;
+        const text = std.fmt.bufPrint(&text_buf, "failed to load keybindings: {t}", .{failure.err}) catch "failed to load keybindings";
+        try self.add_filelist_entry(
+            list_id,
+            failure.file_path,
+            failure.location.line,
+            failure.location.column -| 1,
+            failure.location.line,
+            failure.location.column -| 1,
+            text,
+            .Error,
+            .foreground,
+        );
+    }
+}
+
 pub fn set_find_in_files_label(self: *Self, list_id: FileList.Id, query: []const u8) void {
     var label_buf: [256]u8 = undefined;
     self.set_filelist_label(list_id, std.fmt.bufPrint(&label_buf, "Find: {s}", .{query}) catch "Find");
@@ -3366,9 +3386,9 @@ fn add_filelist_entry(
     const event = self.filelists.add_item(list_id, .{
         .path = path,
         .begin_line = @max(1, begin_line) - 1,
-        .begin_pos = @max(1, begin_pos) - 1,
+        .begin_pos = begin_pos,
         .end_line = @max(1, end_line) - 1,
-        .end_pos = @max(1, end_pos) - 1,
+        .end_pos = end_pos,
         .lines = lines,
         .severity = severity,
         .pos_type = .byte,

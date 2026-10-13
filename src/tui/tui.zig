@@ -309,6 +309,17 @@ fn init_input_namespace(self: *Self) InitError!void {
         self.config_.input_mode = "flow";
         save_config() catch |e| self.logger.err("save_config", e);
     };
+    self.show_keybind_load_failures();
+}
+
+fn show_keybind_load_failures(self: *Self) void {
+    const failures = keybind.load_failures();
+    if (failures.len == 0) return;
+    defer keybind.clear_load_failures();
+    for (failures) |failure|
+        self.logger.print_err("keybind", "{s}:{d}:{d}: {t}", .{ std.fs.path.basename(failure.file_path), failure.location.line, failure.location.column, failure.err });
+    const mv = mainview() orelse return;
+    mv.show_keybind_load_failures(failures) catch |e| self.logger.err("keybind", e);
 }
 
 fn init_delayed(self: *Self, ctx: command.Context) command.Result {
@@ -1968,6 +1979,7 @@ const cmds = struct {
         try save_config();
         self.logger.print("input mode {s}", .{self.config_.input_mode});
         try keybind.set_namespace(self.config_.input_mode);
+        self.show_keybind_load_failures();
         return self.refresh_input_mode();
     }
     pub const toggle_input_mode_meta: Meta = .{ .description = "Switch input mode" };

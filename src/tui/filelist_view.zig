@@ -368,18 +368,24 @@ fn handle_list_box_action(list_box: **ListBoxType, button: *ButtonType, _: Widge
     };
     self.activate = .normal; // reset transient mode after use
 
-    tp.self_pid().send(.{ "cmd", cmd_, .{
-        .file = entry.path,
-        .goto = .{
-            entry.end_line + 1,
-            entry.end_pos + 2,
-            entry.begin_line,
-            if (entry.begin_pos == 0) 0 else entry.begin_pos + 1,
-            entry.end_line,
-            entry.end_pos + 1,
-            entry.pos_type,
-        },
-    } }) catch |e| self.logger.err("navigate", e);
+    if (entry.begin_line == entry.end_line and entry.begin_pos == entry.end_pos)
+        tp.self_pid().send(.{ "cmd", cmd_, .{
+            .file = entry.path,
+            .goto = .{ entry.end_line + 1, entry.end_pos + 1, entry.pos_type },
+        } }) catch |e| self.logger.err("navigate", e)
+    else
+        tp.self_pid().send(.{ "cmd", cmd_, .{
+            .file = entry.path,
+            .goto = .{
+                entry.end_line + 1,
+                entry.end_pos + 1,
+                entry.begin_line,
+                entry.begin_pos,
+                entry.end_line,
+                entry.end_pos,
+                entry.pos_type,
+            },
+        } }) catch |e| self.logger.err("navigate", e);
 }
 
 fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end }) void {

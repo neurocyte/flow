@@ -259,7 +259,7 @@ pub fn set_namespace(namespace_name: []const u8) LoadError!void {
 
 fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
     const namespace = current_namespace();
-    var binding_set = namespace.get_mode(mode_name) orelse {
+    var binding_set = namespace.get_mode(mode_name) orelse try get_builtin_mode(namespace, mode_name) orelse {
         log.err("ERROR: mode not found: {s}", .{mode_name});
         var iter = namespace.modes.iterator();
         while (iter.next()) |entry| log.info("available modes: {s}", .{entry.key_ptr.*});
@@ -267,6 +267,47 @@ fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadE
     };
     binding_set.set_insert_command(insert_command);
     return binding_set;
+}
+
+fn get_builtin_mode(namespace: *const Namespace, mode_name: []const u8) LoadError!?*BindingSet {
+    const builtin_namespace = get_or_load_builtin_namespace(namespace.name) catch |e| switch (e) {
+        error.NotFound => try get_or_load_builtin_namespace(default_namespace),
+        else => return e,
+    };
+    const builtin_mode = builtin_namespace.modes.getEntry(mode_name) orelse return null;
+    const reported = try globals.missing_modes.getOrPut(globals_allocator, builtin_mode.key_ptr.*);
+    if (!reported.found_existing)
+        log.err("mode '{s}' is missing in keybindings '{s}', using the builtin mode", .{ mode_name, namespace.name });
+    return builtin_mode.value_ptr;
+}
+
+pub const LoadFailure = struct {
+    file_path: []const u8,
+    location: Location,
+    err: LoadError,
+
+    pub const Location = struct {
+        line: u64 = 1,
+        column: u64 = 1,
+    };
+};
+
+fn add_load_failure(namespace_name: []const u8, location: LoadFailure.Location, err: LoadError) void {
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = root.get_keybind_namespace_file_name(namespace_name, &file_path_buf) catch namespace_name;
+    const allocator = globals_allocator;
+    const file_path_ = allocator.dupe(u8, file_path) catch return;
+    globals.load_failures.append(allocator, .{ .file_path = file_path_, .location = location, .err = err }) catch
+        allocator.free(file_path_);
+}
+
+pub fn load_failures() []const LoadFailure {
+    return globals.load_failures.items;
+}
+
+pub fn clear_load_failures() void {
+    for (globals.load_failures.items) |failure| globals_allocator.free(failure.file_path);
+    globals.load_failures.clearRetainingCapacity();
 }
 
 pub const LoadError = (error{ NotFound, NotAnObject, WriteFailed } || std.json.ParseError(std.json.Scanner) || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError);
@@ -288,22 +329,32 @@ const Namespace = struct {
     const builtin_inherit_marker = "<<builtin>>";
 
     fn load(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
-        var free_json_string = true;
-        const json_string = root.read_keybind_namespace(allocator, namespace_name) orelse blk: {
-            free_json_string = false;
-            break :blk builtin_keybinds.get(namespace_name) orelse return error.NotFound;
-        };
-        defer if (free_json_string) allocator.free(json_string);
-        return load_parsed(allocator, namespace_name, json_string, false);
+        if (root.read_keybind_namespace(allocator, namespace_name)) |json_string| {
+            defer allocator.free(json_string);
+            var location: LoadFailure.Location = .{};
+            if (load_parsed(allocator, namespace_name, json_string, false, &location)) |namespace|
+                return namespace
+            else |e|
+                add_load_failure(namespace_name, location, e);
+        }
+        const json_string = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
+        return load_parsed(allocator, namespace_name, json_string, false, null);
     }
 
     fn load_builtin(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
         const json_string = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
-        return load_parsed(allocator, namespace_name, json_string, true);
+        return load_parsed(allocator, namespace_name, json_string, true, null);
     }
 
-    fn load_parsed(allocator: std.mem.Allocator, namespace_name: []const u8, json_string: []const u8, is_builtin: bool) LoadError!Namespace {
-        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_string, .{});
+    fn load_parsed(allocator: std.mem.Allocator, namespace_name: []const u8, json_string: []const u8, is_builtin: bool, location: ?*LoadFailure.Location) LoadError!Namespace {
+        var scanner: std.json.Scanner = .initCompleteInput(allocator, json_string);
+        defer scanner.deinit();
+        var diagnostics: std.json.Diagnostics = .{};
+        scanner.enableDiagnostics(&diagnostics);
+        const parsed = std.json.parseFromTokenSource(std.json.Value, allocator, &scanner, .{}) catch |e| {
+            if (location) |loc| loc.* = .{ .line = diagnostics.getLine(), .column = diagnostics.getColumn() };
+            return e;
+        };
         defer parsed.deinit();
         if (parsed.value != .object) return error.NotAnObject;
 
@@ -545,6 +596,8 @@ var globals: struct {
     namespaces: NamespaceMap = .{},
     builtin_namespaces: NamespaceMap = .{},
     current_namespace: ?*const Namespace = null,
+    load_failures: std.ArrayList(LoadFailure) = .empty,
+    missing_modes: std.StringHashMapUnmanaged(void) = .empty,
     input_buffer: std.ArrayList(u8) = .empty,
     insert_command: []const u8 = "",
     insert_command_id: ?command.ID = null,
