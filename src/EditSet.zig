@@ -229,7 +229,7 @@ pub fn is_empty(edit_set: cbor.Raw) bool {
 
 /// Hashes document content with every CRLF counted as one LF.
 pub const Hasher = struct {
-    state: std.hash.XxHash3,
+    state: std.hash.XxHash64,
     pending_cr: bool = false,
 
     pub fn init() Hasher {
@@ -1172,8 +1172,8 @@ test "hash: line ending mode does not matter" {
 }
 
 test "hash: known values" {
-    try testing.expectEqual(0x2d06800538d394c2, hash(""));
-    try testing.expectEqual(std.hash.XxHash3.hash(0, "flow\ncontrol\n"), hash("flow\r\ncontrol\r\n"));
+    try testing.expectEqual(0xef46db3751d8e999, hash(""));
+    try testing.expectEqual(std.hash.XxHash64.hash(0, "flow\ncontrol\n"), hash("flow\r\ncontrol\r\n"));
 }
 
 test "hash: the split of the input does not matter" {
