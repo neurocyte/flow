@@ -1052,20 +1052,39 @@ const Node = union(enum) {
     }
 
     pub fn hash(self: *const Node) EditSet.Hash {
-        var hasher: EditSet.Hasher = .init();
-        self.hash_update(&hasher);
-        return hasher.final();
+        var block: HashBlock = .{};
+        self.hash_update(&block);
+        block.flush();
+        return block.hasher.final();
     }
 
-    fn hash_update(self: *const Node, hasher: *EditSet.Hasher) void {
+    const HashBlock = struct {
+        hasher: EditSet.Hasher = .init(),
+        buf: [16 * 1024]u8 = undefined,
+        len: usize = 0,
+
+        fn append(self: *HashBlock, bytes: []const u8) void {
+            if (bytes.len > self.buf.len - self.len) self.flush();
+            if (bytes.len > self.buf.len) return self.hasher.update(bytes);
+            @memcpy(self.buf[self.len..][0..bytes.len], bytes);
+            self.len += bytes.len;
+        }
+
+        fn flush(self: *HashBlock) void {
+            self.hasher.update(self.buf[0..self.len]);
+            self.len = 0;
+        }
+    };
+
+    fn hash_update(self: *const Node, block: *HashBlock) void {
         switch (self.*) {
             .node => |*node| {
-                node.left.hash_update(hasher);
-                node.right.hash_update(hasher);
+                node.left.hash_update(block);
+                node.right.hash_update(block);
             },
             .leaf => |*leaf| {
-                hasher.update(leaf.buf);
-                if (leaf.eol) hasher.update("\n");
+                block.append(leaf.buf);
+                if (leaf.eol) block.append("\n");
             },
         }
     }
@@ -1576,7 +1595,9 @@ fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sani
         var longest_line_len: usize = 0;
         for (0..buf.len) |i| {
             if (buf[i] == lf) {
-                const line_end = if (i > 0 and buf[i - 1] == cr) i - 1 else i;
+                // a line end with more than one CR is read as one CRLF
+                var line_end = i;
+                while (line_end > b and buf[line_end - 1] == cr) line_end -= 1;
                 const line = buf[b..line_end];
                 longest_line_len = @max(line.len, longest_line_len);
                 leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = true } };
@@ -1779,7 +1800,10 @@ pub fn content_hash(self: *Self) EditSet.Hash {
 fn root_hash(self: *Self, root: Root) EditSet.Hash {
     const ref = root.to_ref();
     for (self.hash_cache) |entry| if (entry) |cache| if (cache.ref == ref) return cache.hash;
-    const hash = root.hash();
+    const hash = if (root == self.root)
+        EditSet.hash(self.store_to_string_cached(root, self.file_eol_mode))
+    else
+        root.hash();
     self.hash_cache[1] = self.hash_cache[0];
     self.hash_cache[0] = .{ .ref = ref, .hash = hash };
     return hash;

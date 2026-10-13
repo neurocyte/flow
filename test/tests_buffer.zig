@@ -383,6 +383,50 @@ test "hash: a root and its text give the same hash" {
     }
 }
 
+test "hash: long lines, many lines and a CR at the end of a line" {
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(a);
+    for (0..3000) |i| try text.print(a, "line {d} with some text\n", .{i});
+    try text.appendNTimes(a, 'x', 40_000);
+    try text.appendSlice(a, "\nshort\n");
+    try text.appendNTimes(a, 'y', 16 * 1024);
+    try text.appendSlice(a, "\nlone cr\r\r\nmid\rdle\nlast");
+    const buffer = try Buffer.create(a, std.Io.Clock.real.now(std.testing.io));
+    defer buffer.deinit();
+    const root = try load(buffer, text.items);
+    var stored: std.Io.Writer.Allocating = .init(a);
+    defer stored.deinit();
+    try root.store_node(&stored.writer, .lf);
+    try std.testing.expectEqual(EditSet.hash(stored.written()), root.hash());
+}
+
+test "hash: Buffer.content_hash equals the hash of the root in both line end modes" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    for ([_][]const u8{ "one\ntwo\n", "one\r\ntwo\r\n", "two cr\r\r\nmid\rdle\r\nlast", "cr\r\nat\r\r\r\nend" }) |text| {
+        const buffer = try Buffer.create(a, now);
+        defer buffer.deinit();
+        try buffer.load_from_string_and_update("test", text, now);
+        try std.testing.expectEqual(buffer.root.hash(), buffer.content_hash());
+        _, _, const root = try buffer.root.insert_chars(0, 0, "x", buffer.allocator, metrics());
+        buffer.update(root, now);
+        try std.testing.expectEqual(root.hash(), buffer.content_hash());
+        try std.testing.expectEqual(root.hash(), buffer.content_hash());
+    }
+}
+
+test "load: a line end with more than one CR is one CRLF" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    try buffer.load_from_string_and_update("test", "one\r\r\ntwo\r\r\r\nmid\rdle\r\n", now);
+    try std.testing.expectEqual(Buffer.EolMode.crlf, buffer.file_eol_mode);
+    try expect_content(buffer.root, "one\ntwo\nmid\rdle\n");
+    var text: std.Io.Writer.Allocating = .init(a);
+    defer text.deinit();
+    try buffer.root.store_node(&text.writer, .crlf);
+    try std.testing.expectEqualStrings("one\r\ntwo\r\nmid\rdle\r\n", text.written());
+}
+
 test "hash: Buffer.content_hash follows the root" {
     const now = std.Io.Clock.real.now(std.testing.io);
     const buffer = try Buffer.create(a, now);
