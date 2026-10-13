@@ -785,7 +785,8 @@ pub fn draw(
     // Use app-overridden colour if set, otherwise fall back to theme colour.
     const default_fg: vaxis.Cell.Color = .{ .rgb = self.app_fg_color orelse self.fg_color };
     const default_bg: vaxis.Cell.Color = .{ .rgb = self.app_bg_color orelse self.bg_color };
-    if (self.back_mutex.tryLock()) {
+    {
+        self.back_mutex.lockUncancelable(self.io);
         defer self.back_mutex.unlock(self.io);
         if (self.mode.sync and self.syncExpired()) {
             log.debug("synchronized update expired after {d}ms; resuming", .{sync_timeout_ms});
