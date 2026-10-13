@@ -593,6 +593,7 @@ pub fn build_exe(
             .{ .name = "config", .module = config_mod },
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "DoubleMappedRingBuffer", .module = double_mapped_ring_buffer_mod },
+            .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "xterm", .module = xterm_mod },
             .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "command_line", .module = command_line_mod },
@@ -1204,6 +1205,7 @@ pub fn build_exe(
         });
         tests.root_module.addImport("vaxis", vaxis_mod);
         tests.root_module.addImport("DoubleMappedRingBuffer", double_mapped_ring_buffer_mod);
+        tests.root_module.addImport("cbor", cbor_mod);
         if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };

@@ -4,6 +4,8 @@ const vaxis = @import("vaxis");
 
 const ansi = @import("ansi.zig");
 const DoubleMappedRingBuffer = @import("DoubleMappedRingBuffer");
+const cbor = @import("cbor");
+pub const LineStore = @import("LineStore.zig");
 
 const log = std.log.scoped(.vaxis_terminal);
 
@@ -212,6 +214,11 @@ scrolling_region: ScrollingRegion,
 ring: CellRing = undefined,
 buf: []Cell = undefined,
 
+/// older history, as encoded logical lines
+cold: ?*LineStore = null,
+/// rows at the top of `buf` that are in `cold` already
+cold_overlap: usize = 0,
+
 cursor: Cursor = .{},
 
 /// OSC 133 prompt/command markers
@@ -297,29 +304,85 @@ pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
     self.cursor.uri.deinit(alloc);
     self.cursor.uri_id.deinit(alloc);
     self.prompt_marks.deinit(alloc);
+    if (self.cold) |cold| {
+        cold.deinit();
+        alloc.destroy(cold);
+    }
 
     self.ring.deinit();
+}
+
+pub fn createCold(self: *Screen, alloc: std.mem.Allocator, byte_budget: usize) !void {
+    const cold = try alloc.create(LineStore);
+    errdefer alloc.destroy(cold);
+    cold.* = try .init(alloc, byte_budget, self.width);
+    self.cold = cold;
+}
+
+pub fn takeCold(self: *Screen, from: *Screen) void {
+    self.cold = from.cold;
+    from.cold = null;
+    if (self.cold) |cold| cold.set_cols(self.width);
+}
+
+/// a logical line with more rows is stored as more than one cold line
+const max_cold_line_rows = 64;
+
+fn evictRow(self: *Screen) error{OutOfMemory}!void {
+    const cold = self.cold orelse return;
+    if (self.cold_overlap == 0) {
+        const last = @min(@max(1, self.visible_top), max_cold_line_rows);
+        var text: std.Io.Writer.Allocating = .init(self.allocator);
+        defer text.deinit();
+        const line = self.encodeLine(&text.writer, 0, last) catch return error.OutOfMemory;
+        var marks: std.Io.Writer.Allocating = .init(self.allocator);
+        defer marks.deinit();
+        self.encodeMarks(&marks.writer, line.rows) catch return error.OutOfMemory;
+        cold.append(@intCast(line.display_width), text.written(), .{ .bytes = marks.written() }) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LineTooLarge, error.InvalidLineStore => {},
+        };
+        self.cold_overlap = line.rows;
+    }
+    self.cold_overlap -= 1;
+}
+
+/// [[column, kind, exit_code, click_events], ...] for the marks in the first `rows` rows
+fn encodeMarks(self: *const Screen, writer: *std.Io.Writer, rows: usize) std.Io.Writer.Error!void {
+    var count: usize = 0;
+    for (self.prompt_marks.items) |mark| {
+        if (mark.row < rows) count += 1;
+    }
+    try cbor.writeArrayHeader(writer, count);
+    for (self.prompt_marks.items) |mark| {
+        if (mark.row >= rows) continue;
+        try cbor.writeValue(writer, .{ @as(usize, mark.row) * self.width + mark.col, mark.kind, mark.exit_code, mark.click_events });
+    }
+}
+
+/// copy `count` rows, `mode` .dirty copies changed cells only
+pub fn copyRowsTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen, src_row_: usize, dst_row_: usize, count: usize, mode: enum { dirty, all }) void {
+    const width = @min(self.width, dst.width);
+    for (0..count) |i| {
+        const src_row = src_row_ + i;
+        const dst_row = dst_row_ + i;
+        for (0..width) |col| {
+            const cell = &self.buf[src_row * self.width + col];
+            if (mode == .dirty and !cell.dirty) continue;
+            cell.dirty = false;
+            const dst_cell = &dst.buf[dst_row * dst.width + col];
+            dst_cell.char.set(allocator, cell.char.bytes());
+            dst_cell.width = cell.width;
+            dst_cell.style = cell.style;
+        }
+    }
 }
 
 /// Copy the visible area (or a scrolled-back view) to the destination screen
 /// `scroll_offset` is the number of history rows to look back (0 = live view)
 pub fn copyTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen, scroll_offset: usize) !void {
     try dst.cursor.copyFrom(self.cursor, allocator);
-    var dst_row: usize = 0;
-    while (dst_row < self.height) : (dst_row += 1) {
-        const src_row = (self.visible_top -| scroll_offset) + dst_row;
-        var col: usize = 0;
-        while (col < self.width) : (col += 1) {
-            const src_i = src_row * self.width + col;
-            const dst_i = dst_row * self.width + col;
-            const cell = &self.buf[src_i];
-            if (!cell.dirty) continue;
-            self.buf[src_i].dirty = false;
-            dst.buf[dst_i].char.set(allocator, cell.char.bytes());
-            dst.buf[dst_i].width = cell.width;
-            dst.buf[dst_i].style = cell.style;
-        }
-    }
+    self.copyRowsTo(allocator, dst, self.visible_top -| scroll_offset, 0, self.height, .dirty);
 }
 
 /// Copy history rows from `self` into `dst`, which must be a freshly
@@ -351,6 +414,7 @@ pub fn copyHistoryTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) 
     const drop_start: u32 = @intCast(src_history - copy_rows);
     const src_history_u32: u32 = @intCast(src_history);
     try self.transferMarksRange(dst, allocator, drop_start, src_history_u32, 0);
+    dst.cold_overlap = self.cold_overlap -| drop_start;
 }
 
 fn transferMarksRange(
@@ -471,7 +535,7 @@ pub fn resizeVertical(self: *Screen, allocator: std.mem.Allocator, new_h: u16) v
     const nh: usize = new_h;
     if (nh > old_h) {
         const delta = nh - old_h;
-        const pull = @min(delta, self.visible_top);
+        const pull = @min(delta, self.hotHistorySize());
         const blank_from = self.visible_top + old_h;
         const blank_count = delta - pull;
         self.visible_top -= pull;
@@ -521,7 +585,17 @@ inline fn rowIndex(self: *const Screen, row: usize, col: usize) usize {
 
 /// history lines available above the current viewport
 pub fn historySize(self: *const Screen) usize {
-    return self.visible_top;
+    return self.hotHistorySize() + self.coldRows();
+}
+
+/// history rows that are in `buf` only
+pub fn hotHistorySize(self: *const Screen) usize {
+    return self.visible_top - self.cold_overlap;
+}
+
+pub fn coldRows(self: *const Screen) usize {
+    const cold = self.cold orelse return 0;
+    return cold.total_rows() catch 0;
 }
 
 pub fn addPromptMark(
@@ -1014,6 +1088,7 @@ pub fn index(self: *Screen) !void {
                 self.visible_top += 1;
             } else {
                 // scrollback is full
+                try self.evictRow();
                 self.ring.advance();
                 self.buf = self.ring.window();
                 self.shiftMarksUp(0, @intCast(total_rows - 1), 1);
@@ -1706,4 +1781,40 @@ test "extractRangeText joins soft-wrapped rows and trims hard lines" {
     defer out.deinit(alloc);
     try screen.extractRangeText(alloc, 0, screen.contentRows(), &out);
     try testing.expectEqualStrings("abcdef\nxy", out.items);
+}
+
+test "full scrollback evicts logical lines into the cold store" {
+    const alloc = std.testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 2, 3);
+    defer screen.deinit(alloc);
+    try screen.createCold(alloc, 4096);
+    const cold = screen.cold.?;
+
+    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try printAll(&screen, "abcdefghij"); // 3 rows
+    for ([_][]const u8{ "1", "2", "3", "4" }) |text| {
+        screen.cursor.col = 0;
+        try screen.index();
+        try printAll(&screen, text);
+    }
+    // 7 rows printed, 5 rows fit: the first line (3 rows) is evicted when its first row drops
+    try std.testing.expectEqual(1, cold.lines);
+    const line = (try cold.get(0)).?;
+    try std.testing.expectEqualStrings("abcdefghij", line.text);
+    try std.testing.expectEqual(10, line.display_width);
+    try std.testing.expect(line.has_marks());
+    try std.testing.expectEqual(1, screen.cold_overlap);
+    try std.testing.expectEqual(3, screen.coldRows());
+    try std.testing.expectEqual(2, screen.hotHistorySize());
+    try std.testing.expectEqual(5, screen.historySize());
+
+    for ([_][]const u8{ "5", "6" }) |text| {
+        screen.cursor.col = 0;
+        try screen.index();
+        try printAll(&screen, text);
+    }
+    try std.testing.expectEqual(2, cold.lines);
+    try std.testing.expectEqualStrings("1", (try cold.get(1)).?.text);
+    try std.testing.expectEqual(0, screen.cold_overlap);
+    try std.testing.expectEqual(7, screen.historySize());
 }
