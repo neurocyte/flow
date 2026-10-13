@@ -1498,7 +1498,7 @@ fn reset_namespaces_for_test() void {
 
 fn load_test_namespace(name: []const u8, json: []const u8) !*const Namespace {
     const allocator = globals_allocator;
-    const namespace = try Namespace.load_parsed(allocator, name, json, false);
+    const namespace = try Namespace.load_parsed(allocator, name, json, false, null);
     try globals.namespaces.put(allocator, try allocator.dupe(u8, name), namespace);
     return globals.namespaces.getPtr(name).?;
 }
