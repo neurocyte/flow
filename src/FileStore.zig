@@ -682,11 +682,21 @@ const Process = struct {
             try diff_text(self.allocator, edit_set, base, content);
             return .lf;
         }
-        const text = try self.allocator.alloc(u8, std.mem.replacementSize(u8, content, "\r\n", "\n"));
-        defer self.allocator.free(text);
-        _ = std.mem.replace(u8, content, "\r\n", "\n", text);
+        const text = lf_line_ends(content);
         try diff_text(self.allocator, edit_set, base, text);
         return .crlf;
+    }
+
+    fn lf_line_ends(content: []u8) []u8 {
+        var len: usize = 0;
+        for (content) |byte| {
+            if (byte == '\n') while (len > 0 and content[len - 1] == '\r') {
+                len -= 1;
+            };
+            content[len] = byte;
+            len += 1;
+        }
+        return content[0..len];
     }
 
     fn diff_text(allocator: std.mem.Allocator, edit_set: *std.Io.Writer.Allocating, base: []const u8, text: []const u8) !void {
@@ -1123,4 +1133,20 @@ const Process = struct {
 
 test {
     _ = @import("FileStore_test.zig");
+}
+
+test "lf_line_ends" {
+    const cases = [_][2][]const u8{
+        .{ "one\r\ntwo\r\n", "one\ntwo\n" },
+        .{ "one\r\r\ntwo\r\r\r\n", "one\ntwo\n" },
+        .{ "mid\rdle\r\nend\r", "mid\rdle\nend\r" },
+        .{ "\r\n\r\n", "\n\n" },
+        .{ "lf\nonly\n", "lf\nonly\n" },
+        .{ "", "" },
+    };
+    for (cases) |case| {
+        var buf: [64]u8 = undefined;
+        @memcpy(buf[0..case[0].len], case[0]);
+        try std.testing.expectEqualStrings(case[1], Process.lf_line_ends(buf[0..case[0].len]));
+    }
 }
