@@ -73,7 +73,6 @@ pub const Cell = struct {
     width: u8 = 1,
 
     wrapped: bool = false,
-    dirty: bool = true,
 
     pub fn erase(self: *Cell, allocator: std.mem.Allocator, bg: vaxis.Color) void {
         self.char.set(allocator, " ");
@@ -83,7 +82,6 @@ pub const Cell = struct {
         self.uri_id.clearRetainingCapacity();
         self.width = 1;
         self.wrapped = false;
-        self.dirty = true;
     }
 
     pub fn copyFrom(self: *Cell, allocator: std.mem.Allocator, src: Cell) !void {
@@ -95,8 +93,6 @@ pub const Cell = struct {
         try self.uri_id.appendSlice(allocator, src.uri_id.items);
         self.width = src.width;
         self.wrapped = src.wrapped;
-
-        self.dirty = true;
     }
 };
 
@@ -360,29 +356,19 @@ fn encodeMarks(self: *const Screen, writer: *std.Io.Writer, rows: usize) std.Io.
     }
 }
 
-/// copy `count` rows, `mode` .dirty copies changed cells only
-pub fn copyRowsTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen, src_row_: usize, dst_row_: usize, count: usize, mode: enum { dirty, all }) void {
+pub fn copyRowsTo(self: *const Screen, allocator: std.mem.Allocator, dst: *Screen, src_row_: usize, dst_row_: usize, count: usize) void {
     const width = @min(self.width, dst.width);
     for (0..count) |i| {
         const src_row = src_row_ + i;
         const dst_row = dst_row_ + i;
         for (0..width) |col| {
             const cell = &self.buf[src_row * self.width + col];
-            if (mode == .dirty and !cell.dirty) continue;
-            cell.dirty = false;
             const dst_cell = &dst.buf[dst_row * dst.width + col];
             dst_cell.char.set(allocator, cell.char.bytes());
             dst_cell.width = cell.width;
             dst_cell.style = cell.style;
         }
     }
-}
-
-/// Copy the visible area (or a scrolled-back view) to the destination screen
-/// `scroll_offset` is the number of history rows to look back (0 = live view)
-pub fn copyTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen, scroll_offset: usize) !void {
-    try dst.cursor.copyFrom(self.cursor, allocator);
-    self.copyRowsTo(allocator, dst, self.visible_top -| scroll_offset, 0, self.height, .dirty);
 }
 
 /// Copy history rows from `self` into `dst`, which must be a freshly
@@ -406,7 +392,6 @@ pub fn copyHistoryTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) 
             const src_i = src_row * self.width + col;
             const dst_i = dst_row * dst.width + col;
             try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
-            dst.buf[dst_i].dirty = true;
         }
         blankRowTail(dst, allocator, dst_row, copy_cols);
     }
@@ -494,7 +479,6 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
                 const src_i = src_buf_row * self.width + col;
                 const dst_i = dst_hist_row * dst.width + col;
                 try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
-                dst.buf[dst_i].dirty = true;
             }
             blankRowTail(dst, allocator, dst_hist_row, copy_cols);
         }
@@ -523,10 +507,6 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
     dst.cursor.row = @intCast(new_cursor_row);
     dst.scrolling_region.bottom = @intCast(new_h - 1);
     dst.scrolling_region.right = @intCast(dst.width - 1);
-
-    const vp_start = dst.visible_top * dst.width;
-    const vp_end = vp_start + new_h * dst.width;
-    for (dst.buf[vp_start..vp_end]) |*cell| cell.dirty = true;
 }
 
 pub fn resizeVertical(self: *Screen, allocator: std.mem.Allocator, new_h: u16) void {
@@ -550,9 +530,6 @@ pub fn resizeVertical(self: *Screen, allocator: std.mem.Allocator, new_h: u16) v
     }
     self.height = new_h;
     self.scrolling_region = .{ .top = 0, .bottom = new_h - 1, .left = 0, .right = self.width - 1 };
-    const vp_start = self.visible_top * self.width;
-    const vp_end = vp_start + nh * self.width;
-    for (self.buf[vp_start..vp_end]) |*cell| cell.dirty = true;
 }
 
 pub fn readCell(self: *Screen, col: usize, row: usize) ?vaxis.Cell {
@@ -967,7 +944,6 @@ pub fn print(
     self.buf[i].style = self.cursor.style;
     self.buf[i].width = width;
     self.buf[i].wrapped = false;
-    self.buf[i].dirty = true;
 
     if (wrap and self.cursor.col >= self.width - 1) self.cursor.pending_wrap = true;
     self.cursor.col += width;
@@ -1006,9 +982,6 @@ pub fn index(self: *Screen) !void {
             for (self.buf[new_bottom .. new_bottom + self.width]) |*cell| {
                 cell.erase(self.allocator, self.cursor.style.bg);
             }
-            const viewport_start = self.visible_top * self.width;
-            const viewport_end = viewport_start + @as(usize, self.height) * self.width;
-            for (self.buf[viewport_start..viewport_end]) |*cell| cell.dirty = true;
         } else {
             try self.deleteLine(1);
         }

@@ -867,16 +867,16 @@ fn copyView(self: *Terminal, frame: *Screen, scroll_offset: usize) !void {
     const hot_history = back.hotHistorySize();
     if (back != &self.back_screen_pri or scroll_offset <= hot_history) {
         self.dropColdView();
-        return back.copyRowsTo(allocator, frame, back.visible_top -| scroll_offset, 0, height, .all);
+        return back.copyRowsTo(allocator, frame, back.visible_top -| scroll_offset, 0, height);
     }
     const cold_rows = back.coldRows();
     const back_rows = @min(scroll_offset - hot_history, cold_rows);
     const from_cold = @min(height, back_rows);
     const view = try self.coldView(cold_rows - back_rows, from_cold) orelse
-        return back.copyRowsTo(allocator, frame, back.cold_overlap, 0, height, .all);
+        return back.copyRowsTo(allocator, frame, back.cold_overlap, 0, height);
     const available = @min(from_cold, view.rows);
-    view.screen.copyRowsTo(allocator, frame, view.screen_row, 0, available, .all);
-    back.copyRowsTo(allocator, frame, back.cold_overlap, available, height - available, .all);
+    view.screen.copyRowsTo(allocator, frame, view.screen_row, 0, available);
+    back.copyRowsTo(allocator, frame, back.cold_overlap, available, height - available);
 }
 
 pub fn draw(
@@ -2101,7 +2101,6 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
                     log.warn("cursor copy failed entering alt screen: {}", .{e});
                 to.eraseAll();
             }
-            for (self.back_screen.buf) |*cell| cell.dirty = true;
         },
         2004 => self.mode.bracketed_paste = val,
         2026 => {
@@ -2124,7 +2123,6 @@ fn switchScreen(self: *Terminal, to_alt: bool, clear_alt_on_exit: bool) void {
     target.cursor.copyFrom(self.back_screen.cursor, self.allocator) catch |e|
         log.warn("cursor copy failed switching screen: {}", .{e});
     self.back_screen = target;
-    for (self.back_screen.buf) |*cell| cell.dirty = true;
 }
 
 /// The DECSC/SCOSC saved-cursor slot for the currently active screen.
