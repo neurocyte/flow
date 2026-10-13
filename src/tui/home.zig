@@ -565,6 +565,18 @@ const cmds = struct {
     }
     pub const close_file_meta: Meta = .{};
 
+    pub fn goto_next_diagnostic(_: *Self, ctx: Ctx) Result {
+        if (command.get_id("goto_next_file")) |id|
+            return command.execute(id, "goto_next_file", ctx);
+    }
+    pub const goto_next_diagnostic_meta: Meta = .{};
+
+    pub fn goto_prev_diagnostic(_: *Self, ctx: Ctx) Result {
+        if (command.get_id("goto_prev_file")) |id|
+            return command.execute(id, "goto_prev_file", ctx);
+    }
+    pub const goto_prev_diagnostic_meta: Meta = .{};
+
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.down);
     }
