@@ -1042,6 +1042,9 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
     var fixed_reader: std.Io.Reader = .fixed(data);
     const reader: *std.Io.Reader = &fixed_reader;
 
+    if (!held_lock) try self.back_mutex.lock(self.io);
+    defer if (!held_lock) self.back_mutex.unlock(self.io);
+
     while (true) {
         const event = parser.parseReader(reader) catch |e| switch (e) {
             error.EndOfStream => return .running, // partial sequence, wait for more data
@@ -1049,8 +1052,6 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
             error.OutOfMemory,
             => |e_| return e_,
         };
-        if (!held_lock) try self.back_mutex.lock(self.io);
-        defer if (!held_lock) self.back_mutex.unlock(self.io);
 
         self.dirty = true;
 
