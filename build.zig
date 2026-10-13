@@ -1208,6 +1208,22 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const terminal_line_store_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-terminal_line_store",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/terminal/LineStore.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("DoubleMappedRingBuffer", double_mapped_ring_buffer_mod);
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const terminal_key_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-terminal_key",
@@ -1659,6 +1675,7 @@ pub fn build_exe(
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);
     test_step.dependOn(&terminal_screen_test_run_cmd.step);
+    test_step.dependOn(&terminal_line_store_test_run_cmd.step);
     test_step.dependOn(&terminal_key_test_run_cmd.step);
     test_step.dependOn(&terminal_wt_profiles_test_run_cmd.step);
     test_step.dependOn(&terminal_icons_test_run_cmd.step);

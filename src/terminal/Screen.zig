@@ -804,26 +804,8 @@ pub fn encodeRows(self: *const Screen, writer: *std.Io.Writer, first: usize, las
 
     var row = first;
     while (row < last) : (row += 1) {
-        const cells = self.buf[row * self.width ..][0..self.width];
         const wrapped = self.rowWrapped(row);
-        const end = self.rowContentEnd(row);
-        var col: usize = 0;
-        while (col < end) {
-            mark_idx = try self.writeMarks(writer, mark_idx, row, col);
-            const cell = &cells[col];
-            if (!std.meta.eql(style, cell.style)) {
-                try writeSgr(writer, cell.style);
-                style = cell.style;
-            }
-            if (!std.mem.eql(u8, uri, cell.uri.items) or !std.mem.eql(u8, uri_id, cell.uri_id.items)) {
-                try writeHyperlink(writer, cell.uri.items, cell.uri_id.items);
-                uri = cell.uri.items;
-                uri_id = cell.uri_id.items;
-            }
-            const bytes = cell.char.bytes();
-            try writer.writeAll(if (bytes.len == 0) " " else bytes);
-            col += @max(1, cell.width);
-        }
+        var col = try self.encodeRowCells(writer, row, &style, &uri, &uri_id, &mark_idx);
         while (mark_idx < self.prompt_marks.items.len and self.prompt_marks.items[mark_idx].row == row) {
             const mark = self.prompt_marks.items[mark_idx];
             if (mark.col > col) {
@@ -846,6 +828,63 @@ pub fn encodeRows(self: *const Screen, writer: *std.Io.Writer, first: usize, las
     }
     if (!std.meta.eql(style, vaxis.Style{})) try writer.writeAll("\x1b[0m");
     if (uri.len > 0) try writeHyperlink(writer, "", "");
+}
+
+fn encodeRowCells(
+    self: *const Screen,
+    writer: *std.Io.Writer,
+    row: usize,
+    style: *vaxis.Style,
+    uri: *[]const u8,
+    uri_id: *[]const u8,
+    mark_idx: ?*usize,
+) std.Io.Writer.Error!usize {
+    const cells = self.buf[row * self.width ..][0..self.width];
+    const end = self.rowContentEnd(row);
+    var col: usize = 0;
+    while (col < end) {
+        if (mark_idx) |idx| idx.* = try self.writeMarks(writer, idx.*, row, col);
+        const cell = &cells[col];
+        if (!std.meta.eql(style.*, cell.style)) {
+            try writeSgr(writer, cell.style);
+            style.* = cell.style;
+        }
+        if (!std.mem.eql(u8, uri.*, cell.uri.items) or !std.mem.eql(u8, uri_id.*, cell.uri_id.items)) {
+            try writeHyperlink(writer, cell.uri.items, cell.uri_id.items);
+            uri.* = cell.uri.items;
+            uri_id.* = cell.uri_id.items;
+        }
+        const bytes = cell.char.bytes();
+        try writer.writeAll(if (bytes.len == 0) " " else bytes);
+        col += @max(1, cell.width);
+    }
+    return col;
+}
+
+pub const EncodedLine = struct {
+    rows: usize,
+    display_width: usize,
+};
+
+/// encode the logical line that starts at row `first`, without prompt marks
+pub fn encodeLine(self: *const Screen, writer: *std.Io.Writer, first: usize, last_: usize) std.Io.Writer.Error!EncodedLine {
+    if (self.width == 0) return .{ .rows = 0, .display_width = 0 };
+    const last = @min(last_, self.buf.len / self.width);
+    var style: vaxis.Style = .{};
+    var uri: []const u8 = "";
+    var uri_id: []const u8 = "";
+    var display_width: usize = 0;
+    var row = first;
+    while (row < last) {
+        const col = try self.encodeRowCells(writer, row, &style, &uri, &uri_id, null);
+        const wrapped = self.rowWrapped(row);
+        row += 1;
+        display_width += if (wrapped and row < last) self.width else col;
+        if (!wrapped) break;
+    }
+    if (!std.meta.eql(style, vaxis.Style{})) try writer.writeAll("\x1b[0m");
+    if (uri.len > 0) try writeHyperlink(writer, "", "");
+    return .{ .rows = row - first, .display_width = display_width };
 }
 
 fn isBlankCell(cell: *const Cell) bool {
@@ -1452,6 +1491,33 @@ test "encodeRows writes styles, hyperlinks, prompt marks and joins soft wraps" {
         "\x1b]133;A\x1b\\$ \x1b[0;1;31mabcdef\x1b[0m\x1b]8;;file:///x\x1b\\g\x1b]8;;\x1b\\",
         out.written(),
     );
+}
+
+test "encodeLine writes one logical line without prompt marks" {
+    const alloc = std.testing.allocator;
+    var screen = try Screen.init(alloc, 5, 4);
+    defer screen.deinit(alloc);
+    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try printAll(&screen, "$ ");
+    screen.cursor.style.bold = true;
+    try printAll(&screen, "abcdef"); // soft wraps after "abc"
+    screen.cursor.style = .{};
+    screen.cursor.col = 0;
+    try screen.index();
+    try screen.cursor.uri.appendSlice(alloc, "file:///x");
+    try printAll(&screen, "gh");
+    screen.cursor.uri.clearRetainingCapacity();
+
+    var out: std.Io.Writer.Allocating = .init(alloc);
+    defer out.deinit();
+    const first = try screen.encodeLine(&out.writer, 0, screen.contentRows());
+    try std.testing.expectEqual(EncodedLine{ .rows = 2, .display_width = 8 }, first);
+    try std.testing.expectEqualStrings("$ \x1b[0;1mabcdef\x1b[0m", out.written());
+
+    out.clearRetainingCapacity();
+    const second = try screen.encodeLine(&out.writer, 2, screen.contentRows());
+    try std.testing.expectEqual(EncodedLine{ .rows = 1, .display_width = 2 }, second);
+    try std.testing.expectEqualStrings("\x1b]8;;file:///x\x1b\\gh\x1b]8;;\x1b\\", out.written());
 }
 
 test "encodeRows output parses back into the same cells" {
