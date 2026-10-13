@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 const Terminal = @import("Terminal");
+const root = @import("soft_root").root;
 
 pub const Parser = Terminal.Parser;
 
@@ -50,6 +51,7 @@ fn publish(self: *@This(), mode: Terminal.PublishMode) error{TerminalHandlerFail
         error.TerminalHandlerFailed => return error.TerminalHandlerFailed,
         else => return,
     };
+    if (published == .published) self.publish_timeout();
     if (published != .pending or self.publish_timer != null) return;
     self.publish_timer = tp.timeout.init(self.vt.frame_time_us, tp.message.fmt(.{"publish"})) catch null;
 }
@@ -144,6 +146,7 @@ fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
 
 fn read_and_process(self: *@This()) error{ Terminated, InputOutput, TerminalHandlerFailed, Unexpected }!void {
     var buf: [4096]u8 = undefined;
+    const deadline = root.get_now().toMicroseconds() + @as(i64, @intCast(self.vt.frame_time_us / 2));
 
     while (true) {
         const n = std.posix.read(self.vt.ptyFd(), &buf) catch |e| switch (e) {
@@ -205,6 +208,7 @@ fn read_and_process(self: *@This()) error{ Terminated, InputOutput, TerminalHand
             .running => {},
         }
         try self.publish(.if_due);
+        if (root.get_now().toMicroseconds() >= deadline) break;
     }
 
     // Check for child exit once more before sleeping in wait_read.
