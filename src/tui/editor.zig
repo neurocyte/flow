@@ -8438,12 +8438,8 @@ pub const Editor = struct {
                 std.log.err("filter: no output from filter", .{});
                 return;
             }
-            const old_hash = blk: {
-                const content = buffer.store_to_string_cached(root, try self.buf_eol_mode());
-                break :blk std.hash.XxHash3.hash(0, content);
-            };
-            const new_hash = std.hash.XxHash3.hash(0, buf.items);
-            if (old_hash == new_hash) {
+            const unchanged = std.mem.eql(u8, buffer.store_to_string_cached(root, try self.buf_eol_mode()), buf.items);
+            if (unchanged) {
                 state.no_changes = true;
             } else {
                 self.cancel_all_selections();
