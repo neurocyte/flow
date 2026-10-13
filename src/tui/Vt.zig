@@ -60,6 +60,7 @@ fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, 
         .{
             .winsize = winsize_for(rows, cols),
             .scrollback_bytes = @as(usize, tui.config().terminal_scrollback_mb) << 20,
+            .frame_time_us = tui.get_frame_time(),
             .initial_working_directory = blk: {
                 const project = tp.env.get().str("project");
                 break :blk if (project.len > 0) project else home;
@@ -176,6 +177,14 @@ fn inject(self: *@This(), bytes: []const u8) void {
     var parser: Pty.Parser = .{ .buf = .init(self.vt.allocator) };
     defer parser.buf.deinit();
     _ = self.vt.processOutput(&parser, bytes, self, process_terminal_event, false) catch {};
+    _ = self.vt.publish(.now, self, process_terminal_event) catch {};
+}
+
+pub fn set_frame_time(self: *@This(), frame_time_us: u64) void {
+    if (self.pty_pid) |pid|
+        pid.send(.{ "frame_time", frame_time_us }) catch {}
+    else
+        self.vt.frame_time_us = frame_time_us;
 }
 
 // Write a shell-style prompt with OSC 133 marks

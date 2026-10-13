@@ -653,6 +653,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
             return;
         self.config_.frame_rate = new_frame_rate;
         self.frame_time = std.time.us_per_s / new_frame_rate;
+        @import("VtManager.zig").set_frame_time(self.frame_time);
         tp.env.get().num_set("frame-rate", @intCast(new_frame_rate));
         self.frame_clock.stop() catch {};
         self.frame_clock.deinit();
@@ -2664,6 +2665,10 @@ pub fn open_confirm(options: Confirm.Options) command.Result {
 pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor, owner: ?MenuPopup.Owner) command.Result {
     const hints = if (mainview()) |mv| mv.focused_panel_hints() else null;
     return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor, owner, hints });
+}
+
+pub fn get_frame_time() u64 {
+    return current().frame_time;
 }
 
 pub fn query_cache() *syntax.QueryCache {

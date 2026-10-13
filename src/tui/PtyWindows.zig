@@ -26,6 +26,7 @@ vt: *Terminal,
 stream: ?tp.file_stream = null,
 parser: Parser,
 receiver: Receiver,
+publish_timer: ?tp.timeout = null,
 parent: tp.pid,
 wait_handle: ?windows.HANDLE = null,
 
@@ -53,8 +54,9 @@ fn dtor(self: *@This()) void {
     self.allocator.destroy(self);
 }
 
-fn deinit(_: *@This()) void {
+fn deinit(self: *@This()) void {
     std.log.debug("terminal: pty actor (windows) deinit", .{});
+    self.publish_timeout();
 }
 
 fn start(self: *@This()) tp.result {
@@ -107,6 +109,20 @@ fn on_child_exit(ctx_ptr: ?*anyopaque, _: windows.BOOLEAN) callconv(.winapi) voi
     ctx.self_pid.send(.{"child_exited"}) catch {};
 }
 
+fn publish(self: *@This(), mode: Terminal.PublishMode) error{TerminalHandlerFailed}!void {
+    const published = self.vt.publish(mode, self, pty_process_terminal_event) catch |e| switch (e) {
+        error.TerminalHandlerFailed => return error.TerminalHandlerFailed,
+        else => return,
+    };
+    if (published != .pending or self.publish_timer != null) return;
+    self.publish_timer = tp.timeout.init(self.vt.frame_time_us, tp.message.fmt(.{"publish"})) catch null;
+}
+
+fn publish_timeout(self: *@This()) void {
+    if (self.publish_timer) |*timer| timer.deinit();
+    self.publish_timer = null;
+}
+
 fn pty_process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
     const self: *@This() = @ptrCast(@alignCast(ctx));
     return self.send_event(event) catch error.TerminalHandlerFailed;
@@ -145,6 +161,7 @@ fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
             },
             .running => {},
         }
+        self.publish(.if_due) catch return tp.exit_normal();
         self.stream.?.start_read() catch |e| {
             std.log.debug("terminal: pty stream re-arm failed: {}", .{e});
             return tp.exit_normal();
@@ -154,6 +171,11 @@ fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         const code = self.vt.cmd.wait();
         try self.send_event_result(.{ .exited = code });
         return tp.exit_normal();
+    } else if (try m.match(.{"publish"})) {
+        self.publish_timeout();
+        self.publish(.now) catch return tp.exit_normal();
+    } else if (try m.match(.{ "frame_time", tp.extract(&self.vt.frame_time_us) })) {
+        //
     } else if (try m.match(.{"quit"})) {
         std.log.debug("terminal: pty actor (windows) received quit", .{});
         return tp.exit_normal();

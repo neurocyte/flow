@@ -97,6 +97,10 @@ pub fn shutdown_all() void {
     most_recent = null;
 }
 
+pub fn set_frame_time(frame_time_us: u64) void {
+    for (vts.items) |vt| vt.set_frame_time(frame_time_us);
+}
+
 pub fn receive_event(from: tp.pid_ref, m: tp.message) !void {
     var event: Vt.Event = undefined;
     if (!(m.match(.{ "VT", tp.extract(&event) }) catch false)) return;

@@ -15,6 +15,7 @@ receiver: Receiver,
 parent: tp.pid,
 err_code: i64 = 0,
 sigchld: ?tp.signal = null,
+publish_timer: ?tp.timeout = null,
 
 pub fn spawn(allocator: std.mem.Allocator, vt: *Terminal) !tp.pid {
     const self = try allocator.create(@This());
@@ -41,6 +42,21 @@ fn dtor(self: *@This()) void {
 fn deinit(self: *@This()) void {
     std.log.debug("terminal: pty actor deinit (pid={?})", .{self.vt.cmd.pid});
     if (self.sigchld) |s| s.deinit();
+    self.publish_timeout();
+}
+
+fn publish(self: *@This(), mode: Terminal.PublishMode) error{TerminalHandlerFailed}!void {
+    const published = self.vt.publish(mode, self, pty_process_terminal_event) catch |e| switch (e) {
+        error.TerminalHandlerFailed => return error.TerminalHandlerFailed,
+        else => return,
+    };
+    if (published != .pending or self.publish_timer != null) return;
+    self.publish_timer = tp.timeout.init(self.vt.frame_time_us, tp.message.fmt(.{"publish"})) catch null;
+}
+
+fn publish_timeout(self: *@This()) void {
+    if (self.publish_timer) |*timer| timer.deinit();
+    self.publish_timer = null;
 }
 
 fn start(self: *@This()) tp.result {
@@ -112,6 +128,11 @@ fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         // Not our child (or already reaped) - re-arm the signal and continue.
         if (self.sigchld) |s| s.deinit();
         self.sigchld = tp.signal.init(@backingInt(std.posix.SIG.CHLD), tp.message.fmt(.{"sigchld"})) catch null;
+    } else if (try m.match(.{"publish"})) {
+        self.publish_timeout();
+        self.publish(.now) catch return tp.exit_normal();
+    } else if (try m.match(.{ "frame_time", tp.extract(&self.vt.frame_time_us) })) {
+        //
     } else if (try m.match(.{"quit"})) {
         std.log.debug("terminal: pty exiting: received quit", .{});
         return tp.exit_normal();
@@ -183,6 +204,7 @@ fn read_and_process(self: *@This()) error{ Terminated, InputOutput, TerminalHand
             },
             .running => {},
         }
+        try self.publish(.if_due);
     }
 
     // Check for child exit once more before sleeping in wait_read.

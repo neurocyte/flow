@@ -55,6 +55,7 @@ const log = std.log.scoped(.terminal);
 
 pub const Options = struct {
     scrollback_bytes: usize = 8 << 20,
+    frame_time_us: u64 = std.time.us_per_s / 60,
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     initial_working_directory: ?[]const u8 = null,
 };
@@ -142,8 +143,10 @@ pty: Pty,
 pty_writer: std.Io.File.Writer,
 cmd: Command,
 
-/// the screen we draw from
-front_screen: Screen,
+/// the screens we draw from
+frames: Frames,
+frame_time_us: u64,
+last_publish_us: i64 = 0,
 front_mutex: std.Io.Mutex = .init,
 
 /// the back screens
@@ -271,7 +274,8 @@ pub fn init(
             pty.pty.writerStreaming(io, write_buf),
         .cmd = cmd,
         .scrollback_bytes = opts.scrollback_bytes,
-        .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
+        .frames = try .init(allocator, opts.winsize.cols, opts.winsize.rows),
+        .frame_time_us = opts.frame_time_us,
         .back_screen_pri = try initPrimary(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_bytes),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
@@ -288,7 +292,7 @@ pub fn deinit(self: *Terminal) void {
     self.allocator.free(self.cmd.argv);
     self.pty.deinit(self.io);
     self.dropColdView();
-    self.front_screen.deinit(self.allocator);
+    self.frames.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
     self.back_screen_alt.deinit(self.allocator);
     self.osc52_buf.deinit(self.allocator);
@@ -391,8 +395,8 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     self.cell_pixel_h = cell.h;
 
     // don't deinit with no size change
-    if (ws.cols == self.front_screen.width and
-        ws.rows == self.front_screen.height)
+    if (ws.cols == self.frames.front().width and
+        ws.rows == self.frames.front().height)
     {
         if (pixels_changed) try self.pty.setSize(ws);
         return;
@@ -406,16 +410,14 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     const fits = ws.rows <= self.back_screen_pri.buf.len / self.back_screen_pri.width;
     if (width_unchanged and fits) {
         self.back_screen_pri.resizeVertical(self.allocator, ws.rows);
-        self.front_screen.deinit(self.allocator);
-        self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+        try self.frames.resize(self.allocator, ws.cols, ws.rows);
         self.back_screen_alt.deinit(self.allocator);
         self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
         self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
     } else if (reflow) {
         try self.resizeReflow(ws);
     } else {
-        self.front_screen.deinit(self.allocator);
-        self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+        try self.frames.resize(self.allocator, ws.cols, ws.rows);
 
         var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.back_screen_pri.buf.len / self.back_screen_pri.width - self.back_screen_pri.height);
         try self.back_screen_pri.copyHistoryTo(self.allocator, &new_pri);
@@ -428,7 +430,7 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
         self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
     }
 
-    self.markViewDirty();
+    _ = try self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent);
 
     try self.pty.setSize(ws);
 }
@@ -453,8 +455,7 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
     defer below.deinit();
     try old.encodeRows(&below.writer, split, content_rows);
 
-    self.front_screen.deinit(self.allocator);
-    self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+    try self.frames.resize(self.allocator, ws.cols, ws.rows);
     {
         var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, old.buf.len / old.width - old.height);
         new_pri.takeCold(old);
@@ -753,58 +754,115 @@ fn replay(self: *Terminal, screen: *Screen, text: []const u8) !void {
     };
 }
 
-/// copy the view to the front screen, the caller holds the back screen lock
-fn copyView(self: *Terminal, allocator: std.mem.Allocator) !void {
+/// triple buffer of screens
+const Frames = struct {
+    screens: [3]Screen,
+    writer: u8 = 0,
+    reader: u8 = 1,
+    shared: std.atomic.Value(u8) = .init(2),
+
+    const fresh: u8 = 4;
+    const index: u8 = 3;
+
+    fn init(allocator: std.mem.Allocator, cols: u16, rows: u16) !Frames {
+        var screens: [3]Screen = undefined;
+        var count: usize = 0;
+        errdefer for (screens[0..count]) |*screen| screen.deinit(allocator);
+        while (count < screens.len) : (count += 1) screens[count] = try .init(allocator, cols, rows);
+        return .{ .screens = screens };
+    }
+
+    fn deinit(self: *Frames, allocator: std.mem.Allocator) void {
+        for (&self.screens) |*screen| screen.deinit(allocator);
+    }
+
+    fn resize(self: *Frames, allocator: std.mem.Allocator, cols: u16, rows: u16) !void {
+        const new: Frames = try .init(allocator, cols, rows);
+        self.deinit(allocator);
+        self.* = new;
+    }
+
+    fn back(self: *Frames) *Screen {
+        return &self.screens[self.writer];
+    }
+
+    pub fn front(self: *Frames) *Screen {
+        return &self.screens[self.reader];
+    }
+
+    fn publish(self: *Frames) bool {
+        const old = self.shared.swap(self.writer | fresh, .acq_rel);
+        self.writer = old & index;
+        return old & fresh == 0;
+    }
+
+    fn acquire(self: *Frames) void {
+        if (self.shared.load(.acquire) & fresh == 0) return;
+        self.reader = self.shared.swap(self.reader, .acq_rel) & index;
+    }
+};
+
+pub const PublishMode = enum { if_due, now };
+pub const Published = enum { clean, pending, published };
+
+pub fn publish(self: *Terminal, mode: PublishMode, context: *Event.HandlerContext, handle_event: Event.Handler) !Published {
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
+    return self.publishLocked(mode, context, handle_event);
+}
+
+fn publishLocked(self: *Terminal, mode: PublishMode, context: *Event.HandlerContext, handle_event: Event.Handler) !Published {
+    if (mode == .if_due and !self.dirty) return .clean;
+    if (self.mode.sync) {
+        if (!self.syncExpired()) return .pending;
+        log.debug("synchronized update expired after {d}ms; resuming", .{sync_timeout_ms});
+        self.mode.sync = false;
+    }
+    const now = root.get_now().toMicroseconds();
+    if (mode == .if_due and now >= self.last_publish_us and now - self.last_publish_us < self.frame_time_us) return .pending;
+    try self.copyView(self.frames.back());
+    self.dirty = false;
+    self.last_publish_us = now;
+    if (self.frames.publish()) try handle_event(context, .redraw);
+    return .published;
+}
+
+fn copyView(self: *Terminal, frame: *Screen) !void {
+    const allocator = self.allocator;
     const back = self.back_screen;
+    const height: usize = back.height;
+    try frame.cursor.copyFrom(back.cursor, allocator);
     const hot_history = back.hotHistorySize();
     if (back != &self.back_screen_pri or self.scroll_offset <= hot_history) {
-        if (self.cold_view != null) {
-            self.dropColdView();
-            self.markViewDirty();
-        }
-        return back.copyTo(allocator, &self.front_screen, self.scroll_offset);
+        self.dropColdView();
+        return back.copyRowsTo(allocator, frame, back.visible_top -| self.scroll_offset, 0, height, .all);
     }
-    const height: usize = back.height;
     const cold_rows = back.coldRows();
     const back_rows = @min(self.scroll_offset - hot_history, cold_rows);
     const from_cold = @min(height, back_rows);
     const view = try self.coldView(cold_rows - back_rows, from_cold) orelse
-        return back.copyTo(allocator, &self.front_screen, hot_history);
-    try self.front_screen.cursor.copyFrom(back.cursor, allocator);
+        return back.copyRowsTo(allocator, frame, back.cold_overlap, 0, height, .all);
     const available = @min(from_cold, view.rows);
-    view.screen.copyRowsTo(allocator, &self.front_screen, view.screen_row, 0, available, .all);
-    back.copyRowsTo(allocator, &self.front_screen, back.cold_overlap, available, height - available, .all);
+    view.screen.copyRowsTo(allocator, frame, view.screen_row, 0, available, .all);
+    back.copyRowsTo(allocator, frame, back.cold_overlap, available, height - available, .all);
 }
 
 pub fn draw(
     self: *Terminal,
-    allocator: std.mem.Allocator,
     win: vaxis.Window,
     focused: bool,
 ) !void {
     // Use app-overridden colour if set, otherwise fall back to theme colour.
     const default_fg: vaxis.Cell.Color = .{ .rgb = self.app_fg_color orelse self.fg_color };
     const default_bg: vaxis.Cell.Color = .{ .rgb = self.app_bg_color orelse self.bg_color };
-    {
-        self.back_mutex.lockUncancelable(self.io);
-        defer self.back_mutex.unlock(self.io);
-        if (self.mode.sync and self.syncExpired()) {
-            log.debug("synchronized update expired after {d}ms; resuming", .{sync_timeout_ms});
-            self.mode.sync = false;
-        }
-        // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
-        // having sync
-        if (!self.mode.sync) {
-            try self.copyView(allocator);
-            self.dirty = false;
-        }
-    }
+    self.frames.acquire();
+    const front = self.frames.front();
 
     var row: u16 = 0;
-    while (row < self.front_screen.height) : (row += 1) {
+    while (row < front.height) : (row += 1) {
         var col: u16 = 0;
-        while (col < self.front_screen.width) {
-            const cell = self.front_screen.readCell(col, row) orelse continue;
+        while (col < front.width) {
+            const cell = front.readCell(col, row) orelse continue;
             var out = cell;
             if (out.style.fg == .default) out.style.fg = default_fg;
             if (out.style.bg == .default) out.style.bg = default_bg;
@@ -814,28 +872,19 @@ pub fn draw(
     }
 
     if (self.mode.cursor) {
-        const cur_col = self.front_screen.cursor.col;
-        const live_row = self.front_screen.cursor.row;
+        const cur_col = front.cursor.col;
+        const live_row = front.cursor.row;
         const visual_row = @as(usize, live_row) + self.scroll_offset;
-        const visible: ?u16 = if (visual_row < self.front_screen.height)
+        const visible: ?u16 = if (visual_row < front.height)
             @intCast(visual_row)
         else
             null;
         if (visible) |cur_row| {
-            const shape: vaxis.Cell.CursorShape = if (focused) self.front_screen.cursor.shape else .unfocused;
+            const shape: vaxis.Cell.CursorShape = if (focused) front.cursor.shape else .unfocused;
             win.setCursorShape(shape);
             win.showCursor(cur_col, cur_row);
         }
     }
-}
-
-fn markViewDirty(self: *Terminal) void {
-    const s = &self.back_screen_pri;
-    if (s.width == 0) return;
-    const total_rows = s.buf.len / s.width;
-    const start = s.visible_top -| self.scroll_offset;
-    const end = @min(start + @as(usize, s.height), total_rows);
-    for (s.buf[start * s.width .. end * s.width]) |*cell| cell.dirty = true;
 }
 
 /// adjust the scrollback view
@@ -851,7 +900,7 @@ pub fn scroll(self: *Terminal, delta: i32) bool {
     self.scroll_offset = new_offset;
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);
-    self.markViewDirty();
+    _ = self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent) catch {};
     return true;
 }
 
@@ -861,7 +910,7 @@ pub fn scrollToBottom(self: *Terminal) void {
     self.scroll_offset = 0;
     self.back_mutex.lockUncancelable(self.io);
     defer self.back_mutex.unlock(self.io);
-    self.markViewDirty();
+    _ = self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent) catch {};
 }
 
 pub fn isAltScreen(self: *const Terminal) bool {
@@ -974,10 +1023,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
         if (!held_lock) try self.back_mutex.lock(self.io);
         defer if (!held_lock) self.back_mutex.unlock(self.io);
 
-        if (!self.dirty) {
-            try handle_event(context, .redraw);
-            self.dirty = true;
-        }
+        self.dirty = true;
 
         switch (event) {
             .print => |str| {
@@ -1878,8 +1924,8 @@ fn resetTabStops(self: *Terminal) !void {
 
 /// RIS (ESC c) - Reset to Initial State.
 fn hardReset(self: *Terminal) !void {
-    const w = self.front_screen.width;
-    const h = self.front_screen.height;
+    const w = self.back_screen_pri.width;
+    const h = self.back_screen_pri.height;
 
     self.dropColdView();
     var new_pri = try initPrimary(self.allocator, w, h, self.scrollback_bytes);
@@ -2187,8 +2233,8 @@ fn cellPixelsOf(ws: Winsize) struct { w: u16, h: u16 } {
 }
 
 fn winsizeForScreen(self: *const Terminal) Winsize {
-    const rows = self.front_screen.height;
-    const cols = self.front_screen.width;
+    const rows = self.back_screen_pri.height;
+    const cols = self.back_screen_pri.width;
     return .{
         .rows = rows,
         .cols = cols,

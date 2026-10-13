@@ -468,7 +468,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     // erase first to drop cells that reference graphemes in the front screen
     self.plane.erase();
     const focused_view = self.panel_input.focused and tui.terminal_has_focus();
-    self.vt.vt.draw(self.allocator, self.plane.window, focused_view) catch |e| {
+    self.vt.vt.draw(self.plane.window, focused_view) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
     if (!focused_view) self.plane.window.setCursorShape(.unfocused);
@@ -498,7 +498,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     if (self.hover) self.apply_mouse_cursor();
 
-    return self.vt.vt.dirty;
+    return false;
 }
 
 fn apply_mouse_cursor(self: *Self) void {
@@ -1029,14 +1029,14 @@ const cmds = struct {
     pub const terminal_copy_selection_meta: Meta = .{ .description = "Terminal: Copy selection" };
 
     pub fn terminal_scroll_up(self: *Self, _: Ctx) Result {
-        const half_page = @max(1, self.vt.vt.front_screen.height / 2);
+        const half_page = @max(1, self.vt.vt.frames.front().height / 2);
         if (self.vt.vt.scroll(@intCast(half_page)))
             tui.need_render(@src());
     }
     pub const terminal_scroll_up_meta: Meta = .{ .description = "Terminal: Scroll up" };
 
     pub fn terminal_scroll_down(self: *Self, _: Ctx) Result {
-        const half_page = @max(1, self.vt.vt.front_screen.height / 2);
+        const half_page = @max(1, self.vt.vt.frames.front().height / 2);
         if (self.vt.vt.scroll(-@as(i32, @intCast(half_page))))
             tui.need_render(@src());
     }
