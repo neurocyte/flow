@@ -243,7 +243,7 @@ fn init(allocator: Allocator) InitError!*Self {
             .{"init"},
         )),
         .no_sleep = tp.env.get().is("no-sleep"),
-        .query_cache_ = try syntax.QueryCache.create(root.get_io(), allocator, .{}),
+        .query_cache_ = try syntax.QueryCache.create(root.get_io(), allocator, .{ .lock = true }),
         .dark_theme = dark_theme,
         .light_theme = light_theme,
         .dbus_client = if (@TypeOf(self.dbus_client) != void)
@@ -760,6 +760,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
 
     if (try m.match(.{ "DIFF", tp.more })) // drop late diff responses
+        return;
+
+    if (@import("syntax_worker.zig").drop_result(m)) // destroy late syntax worker results
         return;
 
     if (try m.match(.{"INPUT_IDLE"})) {

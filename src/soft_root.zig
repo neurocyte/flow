@@ -52,6 +52,7 @@ pub const root = struct {
     pub const shorten_path = if (@hasDecl(hard_root, "shorten_path")) hard_root.shorten_path else dummy.shorten_path;
 
     pub const max_diff_lines = if (@hasDecl(hard_root, "max_diff_lines")) hard_root.max_diff_lines else dummy.max_diff_lines;
+    pub const background_syntax_lines = if (@hasDecl(hard_root, "background_syntax_lines")) hard_root.background_syntax_lines else dummy.background_syntax_lines;
 };
 
 const dummy = struct {
@@ -63,6 +64,7 @@ const dummy = struct {
     pub const application_subtext = "dummy-application_subtext";
 
     pub const max_diff_lines: usize = 250000;
+    pub const background_syntax_lines: usize = 10000;
 
     pub const ConfigDirError = error{};
     pub const ConfigWriteError = error{};

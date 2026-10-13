@@ -30,8 +30,10 @@ const Diff = @import("diff").LineDiff;
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
 const Widget = @import("Widget.zig");
+const MessageFilter = @import("MessageFilter.zig");
 const Menu = @import("Menu.zig");
 const buffer_lsp = @import("buffer_lsp.zig");
+const syntax_worker = @import("syntax_worker.zig");
 const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
 const IndentMode = @import("config").IndentMode;
@@ -428,6 +430,8 @@ pub const Editor = struct {
     syntax_refresh_full: bool = false,
     syntax_last_rendered_root: ?Buffer.Root = null,
     syntax_incremental_reparse: bool = false,
+    syntax_worker: ?syntax_worker.Worker = null,
+    syntax_job: ?SyntaxJob = null,
 
     insert_triggers: std.ArrayList(TriggerSymbol) = .empty,
     delete_triggers: std.ArrayList(TriggerSymbol) = .empty,
@@ -714,6 +718,7 @@ pub const Editor = struct {
         self.changes.deinit(self.allocator);
         self.clear_event_triggers();
         if (self.syntax) |syn| syn.destroy();
+        if (self.syntax_worker) |*worker| worker.deinit();
         self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
         self.matches.deinit(self.allocator);
@@ -814,7 +819,9 @@ pub const Editor = struct {
             const syn = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "create" });
                 defer frame_.deinit();
-                break :blk if (self.file_type) |ft|
+                break :blk if (syntax_in_background(new_buf.root))
+                    null
+                else if (self.file_type) |ft|
                     ft.create_syntax(self.allocator, tui.query_cache()) catch null
                 else
                     null;
@@ -919,6 +926,7 @@ pub const Editor = struct {
         if (self.buffer) |b_mut| self.retire_buffer(b_mut, meta.written());
         self.cancel_all_selections();
         self.buffer = null;
+        self.syntax_job = null;
         self.plane.erase();
         self.plane.home();
         _ = try self.handlers.msg(.{ "E", "close" });
@@ -6675,6 +6683,8 @@ pub const Editor = struct {
         const eol_mode = try self.buf_eol_mode();
         if (!self.syntax_refresh_full and self.syntax_last_rendered_root == root)
             return;
+        if (self.syntax_job) |_| return;
+        if (try self.start_syntax_job(buffer, root, eol_mode)) return;
         var kind: enum { full, incremental, none } = .none;
         var edit_count: usize = 0;
         const start_time = root_mod.get_now().toMilliseconds();
@@ -6758,6 +6768,63 @@ pub const Editor = struct {
             if (self.syntax_report_timing)
                 self.logger.print("syntax update {t} time: {d}ms ({d} edits)", .{ kind, update_time, edit_count });
         }
+    }
+
+    const SyntaxJob = struct {
+        id: syntax_worker.Job,
+        root: Buffer.Root,
+        start_time: i64,
+    };
+
+    fn syntax_in_background(root: Buffer.Root) bool {
+        return root.lines() > root_mod.background_syntax_lines;
+    }
+
+    fn start_syntax_job(self: *Self, buffer: *Buffer, root: Buffer.Root, eol_mode: Buffer.EolMode) !bool {
+        if (self.syntax_no_render or !syntax_in_background(root)) return false;
+        if (self.syntax) |_| if (!self.syntax_refresh_full and self.syntax_incremental_reparse and self.syntax_last_rendered_root != null)
+            return false;
+        const file_type = self.file_type orelse return false;
+        const parser = file_type.parser orelse file_type.name;
+        _ = syntax.FileType.get_by_name_static(parser) orelse return false;
+        if (self.syntax_worker == null) self.syntax_worker = try syntax_worker.create();
+        self.syntax_job = .{
+            .id = try self.syntax_worker.?.parse(parser, buffer.share_text(eol_mode), tui.query_cache()),
+            .root = root,
+            .start_time = root_mod.get_now().toMilliseconds(),
+        };
+        if (self.syntax) |syn| syn.reset();
+        self.syntax_last_rendered_root = null;
+        return true;
+    }
+
+    pub fn syntax_job_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+        var id: syntax_worker.Job = 0;
+        const result = syntax_worker.match_result(m, &id) orelse return false;
+        const job = self.syntax_job orelse return false;
+        if (job.id != id) return false;
+        self.syntax_job = null;
+        self.syntax_last_rendered_root = job.root;
+        self.syntax_refresh_full = false;
+        switch (result) {
+            .syntax => |syn| {
+                if (self.syntax) |old| old.destroy();
+                self.syntax = syn;
+                self.syntax_incremental_reparse = true;
+                if (self.syntax_no_render) {
+                    syn.reset();
+                    self.syntax_last_rendered_root = null;
+                }
+                if (self.syntax_report_timing)
+                    self.logger.print("syntax update background time: {d}ms", .{root_mod.get_now().toMilliseconds() - job.start_time});
+            },
+            .failed => |err| {
+                self.syntax_incremental_reparse = false;
+                self.logger.print_err("syntax", "background parse failed: {s}", .{err});
+            },
+        }
+        tui.need_render(@src());
+        return true;
     }
 
     fn syntax_byte_edits(self: *Self, diff: *const Buffer.EditSetCache, root_src: Buffer.Root, eol_mode: Buffer.EolMode) ![]EditSet.ByteEdit {
@@ -8672,6 +8739,7 @@ pub const Editor = struct {
             return error.InvalidSetFileTypeArgument;
 
         if (self.syntax) |syn| syn.destroy();
+        self.syntax_job = null;
         self.syntax_last_rendered_root = null;
         self.syntax_refresh_full = true;
         self.syntax_incremental_reparse = false;
@@ -8811,12 +8879,15 @@ pub const EditorWidget = struct {
         };
         self.editor.init(allocator, n, buffer_manager, now);
         errdefer self.editor.deinit();
+        try tui.message_filters().add(MessageFilter.bind(&self.editor, Editor.syntax_job_filter));
+        errdefer tui.message_filters().remove_ptr(&self.editor);
         try self.editor.push_cursor();
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
         self.update_hover_timer(.cancel);
         if (self.focused) self.commands.deinit();
+        tui.message_filters().remove_ptr(&self.editor);
         self.editor.deinit();
         self.plane.deinit();
         allocator.destroy(self);
