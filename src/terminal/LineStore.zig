@@ -124,6 +124,23 @@ fn drop_oldest(self: *LineStore) error{InvalidLineStore}!void {
     if (block.state.rows == .valid) block.rows -= line.rows(self.cols);
 }
 
+pub fn write_lines(self: *const LineStore, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    try cbor.writeArrayHeader(writer, self.lines);
+    try writer.writeAll(self.stream_from(self.tail));
+}
+
+pub fn append_lines(self: *LineStore, lines_: []const u8) Error!void {
+    var iter = lines_;
+    var count = cbor.decodeArrayHeader(&iter) catch return error.InvalidLineStore;
+    while (count > 0) : (count -= 1) {
+        const line = try next_line(&iter) orelse return error.InvalidLineStore;
+        self.append(line.display_width, line.text, line.marks) catch |e| switch (e) {
+            error.LineTooLarge => {},
+            else => |e_| return e_,
+        };
+    }
+}
+
 pub fn write_plain(writer: *std.Io.Writer, text: []const u8) std.Io.Writer.Error!void {
     var rest = text;
     while (std.mem.indexOfScalar(u8, rest, 0x1b)) |esc| {
@@ -429,4 +446,30 @@ test "write_plain removes escape sequences" {
     defer out.deinit();
     try write_plain(&out.writer, "a\x1b[0;1;31mb\x1b[0m\x1b]8;;file:///x\x1b\\c\x1b]8;;\x1b\\d");
     try testing.expectEqualStrings("abcd", out.written());
+}
+
+test "write_lines and append_lines copy a store" {
+    var src = try LineStore.init(testing.allocator, 1, 80);
+    defer src.deinit();
+    var buf: [64]u8 = undefined;
+    var marks_buf: [32]u8 = undefined;
+    for (0..2000) |n| try src.append(@intCast(n % 200), test_text(&buf, n), if (n % 50 == 0) test_marks(&marks_buf) else no_marks);
+
+    var saved: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer saved.deinit();
+    try src.write_lines(&saved.writer);
+
+    var dst = try LineStore.init(testing.allocator, 1 << 20, 80);
+    defer dst.deinit();
+    try dst.append_lines(saved.written());
+    try testing.expectEqual(src.lines, dst.lines);
+    try testing.expectEqual(try src.total_rows(), try dst.total_rows());
+    var a = try src.iterate(src.first_line);
+    var b = try dst.iterate(0);
+    while (try a.next()) |line| {
+        const copy = (try b.next()).?;
+        try testing.expectEqual(line.display_width, copy.display_width);
+        try testing.expectEqualStrings(line.text, copy.text);
+        try testing.expectEqualSlices(u8, line.marks.bytes, copy.marks.bytes);
+    }
 }

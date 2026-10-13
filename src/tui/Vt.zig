@@ -739,6 +739,7 @@ pub fn restart_shell(self: *Vt) !void {
 }
 
 // [title, profile_name, cwd, last_cmd, argv, cols, rows, history]
+// history: [cold_lines, stream] or a stream
 pub fn write_state(self: *@This(), writer: *std.Io.Writer, include_history: bool) error{WriteFailed}!void {
     const screen = &self.vt.back_screen_pri;
     var history: std.Io.Writer.Allocating = .init(self.vt.allocator);
@@ -746,8 +747,14 @@ pub fn write_state(self: *@This(), writer: *std.Io.Writer, include_history: bool
     if (include_history) {
         self.vt.back_mutex.lockUncancelable(self.vt.io);
         defer self.vt.back_mutex.unlock(self.vt.io);
-        try screen.encodeRows(&history.writer, 0, screen.contentRows());
-    }
+        var stream: std.Io.Writer.Allocating = .init(self.vt.allocator);
+        defer stream.deinit();
+        const content_rows = screen.contentRows();
+        try screen.encodeRows(&stream.writer, @min(screen.cold_overlap, content_rows), content_rows);
+        try cbor.writeArrayHeader(&history.writer, 2);
+        if (screen.cold) |cold| try cold.write_lines(&history.writer) else try cbor.writeArrayHeader(&history.writer, 0);
+        try cbor.writeValue(&history.writer, stream.written());
+    } else try cbor.writeValue(&history.writer, "");
     try cbor.writeArrayHeader(writer, 8);
     try cbor.writeValue(writer, self.title.items);
     if (self.profile) |p| try cbor.writeValue(writer, p.name) else try cbor.writeValue(writer, null);
@@ -757,7 +764,7 @@ pub fn write_state(self: *@This(), writer: *std.Io.Writer, include_history: bool
     for (self.vt.cmd.argv) |arg| try cbor.writeValue(writer, arg);
     try cbor.writeValue(writer, screen.width);
     try cbor.writeValue(writer, screen.height);
-    try cbor.writeValue(writer, history.written());
+    try writer.writeAll(history.written());
 }
 
 pub fn restore(io: std.Io, allocator: std.mem.Allocator, state: []const u8) !*@This() {
@@ -771,6 +778,7 @@ pub fn restore(io: std.Io, allocator: std.mem.Allocator, state: []const u8) !*@T
     var cols: u16 = 80;
     var rows: u16 = 24;
     var history: []const u8 = "";
+    var cold_lines: ?[]const u8 = null;
     if (!try cbor.matchValue(&iter, cbor.extract(&title))) return error.InvalidTerminalState;
     if (!try cbor.matchNull(&iter)) {
         var name: []const u8 = undefined;
@@ -788,9 +796,15 @@ pub fn restore(io: std.Io, allocator: std.mem.Allocator, state: []const u8) !*@T
         try saved_argv.append(allocator, arg);
     }
     if (!try cbor.matchValue(&iter, cbor.extract(&cols)) or
-        !try cbor.matchValue(&iter, cbor.extract(&rows)) or
-        !try cbor.matchValue(&iter, cbor.extract(&history)))
+        !try cbor.matchValue(&iter, cbor.extract(&rows)))
         return error.InvalidTerminalState;
+    var stream_only = iter;
+    if (!try cbor.matchValue(&stream_only, cbor.extract(&history))) {
+        var lines: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, .{ cbor.extract_cbor(&lines), cbor.extract(&history) }))
+            return error.InvalidTerminalState;
+        cold_lines = lines;
+    }
 
     var cmd = try prepare_cmd(allocator, .empty(), null);
     defer cmd.deinit(allocator);
@@ -804,6 +818,8 @@ pub fn restore(io: std.Io, allocator: std.mem.Allocator, state: []const u8) !*@T
     if (last_cmd.len > 0 and !(cbor.matchNull(&last_cmd) catch false))
         self.last_cmd = .{ .bytes = try allocator.dupe(u8, last_cmd) };
     if (profile_name) |name| self.profile = find_profile(allocator, name) catch null;
+    if (cold_lines) |lines| if (self.vt.back_screen_pri.cold) |cold|
+        cold.append_lines(lines) catch |e| std.log.err("terminal: restore of the scrollback failed: {t}", .{e});
     self.inject(history);
     self.show_restored_message();
     return self;
