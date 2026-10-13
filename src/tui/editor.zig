@@ -793,15 +793,6 @@ pub const Editor = struct {
         const file_type = file_type_ orelse new_buf.file_type_name;
         const buffer_meta = if (self.buffer) |buffer| buffer.get_meta() else null;
 
-        if (new_buf.root.lines() > root_mod.max_syntax_lines) {
-            self.logger.print("large file threshold {d} lines < file size {d} lines", .{
-                root_mod.max_syntax_lines,
-                new_buf.root.lines(),
-            });
-            self.logger.print("syntax highlighting disabled", .{});
-            self.syntax_no_render = true;
-        }
-
         const content = new_buf.store_to_string_cached(new_buf.root, new_buf.file_eol_mode);
         if (self.indent_mode == .auto)
             self.detect_indent_mode(content);
