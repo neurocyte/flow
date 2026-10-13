@@ -13,6 +13,7 @@ tail: u64 = 0,
 head: u64 = 0,
 first_line: u64 = 0,
 lines: usize = 0,
+dropped_rows: usize = 0,
 cols: u16,
 blocks: std.ArrayList(Block) = .empty,
 scratch: std.Io.Writer.Allocating,
@@ -113,6 +114,7 @@ fn drop_oldest(self: *LineStore) error{InvalidLineStore}!void {
     self.tail += size - iter.len;
     self.first_line += 1;
     self.lines -= 1;
+    self.dropped_rows += line.rows(self.cols);
     if (self.lines == 0 or self.first_line % block_lines == 0) {
         _ = self.blocks.orderedRemove(0);
         return;
@@ -120,6 +122,30 @@ fn drop_oldest(self: *LineStore) error{InvalidLineStore}!void {
     const block = &self.blocks.items[0];
     block.pos = self.tail;
     if (block.state.rows == .valid) block.rows -= line.rows(self.cols);
+}
+
+pub fn write_plain(writer: *std.Io.Writer, text: []const u8) std.Io.Writer.Error!void {
+    var rest = text;
+    while (std.mem.indexOfScalar(u8, rest, 0x1b)) |esc| {
+        try writer.writeAll(rest[0..esc]);
+        rest = rest[esc + 1 ..];
+        if (rest.len == 0) return;
+        switch (rest[0]) {
+            '[' => {
+                var end: usize = 1;
+                while (end < rest.len and !(rest[end] >= 0x40 and rest[end] <= 0x7e)) end += 1;
+                rest = rest[@min(rest.len, end + 1)..];
+            },
+            ']' => {
+                var end: usize = 1;
+                while (end < rest.len and rest[end] != 0x07 and rest[end] != 0x1b) end += 1;
+                if (end < rest.len and rest[end] == 0x1b) end += 1;
+                rest = rest[@min(rest.len, end + 1)..];
+            },
+            else => rest = rest[1..],
+        }
+    }
+    try writer.writeAll(rest);
 }
 
 fn stream_from(self: *const LineStore, pos: u64) []const u8 {
@@ -396,4 +422,11 @@ test "find marked lines" {
     try testing.expectEqual(300, try store.find_marked(499, .older));
     try testing.expectEqual(10, try store.find_marked(299, .older));
     try testing.expectEqual(null, try store.find_marked(9, .older));
+}
+
+test "write_plain removes escape sequences" {
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try write_plain(&out.writer, "a\x1b[0;1;31mb\x1b[0m\x1b]8;;file:///x\x1b\\c\x1b]8;;\x1b\\d");
+    try testing.expectEqualStrings("abcd", out.written());
 }

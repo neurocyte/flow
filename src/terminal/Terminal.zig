@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 const ansi = @import("ansi.zig");
 pub const Parser = @import("Parser.zig");
 const vaxis = @import("vaxis");
+const cbor = @import("cbor");
 const xterm = @import("xterm");
 const root = @import("soft_root").root;
 
@@ -493,9 +494,11 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
 const ColdView = struct {
     screen: Screen,
     first_row: usize,
+    requested: usize,
     rows: usize,
     /// row of `screen` that holds `first_row`
     screen_row: usize,
+    hot_rows: usize,
     head: u64,
     tail: u64,
 };
@@ -508,15 +511,18 @@ fn dropColdView(self: *Terminal) void {
 fn coldView(self: *Terminal, first_row: usize, rows: usize) !?*ColdView {
     const cold = self.back_screen_pri.cold orelse return null;
     if (self.cold_view) |*view| {
-        if (view.first_row == first_row and view.rows == rows and view.head == cold.head and view.tail == cold.tail and
-            view.screen.width == self.back_screen_pri.width) return view;
+        if (view.first_row == first_row and view.requested == rows and view.head == cold.head and view.tail == cold.tail and
+            view.hot_rows == 0 and view.screen.width == self.back_screen_pri.width) return view;
     }
     self.dropColdView();
     const pos = try cold.locate_row(first_row) orelse return null;
+    const back = &self.back_screen_pri;
+    const cold_rows = @min(rows, back.coldRows() - first_row);
+    const hot_rows = @min(rows - cold_rows, back.buf.len / back.width - back.cold_overlap);
 
     var text: std.Io.Writer.Allocating = .init(self.allocator);
     defer text.deinit();
-    const wanted = pos.row + rows;
+    const wanted = pos.row + cold_rows;
     var fed: usize = 0;
     var height: usize = 0;
     var iter = try cold.iterate(pos.line);
@@ -529,18 +535,205 @@ fn coldView(self: *Terminal, first_row: usize, rows: usize) !?*ColdView {
         height += line.rows(cold.cols) + 1;
     }
 
-    var screen = try Screen.init(self.allocator, self.back_screen_pri.width, @intCast(@min(std.math.maxInt(u16), @max(1, height))));
+    height = @min(std.math.maxInt(u16), @max(height, wanted + hot_rows));
+    var screen = try Screen.init(self.allocator, back.width, @intCast(height));
     errdefer screen.deinit(self.allocator);
     try self.replay(&screen, text.written());
+    const copied = @min(hot_rows, height - @min(height, wanted));
+    for (0..copied * back.width) |i|
+        try screen.buf[wanted * back.width + i].copyFrom(self.allocator, back.buf[back.cold_overlap * back.width + i]);
     self.cold_view = .{
         .screen = screen,
         .first_row = first_row,
-        .rows = rows,
+        .requested = rows,
+        .rows = @min(cold_rows, height - @min(height, pos.row)) + copied,
         .screen_row = pos.row,
+        .hot_rows = copied,
         .head = cold.head,
         .tail = cold.tail,
     };
     return &self.cold_view.?;
+}
+
+pub fn historyRows(self: *const Terminal) usize {
+    return self.back_screen.historySize();
+}
+
+pub fn viewTop(self: *const Terminal) usize {
+    const history = self.historyRows();
+    return history - @min(history, self.scroll_offset);
+}
+
+pub fn droppedRows(self: *const Terminal) usize {
+    const back = self.back_screen;
+    return if (back.cold) |cold| cold.dropped_rows else back.dropped;
+}
+
+pub fn rowNumber(self: *const Terminal, buf_row: usize) usize {
+    const back = self.back_screen;
+    return back.coldRows() + buf_row -| back.cold_overlap;
+}
+
+pub const Window = struct {
+    screen: *const Screen,
+    row: usize,
+    rows: usize,
+};
+
+pub fn window(self: *Terminal, first: usize, rows: usize) !?Window {
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
+    const back = self.back_screen;
+    if (back.width == 0) return null;
+    const cold_rows = back.coldRows();
+    if (first >= cold_rows) {
+        const row = first - cold_rows + back.cold_overlap;
+        const total = back.buf.len / back.width;
+        if (row >= total) return null;
+        return .{ .screen = back, .row = row, .rows = @min(rows, total - row) };
+    }
+    const view = try self.coldView(first, rows) orelse return null;
+    return .{ .screen = &view.screen, .row = view.screen_row, .rows = view.rows };
+}
+
+pub fn extractRangeText(self: *Terminal, allocator: std.mem.Allocator, first: usize, last: usize, out: *std.ArrayList(u8)) !void {
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
+    const back = self.back_screen;
+    const cold_rows = back.coldRows();
+    const hot_first = @max(first, cold_rows) - cold_rows + back.cold_overlap;
+    const hot_last = @max(last, cold_rows) - cold_rows + back.cold_overlap;
+    if (back.cold) |cold| if (first < cold_rows) if (try cold.locate_row(first)) |pos| {
+        var writer: std.Io.Writer.Allocating = .fromArrayList(allocator, out);
+        defer out.* = writer.toArrayList();
+        var row = first - pos.row;
+        var iter = try cold.iterate(pos.line);
+        while (row < @min(last, cold_rows)) {
+            const line = try iter.next() orelse break;
+            try Screen.LineStore.write_plain(&writer.writer, line.text);
+            row += line.rows(cold.cols);
+            if (row < last) try writer.writer.writeByte('\n');
+        }
+    };
+    try back.extractRangeText(allocator, hot_first, hot_last, out);
+}
+
+pub const CommandMark = struct {
+    kind: Screen.PromptMarkKind,
+    row: usize,
+    /// first row with content
+    top: usize,
+    exit_code: ?i32,
+};
+
+pub const CommandOutputRange = struct {
+    start: usize,
+    end: usize,
+    exit_code: ?i32,
+};
+
+/// all prompt marks of the primary screen, oldest first, with row numbers
+pub fn commandMarks(self: *Terminal, allocator: std.mem.Allocator) ![]CommandMark {
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
+    const back = &self.back_screen_pri;
+    var marks: std.ArrayList(CommandMark) = .empty;
+    errdefer marks.deinit(allocator);
+    const cold_rows = back.coldRows();
+    if (back.cold) |cold| {
+        var next = try cold.find_marked(cold.first_line, .newer);
+        while (next) |line_no| : (next = try cold.find_marked(line_no + 1, .newer)) {
+            const line = try cold.get(line_no) orelse break;
+            const first_row = try cold.row_of(line_no) orelse break;
+            var iter = line.marks.bytes;
+            var count = cbor.decodeArrayHeader(&iter) catch break;
+            while (count > 0) : (count -= 1) {
+                var col: usize = 0;
+                var mark: CommandMark = undefined;
+                var click_events: bool = false;
+                if (!(cbor.matchValue(&iter, .{
+                    cbor.extract(&col),
+                    cbor.extract(&mark.kind),
+                    cbor.extract(&mark.exit_code),
+                    cbor.extract(&click_events),
+                }) catch break)) break;
+                mark.row = first_row + col / @max(1, cold.cols);
+                mark.top = if (line.display_width == 0) mark.row + 1 else mark.row;
+                try marks.append(allocator, mark);
+            }
+            if (line_no + 1 >= cold.end_line()) break;
+        }
+    }
+    for (back.prompt_marks.items) |mark| {
+        if (mark.row < back.cold_overlap) continue;
+        const offset = cold_rows - back.cold_overlap;
+        try marks.append(allocator, .{
+            .kind = mark.kind,
+            .row = offset + mark.row,
+            .top = offset + back.commandTopRow(mark.row),
+            .exit_code = mark.exit_code,
+        });
+    }
+    return marks.toOwnedSlice(allocator);
+}
+
+pub fn prevCommandRow(marks: []const CommandMark, row: usize) ?usize {
+    var best: ?usize = null;
+    for (marks) |mark| {
+        if (mark.kind != .prompt_start or mark.top >= row) continue;
+        if (best == null or mark.top > best.?) best = mark.top;
+    }
+    return best;
+}
+
+pub fn nextCommandRow(marks: []const CommandMark, row: usize) ?usize {
+    var best: ?usize = null;
+    for (marks) |mark| {
+        if (mark.kind != .prompt_start or mark.top <= row) continue;
+        if (best == null or mark.top < best.?) best = mark.top;
+    }
+    return best;
+}
+
+pub fn lastCommandRow(marks: []const CommandMark) ?usize {
+    return prevCommandRow(marks, std.math.maxInt(usize));
+}
+
+pub fn lastCommandOutputRange(marks: []const CommandMark, end_row: usize) ?CommandOutputRange {
+    var i: usize = marks.len;
+    while (i > 0) {
+        i -= 1;
+        if (marks[i].kind != .output_start) continue;
+        for (marks[i + 1 ..]) |later| switch (later.kind) {
+            .output_end => return .{ .start = marks[i].row, .end = later.row, .exit_code = later.exit_code },
+            .prompt_start => return .{ .start = marks[i].row, .end = later.row, .exit_code = null },
+            else => {},
+        };
+        return .{ .start = marks[i].row, .end = end_row, .exit_code = null };
+    }
+    return null;
+}
+
+pub fn commandOutputRangeAt(marks: []const CommandMark, top_row: usize, end_row: usize) ?CommandOutputRange {
+    var cmd_idx: ?usize = null;
+    var first_idx: ?usize = null;
+    for (marks, 0..) |mark, i| {
+        if (mark.kind != .prompt_start) continue;
+        if (first_idx == null) first_idx = i;
+        if (mark.top <= top_row) cmd_idx = i;
+    }
+    const start_i = cmd_idx orelse first_idx orelse return null;
+    var output_start: ?usize = null;
+    for (marks[start_i + 1 ..]) |m| switch (m.kind) {
+        .output_start => output_start = m.row,
+        .output_end => if (output_start) |s| return .{ .start = s, .end = m.row, .exit_code = m.exit_code },
+        .prompt_start => return if (output_start) |s|
+            .{ .start = s, .end = m.row, .exit_code = null }
+        else
+            null,
+        else => {},
+    };
+    return if (output_start) |s| .{ .start = s, .end = end_row, .exit_code = null } else null;
 }
 
 /// print a stream of encoded lines into `screen`
@@ -578,7 +771,7 @@ fn copyView(self: *Terminal, allocator: std.mem.Allocator) !void {
     const view = try self.coldView(cold_rows - back_rows, from_cold) orelse
         return back.copyTo(allocator, &self.front_screen, hot_history);
     try self.front_screen.cursor.copyFrom(back.cursor, allocator);
-    const available = @min(from_cold, @as(usize, view.screen.height) - view.screen_row);
+    const available = @min(from_cold, view.rows);
     view.screen.copyRowsTo(allocator, &self.front_screen, view.screen_row, 0, available, .all);
     back.copyRowsTo(allocator, &self.front_screen, back.cold_overlap, available, height - available, .all);
 }

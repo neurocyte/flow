@@ -529,17 +529,54 @@ fn reset_hover_pos(self: *Self) void {
         tui.need_render(@src());
 }
 
-fn probe_file_links(self: *Self, screen: *const Vt.Screen, range: anytype) bool {
+const RowIterator = struct {
+    vt: *Vt.Terminal,
+    row: usize,
+    end: usize,
+    window: ?Vt.Terminal.Window = null,
+    window_first: usize = 0,
+
+    const chunk_rows = 256;
+
+    const Row = struct {
+        screen: *const Vt.Screen,
+        row: usize,
+        number: usize,
+    };
+
+    fn next(self: *RowIterator) ?Row {
+        if (self.row >= self.end) return null;
+        if (self.window == null or self.row >= self.window_first + self.window.?.rows) {
+            self.window = self.vt.window(self.row, @min(chunk_rows, self.end - self.row)) catch null;
+            self.window_first = self.row;
+        }
+        const window = self.window orelse return null;
+        if (window.rows == 0) return null;
+        defer self.row += 1;
+        return .{ .screen = window.screen, .row = window.row + self.row - self.window_first, .number = self.row };
+    }
+};
+
+fn rows(self: *Self, first: usize, end: usize) RowIterator {
+    return .{ .vt = &self.vt.vt, .row = first, .end = end };
+}
+
+fn row_at(self: *Self, number: usize) ?RowIterator.Row {
+    var iter = self.rows(number, number + 1);
+    return iter.next();
+}
+
+fn probe_file_links(self: *Self, range: Vt.Terminal.CommandOutputRange) bool {
     var unknown: std.ArrayList([]const u8) = .empty;
     defer {
         for (unknown.items) |path| self.allocator.free(path);
         unknown.deinit(self.allocator);
     }
-    var row: usize = range.start;
-    while (row < range.end) : (row += 1) {
+    var iter = self.rows(range.start, range.end);
+    while (iter.next()) |row| {
         var line: std.ArrayList(u8) = .empty;
         defer line.deinit(self.allocator);
-        screen.extractRowText(self.allocator, row, &line, null) catch continue;
+        row.screen.extractRowText(self.allocator, row.row, &line, null) catch continue;
         var pos: usize = 0;
         while (file_link.find_in_line(line.items[pos..])) |r| {
             const slice = line.items[pos + r.start .. pos + r.end];
@@ -580,9 +617,10 @@ fn update_file_link_highlight(self: *Self) void {
         self.reset_file_link();
     }
 
-    const screen = &self.vt.vt.back_screen_pri;
-    if (pos.row >= screen.height) return;
-    const screen_row: usize = (screen.visible_top -| self.vt.vt.scroll_offset) + pos.row;
+    if (pos.row >= self.vt.vt.back_screen_pri.height) return;
+    const row = self.row_at(self.vt.vt.viewTop() + pos.row) orelse return;
+    const screen = row.screen;
+    const screen_row = row.row;
 
     if (self.try_set_osc8_highlight(screen, screen_row, pos, &retry)) return;
 
@@ -681,7 +719,7 @@ fn render_selection(self: *Self, theme: *const Widget.Theme) void {
     const s = sel.ordered();
     const screen = self.vt.vt.back_screen;
     if (screen.height == 0 or screen.width == 0) return;
-    const top = screen.visible_top -| self.vt.vt.scroll_offset;
+    const top = self.vt.vt.viewTop();
     var abs = s.start.row;
     while (abs <= s.end.row) : (abs += 1) {
         if (abs < top) continue;
@@ -716,8 +754,7 @@ fn coord_to_position(self: *Self, coord: MouseEvent.Coord) Position {
     const cell = coord.to_cell(self.plane.mouse_geometry());
     const vrow: usize = if (cell.row < 0) 0 else @min(@as(usize, @intCast(cell.row)), screen.height -| 1);
     const vcol: usize = if (cell.col < 0) 0 else @min(@as(usize, @intCast(cell.col)), @as(usize, screen.width) -| 1);
-    const top = screen.visible_top -| self.vt.vt.scroll_offset;
-    return .{ .row = top + vrow, .col = @intCast(vcol) };
+    return .{ .row = self.vt.vt.viewTop() + vrow, .col = @intCast(vcol) };
 }
 
 fn selection_start(self: *Self, coord: MouseEvent.Coord) void {
@@ -731,7 +768,7 @@ fn begin_selection(self: *Self, mode: SelectionMode, anchor: Position, span: Sel
     self.selection = span;
     self.selecting = true;
     self.selection_screen = self.vt.vt.back_screen;
-    self.selection_dropped = self.vt.vt.back_screen.dropped;
+    self.selection_dropped = self.vt.vt.droppedRows();
     self.selection_cleared = self.vt.vt.back_screen.cleared;
     tui.need_render(@src());
 }
@@ -749,8 +786,8 @@ fn next_click(self: *Self, coord: MouseEvent.Coord) u8 {
     return self.click_count;
 }
 
-fn col_class(screen: *const Vt.Screen, row: usize, col: u16) CharClass {
-    const bytes = screen.buf[row * screen.width + col].char.bytes();
+fn col_class(row: RowIterator.Row, col: u16) CharClass {
+    const bytes = row.screen.buf[row.row * row.screen.width + col].char.bytes();
     if (bytes.len == 0) return .space;
     const c = bytes[0];
     if (c == ' ' or c == '\t') return .space;
@@ -759,13 +796,13 @@ fn col_class(screen: *const Vt.Screen, row: usize, col: u16) CharClass {
 }
 
 fn word_range(self: *Self, pos: Position) Selection {
-    const screen = self.vt.vt.back_screen;
     var c0 = pos.col;
     var c1 = pos.col;
-    const cls = col_class(screen, pos.row, pos.col);
+    const row = self.row_at(pos.row) orelse return .{ .begin = pos, .end = pos };
+    const cls = col_class(row, pos.col);
     if (cls != .space) {
-        while (c0 > 0 and col_class(screen, pos.row, c0 - 1) == cls) c0 -= 1;
-        while (c1 + 1 < screen.width and col_class(screen, pos.row, c1 + 1) == cls) c1 += 1;
+        while (c0 > 0 and col_class(row, c0 - 1) == cls) c0 -= 1;
+        while (c1 + 1 < row.screen.width and col_class(row, c1 + 1) == cls) c1 += 1;
     }
     return .{ .begin = .{ .row = pos.row, .col = c0 }, .end = .{ .row = pos.row, .col = c1 } };
 }
@@ -779,7 +816,6 @@ fn select_word(self: *Self, coord: MouseEvent.Coord) void {
     const screen = self.vt.vt.back_screen;
     if (screen.width == 0) return;
     const pos = self.coord_to_position(coord);
-    if (pos.row >= screen.buf.len / screen.width) return;
     self.begin_selection(.word, pos, self.word_range(pos));
 }
 
@@ -807,9 +843,10 @@ fn reconcile_selection(self: *Self) void {
     if (self.selection_screen != screen) return self.clear_selection();
     if (screen.cleared != self.selection_cleared) return self.clear_selection();
 
-    const delta = screen.dropped -| self.selection_dropped;
+    const dropped = self.vt.vt.droppedRows();
+    const delta = dropped -| self.selection_dropped;
     if (delta == 0) return;
-    self.selection_dropped = screen.dropped;
+    self.selection_dropped = dropped;
     if (sel.begin.row < delta or sel.end.row < delta) return self.clear_selection();
     sel.begin.row -= delta;
     sel.end.row -= delta;
@@ -865,10 +902,6 @@ fn selection_text(self: *Self, out_allocator: Allocator) !?[]u8 {
     self.reconcile_selection();
     const sel = self.selection orelse return null;
     const s = sel.ordered();
-    const screen = self.vt.vt.back_screen;
-    if (screen.width == 0) return null;
-    const total_rows = screen.buf.len / screen.width;
-
     var out: std.Io.Writer.Allocating = .init(out_allocator);
     errdefer out.deinit();
 
@@ -878,15 +911,16 @@ fn selection_text(self: *Self, out_allocator: Allocator) !?[]u8 {
     defer col_at_byte.deinit(self.allocator);
 
     var need_newline = false;
-    var row = s.start.row;
-    while (row <= s.end.row) : (row += 1) {
-        if (row >= total_rows) break;
+    var iter = self.rows(s.start.row, s.end.row + 1);
+    while (iter.next()) |r| {
+        const screen = r.screen;
+        const row = r.row;
         line.clearRetainingCapacity();
         col_at_byte.clearRetainingCapacity();
         try screen.extractRowText(self.allocator, row, &line, &col_at_byte);
 
-        const c0: u16 = if (row == s.start.row) s.start.col else 0;
-        const c1: u16 = if (row == s.end.row) s.end.col else screen.width - 1;
+        const c0: u16 = if (r.number == s.start.row) s.start.col else 0;
+        const c1: u16 = if (r.number == s.end.row) s.end.col else screen.width - 1;
         const start_byte = col_start_byte(col_at_byte.items, c0);
         const end_byte = col_start_byte(col_at_byte.items, c1 +| 1);
         const seg = line.items[start_byte..end_byte];
@@ -961,8 +995,7 @@ pub fn send_text(self: *Self, text: []const u8) void {
 }
 
 fn scroll_command_to_top(self: *Self, target_row: usize) void {
-    const screen = &self.vt.vt.back_screen_pri;
-    const desired: i64 = @as(i64, @intCast(screen.visible_top)) - @as(i64, @intCast(target_row));
+    const desired: i64 = @as(i64, @intCast(self.vt.vt.back_screen_pri.historySize())) - @as(i64, @intCast(target_row));
     const current: i64 = @intCast(self.vt.vt.scroll_offset);
     const delta: i64 = desired - current;
     if (self.vt.vt.scroll(@intCast(std.math.clamp(delta, std.math.minInt(i32), std.math.maxInt(i32)))))
@@ -1010,22 +1043,23 @@ const cmds = struct {
     pub const terminal_scroll_down_meta: Meta = .{ .description = "Terminal: Scroll down" };
 
     pub fn terminal_scroll_previous_command(self: *Self, _: Ctx) Result {
-        const screen = &self.vt.vt.back_screen_pri;
-        const cur_top = screen.visible_top -| self.vt.vt.scroll_offset;
-        const target = screen.prevCommandRow(cur_top) orelse return;
+        const marks = try self.vt.vt.commandMarks(self.allocator);
+        defer self.allocator.free(marks);
+        const target = Vt.Terminal.prevCommandRow(marks, self.vt.vt.viewTop()) orelse return;
         self.scroll_command_to_top(target);
     }
     pub const terminal_scroll_previous_command_meta: Meta = .{ .description = "Terminal: Scroll to previous command" };
 
     pub fn terminal_scroll_next_command(self: *Self, _: Ctx) Result {
         const screen = &self.vt.vt.back_screen_pri;
-        const cur_top = screen.visible_top -| self.vt.vt.scroll_offset;
-        if (screen.nextCommandRow(cur_top)) |target| {
+        const marks = try self.vt.vt.commandMarks(self.allocator);
+        defer self.allocator.free(marks);
+        if (Vt.Terminal.nextCommandRow(marks, self.vt.vt.viewTop())) |target| {
             self.scroll_command_to_top(target);
         } else if (screen.historySize() < screen.height) {
             // Less than a screenful of scrollback: keep the last command
             // pinned at the top rather than jumping past it.
-            if (screen.lastCommandRow()) |target|
+            if (Vt.Terminal.lastCommandRow(marks)) |target|
                 self.scroll_command_to_top(target);
         } else if (self.vt.vt.scroll_offset != 0) {
             // Past the last command: return to the active terminal position.
@@ -1036,17 +1070,19 @@ const cmds = struct {
     pub const terminal_scroll_next_command_meta: Meta = .{ .description = "Terminal: Scroll to next command" };
 
     pub fn terminal_open_file_links(self: *Self, ctx: Ctx) Result {
-        const screen = &self.vt.vt.back_screen_pri;
         const probed = ctx.args.match(.{"probed"}) catch false;
+        const marks = try self.vt.vt.commandMarks(self.allocator);
+        defer self.allocator.free(marks);
+        const end_row = self.vt.vt.back_screen_pri.historySize() + self.vt.vt.back_screen_pri.height;
         // When scrolled up, grab the command whose output is currently shown
         const range = (if (self.vt.vt.scroll_offset == 0)
-            screen.lastCommandOutputRange()
+            Vt.Terminal.lastCommandOutputRange(marks, end_row)
         else
-            screen.commandOutputRangeAt(screen.visible_top -| self.vt.vt.scroll_offset)) orelse {
+            Vt.Terminal.commandOutputRangeAt(marks, self.vt.vt.viewTop(), end_row)) orelse {
             std.log.info("terminal: no command output available", .{});
             return;
         };
-        if (!probed and self.probe_file_links(screen, range)) return;
+        if (!probed and self.probe_file_links(range)) return;
 
         // dedupe to avoid multiple entries for the same file position
         var seen: std.StringHashMapUnmanaged(void) = .empty;
@@ -1067,11 +1103,11 @@ const cmds = struct {
                 "Links",
             .close_if_empty = true,
         }) catch return;
-        var row: usize = range.start;
-        while (row < range.end) : (row += 1) {
+        var iter = self.rows(range.start, range.end);
+        while (iter.next()) |row| {
             var line: std.ArrayList(u8) = .empty;
             defer line.deinit(self.allocator);
-            screen.extractRowText(self.allocator, row, &line, null) catch continue;
+            row.screen.extractRowText(self.allocator, row.row, &line, null) catch continue;
             var pos: usize = 0;
             while (file_link.find_in_line(line.items[pos..])) |r| {
                 const slice = line.items[pos + r.start .. pos + r.end];
@@ -1116,7 +1152,7 @@ const cmds = struct {
 
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        try screen.extractRangeText(self.allocator, 0, last, &content);
+        try self.vt.vt.extractRangeText(self.allocator, 0, self.vt.vt.rowNumber(last), &content);
         try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
@@ -1150,12 +1186,14 @@ const cmds = struct {
     pub const terminal_open_scrollback_buffer_meta: Meta = .{ .description = "Terminal: Open scrollback buffer" };
 
     pub fn terminal_open_last_command_output(self: *Self, _: Ctx) Result {
-        const screen = &self.vt.vt.back_screen_pri;
-        const range = screen.lastCommandOutputRange() orelse return;
+        const marks = try self.vt.vt.commandMarks(self.allocator);
+        defer self.allocator.free(marks);
+        const end_row = self.vt.vt.back_screen_pri.historySize() + self.vt.vt.back_screen_pri.height;
+        const range = Vt.Terminal.lastCommandOutputRange(marks, end_row) orelse return;
 
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        try screen.extractRangeText(self.allocator, range.start, range.end, &content);
+        try self.vt.vt.extractRangeText(self.allocator, range.start, range.end, &content);
         try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;

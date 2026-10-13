@@ -16,7 +16,7 @@ const Pty = if (builtin.os.tag == .windows) @import("PtyWindows.zig") else @impo
 
 const keybind = @import("keybind");
 const Panel = @import("Panel.zig");
-const Terminal = @import("Terminal");
+pub const Terminal = @import("Terminal");
 pub const Profile = Terminal.Profile;
 const TerminalOnExit = @import("config").TerminalOnExit;
 

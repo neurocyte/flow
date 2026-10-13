@@ -718,7 +718,7 @@ fn lastExitCode(self: *const Screen) ?i32 {
     return null;
 }
 
-fn commandTopRow(self: *const Screen, mark_row: u32) u32 {
+pub fn commandTopRow(self: *const Screen, mark_row: u32) u32 {
     return if (self.rowIsBlank(mark_row)) mark_row + 1 else mark_row;
 }
 
