@@ -47,7 +47,6 @@ const time = std.time;
 
 const double_click_time_ms = 350;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
-const syntax_full_reparse_error_threshold = 3; // number of tree-sitter errors that trigger a full reparse
 
 pub const bracket_search_radius = if (builtin.mode == std.builtin.OptimizeMode.debug) 8_192 else 65_536;
 
@@ -6741,11 +6740,6 @@ pub const Editor = struct {
                         const frame = tracy.initZone(@src(), .{ .name = "editor refresh syntax" });
                         defer frame.deinit();
                         try syn.refresh_from_string(content);
-                        const error_count = syn.count_error_nodes();
-                        if (error_count >= syntax_full_reparse_error_threshold) {
-                            self.logger.print("incremental syntax update has {d} errors -> full reparse", .{error_count});
-                            self.syntax_refresh_full = true;
-                        }
                     }
                     self.syntax_last_rendered_root = root;
                     kind = .incremental;
