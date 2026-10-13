@@ -138,6 +138,7 @@ fn packDeco(src: Cell, kind: u2) u32 {
 
 const global = struct {
     var init_called: bool = false;
+    var gl_strings: ?struct { version: [*:0]const u8, renderer: [*:0]const u8, vendor: [*:0]const u8 } = null;
     var rasterizer: Rasterizer = undefined;
     var pip: sg.Pipeline = .{};
     var composite_replace_pip: sg.Pipeline = .{};
@@ -163,11 +164,34 @@ const global = struct {
     var blur_size: XY(u16) = .{ .x = 0, .y = 0 };
 };
 
+pub fn writeRuntimeInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const strings = global.gl_strings orelse return;
+    try writer.print("opengl: {s}\n", .{strings.version});
+    try writer.print("opengl-renderer: {s}\n", .{strings.renderer});
+    try writer.print("opengl-vendor: {s}\n", .{strings.vendor});
+}
+
+pub fn writeFontFileInfo(writer: *std.Io.Writer, name: []const u8, weight: u16) std.Io.Writer.Error!void {
+    if (!@hasDecl(Rasterizer.font_finder, "findFontVariant")) return;
+    if (std.mem.eql(u8, name, Rasterizer.builtin_fontface)) return writer.writeAll("font-file: (built-in)\n");
+    var buffer: [std.fs.max_path_bytes + 64]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&buffer);
+    const match = Rasterizer.font_finder.findFontVariant(fba.allocator(), name, weight, false) catch |e|
+        return writer.print("font-file: ({t})\n", .{e});
+    try writer.print("font-file: {s} (face {d})\n", .{ match.path, match.face_index });
+}
+
 pub fn init(allocator: std.mem.Allocator) !void {
     std.debug.assert(!global.init_called);
     global.init_called = true;
 
     global.rasterizer = try Rasterizer.init(allocator);
+
+    if (builtin.os.tag != .windows) global.gl_strings = .{
+        .version = gl.glGetString(gl.VERSION) orelse "unknown",
+        .renderer = gl.glGetString(gl.RENDERER) orelse "unknown",
+        .vendor = gl.glGetString(gl.VENDOR) orelse "unknown",
+    };
 
     // Build shader + pipelines
     const builtin_shd = sg.makeShader(shader.builtinShaderDesc(sg.queryBackend()));
@@ -1181,6 +1205,9 @@ const gl = struct {
     const PACK_ALIGNMENT = 0x0D05;
     const RGBA = 0x1908;
     const UNSIGNED_BYTE = 0x1401;
+    const VENDOR = 0x1F00;
+    const RENDERER = 0x1F01;
+    const VERSION = 0x1F02;
 
     extern fn glGenFramebuffers(n: i32, framebuffers: *u32) void;
     extern fn glDeleteFramebuffers(n: i32, framebuffers: *const u32) void;
@@ -1190,6 +1217,7 @@ const gl = struct {
     extern fn glPixelStorei(pname: u32, param: i32) void;
     extern fn glReadPixels(x: i32, y: i32, width: i32, height: i32, format: u32, type: u32, pixels: *anyopaque) void;
     extern fn glGetError() u32;
+    extern fn glGetString(name: u32) ?[*:0]const u8;
 };
 
 fn oom(e: error{OutOfMemory}) noreturn {

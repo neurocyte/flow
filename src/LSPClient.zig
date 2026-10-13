@@ -30,6 +30,8 @@ server_capabilities: ServerCapabilities = .{},
 document_hashes: DocumentHashes = .{},
 documents: Documents = .{},
 capabilities_known: bool = false,
+server_name: []const u8 = "",
+server_version: []const u8 = "",
 
 const Self = @This();
 
@@ -467,6 +469,29 @@ fn read_disabled_reason(disabled: []const u8) []const u8 {
     return reason;
 }
 
+pub fn set_server_info(self: *Self, server_info: []const u8) (OutOfMemoryError || cbor.Error)!void {
+    var name: []const u8 = "";
+    var version: []const u8 = "";
+    var iter = server_info;
+    var len = cbor.decodeMapHeader(&iter) catch return;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return;
+        if (std.mem.eql(u8, field_name, "name")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&name)))) try cbor.skipValue(&iter);
+        } else if (std.mem.eql(u8, field_name, "version")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&version)))) try cbor.skipValue(&iter);
+        } else try cbor.skipValue(&iter);
+    }
+    const owned_name = try self.allocator.dupe(u8, name);
+    errdefer self.allocator.free(owned_name);
+    const owned_version = try self.allocator.dupe(u8, version);
+    self.allocator.free(self.server_name);
+    self.allocator.free(self.server_version);
+    self.server_name = owned_name;
+    self.server_version = owned_version;
+}
+
 pub fn set_server_capabilities(self: *Self, capabilities: []const u8) (OutOfMemoryError || cbor.Error)!void {
     const server_capabilities: ServerCapabilities = try .read(self.allocator, capabilities);
     self.server_capabilities.deinit(self.allocator);
@@ -657,6 +682,8 @@ pub fn deinit(self: *Self) void {
     self.owner.deinit();
     self.lsp.term();
     self.server_capabilities.deinit(self.allocator);
+    self.allocator.free(self.server_name);
+    self.allocator.free(self.server_version);
     self.document_hashes.deinit(self.allocator);
     self.documents.deinit(self.allocator);
     self.logger_lsp.deinit();
@@ -2246,6 +2273,8 @@ fn send_init_request(
                 if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return;
                 if (std.mem.eql(u8, field_name, "capabilities"))
                     self_.project_manager.send(.{ "lsp_capabilities", self_.project_path, lsp_name, cbor.Raw{ .bytes = value } }) catch {};
+                if (std.mem.eql(u8, field_name, "serverInfo"))
+                    self_.project_manager.send(.{ "lsp_server_info", self_.project_path, lsp_name, cbor.Raw{ .bytes = value } }) catch {};
             }
         }
     } = .{

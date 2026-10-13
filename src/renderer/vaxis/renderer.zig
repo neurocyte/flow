@@ -763,6 +763,31 @@ pub fn cell_size(self: *const Self) ?Layer.CellSize {
     return Layer.cell_size_px(&self.vx.screen);
 }
 
+var xtversion_buffer: [128]u8 = undefined;
+var xtversion_len: std.atomic.Value(usize) = .init(0);
+
+fn capture_xtversion(sequence: []const u8) void {
+    const prefix = "\x1bP>|";
+    if (!std.mem.startsWith(u8, sequence, prefix)) return;
+    const end = std.mem.indexOfScalarPos(u8, sequence, prefix.len, 0x1b) orelse return;
+    const text = sequence[prefix.len..@min(end, prefix.len + xtversion_buffer.len)];
+    @memcpy(xtversion_buffer[0..text.len], text);
+    xtversion_len.store(text.len, .release);
+}
+
+pub fn write_runtime_info(self: *Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const caps = self.vx.caps;
+    const xtversion = xtversion_buffer[0..xtversion_len.load(.acquire)];
+    try writer.print("xtversion: {s}\n", .{if (xtversion.len > 0) xtversion else "(no reply)"});
+    if (builtin.os.tag != .windows)
+        try writer.print("term: {s}\n", .{root.get_init().environ_map.get("TERM") orelse "(not set)"});
+    try writer.print("sgr: {t}\n", .{self.vx.sgr});
+    try writer.print("width-method: {t}\n", .{caps.widthMethod()});
+    const info = @typeInfo(@TypeOf(caps)).@"struct";
+    inline for (info.field_names, info.field_types) |name, T| if (T == bool)
+        try writer.print("{s}: {s}\n", .{ name, if (@field(caps, name)) "yes" else "no" });
+}
+
 pub fn set_sgr_pixel_mode_support(self: *Self, enable_sgr_pixel_mode_support: bool) void {
     self.enable_sgr_pixel_mode_support = enable_sgr_pixel_mode_support;
 }
@@ -1044,6 +1069,7 @@ const Loop = struct {
                         need_read = true;
                         continue;
                     }
+                    capture_xtversion(buf[0..result.n]);
                     if (result.event) |event| {
                         self.postEvent(event);
                     }

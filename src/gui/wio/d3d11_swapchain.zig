@@ -102,6 +102,7 @@ pub fn init(hwnd: win32.HWND, width: u32, height: u32, transparent: bool) !Self 
     }
     errdefer _ = device.IUnknown.Release();
     errdefer _ = context.IUnknown.Release();
+    captureAdapterInfo(device);
 
     const factory = try getDxgiFactory(device);
     defer _ = factory.IUnknown.Release();
@@ -285,6 +286,36 @@ pub fn resize(self: *Self, width: u32, height: u32) !void {
 
 pub fn present(self: *Self) void {
     _ = self.swap.IDXGISwapChain.Present(0, 0);
+}
+
+var adapter_name_buffer: [3 * 128]u8 = undefined;
+var adapter_name_len: usize = 0;
+var adapter_vendor_id: u32 = 0;
+var adapter_device_id: u32 = 0;
+
+fn captureAdapterInfo(device: *win32.ID3D11Device) void {
+    var dxgi_device: *win32.IDXGIDevice = undefined;
+    if (device.IUnknown.QueryInterface(win32.IID_IDXGIDevice, @ptrCast(&dxgi_device)) < 0) return;
+    defer _ = dxgi_device.IUnknown.Release();
+
+    var adapter: *win32.IDXGIAdapter = undefined;
+    if (dxgi_device.GetAdapter(&adapter) < 0) return;
+    defer _ = adapter.IUnknown.Release();
+
+    var desc: win32.DXGI_ADAPTER_DESC = undefined;
+    if (adapter.GetDesc(&desc) < 0) return;
+    adapter_vendor_id = desc.VendorId;
+    adapter_device_id = desc.DeviceId;
+    adapter_name_len = std.unicode.utf16LeToUtf8(&adapter_name_buffer, std.mem.sliceTo(&desc.Description, 0)) catch 0;
+}
+
+pub fn writeRuntimeInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    if (adapter_name_len == 0) return writer.writeAll("d3d11-adapter: (unknown)\n");
+    try writer.print("d3d11-adapter: {s} (vendor 0x{x:0>4} device 0x{x:0>4})\n", .{
+        adapter_name_buffer[0..adapter_name_len],
+        adapter_vendor_id,
+        adapter_device_id,
+    });
 }
 
 fn getDxgiFactory(device: *win32.ID3D11Device) !*win32.IDXGIFactory2 {

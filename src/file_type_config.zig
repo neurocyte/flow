@@ -83,6 +83,7 @@ pub fn get(file_type_name: []const u8) !?@This() {
             const file: ?std.Io.File = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch null;
             if (file) |f| {
                 defer f.close(io);
+                root.record_loaded_file(file_name);
                 const stat = try f.stat(io);
                 const buf = try cache_allocator.alloc(u8, @intCast(stat.size));
                 defer cache_allocator.free(buf);

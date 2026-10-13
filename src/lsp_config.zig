@@ -18,6 +18,7 @@ fn read(project: []const u8, lsp_name: []const u8, scope: Scope, kind: Kind) ?[]
     defer allocator.free(file_name);
     var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch return null;
     defer file.close(io);
+    root.record_loaded_file(file_name);
     const stat = file.stat(io) catch return null;
     const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
     const size = file.readPositionalAll(io, buf, 0) catch {

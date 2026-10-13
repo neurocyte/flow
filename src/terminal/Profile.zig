@@ -263,6 +263,7 @@ fn read_file(allocator: std.mem.Allocator, id: []const u8, file_path: []const u8
     const io = root.get_io();
     var file = try std.Io.Dir.openFileAbsolute(io, file_path, .{ .mode = .read_only });
     defer file.close(io);
+    root.record_loaded_file(file_path);
     const stat = try file.stat(io);
     if (stat.size > max_profile_bytes) {
         log.warn("ignoring oversized profile {s} ({d} bytes)", .{ file_path, stat.size });

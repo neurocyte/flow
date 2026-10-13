@@ -1430,6 +1430,7 @@ fn read_desktop_theme_file(self: *Self) !void {
     const io = root.get_io();
     var file = try std.Io.Dir.openFileAbsolute(io, self.config_.desktop_theme_file, .{ .mode = .read_only });
     defer file.close(io);
+    root.record_loaded_file(self.config_.desktop_theme_file);
     const stat = try file.stat(io);
     const theme_name = try self.allocator.alloc(u8, @intCast(stat.size));
     defer self.allocator.free(theme_name);

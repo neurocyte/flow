@@ -19,6 +19,8 @@ const Watcher = if (builtin.os.tag == .linux)
 else
     nightwatch.Default;
 
+pub const backend_name = @typeName(Watcher.Backend);
+
 const limit_hint = if (builtin.os.tag == .linux)
     "; raise fs.inotify.max_user_watches"
 else

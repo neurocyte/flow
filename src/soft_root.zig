@@ -13,16 +13,22 @@ pub const root = struct {
     pub const get_io = if (@hasDecl(hard_root, "get_io")) hard_root.get_io else dummy.get_io;
     pub const get_now = if (@hasDecl(hard_root, "get_now")) hard_root.get_now else dummy.get_now;
     pub const get_state_dir = if (@hasDecl(hard_root, "get_state_dir")) hard_root.get_state_dir else dummy.get_state_dir;
+    pub const get_cache_dir = if (@hasDecl(hard_root, "get_cache_dir")) hard_root.get_cache_dir else dummy.get_cache_dir;
+    pub const get_pid = if (@hasDecl(hard_root, "get_pid")) hard_root.get_pid else dummy.get_pid;
     pub const local_timezone = if (@hasDecl(hard_root, "local_timezone")) hard_root.local_timezone else dummy.local_timezone;
     pub const default_screenshot_path = if (@hasDecl(hard_root, "default_screenshot_path")) hard_root.default_screenshot_path else dummy.default_screenshot_path;
     pub const get_config_dir = if (@hasDecl(hard_root, "get_config_dir")) hard_root.get_config_dir else dummy.get_config_dir;
     pub const write_config_to_writer = if (@hasDecl(hard_root, "write_config_to_writer")) hard_root.write_config_to_writer else dummy.write_config_to_writer;
     pub const write_config_to_writer_no_header = if (@hasDecl(hard_root, "write_config_to_writer_no_header")) hard_root.write_config_to_writer_no_header else dummy.write_config_to_writer_no_header;
+    pub const write_non_default_config_to_writer = if (@hasDecl(hard_root, "write_non_default_config_to_writer")) hard_root.write_non_default_config_to_writer else dummy.write_non_default_config_to_writer;
+    pub const record_loaded_file = if (@hasDecl(hard_root, "record_loaded_file")) hard_root.record_loaded_file else dummy.record_loaded_file;
+    pub const write_loaded_files_to_writer = if (@hasDecl(hard_root, "write_loaded_files_to_writer")) hard_root.write_loaded_files_to_writer else dummy.write_loaded_files_to_writer;
     pub const parse_text_config_file = if (@hasDecl(hard_root, "parse_text_config_file")) hard_root.parse_text_config_file else dummy.parse_text_config_file;
     pub const list_keybind_namespaces = if (@hasDecl(hard_root, "list_keybind_namespaces")) hard_root.list_keybind_namespaces else dummy.list_keybind_namespaces;
     pub const read_keybind_namespace = if (@hasDecl(hard_root, "read_keybind_namespace")) hard_root.read_keybind_namespace else dummy.read_keybind_namespace;
     pub const write_keybind_namespace = if (@hasDecl(hard_root, "write_keybind_namespace")) hard_root.write_keybind_namespace else dummy.write_keybind_namespace;
     pub const get_keybind_namespace_file_name = if (@hasDecl(hard_root, "get_keybind_namespace_file_name")) hard_root.get_keybind_namespace_file_name else dummy.get_keybind_namespace_file_name;
+    pub const get_keybind_namespaces_directory = if (@hasDecl(hard_root, "get_keybind_namespaces_directory")) hard_root.get_keybind_namespaces_directory else dummy.get_keybind_namespaces_directory;
 
     pub const ConfigDirError = if (@hasDecl(hard_root, "ConfigDirError")) hard_root.ConfigDirError else dummy.ConfigDirError;
     pub const ConfigWriteError = if (@hasDecl(hard_root, "ConfigWriteError")) hard_root.ConfigWriteError else dummy.ConfigWriteError;
@@ -41,6 +47,7 @@ pub const root = struct {
     pub const write_theme = if (@hasDecl(hard_root, "write_theme")) hard_root.write_theme else dummy.write_theme;
     pub const list_themes = if (@hasDecl(hard_root, "list_themes")) hard_root.list_themes else dummy.list_themes;
     pub const get_theme_file_name = if (@hasDecl(hard_root, "get_theme_file_name")) hard_root.get_theme_file_name else dummy.get_theme_file_name;
+    pub const get_theme_directory = if (@hasDecl(hard_root, "get_theme_directory")) hard_root.get_theme_directory else dummy.get_theme_directory;
 
     pub const exit = if (@hasDecl(hard_root, "exit")) hard_root.exit else dummy.exit;
     pub const print_exit_status = if (@hasDecl(hard_root, "print_exit_status")) hard_root.print_exit_status else dummy.print_exit_status;
@@ -87,6 +94,14 @@ const dummy = struct {
         @panic("dummy get_state_dir call");
     }
 
+    pub fn get_cache_dir() ![]const u8 {
+        @panic("dummy get_cache_dir call");
+    }
+
+    pub fn get_pid() i32 {
+        @panic("dummy get_pid call");
+    }
+
     pub fn local_timezone(_: std.mem.Allocator) error{DummyRoot}!noreturn {
         @panic("dummy local_timezone call");
     }
@@ -104,6 +119,13 @@ const dummy = struct {
     }
     pub fn write_config_to_writer_no_header(comptime T: type, _: T, _: *std.Io.Writer) std.Io.Writer.Error!void {
         @panic("dummy write_config_to_writer_no_header call");
+    }
+    pub fn write_non_default_config_to_writer(comptime T: type, _: T, _: *std.Io.Writer) std.Io.Writer.Error!void {
+        @panic("dummy write_non_default_config_to_writer call");
+    }
+    pub fn record_loaded_file(_: []const u8) void {}
+    pub fn write_loaded_files_to_writer(_: *std.Io.Writer) std.Io.Writer.Error!void {
+        @panic("dummy write_loaded_files_to_writer call");
     }
     pub fn parse_text_config_file(T: type, _: std.mem.Allocator, _: *T, _: *[][]const u8, _: []const u8, _: []const u8) !void {
         @panic("dummy parse_text_config_file call");
@@ -123,6 +145,12 @@ const dummy = struct {
     }
     pub fn get_keybind_namespace_file_name(_: []const u8, _: []u8) ![]const u8 {
         @panic("dummy get_keybind_namespace_file_name call");
+    }
+    pub fn get_keybind_namespaces_directory(_: []u8) ![]const u8 {
+        @panic("dummy get_keybind_namespaces_directory call");
+    }
+    pub fn get_theme_directory(_: []u8) ![]const u8 {
+        @panic("dummy get_theme_directory call");
     }
 
     pub fn free_config(_: std.mem.Allocator, _: [][]const u8) void {

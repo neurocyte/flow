@@ -178,6 +178,7 @@ const config_arena = config_arena_instance.allocator();
 // HiDPI scale factor (logical → physical pixels). Updated from wio .scale events.
 // Only read/written on the wio thread after initialisation.
 var dpi_scale: f32 = 1.0;
+var display_refresh_rate_mhz: std.atomic.Value(u32) = .init(0);
 
 // Window title (written from TUI thread, applied by wio thread)
 var title_mutex: std.Io.Mutex = .init;
@@ -663,6 +664,32 @@ pub fn setRasterizerBackend(backend: gpu.RasterizerBackend) void {
     requestRender();
 }
 
+pub fn writeRuntimeInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const window_backend = if (gui_window == null)
+        "(not initialized)"
+    else if (@hasDecl(wio.backend, "active"))
+        @tagName(wio.backend.active)
+    else
+        @tagName(builtin.os.tag);
+    try writer.print("window-backend: {s}\n", .{window_backend});
+    try writer.print("graphics-backend: {t}\n", .{sg.queryBackend()});
+    try gpu.writeRuntimeInfo(writer);
+    if (builtin.os.tag == .windows) try D3D11Swapchain.writeRuntimeInfo(writer);
+    try writer.print("rasterizer: {t}\n", .{font_backend});
+    try writer.print("symbol-rasterizer: {t}\n", .{block_and_line_symbols});
+    try writer.print("hinting: {t}\n", .{font_hinting});
+    try writer.print("font: {s} {d}pt weight {d} line-height {d}%\n", .{ getFontName(), font_size_pt, font_weight, font_line_height });
+    try gpu.writeFontFileInfo(writer, getFontName(), font_weight);
+    try writer.print("color-glyphs: {s}\n", .{if (allow_color_glyphs) "yes" else "no"});
+    try writer.print("dpi-scale: {d}\n", .{dpi_scale});
+    const refresh_rate = display_refresh_rate_mhz.load(.acquire);
+    if (refresh_rate > 0)
+        try writer.print("refresh-rate: {d:.3} Hz\n", .{@as(f64, @floatFromInt(refresh_rate)) / 1000})
+    else
+        try writer.writeAll("refresh-rate: (unknown)\n");
+    try writer.print("background-opacity: {d}\n", .{getBackgroundOpacity()});
+}
+
 pub fn getRasterizerBackend() gpu.RasterizerBackend {
     return font_backend;
 }
@@ -1042,7 +1069,10 @@ fn wioLoop() void {
             .modifiers => |m| wio_modifiers = m,
             .scale => |s| dpi_scale = s,
             .size_physical => |sz| initial_size = sz,
-            .refresh_rate => |r| if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {},
+            .refresh_rate => |r| {
+                display_refresh_rate_mhz.store(r, .release);
+                if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
+            },
             .color_scheme => |scheme| sendColorScheme(scheme),
             else => {},
         }
@@ -1090,6 +1120,7 @@ fn wioLoop() void {
                     sendColorScheme(scheme);
                 },
                 .refresh_rate => |r| {
+                    display_refresh_rate_mhz.store(r, .release);
                     if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
                 },
                 .mode => |m| {

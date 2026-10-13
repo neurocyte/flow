@@ -200,6 +200,10 @@ pub fn request_path_files(max: usize, path: []const u8) (ProjectManagerError || 
     return send(.{ "request_path_files", project, max, path });
 }
 
+pub fn request_language_servers(allocator: std.mem.Allocator) (ProjectManagerError || CallError)!tp.message {
+    return (try get()).pid.call(root.get_io(), allocator, request_timeout, .{"request_language_servers"});
+}
+
 pub fn request_tasks(allocator: std.mem.Allocator) (ProjectError || CallError)!tp.message {
     const io = root.get_io();
     const project = tp.env.get().str("project");
@@ -655,6 +659,8 @@ const Process = struct {
             self.query_new_or_modified_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_path_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&path) })) {
             self.request_path_files(from, project_directory, max, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{"request_language_servers"})) {
+            self.request_language_servers(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_tasks", tp.extract(&project_directory) })) {
             self.request_tasks(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_status", tp.extract(&project_directory) })) {
@@ -714,6 +720,9 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "lsp_capabilities", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
             if (self.projects.get(project_directory)) |project|
                 project.set_lsp_capabilities(language_server, params_cb) catch |e| self.logger.err("lsp-capabilities", e);
+        } else if (try cbor.match(m.buf, .{ "lsp_server_info", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) })) {
+            if (self.projects.get(project_directory)) |project|
+                project.set_lsp_server_info(language_server, params_cb) catch |e| self.logger.err("lsp-server-info", e);
         } else if (try cbor.match(m.buf, .{ "workspace_edit_done", .{ "apply_edit_response", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&cbor_id) }, tp.extract(&apply_edit_result), tp.extract(&text) })) {
             self.apply_edit_response(project_directory, language_server, cbor_id, apply_edit_result, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "workspace_edit_done", .{ "execute_command", tp.extract(&project_directory), tp.extract(&language_server), tp.extract_cbor(&params_cb) }, tp.extract(&apply_edit_result), tp.string })) {
@@ -1069,6 +1078,18 @@ const Process = struct {
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
         try request_path_files_async(self.allocator, from, project, max, expand_home(self.allocator, &buf, path));
+    }
+
+    fn request_language_servers(self: *Process, from: tp.pid_ref) (std.Io.Writer.Error || error{Exit})!void {
+        var message: std.Io.Writer.Allocating = .init(self.allocator);
+        defer message.deinit();
+        var count: usize = 0;
+        var i = self.projects.iterator();
+        while (i.next()) |entry| count += entry.value_ptr.*.count_language_servers();
+        try cbor.writeArrayHeader(&message.writer, count);
+        i = self.projects.iterator();
+        while (i.next()) |entry| try entry.value_ptr.*.write_language_servers(&message.writer);
+        try from.send_raw(.{ .buf = message.written() });
     }
 
     fn request_tasks(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {

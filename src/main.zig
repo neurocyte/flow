@@ -548,6 +548,26 @@ pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
 
 var config_mutex: std.Io.Mutex = .init;
 
+var loaded_files_mutex: std.Io.Mutex = .init;
+var loaded_files: std.StringArrayHashMapUnmanaged(void) = .empty;
+
+pub fn record_loaded_file(file_name: []const u8) void {
+    const io = global_init.io;
+    const allocator = global_init.gpa;
+    loaded_files_mutex.lockUncancelable(io);
+    defer loaded_files_mutex.unlock(io);
+    if (loaded_files.contains(file_name)) return;
+    const owned = allocator.dupe(u8, file_name) catch return;
+    loaded_files.put(allocator, owned, {}) catch allocator.free(owned);
+}
+
+pub fn write_loaded_files_to_writer(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const io = global_init.io;
+    loaded_files_mutex.lockUncancelable(io);
+    defer loaded_files_mutex.unlock(io);
+    for (loaded_files.keys()) |file_name| try writer.print("{s}\n", .{file_name});
+}
+
 pub fn exists_config(T: type) bool {
     config_mutex.lockUncancelable(global_init.io);
     defer config_mutex.unlock(global_init.io);
@@ -597,6 +617,7 @@ fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]
 fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     var file = try std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only });
     defer file.close(global_init.io);
+    record_loaded_file(file_name);
     const stat = try file.stat(global_init.io);
     const content = try allocator.alloc(u8, @intCast(stat.size));
     defer allocator.free(content);
@@ -638,6 +659,7 @@ pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, b
 fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     var file = try std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only });
     defer file.close(global_init.io);
+    record_loaded_file(file_name);
     const stat = try file.stat(global_init.io);
     const json = try allocator.alloc(u8, @intCast(stat.size));
     defer allocator.free(json);
@@ -819,6 +841,20 @@ pub fn write_config_to_writer_no_header(comptime T: type, data: T, writer: *std.
     }
 }
 
+pub fn write_non_default_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const default: T = .{};
+    var count: usize = 0;
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |field_name, field_type| {
+        if (!config_eql(T, field_type, @field(data, field_name), @field(default, field_name))) {
+            try writer.print("{s} ", .{field_name});
+            try write_config_value(field_type, @field(data, field_name), writer);
+            try writer.print("\n", .{});
+            count += 1;
+        }
+    }
+    if (count == 0) try writer.writeAll("(all defaults)\n");
+}
+
 fn write_config_value(T: type, value: T, writer: *std.Io.Writer) !void {
     switch (T) {
         u24 => try write_color_value(value, writer),
@@ -932,6 +968,7 @@ pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []co
     const file_name = get_keybind_namespace_file_name(namespace_name, &file_name_buffer) catch return null;
     var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return null;
     defer file.close(global_init.io);
+    record_loaded_file(file_name);
     const stat = file.stat(global_init.io) catch return null;
     const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
     const size = file.readPositionalAll(global_init.io, buf, 0) catch {
@@ -967,6 +1004,7 @@ pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const
     const file_name = get_theme_file_name(theme_name, &file_name_buffer) catch return null;
     var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return null;
     defer file.close(global_init.io);
+    record_loaded_file(file_name);
     const stat = file.stat(global_init.io) catch return null;
     const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
     const size = file.readPositionalAll(global_init.io, buf, 0) catch |e| {
@@ -1264,7 +1302,7 @@ fn pending_restart_session_file() ?[:0]const u8 {
 
 const keybind_dir = "keys";
 
-fn get_keybind_namespaces_directory(buffer: []u8) ![]const u8 {
+pub fn get_keybind_namespaces_directory(buffer: []u8) ![]const u8 {
     if (get_init().environ_map.get("FLOW_KEYS_DIR")) |dir| {
         return try std.fmt.bufPrint(buffer, "{s}", .{dir});
     }
@@ -1279,7 +1317,7 @@ pub fn get_keybind_namespace_file_name(namespace_name: []const u8, buffer: []u8)
 
 const theme_dir = "themes";
 
-fn get_theme_directory(buffer: []u8) ![]const u8 {
+pub fn get_theme_directory(buffer: []u8) ![]const u8 {
     if (get_init().environ_map.get("FLOW_THEMES_DIR")) |dir| {
         return try std.fmt.bufPrint(buffer, "{s}", .{dir});
     }

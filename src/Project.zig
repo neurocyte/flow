@@ -1209,6 +1209,31 @@ pub fn request_vcs_status(self: *Self, from: tp.pid_ref) RequestError!void {
     }
 }
 
+pub fn count_language_servers(self: *Self) usize {
+    var count: usize = 0;
+    var i = self.language_servers.iterator();
+    while (i.next()) |entry| {
+        if (!entry.value_ptr.*.expired() and self.lsp_commands.contains(entry.key_ptr.*)) count += 1;
+    }
+    return count;
+}
+
+pub fn write_language_servers(self: *Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    var i = self.language_servers.iterator();
+    while (i.next()) |entry| {
+        if (entry.value_ptr.*.expired()) continue;
+        const command = self.lsp_commands.get(entry.key_ptr.*) orelse continue;
+        const resolved = bin_path.find_binary_in_path(self.allocator, entry.key_ptr.*) catch null;
+        defer if (resolved) |path| self.allocator.free(path);
+        try cbor.writeArrayHeader(writer, 5);
+        try cbor.writeValue(writer, self.name);
+        try cbor.writeValue(writer, @as([]const u8, resolved orelse ""));
+        try cbor.writeValue(writer, entry.value_ptr.*.server_name);
+        try cbor.writeValue(writer, entry.value_ptr.*.server_version);
+        try writer.writeAll(command.language_server);
+    }
+}
+
 pub fn request_tasks(self: *Self, from: tp.pid_ref) RequestError!void {
     var message: std.Io.Writer.Allocating = .init(self.allocator);
     defer message.deinit();
@@ -1573,6 +1598,11 @@ pub fn lsp_initialized(self: *Self, lsp_name: []const u8) LspError!void {
         return self.logger_lsp.print_err("configuration", "ignored invalid JSON in LSP settings for {s}", .{lsp_name});
     defer self.allocator.free(settings);
     return client.did_change_configuration(.{ .bytes = settings });
+}
+
+pub fn set_lsp_server_info(self: *Self, lsp_name: []const u8, server_info: []const u8) (error{OutOfMemory} || cbor.Error)!void {
+    const client = self.get_existing_lsp_client(lsp_name) orelse return;
+    return client.set_server_info(server_info);
 }
 
 pub fn set_lsp_capabilities(self: *Self, lsp_name: []const u8, capabilities: []const u8) (error{OutOfMemory} || cbor.Error)!void {
