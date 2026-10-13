@@ -763,19 +763,8 @@ pub fn encodeRows(self: *const Screen, writer: *std.Io.Writer, first: usize, las
     var row = first;
     while (row < last) : (row += 1) {
         const wrapped = self.rowWrapped(row);
-        var col = try self.encodeRowCells(writer, row, &style, &uri, &uri_id, &mark_idx);
-        while (mark_idx < self.prompt_marks.items.len and self.prompt_marks.items[mark_idx].row == row) {
-            const mark = self.prompt_marks.items[mark_idx];
-            if (mark.col > col) {
-                if (!std.meta.eql(style, vaxis.Style{})) {
-                    try writer.writeAll("\x1b[0m");
-                    style = .{};
-                }
-                try writer.splatByteAll(' ', mark.col - col);
-                col = mark.col;
-            }
-            mark_idx = try self.writeMarks(writer, mark_idx, row, col);
-        }
+        const col = try self.encodeRowCells(writer, row, 0, self.rowContentEnd(row), &style, &uri, &uri_id, &mark_idx);
+        try self.encodeRowMarks(writer, row, col, &style, &mark_idx);
         if (!wrapped and row + 1 < last) {
             if (!std.meta.eql(style, vaxis.Style{})) {
                 try writer.writeAll("\x1b[0m");
@@ -788,18 +777,72 @@ pub fn encodeRows(self: *const Screen, writer: *std.Io.Writer, first: usize, las
     if (uri.len > 0) try writeHyperlink(writer, "", "");
 }
 
+pub const CellPosition = struct {
+    row: usize,
+    col: usize,
+};
+
+pub fn encodeRowsUntil(self: *const Screen, writer: *std.Io.Writer, first: usize, end: CellPosition) std.Io.Writer.Error!void {
+    if (self.width == 0 or end.row >= self.buf.len / self.width) return;
+    if (end.row > first) {
+        try self.encodeRows(writer, first, end.row);
+        if (!self.rowWrapped(end.row - 1)) try writer.writeAll("\r\n");
+    }
+    var style: vaxis.Style = .{};
+    var uri: []const u8 = "";
+    var uri_id: []const u8 = "";
+    var mark_idx: usize = 0;
+    while (mark_idx < self.prompt_marks.items.len and self.prompt_marks.items[mark_idx].row < end.row) mark_idx += 1;
+    _ = try self.encodeRowCells(writer, end.row, 0, @min(end.col, self.width), &style, &uri, &uri_id, &mark_idx);
+    if (!std.meta.eql(style, vaxis.Style{})) try writer.writeAll("\x1b[0m");
+    if (uri.len > 0) try writeHyperlink(writer, "", "");
+}
+
+pub fn encodeRowFrom(self: *const Screen, writer: *std.Io.Writer, start: CellPosition) std.Io.Writer.Error!void {
+    if (self.width == 0 or start.row >= self.buf.len / self.width) return;
+    var style: vaxis.Style = .{};
+    var uri: []const u8 = "";
+    var uri_id: []const u8 = "";
+    var mark_idx: usize = 0;
+    while (mark_idx < self.prompt_marks.items.len) : (mark_idx += 1) {
+        const mark = self.prompt_marks.items[mark_idx];
+        if (mark.row > start.row or (mark.row == start.row and mark.col >= start.col)) break;
+    }
+    const col = try self.encodeRowCells(writer, start.row, start.col, @max(start.col, self.rowContentEnd(start.row)), &style, &uri, &uri_id, &mark_idx);
+    try self.encodeRowMarks(writer, start.row, col, &style, &mark_idx);
+    if (!std.meta.eql(style, vaxis.Style{})) try writer.writeAll("\x1b[0m");
+    if (uri.len > 0) try writeHyperlink(writer, "", "");
+}
+
+fn encodeRowMarks(self: *const Screen, writer: *std.Io.Writer, row: usize, col_: usize, style: *vaxis.Style, mark_idx: *usize) std.Io.Writer.Error!void {
+    var col = col_;
+    while (mark_idx.* < self.prompt_marks.items.len and self.prompt_marks.items[mark_idx.*].row == row) {
+        const mark = self.prompt_marks.items[mark_idx.*];
+        if (mark.col > col) {
+            if (!std.meta.eql(style.*, vaxis.Style{})) {
+                try writer.writeAll("\x1b[0m");
+                style.* = .{};
+            }
+            try writer.splatByteAll(' ', mark.col - col);
+            col = mark.col;
+        }
+        mark_idx.* = try self.writeMarks(writer, mark_idx.*, row, col);
+    }
+}
+
 fn encodeRowCells(
     self: *const Screen,
     writer: *std.Io.Writer,
     row: usize,
+    start: usize,
+    end: usize,
     style: *vaxis.Style,
     uri: *[]const u8,
     uri_id: *[]const u8,
     mark_idx: ?*usize,
 ) std.Io.Writer.Error!usize {
     const cells = self.buf[row * self.width ..][0..self.width];
-    const end = self.rowContentEnd(row);
-    var col: usize = 0;
+    var col: usize = start;
     while (col < end) {
         if (mark_idx) |idx| idx.* = try self.writeMarks(writer, idx.*, row, col);
         const cell = &cells[col];
@@ -834,7 +877,7 @@ pub fn encodeLine(self: *const Screen, writer: *std.Io.Writer, first: usize, las
     var display_width: usize = 0;
     var row = first;
     while (row < last) {
-        const col = try self.encodeRowCells(writer, row, &style, &uri, &uri_id, null);
+        const col = try self.encodeRowCells(writer, row, 0, self.rowContentEnd(row), &style, &uri, &uri_id, null);
         const wrapped = self.rowWrapped(row);
         row += 1;
         display_width += if (wrapped and row < last) self.width else col;
@@ -1697,4 +1740,34 @@ test "full scrollback evicts logical lines into the cold store" {
     try std.testing.expectEqualStrings("1", (try cold.get(1)).?.text);
     try std.testing.expectEqual(0, screen.cold_overlap);
     try std.testing.expectEqual(7, screen.historySize());
+}
+
+test "encodeRowsUntil keeps blank cells before the end position" {
+    const alloc = std.testing.allocator;
+    var screen = try Screen.init(alloc, 10, 3);
+    defer screen.deinit(alloc);
+    try printAll(&screen, "first");
+    screen.cursor.col = 0;
+    try screen.index();
+    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try printAll(&screen, "$ ");
+    try screen.addPromptMark(alloc, .input_start, null, false);
+    try printAll(&screen, "  xy");
+
+    var out: std.Io.Writer.Allocating = .init(alloc);
+    defer out.deinit();
+    try screen.encodeRowsUntil(&out.writer, 0, .{ .row = 1, .col = 2 });
+    try std.testing.expectEqualStrings("first\r\n\x1b]133;A\x1b\\$ ", out.written());
+
+    out.clearRetainingCapacity();
+    try screen.encodeRowFrom(&out.writer, .{ .row = 1, .col = 2 });
+    try std.testing.expectEqualStrings("\x1b]133;B\x1b\\  xy", out.written());
+
+    out.clearRetainingCapacity();
+    try screen.encodeRowsUntil(&out.writer, 1, .{ .row = 1, .col = 9 });
+    try std.testing.expectEqualStrings("\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\  xy   ", out.written());
+
+    out.clearRetainingCapacity();
+    try screen.encodeRowFrom(&out.writer, .{ .row = 1, .col = 9 });
+    try std.testing.expectEqualStrings("", out.written());
 }

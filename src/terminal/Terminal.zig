@@ -412,11 +412,14 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     const width_unchanged = ws.cols == self.back_screen_pri.width;
     const fits = ws.rows <= self.back_screen_pri.buf.len / self.back_screen_pri.width;
     if (width_unchanged and fits) {
+        const scroll_offset = self.scrollOffset();
+        const top = self.back_screen_pri.historySize() -| scroll_offset;
         self.back_screen_pri.resizeVertical(self.allocator, ws.rows);
         try self.frames.resize(self.allocator, ws.cols, ws.rows);
         self.back_screen_alt.deinit(self.allocator);
         self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
-        self.setScrollOffset(@min(self.scrollOffset(), self.back_screen_pri.historySize()));
+        // keep the top row of a scrolled view
+        self.setScrollOffset(if (scroll_offset == 0) 0 else self.back_screen_pri.historySize() -| top);
     } else if (reflow) {
         try self.resizeReflow(ws);
     } else {
@@ -444,20 +447,43 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
     const old = &self.back_screen_pri;
     const content_rows = old.contentRows();
     const first = @min(old.cold_overlap, content_rows);
+    const cursor: Screen.CellPosition = .{
+        .row = content_rows -| 1,
+        .col = if (old.cursor.pending_wrap) old.width else old.cursor.col,
+    };
+
+    // the top of a scrolled view, it stays the top after the reflow
     const scroll_offset = self.scrollOffset();
-    const in_cold = scroll_offset > old.hotHistorySize();
-    const preserve = scroll_offset > 0 and !in_cold;
-    const split = if (preserve) @max(first, @min(old.visible_top -| scroll_offset, content_rows)) else content_rows;
-    const ow: usize = old.width;
-    const hard_break = preserve and split > 0 and split < content_rows and
-        !old.buf[(split - 1) * ow + ow - 1].wrapped;
+    const Top = union(enum) {
+        bottom,
+        hot: usize,
+        cold: struct { line: u64, cells: usize },
+    };
+    const top: Top = if (scroll_offset == 0)
+        .bottom
+    else if (scroll_offset <= old.hotHistorySize())
+        .{ .hot = @max(first, old.visible_top - scroll_offset) }
+    else blk: {
+        const cold = old.cold orelse break :blk .bottom;
+        const row = old.coldRows() -| (scroll_offset - old.hotHistorySize());
+        const pos = (cold.locate_row(row) catch null) orelse break :blk .bottom;
+        break :blk .{ .cold = .{ .line = pos.line, .cells = @as(usize, pos.row) * old.width } };
+    };
+    const split = switch (top) {
+        .hot => |row| @min(row, cursor.row),
+        else => first,
+    };
+    const hard_break = split > first and !old.rowWrapped(split - 1);
 
     var above: std.Io.Writer.Allocating = .init(self.allocator);
     defer above.deinit();
     try old.encodeRows(&above.writer, first, split);
     var below: std.Io.Writer.Allocating = .init(self.allocator);
     defer below.deinit();
-    try old.encodeRows(&below.writer, split, content_rows);
+    try old.encodeRowsUntil(&below.writer, split, cursor);
+    var after_cursor: std.Io.Writer.Allocating = .init(self.allocator);
+    defer after_cursor.deinit();
+    try old.encodeRowFrom(&after_cursor.writer, cursor);
 
     try self.frames.resize(self.allocator, ws.cols, ws.rows);
     {
@@ -480,19 +506,34 @@ fn resizeReflow(self: *Terminal, ws: Winsize) !void {
 
     var parser: Parser = .{ .buf = .init(self.allocator) };
     defer parser.buf.deinit();
+    const pri = &self.back_screen_pri;
     _ = self.processOutput(&parser, above.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
     if (hard_break)
         _ = self.processOutput(&parser, "\r\n", @ptrCast(self), ignoreTerminalEvent, true) catch {};
-    const pri = &self.back_screen_pri;
-    const new_view_top = pri.visible_top + pri.cursor.row;
-    _ = self.processOutput(&parser, below.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
+    const hot_top = self.rowNumber(pri.visible_top + pri.cursor.row + @intFromBool(pri.cursor.pending_wrap and !hard_break));
 
-    self.setScrollOffset(if (preserve)
-        @min(pri.visible_top -| new_view_top, pri.historySize())
-    else if (in_cold)
-        @min(scroll_offset, pri.historySize())
-    else
-        0);
+    _ = self.processOutput(&parser, below.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
+    const cursor_row = self.rowNumber(pri.visible_top + pri.cursor.row);
+    const cursor_col = pri.cursor.col;
+    const cursor_pending_wrap = pri.cursor.pending_wrap;
+
+    _ = self.processOutput(&parser, after_cursor.written(), @ptrCast(self), ignoreTerminalEvent, true) catch {};
+    const cursor_buf_row = cursor_row -| pri.coldRows() + pri.cold_overlap;
+    pri.cursor.row = @intCast(@min(pri.height - 1, cursor_buf_row -| pri.visible_top));
+    pri.cursor.col = cursor_col;
+    pri.cursor.pending_wrap = cursor_pending_wrap;
+
+    const new_top: ?usize = switch (top) {
+        .bottom => null,
+        .hot => hot_top,
+        .cold => |pos| blk: {
+            const cold = pri.cold orelse break :blk null;
+            const line_row = (cold.row_of(pos.line) catch null) orelse break :blk 0;
+            const line = (cold.get(pos.line) catch null) orelse break :blk line_row;
+            break :blk line_row + @min(pos.cells / @max(1, cold.cols), line.rows(cold.cols) - 1);
+        },
+    };
+    self.setScrollOffset(if (new_top) |row| pri.historySize() -| row else 0);
 }
 
 /// rows of the cold store, as cells at the current width
@@ -520,6 +561,12 @@ fn coldView(self: *Terminal, first_row: usize, rows: usize) !?*ColdView {
             view.hot_rows == 0 and view.screen.width == self.back_screen_pri.width) return view;
     }
     self.dropColdView();
+    self.cold_view = try self.buildColdView(first_row, rows) orelse return null;
+    return &self.cold_view.?;
+}
+
+fn buildColdView(self: *Terminal, first_row: usize, rows: usize) !?ColdView {
+    const cold = self.back_screen_pri.cold orelse return null;
     const pos = try cold.locate_row(first_row) orelse return null;
     const back = &self.back_screen_pri;
     const cold_rows = @min(rows, back.coldRows() - first_row);
@@ -547,7 +594,7 @@ fn coldView(self: *Terminal, first_row: usize, rows: usize) !?*ColdView {
     const copied = @min(hot_rows, height - @min(height, wanted));
     for (0..copied * back.width) |i|
         try screen.buf[wanted * back.width + i].copyFrom(self.allocator, back.buf[back.cold_overlap * back.width + i]);
-    self.cold_view = .{
+    return .{
         .screen = screen,
         .first_row = first_row,
         .requested = rows,
@@ -557,7 +604,6 @@ fn coldView(self: *Terminal, first_row: usize, rows: usize) !?*ColdView {
         .head = cold.head,
         .tail = cold.tail,
     };
-    return &self.cold_view.?;
 }
 
 pub fn scrollOffset(self: *const Terminal) usize {
@@ -596,9 +642,14 @@ pub fn rowNumber(self: *const Terminal, buf_row: usize) usize {
 }
 
 pub const Window = struct {
-    screen: *const Screen,
+    allocator: std.mem.Allocator,
+    screen: Screen,
     row: usize,
     rows: usize,
+
+    pub fn deinit(self: *Window) void {
+        self.screen.deinit(self.allocator);
+    }
 };
 
 pub fn window(self: *Terminal, first: usize, rows: usize) !?Window {
@@ -607,14 +658,20 @@ pub fn window(self: *Terminal, first: usize, rows: usize) !?Window {
     const back = self.back_screen;
     if (back.width == 0) return null;
     const cold_rows = back.coldRows();
-    if (first >= cold_rows) {
-        const row = first - cold_rows + back.cold_overlap;
-        const total = back.buf.len / back.width;
-        if (row >= total) return null;
-        return .{ .screen = back, .row = row, .rows = @min(rows, total - row) };
+    if (first < cold_rows) {
+        const view = try self.buildColdView(first, rows) orelse return null;
+        return .{ .allocator = self.allocator, .screen = view.screen, .row = view.screen_row, .rows = view.rows };
     }
-    const view = try self.coldView(first, rows) orelse return null;
-    return .{ .screen = &view.screen, .row = view.screen_row, .rows = view.rows };
+    const row = first - cold_rows + back.cold_overlap;
+    const total = back.buf.len / back.width;
+    if (row >= total) return null;
+    const count = @min(rows, total - row, std.math.maxInt(u16));
+    if (count == 0) return null;
+    var screen = try Screen.init(self.allocator, back.width, @intCast(count));
+    errdefer screen.deinit(self.allocator);
+    for (0..count * back.width) |i|
+        try screen.buf[i].copyFrom(self.allocator, back.buf[row * back.width + i]);
+    return .{ .allocator = self.allocator, .screen = screen, .row = 0, .rows = count };
 }
 
 pub fn extractRangeText(self: *Terminal, allocator: std.mem.Allocator, first: usize, last: usize, out: *std.ArrayList(u8)) !void {

@@ -544,16 +544,22 @@ const RowIterator = struct {
         number: usize,
     };
 
+    fn deinit(self: *RowIterator) void {
+        if (self.window) |*window| window.deinit();
+        self.window = null;
+    }
+
     fn next(self: *RowIterator) ?Row {
         if (self.row >= self.end) return null;
         if (self.window == null or self.row >= self.window_first + self.window.?.rows) {
+            self.deinit();
             self.window = self.vt.window(self.row, @min(chunk_rows, self.end - self.row)) catch null;
             self.window_first = self.row;
         }
-        const window = self.window orelse return null;
+        const window = &(self.window orelse return null);
         if (window.rows == 0) return null;
         defer self.row += 1;
-        return .{ .screen = window.screen, .row = window.row + self.row - self.window_first, .number = self.row };
+        return .{ .screen = &window.screen, .row = window.row + self.row - self.window_first, .number = self.row };
     }
 };
 
@@ -561,9 +567,8 @@ fn rows(self: *Self, first: usize, end: usize) RowIterator {
     return .{ .vt = &self.vt.vt, .row = first, .end = end };
 }
 
-fn row_at(self: *Self, number: usize) ?RowIterator.Row {
-    var iter = self.rows(number, number + 1);
-    return iter.next();
+fn row_at(self: *Self, number: usize) RowIterator {
+    return self.rows(number, number + 1);
 }
 
 fn probe_file_links(self: *Self, range: Vt.Terminal.CommandOutputRange) bool {
@@ -573,6 +578,7 @@ fn probe_file_links(self: *Self, range: Vt.Terminal.CommandOutputRange) bool {
         unknown.deinit(self.allocator);
     }
     var iter = self.rows(range.start, range.end);
+    defer iter.deinit();
     while (iter.next()) |row| {
         var line: std.ArrayList(u8) = .empty;
         defer line.deinit(self.allocator);
@@ -618,7 +624,9 @@ fn update_file_link_highlight(self: *Self) void {
     }
 
     if (pos.row >= self.vt.vt.back_screen_pri.height) return;
-    const row = self.row_at(self.vt.vt.viewTop() + pos.row) orelse return;
+    var row_iter = self.row_at(self.vt.vt.viewTop() + pos.row);
+    defer row_iter.deinit();
+    const row = row_iter.next() orelse return;
     const screen = row.screen;
     const screen_row = row.row;
 
@@ -798,7 +806,9 @@ fn col_class(row: RowIterator.Row, col: u16) CharClass {
 fn word_range(self: *Self, pos: Position) Selection {
     var c0 = pos.col;
     var c1 = pos.col;
-    const row = self.row_at(pos.row) orelse return .{ .begin = pos, .end = pos };
+    var row_iter = self.row_at(pos.row);
+    defer row_iter.deinit();
+    const row = row_iter.next() orelse return .{ .begin = pos, .end = pos };
     const cls = col_class(row, pos.col);
     if (cls != .space) {
         while (c0 > 0 and col_class(row, c0 - 1) == cls) c0 -= 1;
@@ -912,6 +922,7 @@ fn selection_text(self: *Self, out_allocator: Allocator) !?[]u8 {
 
     var need_newline = false;
     var iter = self.rows(s.start.row, s.end.row + 1);
+    defer iter.deinit();
     while (iter.next()) |r| {
         const screen = r.screen;
         const row = r.row;
@@ -1104,6 +1115,7 @@ const cmds = struct {
             .close_if_empty = true,
         }) catch return;
         var iter = self.rows(range.start, range.end);
+        defer iter.deinit();
         while (iter.next()) |row| {
             var line: std.ArrayList(u8) = .empty;
             defer line.deinit(self.allocator);
