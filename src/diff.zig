@@ -29,21 +29,13 @@ pub const AsyncDiffer = struct {
     pub const CallBack = fn (from: tp.pid_ref, data: usize, edits: []Diff) void;
 
     pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *Buffer) tp.result {
-        const allocator = std.heap.c_allocator;
+        const pid = self.pid orelse return;
         const eol_mode = buffer.file_eol_mode;
-        const text_dst = allocator.dupe(u8, buffer.store_to_string_cached(buffer.root, eol_mode)) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        errdefer allocator.free(text_dst);
-        const text_src = allocator.dupe(
-            u8,
-            if (buffer.get_vcs_content()) |vcs_content|
-                vcs_content
-            else
-                buffer.store_last_save_to_string_cached(eol_mode) orelse return,
-        ) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        errdefer allocator.free(text_src);
-        const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
-        const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;
-        if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), cb_data, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len });
+        const text_src = (buffer.share_diff_base(eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace())) orelse return;
+        errdefer text_src.release();
+        const text_dst = buffer.share_text(eol_mode);
+        errdefer text_dst.release();
+        try pid.send(.{ "D", @intFromPtr(cb), cb_data, @intFromPtr(text_dst), @intFromPtr(text_src) });
     }
 };
 
@@ -74,15 +66,15 @@ const Process = struct {
         var cb: usize = 0;
         var cb_data: usize = 0;
         var text_dst_ptr: usize = 0;
-        var text_dst_len: usize = 0;
         var text_src_ptr: usize = 0;
-        var text_src_len: usize = 0;
 
-        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&cb_data), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len) })) blk: {
-            const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
-            const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
+        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&cb_data), tp.extract(&text_dst_ptr), tp.extract(&text_src_ptr) })) blk: {
+            const text_dst: *Buffer.SharedText = @ptrFromInt(text_dst_ptr);
+            defer text_dst.release();
+            const text_src: *Buffer.SharedText = @ptrFromInt(text_src_ptr);
+            defer text_src.release();
             const cb_: *AsyncDiffer.CallBack = if (cb == 0) return else @ptrFromInt(cb);
-            break :blk do_diff_async(from, cb_, cb_data, text_dst, text_src) catch |e| {
+            break :blk do_diff_async(from, cb_, cb_data, text_dst.text, text_src.text) catch |e| {
                 cb_(from, cb_data, &.{});
                 break :blk tp.exit_error(e, @errorReturnTrace());
             };
@@ -91,9 +83,6 @@ const Process = struct {
     }
 
     fn do_diff_async(from: tp.pid_ref, cb: *AsyncDiffer.CallBack, cb_data: usize, text_dst: []const u8, text_src: []const u8) !void {
-        defer std.heap.c_allocator.free(text_dst);
-        defer std.heap.c_allocator.free(text_src);
-
         var arena_ = std.heap.ArenaAllocator.init(allocator);
         defer arena_.deinit();
         const arena = arena_.allocator();

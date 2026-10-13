@@ -97,6 +97,7 @@ lsp_state: enum { closed, open } = .closed,
 lsp_root: ?Root = null,
 vcs_id: ?[]const u8 = null,
 vcs_content: ?ArrayList(u8) = null,
+vcs_content_shared: ?*SharedText = null,
 vcs_blame: VcsBlame = .{},
 last_view: ?usize = null,
 
@@ -1430,6 +1431,11 @@ pub fn get_vcs_id(self: *const Self) ?[]const u8 {
 
 pub fn set_vcs_content(self: *Self, vcs_id: []const u8, vcs_content: []const u8) error{OutOfMemory}!void {
     _ = try self.set_vcs_id(vcs_id);
+    if (self.vcs_content_shared) |shared| {
+        if (self.vcs_content) |*al| try al.appendSlice(self.external_allocator, shared.text);
+        shared.release();
+        self.vcs_content_shared = null;
+    }
     if (self.vcs_content) |*al| {
         try al.appendSlice(self.external_allocator, vcs_content);
     } else {
@@ -1440,6 +1446,8 @@ pub fn set_vcs_content(self: *Self, vcs_id: []const u8, vcs_content: []const u8)
 }
 
 pub fn clear_vcs_content(self: *Self) void {
+    if (self.vcs_content_shared) |shared| shared.release();
+    self.vcs_content_shared = null;
     if (self.vcs_content) |*buf| {
         buf.deinit(self.external_allocator);
         self.vcs_content = null;
@@ -1447,6 +1455,7 @@ pub fn clear_vcs_content(self: *Self) void {
 }
 
 pub fn get_vcs_content(self: *const Self) ?[]const u8 {
+    if (self.vcs_content_shared) |shared| return shared.text;
     return if (self.vcs_content) |*buf| buf.items else null;
 }
 
@@ -1846,28 +1855,71 @@ fn root_hash(self: *Self, root: Root) EditSet.Hash {
 
 fn get_cached_text(cache_: ?StringCache, ref: Node.Ref, eol_mode: EolMode) ?[:0]const u8 {
     const cache = cache_ orelse return null;
-    return if (cache.ref == ref and cache.eol_mode == eol_mode) cache.text else null;
+    return if (cache.ref == ref and cache.eol_mode == eol_mode) cache.shared.text else null;
 }
 
 fn store_cached_text(self: *Self, cache: *?StringCache, ref: Node.Ref, eol_mode: EolMode, text: [:0]const u8) [:0]const u8 {
+    const shared = SharedText.create(self.external_allocator, text) catch @panic("OOM store_cached_text");
     if (cache.*) |*c|
         c.deinit(self.external_allocator);
     cache.* = .{
         .ref = ref,
         .eol_mode = eol_mode,
-        .text = text,
+        .shared = shared,
     };
     return text;
 }
 
+pub fn share_text(self: *Self, eol_mode: EolMode) *SharedText {
+    _ = self.store_to_string_cached(self.root, eol_mode);
+    return self.cache.?.shared.retain();
+}
+
+pub fn share_diff_base(self: *Self, eol_mode: EolMode) error{OutOfMemory}!?*SharedText {
+    if (self.vcs_content_shared) |shared| return shared.retain();
+    if (self.vcs_content) |*content| {
+        const text = try content.toOwnedSliceSentinel(self.external_allocator, 0);
+        errdefer self.external_allocator.free(text);
+        self.vcs_content_shared = try SharedText.create(self.external_allocator, text);
+        return self.vcs_content_shared.?.retain();
+    }
+    _ = self.store_last_save_to_string_cached(eol_mode) orelse return null;
+    return self.last_save_cache.?.shared.retain();
+}
+
+pub const SharedText = struct {
+    refs: std.atomic.Value(usize) = .init(1),
+    allocator: Allocator,
+    text: [:0]const u8,
+
+    /// take ownership
+    fn create(allocator: Allocator, text: [:0]const u8) error{OutOfMemory}!*SharedText {
+        const self = try allocator.create(SharedText);
+        self.* = .{ .allocator = allocator, .text = text };
+        return self;
+    }
+
+    pub fn retain(self: *SharedText) *SharedText {
+        _ = self.refs.fetchAdd(1, .monotonic);
+        return self;
+    }
+
+    pub fn release(self: *SharedText) void {
+        if (self.refs.fetchSub(1, .acq_rel) != 1) return;
+        const allocator = self.allocator;
+        allocator.free(self.text);
+        allocator.destroy(self);
+    }
+};
+
 const StringCache = struct {
     ref: Node.Ref,
     eol_mode: EolMode,
-    text: [:0]const u8,
+    shared: *SharedText,
     code_folded: ?[:0]const u8 = null,
 
     fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.text);
+        self.shared.release();
         if (self.code_folded) |text| allocator.free(text);
     }
 };

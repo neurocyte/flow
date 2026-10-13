@@ -463,6 +463,56 @@ test "update_longest_line_length: incremental result equals a full scan" {
     }
 }
 
+test "shared text: the text outlives the cache entry that it came from" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    try buffer.load_from_string_and_update("test", "one\ntwo\n", now);
+
+    const first = buffer.share_text(.lf);
+    defer first.release();
+    try std.testing.expectEqualStrings("one\ntwo\n", first.text);
+    const again = buffer.share_text(.lf);
+    defer again.release();
+    try std.testing.expectEqual(first, again);
+
+    _, _, const root = try buffer.root.insert_chars(0, 0, "x", buffer.allocator, metrics());
+    buffer.update(root, now);
+    const second = buffer.share_text(.lf);
+    defer second.release();
+    try std.testing.expectEqualStrings("xone\ntwo\n", second.text);
+    try std.testing.expectEqualStrings("one\ntwo\n", first.text);
+}
+
+test "shared text: the diff base is the git content, or else the last saved content" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    try buffer.load_from_string_and_update("test", "saved\n", now);
+    {
+        const base = (try buffer.share_diff_base(.lf)).?;
+        defer base.release();
+        try std.testing.expectEqualStrings("saved\n", base.text);
+    }
+    try buffer.set_vcs_content("id1", "from ");
+    {
+        const base = (try buffer.share_diff_base(.lf)).?;
+        defer base.release();
+        try std.testing.expectEqualStrings("from ", base.text);
+        try std.testing.expectEqualStrings("from ", buffer.get_vcs_content().?);
+        // more content arrives while a holder still has the first part
+        try buffer.set_vcs_content("id1", "git\n");
+        try std.testing.expectEqualStrings("from ", base.text);
+    }
+    try std.testing.expectEqualStrings("from git\n", buffer.get_vcs_content().?);
+    const base = (try buffer.share_diff_base(.lf)).?;
+    defer base.release();
+    try std.testing.expectEqualStrings("from git\n", base.text);
+    const same = (try buffer.share_diff_base(.lf)).?;
+    defer same.release();
+    try std.testing.expectEqual(base, same);
+}
+
 test "hash: Buffer.content_hash follows the root" {
     const now = std.Io.Clock.real.now(std.testing.io);
     const buffer = try Buffer.create(a, now);
