@@ -287,8 +287,8 @@ pub const LoadFailure = struct {
     err: LoadError,
 
     pub const Location = struct {
-        line: u64 = 1,
-        column: u64 = 1,
+        line: usize = 1,
+        column: usize = 1,
     };
 };
 
@@ -352,7 +352,7 @@ const Namespace = struct {
         var diagnostics: std.json.Diagnostics = .{};
         scanner.enableDiagnostics(&diagnostics);
         const parsed = std.json.parseFromTokenSource(std.json.Value, allocator, &scanner, .{}) catch |e| {
-            if (location) |loc| loc.* = .{ .line = diagnostics.getLine(), .column = diagnostics.getColumn() };
+            if (location) |loc| loc.* = .{ .line = @intCast(diagnostics.getLine()), .column = @intCast(diagnostics.getColumn()) };
             return e;
         };
         defer parsed.deinit();
