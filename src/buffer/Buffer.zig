@@ -87,6 +87,7 @@ last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
 detected_indent_size: ?usize = null,
 longest_line_len: usize = 0,
+longest_line_root: ?Root = null,
 hidden: bool = false,
 ephemeral: Ephemeral = .no,
 auto_save: bool = false,
@@ -866,7 +867,7 @@ const Node = union(enum) {
         };
         var ctx: Ctx = .{ .accumulator = 0, .longest_line_len = 0 };
         _ = self.walk_from_line_begin_const(0, Ctx.walker, &ctx, metrics) catch return error.NotFound;
-        return ctx.longest_line_len;
+        return @max(ctx.longest_line_len, ctx.accumulator);
     }
 
     pub fn line_width(self: *const Node, line: usize, metrics_: Metrics) !usize {
@@ -1469,8 +1470,41 @@ pub fn update_last_used_time(self: *Self, now: std.Io.Timestamp) void {
     self.utime = now.toMilliseconds();
 }
 
+const max_longest_line_changed_lines = 1000;
+
 pub fn update_longest_line_length(self: *Self, metrics: Metrics) !void {
-    self.longest_line_len = try self.root.get_longest_line_length(metrics);
+    const root = self.root;
+    if (self.longest_line_root == root) return;
+    self.longest_line_len = if (self.longest_line_root) |from|
+        try self.longest_line_length_from(from, metrics) orelse try root.get_longest_line_length(metrics)
+    else
+        try root.get_longest_line_length(metrics);
+    self.longest_line_root = root;
+}
+
+fn longest_line_length_from(self: *Self, from: Root, metrics: Metrics) error{OutOfMemory}!?usize {
+    const diff = try self.edit_set_between(from, self.root, self.file_eol_mode) orelse return null;
+    var edits = EditSet.Iterator.init(.{ .bytes = diff.edit_set }) catch return null;
+    var changed_lines: usize = 0;
+    var old_max: usize = 0;
+    var new_max: usize = 0;
+    var added_rows: usize = 0;
+    var removed_rows: usize = 0;
+    while (edits.next() catch return null) |edit| {
+        const rows_removed = edit.end.row - edit.begin.row;
+        const rows_added = std.mem.count(u8, edit.text, "\n");
+        changed_lines += rows_removed + rows_added + 2;
+        if (changed_lines > max_longest_line_changed_lines) return null;
+        for (edit.begin.row..edit.end.row + 1) |row|
+            old_max = @max(old_max, from.line_width(row, metrics) catch 0);
+        const new_row = edit.begin.row + added_rows - removed_rows;
+        for (new_row..new_row + rows_added + 1) |row|
+            new_max = @max(new_max, self.root.line_width(row, metrics) catch 0);
+        added_rows += rows_added;
+        removed_rows += rows_removed;
+    }
+    if (old_max >= self.longest_line_len and new_max < self.longest_line_len) return null;
+    return @max(self.longest_line_len, new_max);
 }
 
 fn new_file(self: *const Self, file_exists: *bool) error{OutOfMemory}!Root {
@@ -1612,6 +1646,7 @@ fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sani
 
         self_.detected_indent_size = detect_indent_size(leaves[0..@min(leaves.len, 1000)]);
         self_.longest_line_len = longest_line_len;
+        self_.longest_line_root = null;
 
         break :blk try Node.merge_in_place(leaves, self.allocator);
     };

@@ -427,6 +427,42 @@ test "load: a line end with more than one CR is one CRLF" {
     try std.testing.expectEqualStrings("one\r\ntwo\r\nmid\rdle\r\n", text.written());
 }
 
+test "update_longest_line_length: incremental result equals a full scan" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const pieces = [_][]const u8{ "a", "bb", "\n", "\n", "a long piece of text ", "x\ny\nz\n", "\t", "end" };
+    var prng: std.Random.DefaultPrng = .init(0x5eed);
+    const random = prng.random();
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(a);
+    for (0..200) |i| try text.print(a, "line {d}\n", .{i});
+    try buffer.load_from_string_and_update("test", text.items, now);
+    try buffer.update_longest_line_length(metrics());
+
+    for (0..600) |_| {
+        var root = buffer.root;
+        // one to three changes before the next update, as with several cursors
+        for (0..random.intRangeAtMost(usize, 1, 3)) |_| {
+            const row = random.uintLessThan(usize, root.lines());
+            const width = root.line_width(row, metrics()) catch 0;
+            if (random.uintLessThan(u8, 3) == 0 and width > 0) {
+                const col = random.uintLessThan(usize, width);
+                const end_row = @min(root.lines() - 1, row + random.uintLessThan(usize, 3));
+                const end_col = if (end_row == row) width else random.uintLessThan(usize, (root.line_width(end_row, metrics()) catch 0) + 1);
+                root, _ = root.delete_range_char(.{ .begin = .{ .row = row, .col = col }, .end = .{ .row = end_row, .col = end_col } }, buffer.allocator, null, metrics()) catch continue;
+            } else {
+                _, _, root = root.insert_chars(row, random.uintLessThan(usize, width + 1), pieces[random.uintLessThan(usize, pieces.len)], buffer.allocator, metrics()) catch continue;
+            }
+        }
+        buffer.update(root, now);
+        try buffer.update_longest_line_length(metrics());
+        var longest: usize = 0;
+        for (0..root.lines()) |row| longest = @max(longest, root.line_width(row, metrics()) catch 0);
+        try std.testing.expectEqual(longest, buffer.longest_line_len);
+    }
+}
+
 test "hash: Buffer.content_hash follows the root" {
     const now = std.Io.Clock.real.now(std.testing.io);
     const buffer = try Buffer.create(a, now);
