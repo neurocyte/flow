@@ -435,7 +435,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     }
 
     if (want_restart) if (want_restart_with_sudo) restart_with_sudo() else restart();
-    exit(final_exit_status);
+    if (get_init().environ_map.get("FLOW_LEAK_CHECK") == null) exit(final_exit_status);
 }
 
 fn run_context(ctx: *thespian.context) void {
