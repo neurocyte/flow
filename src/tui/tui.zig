@@ -445,6 +445,10 @@ fn deinit(self: *Self) void {
     root.free_config(self.allocator, self.config_bufs);
     self.clipboard_deinit();
     self.clipboard_forwards.deinit(self.allocator);
+    if (builtin.mode == .debug) {
+        Widget.deinit_themes(self.allocator);
+        @import("logview.zig").deinit_persistent_buffer();
+    }
 }
 
 fn listen_input_log(_: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -2005,6 +2009,7 @@ const cmds = struct {
         errdefer new_mode.deinit();
 
         if (!self.delayed_init_done) {
+            if (self.delayed_init_input_mode) |*m| m.deinit();
             self.delayed_init_input_mode = new_mode;
             return;
         }

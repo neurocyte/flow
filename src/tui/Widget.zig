@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const root = @import("soft_root").root;
@@ -115,12 +116,36 @@ fn get_themes(allocator: std.mem.Allocator) *std.StringHashMap(*ThemeInfo) {
     for (static_themes) |theme_| if (!themes.contains(theme_.name)) {
         const theme_info = allocator.create(ThemeInfo) catch @panic("OOM get_themes");
         theme_info.* = .{
-            .name = theme_.name,
+            .name = if (builtin.mode == .debug) allocator.dupe(u8, theme_.name) catch @panic("OOM get_themes") else theme_.name,
         };
         themes.put(theme_info.name, theme_info) catch @panic("OOM get_themes");
     };
     themes_ = themes;
     return &themes_.?;
+}
+
+pub fn deinit_themes(allocator: std.mem.Allocator) void {
+    if (theme_names_) |names| allocator.free(names);
+    theme_names_ = null;
+    if (themes_) |*themes| {
+        var it = themes.valueIterator();
+        while (it.next()) |theme_info| {
+            if (theme_info.*.storage) |theme| {
+                allocator.free(theme.name);
+                allocator.free(theme.description);
+                allocator.free(theme.tokens);
+            }
+            allocator.free(theme_info.*.name);
+            allocator.destroy(theme_info.*);
+        }
+        themes.deinit();
+    }
+    themes_ = null;
+    if (scope_list.items.len > static_scopes.len)
+        for (scope_list.items[static_scopes.len..]) |scope| allocator.free(scope);
+    scope_list.deinit(allocator);
+    scope_list = .empty;
+    scopes = &.{};
 }
 
 fn get_theme_names() []const []const u8 {

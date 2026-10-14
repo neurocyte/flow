@@ -247,6 +247,10 @@ pub fn stderr(state: enum { enable, disable }) void {
 
 var std_log_pid: ?tp.pid_ref = null;
 
+pub fn shutdown() void {
+    if (std_log_pid) |pid| pid.send(.{"shutdown"}) catch {};
+}
+
 pub fn set_std_log_pid(pid: ?tp.pid_ref) void {
     std_log_pid = pid;
 }

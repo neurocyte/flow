@@ -300,3 +300,14 @@ pub fn init(allocator: Allocator) void {
     if (persistent_buffer) |_| return;
     persistent_buffer = Buffer.init(allocator);
 }
+
+pub fn deinit_persistent_buffer() void {
+    const buffer = if (persistent_buffer) |*p| p else return;
+    for (buffer.items) |item| {
+        // free sentinel too
+        buffer.allocator.free(item.src.ptr[0 .. item.src.len + 1]);
+        buffer.allocator.free(item.msg.ptr[0 .. item.msg.len + 1]);
+    }
+    buffer.deinit();
+    persistent_buffer = null;
+}

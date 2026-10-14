@@ -435,6 +435,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     }
 
     if (want_restart) if (want_restart_with_sudo) restart_with_sudo() else restart();
+    if (builtin.mode == .debug) free_loaded_files();
     if (get_init().environ_map.get("FLOW_LEAK_CHECK") == null) exit(final_exit_status);
 }
 
@@ -456,6 +457,7 @@ pub fn print_exit_status(_: void, msg: []const u8) void {
         p.deinit();
         debug_console = null;
     }
+    if (builtin.mode == .debug) log.shutdown();
     if (std.mem.eql(u8, msg, "normal")) {
         return;
     } else if (std.mem.eql(u8, msg, "restart")) {
@@ -544,6 +546,7 @@ pub fn exit(status: u8) noreturn {
 
 pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
     for (bufs) |buf| allocator.free(buf);
+    allocator.free(bufs);
 }
 
 var config_mutex: std.Io.Mutex = .init;
@@ -559,6 +562,13 @@ pub fn record_loaded_file(file_name: []const u8) void {
     if (loaded_files.contains(file_name)) return;
     const owned = allocator.dupe(u8, file_name) catch return;
     loaded_files.put(allocator, owned, {}) catch allocator.free(owned);
+}
+
+fn free_loaded_files() void {
+    const allocator = global_init.gpa;
+    for (loaded_files.keys()) |file_name| allocator.free(file_name);
+    loaded_files.deinit(allocator);
+    loaded_files = .empty;
 }
 
 pub fn write_loaded_files_to_writer(writer: *std.Io.Writer) std.Io.Writer.Error!void {
