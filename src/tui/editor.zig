@@ -8221,6 +8221,7 @@ pub const Editor = struct {
     }
 
     pub fn clear_diagnostics(self: *Self) void {
+        for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.clearRetainingCapacity();
         self.diag_errors = 0;
         self.diag_warnings = 0;
