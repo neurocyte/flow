@@ -257,7 +257,8 @@ pub fn std_log_function(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const log_pid = std_log_pid orelse return;
+    const log_pid = std_log_pid orelse return std.log.defaultLog(level, scope, format, args);
+    if (log_pid.expired()) return std.log.defaultLog(level, scope, format, args);
     const prefix = "[" ++ comptime level.asText() ++ "] ";
     var buf: [max_log_message]u8 = undefined;
     const fmt = switch (level) {
