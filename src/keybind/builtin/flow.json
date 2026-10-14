@@ -399,6 +399,8 @@
             ["ctrl+a", "mini_editor_select_all"],
             ["delete", "mini_editor_delete_forward"],
             ["ctrl+delete", "mini_editor_delete_word_right"],
+            ["ctrl+k ctrl+u", "mini_editor_delete_to_begin"],
+            ["ctrl+k ctrl+k", "mini_editor_delete_to_end"],
             ["ctrl+z", "mini_editor_undo"],
             ["ctrl+y", "mini_editor_redo"],
             ["ctrl+shift+z", "mini_editor_redo"],
