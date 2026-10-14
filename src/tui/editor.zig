@@ -527,7 +527,6 @@ pub const Editor = struct {
         var meta: std.Io.Writer.Allocating = .init(self.allocator);
         defer meta.deinit();
         if (self.buffer) |_| self.write_state(&meta.writer) catch {};
-        if (self.buffer) |_| self.write_state(&meta.writer) catch {};
         if (self.buffer) |p| p.set_meta(meta.written()) catch {};
     }
 
