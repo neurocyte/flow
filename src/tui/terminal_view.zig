@@ -398,6 +398,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         else => .{ .key_press = key },
     }) catch |e|
         std.log.err("terminal_view: input failed: {}", .{e});
+    if (!is_release and !input.is_modifier(keypress)) self.vt.block_render_for_output();
     tui.need_render(@src());
     return true;
 }

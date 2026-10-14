@@ -42,6 +42,7 @@ process_exited: bool = false,
 exit_code: ?u8 = null,
 bell: bool = false,
 activity: bool = false,
+output_render_block: ?tui.RenderBlock = null,
 shell_state: ?Screen.ShellState = null,
 on_exit: TerminalOnExit,
 synthesize_marks: bool = false,
@@ -111,6 +112,7 @@ fn respawn(self: *@This(), cmd_argv: []const []const u8) !void {
 }
 
 pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+    self.unblock_output_render();
     self.cwd.deinit(allocator);
     self.title.deinit(allocator);
     if (self.last_cmd) |cmd| allocator.free(cmd.bytes);
@@ -276,6 +278,20 @@ fn set_app_title(self: *@This(), title: []const u8) void {
     self.set_title(title);
 }
 
+/// hold renders until the output for an input event is published
+/// this avoids a render that shows nothing new and delays the output frame
+pub fn block_render_for_output(self: *@This()) void {
+    self.unblock_output_render();
+    if (self.process_exited or self.vt.input_delay_us == 0) return;
+    self.output_render_block = tui.block_render_expiring(self.vt.input_delay_us / std.time.us_per_ms + 2);
+}
+
+fn unblock_output_render(self: *@This()) void {
+    const block = self.output_render_block orelse return;
+    self.output_render_block = null;
+    tui.unblock_render(block);
+}
+
 fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
     const self: *@This() = @ptrCast(@alignCast(ctx));
     return self.process_event(event) catch error.TerminalHandlerFailed;
@@ -290,12 +306,14 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
                 pid.deinit();
                 self.pty_pid = null;
             }
+            self.unblock_output_render();
             if (self.synthesize_marks) self.inject_output_end(code);
             self.handle_child_exit(code);
             tui.need_render(@src());
         },
         .redraw => {
             self.activity = true;
+            self.unblock_output_render();
             tui.need_render(@src());
         },
         .bell => {

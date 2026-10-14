@@ -646,6 +646,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         }
         return;
     }
+    if (try m.match(.{ "render_block_expired", tp.extract(&render_block) })) {
+        unblock_render(@fromBackingInt(@intCast(render_block)));
+        return;
+    }
 
     var new_frame_rate: usize = 0;
     if (try m.match(.{ "render", "frame_rate", tp.extract(&new_frame_rate) })) {
@@ -2846,10 +2850,19 @@ fn maybe_reset_drag_source(self: *Self, btn: MouseEvent.Button) void {
 pub const RenderBlock = enum(usize) { _ };
 
 pub fn block_render(timeout_ms: u64) RenderBlock {
+    return block_render_with(timeout_ms, "render_block_timeout");
+}
+
+/// a render block that is expected to expire without an error
+pub fn block_render_expiring(timeout_ms: u64) RenderBlock {
+    return block_render_with(timeout_ms, "render_block_expired");
+}
+
+fn block_render_with(timeout_ms: u64, timeout_msg: []const u8) RenderBlock {
     const self = current();
     const id = self.next_render_block;
     self.next_render_block += 1;
-    var timeout = tp.timeout.init_ms(timeout_ms, tp.message.fmt(.{ "render_block_timeout", id })) catch |e| {
+    var timeout = tp.timeout.init_ms(timeout_ms, tp.message.fmt(.{ timeout_msg, id })) catch |e| {
         self.logger.err("render", e);
         return @fromBackingInt(@intCast(0));
     };
