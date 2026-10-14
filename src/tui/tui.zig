@@ -449,6 +449,15 @@ fn deinit(self: *Self) void {
         Widget.deinit_themes(self.allocator);
         @import("logview.zig").deinit_persistent_buffer();
         @import("Vt.zig").deinit_profile_keybindings();
+        if (self.input_mode_outer_) |*m| {
+            m.deinit_command = null;
+            m.deinit();
+            self.input_mode_outer_ = null;
+        }
+        if (self.last_palette) |palette| {
+            self.allocator.free(palette.ctx.args.buf);
+            self.last_palette = null;
+        }
     }
 }
 
