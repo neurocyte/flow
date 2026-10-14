@@ -56,6 +56,9 @@ const log = std.log.scoped(.terminal);
 pub const Options = struct {
     scrollback_bytes: usize = 8 << 20,
     frame_time_us: u64 = std.time.us_per_s / 60,
+    /// delay publishing new output so bursts coalesce into frames
+    /// this gives an automatic synchronized update effect and reduces flicker
+    input_delay_us: u64 = 3 * std.time.us_per_ms,
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     initial_working_directory: ?[]const u8 = null,
 };
@@ -146,6 +149,7 @@ cmd: Command,
 /// the screens we draw from
 frames: Frames,
 frame_time_us: u64,
+input_delay_us: u64,
 last_publish_us: i64 = 0,
 front_mutex: std.Io.Mutex = .init,
 
@@ -162,6 +166,7 @@ cold_view: ?ColdView = null,
 back_mutex: std.Io.Mutex = .init,
 // dirty is protected by back_mutex. Only access this field when you hold that mutex
 dirty: bool = false,
+dirty_since_us: i64 = 0,
 
 mode: Mode = .{},
 
@@ -279,6 +284,7 @@ pub fn init(
         .scrollback_bytes = opts.scrollback_bytes,
         .frames = try .init(allocator, opts.winsize.cols, opts.winsize.rows),
         .frame_time_us = opts.frame_time_us,
+        .input_delay_us = opts.input_delay_us,
         .back_screen_pri = try initPrimary(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_bytes),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
@@ -881,7 +887,7 @@ const Frames = struct {
 };
 
 pub const PublishMode = enum { if_due, now };
-pub const Published = enum { clean, pending, published };
+pub const Published = union(enum) { clean, pending: u64, published };
 
 pub fn publish(self: *Terminal, mode: PublishMode, context: *Event.HandlerContext, handle_event: Event.Handler) !Published {
     self.back_mutex.lockUncancelable(self.io);
@@ -892,12 +898,20 @@ pub fn publish(self: *Terminal, mode: PublishMode, context: *Event.HandlerContex
 fn publishLocked(self: *Terminal, mode: PublishMode, context: *Event.HandlerContext, handle_event: Event.Handler) !Published {
     if (mode == .if_due and !self.dirty) return .clean;
     if (self.mode.sync) {
-        if (!self.syncExpired()) return .pending;
+        if (!self.syncExpired()) return .{ .pending = self.frame_time_us };
         log.debug("synchronized update expired after {d}ms; resuming", .{sync_timeout_ms});
         self.mode.sync = false;
     }
     const now = root.get_now().toMicroseconds();
-    if (mode == .if_due and now >= self.last_publish_us and now - self.last_publish_us < self.frame_time_us) return .pending;
+    if (mode == .if_due) {
+        const input_delay = @min(self.input_delay_us, self.frame_time_us);
+        const dirty_for: u64 = @intCast(@max(now - self.dirty_since_us, 0));
+        if (dirty_for < input_delay) return .{ .pending = input_delay - dirty_for };
+        if (now >= self.last_publish_us) {
+            const since_publish: u64 = @intCast(now - self.last_publish_us);
+            if (since_publish < self.frame_time_us) return .{ .pending = self.frame_time_us - since_publish };
+        }
+    }
     var scroll_offset: usize = 0;
     if (self.back_screen == &self.back_screen_pri) {
         const history = self.back_screen_pri.historySize();
@@ -1110,7 +1124,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
             => |e_| return e_,
         };
 
-        self.dirty = true;
+        if (!self.dirty) {
+            self.dirty = true;
+            self.dirty_since_us = root.get_now().toMicroseconds();
+        }
 
         switch (event) {
             .print => |str| {

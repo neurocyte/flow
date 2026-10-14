@@ -51,9 +51,13 @@ fn publish(self: *@This(), mode: Terminal.PublishMode) error{TerminalHandlerFail
         error.TerminalHandlerFailed => return error.TerminalHandlerFailed,
         else => return,
     };
-    if (published == .published) self.publish_timeout();
-    if (published != .pending or self.publish_timer != null) return;
-    self.publish_timer = tp.timeout.init(self.vt.frame_time_us, tp.message.fmt(.{"publish"})) catch null;
+    switch (published) {
+        .clean => {},
+        .published => self.publish_timeout(),
+        .pending => |wait_us| if (self.publish_timer == null) {
+            self.publish_timer = tp.timeout.init(wait_us, tp.message.fmt(.{"publish"})) catch null;
+        },
+    }
 }
 
 fn publish_timeout(self: *@This()) void {
