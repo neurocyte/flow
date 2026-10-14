@@ -159,7 +159,7 @@ pub const TabBar = struct {
     place_next: Placement = .atend,
 
     tab_style: Style,
-    tab_style_bufs: [][]const u8,
+    tab_style_bufs: ?*std.heap.ArenaAllocator,
 
     const Self = @This();
 

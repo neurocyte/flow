@@ -153,10 +153,10 @@ const dummy = struct {
         @panic("dummy get_theme_directory call");
     }
 
-    pub fn free_config(_: std.mem.Allocator, _: [][]const u8) void {
+    pub fn free_config(_: std.mem.Allocator, _: ?*std.heap.ArenaAllocator) void {
         @panic("dummy free_config call");
     }
-    pub fn read_config(T: type, _: std.mem.Allocator) struct { T, [][]const u8 } {
+    pub fn read_config(T: type, _: std.mem.Allocator) struct { T, ?*std.heap.ArenaAllocator } {
         @panic("dummy read_config call");
     }
     pub fn write_config(_: anytype, _: std.mem.Allocator) (ConfigDirError || ConfigWriteError)!void {

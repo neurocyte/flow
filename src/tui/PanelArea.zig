@@ -50,7 +50,7 @@ next_id: Panel.Id = 1,
 mru: std.ArrayList(Panel.Id) = .empty, // least recently used first
 current: std.StringHashMapUnmanaged(Panel) = .empty, // by panel tag
 tab_style: Tabs.Style,
-tab_style_bufs: [][]const u8,
+tab_style_bufs: ?*std.heap.ArenaAllocator,
 
 on_maximize: ?MaximizeCallback = null,
 

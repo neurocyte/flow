@@ -275,9 +275,10 @@ fn read_file(allocator: std.mem.Allocator, id: []const u8, file_path: []const u8
     defer allocator.free(content);
 
     var conf: Profile = .{};
+    var arena: std.heap.ArenaAllocator = .init(allocator);
+    defer arena.deinit();
     var bufs: [][]const u8 = &[_][]const u8{};
-    defer root.free_config(allocator, bufs);
-    root.parse_text_config_file(Profile, allocator, &conf, &bufs, id, content) catch |e| {
+    root.parse_text_config_file(Profile, arena.allocator(), &conf, &bufs, id, content) catch |e| {
         log.warn("cannot parse profile '{s}': {s}", .{ id, @errorName(e) });
         return error.BadProfile;
     };

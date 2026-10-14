@@ -74,7 +74,7 @@ input_namespace: []const u8,
 root_mode: bool = false,
 
 home_style: style,
-home_style_bufs: [][]const u8,
+home_style_bufs: ?*std.heap.ArenaAllocator,
 
 const Self = @This();
 

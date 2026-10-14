@@ -544,9 +544,10 @@ pub fn exit(status: u8) noreturn {
     std.process.exit(status);
 }
 
-pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
-    for (bufs) |buf| allocator.free(buf);
-    allocator.free(bufs);
+pub fn free_config(allocator: std.mem.Allocator, arena: ?*std.heap.ArenaAllocator) void {
+    const arena_ = arena orelse return;
+    arena_.deinit();
+    allocator.destroy(arena_);
 }
 
 var config_mutex: std.Io.Mutex = .init;
@@ -599,16 +600,18 @@ fn get_default(T: type) T {
     };
 }
 
-pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
+pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, ?*std.heap.ArenaAllocator } {
     config_mutex.lockUncancelable(global_init.io);
     defer config_mutex.unlock(global_init.io);
-    var bufs: [][]const u8 = &[_][]const u8{};
     var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    const file_name = get_app_config_file_name(application_name, @typeName(T), &file_name_buffer) catch return .{ get_default(T), bufs };
+    const file_name = get_app_config_file_name(application_name, @typeName(T), &file_name_buffer) catch return .{ get_default(T), null };
+    const arena = allocator.create(std.heap.ArenaAllocator) catch return .{ get_default(T), null };
+    arena.* = .init(allocator);
+    var bufs: [][]const u8 = &[_][]const u8{};
     var conf: T = get_default(T);
-    _ = read_config_file(T, allocator, &conf, &bufs, file_name);
-    read_nested_include_files(T, allocator, &conf, &bufs);
-    return .{ conf, bufs };
+    _ = read_config_file(T, arena.allocator(), &conf, &bufs, file_name);
+    read_nested_include_files(T, arena.allocator(), &conf, &bufs);
+    return .{ conf, arena };
 }
 
 // returns true if the file was found

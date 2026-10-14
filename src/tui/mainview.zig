@@ -579,10 +579,10 @@ fn check_no_busy_terminals(_: *const Self) command.Result {
 fn open_style_config(self: *Self, Style: type, now: std.Io.Timestamp) command.Result {
     var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
     const file_name = try root.get_config_file_name(Style, &file_name_buffer);
-    const style, const style_bufs: [][]const u8 = if (root.exists_config(Style)) blk: {
+    const style, const style_bufs: ?*std.heap.ArenaAllocator = if (root.exists_config(Style)) blk: {
         const style, const style_bufs = root.read_config(Style, self.allocator);
         break :blk .{ style, style_bufs };
-    } else .{ Style{}, &.{} };
+    } else .{ Style{}, null };
     defer root.free_config(self.allocator, style_bufs);
     var conf: std.Io.Writer.Allocating = .init(self.allocator);
     defer conf.deinit();
