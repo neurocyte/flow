@@ -193,6 +193,7 @@ const RenderActor = struct {
 
     fn dtor(self: *@This()) void {
         self.parent.deinit();
+        self.allocator.destroy(self);
     }
 
     fn deinit(self: *@This()) void {
