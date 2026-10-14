@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const cbor = @import("cbor");
 const tp = @import("thespian");
 const root = @import("soft_root").root;
@@ -175,6 +176,13 @@ pub const TabBar = struct {
         view: ?usize,
     };
 
+    fn destroy_tab_widget(self: *Self, widget: Widget) void {
+        for (self.splits_list.widgets.items) |*split_widget| if (split_of(split_widget.widget)) |split| {
+            _ = split.detach(widget);
+        };
+        widget.deinit(self.allocator);
+    }
+
     fn split_of(w: Widget) ?*WidgetList {
         const scroll = w.dynamic_cast(WidgetScrollBox) orelse return null;
         const inner = scroll.inner orelse return null;
@@ -255,6 +263,7 @@ pub const TabBar = struct {
 
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         root.free_config(self.allocator, self.tab_style_bufs);
+        for (self.tabs) |tab| self.destroy_tab_widget(tab.widget);
         self.allocator.free(self.tabs);
         self.menu_button.deinit(allocator);
         self.splits_list_widget.deinit(allocator);
@@ -509,6 +518,16 @@ pub const TabBar = struct {
         }
 
         self.tabs = try result.toOwnedSlice(self.allocator);
+
+        const drag_source, _ = tui.get_drag_source();
+        for (existing_tabs) |existing_tab| {
+            for (self.tabs) |tab| {
+                if (tab.widget.ptr == existing_tab.widget.ptr) break;
+            } else {
+                if (drag_source) |source| if (source.ptr == existing_tab.widget.ptr) tui.reset_drag_context();
+                self.destroy_tab_widget(existing_tab.widget);
+            }
+        }
 
         if (existing_tabs.len != self.tabs.len)
             return true;
@@ -769,6 +788,7 @@ pub const TabBar = struct {
 
     pub fn extract_state(self: *Self, iter: *[]const u8) !void {
         var iter2 = iter.*;
+        for (self.tabs) |tab| self.destroy_tab_widget(tab.widget);
         self.allocator.free(self.tabs);
         self.tabs = &.{};
 

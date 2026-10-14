@@ -723,6 +723,7 @@ pub const Editor = struct {
         if (self.syntax_worker) |*worker| worker.deinit();
         self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
+        self.cursels_saved.deinit(self.allocator);
         self.matches.deinit(self.allocator);
         self.highlight_references_pending.deinit(self.allocator);
         self.clear_jump_labels();
