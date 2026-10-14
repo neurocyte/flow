@@ -603,7 +603,9 @@ pub const Editor = struct {
         } else {
             try cbor.writeArrayHeader(writer, 0);
         }
-        try self.view.write(writer);
+        var view = self.view;
+        view.row = self.scroll_dest;
+        try view.write(writer);
 
         try cbor.writeArrayHeader(writer, self.count_cursels());
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
