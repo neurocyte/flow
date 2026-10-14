@@ -729,6 +729,8 @@ pub const Editor = struct {
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| self.retire_buffer(p, meta.written());
+        if (self.style_cache) |*cache| cache.deinit();
+        if (self.file_path) |file_path| self.allocator.free(file_path);
     }
 
     pub fn need_render(_: *Self) void {
@@ -788,13 +790,19 @@ pub const Editor = struct {
         return self.open_buffer(file_path, buffer, file_type, now);
     }
 
+    fn set_file_path(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
+        const new = try self.allocator.dupe(u8, file_path);
+        if (self.file_path) |old| self.allocator.free(old);
+        self.file_path = new;
+    }
+
     fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer, file_type_: ?[]const u8, now: std.Io.Timestamp) !void {
         const frame = tracy.initZone(@src(), .{ .name = "open_buffer" });
         defer frame.deinit();
         errdefer self.retire_buffer(new_buf, null);
         self.cancel_all_selections();
         self.get_primary().reset();
-        self.file_path = try self.allocator.dupe(u8, file_path);
+        try self.set_file_path(file_path);
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
         const file_type = file_type_ orelse new_buf.file_type_name;
@@ -8782,7 +8790,7 @@ pub const Editor = struct {
     pub const set_file_type_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn buffer_renamed(self: *Self, file_path: []const u8) !void {
-        self.file_path = try self.allocator.dupe(u8, file_path);
+        try self.set_file_path(file_path);
         try self.send_focus_events();
     }
 
