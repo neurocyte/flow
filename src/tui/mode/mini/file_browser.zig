@@ -352,7 +352,10 @@ pub fn Create(options: type) type {
 
             pub fn mini_mode_try_complete_file_forward(self: *Self, ctx: Ctx) Result {
                 self.complete_trigger_count = 0;
-                return mini_mode_try_complete_file(self, ctx);
+                return if (self.mini_editor.buffer.is_cursor_at_end())
+                    mini_mode_try_complete_file(self, ctx)
+                else
+                    command.executeName("mini_editor_move_right", ctx);
             }
             pub const mini_mode_try_complete_file_forward_meta: Meta = .{ .description = "Complete file forward" };
 

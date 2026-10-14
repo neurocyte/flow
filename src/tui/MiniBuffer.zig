@@ -128,6 +128,10 @@ pub fn move_end(self: *Self, select: Select) void {
     self.move_to(self.text.items.len, select);
 }
 
+pub fn is_cursor_at_end(self: *const Self) bool {
+    return self.text.items.len == self.cursor;
+}
+
 pub fn select_all(self: *Self) void {
     self.last_edit = .none;
     self.anchor = 0;

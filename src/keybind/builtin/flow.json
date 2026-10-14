@@ -582,7 +582,6 @@
             ["shift+tab", "mini_mode_reverse_complete_file"],
             ["up", "mini_mode_reverse_complete_file"],
             ["down", "mini_mode_try_complete_file"],
-            ["left", "mini_mode_delete_to_previous_path_segment"],
             ["right", "mini_mode_try_complete_file_forward"],
             ["tab", "mini_mode_try_complete_file"],
             ["escape", "mini_mode_cancel"],
