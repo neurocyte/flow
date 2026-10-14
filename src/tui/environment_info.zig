@@ -55,13 +55,15 @@ fn write_system(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("os: Windows {d}.{d}.{d}\n", .{ info.dwMajorVersion, info.dwMinorVersion, info.dwBuildNumber });
         return;
     }
-    const uts = std.posix.uname();
-    try writer.print("os: {s} {s} {s} {s}\n", .{
-        std.mem.sliceTo(&uts.sysname, 0),
-        std.mem.sliceTo(&uts.release, 0),
-        std.mem.sliceTo(&uts.version, 0),
-        std.mem.sliceTo(&uts.machine, 0),
-    });
+    if (uname()) |uts|
+        try writer.print("os: {s} {s} {s} {s}\n", .{
+            std.mem.sliceTo(&uts.sysname, 0),
+            std.mem.sliceTo(&uts.release, 0),
+            std.mem.sliceTo(&uts.version, 0),
+            std.mem.sliceTo(&uts.machine, 0),
+        })
+    else
+        try writer.print("os: {t}\n", .{builtin.os.tag});
     var buffer: [16 * 1024]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&buffer);
     const os_release = for ([_][]const u8{ "/etc/os-release", "/usr/lib/os-release" }) |path| {
@@ -129,6 +131,31 @@ fn write_arguments(allocator: std.mem.Allocator, writer: *std.Io.Writer) std.Io.
         else
             try writer.print(" {s}", .{arg});
     try writer.writeAll("\n");
+}
+
+const bsd = struct {
+    const utsname = extern struct {
+        sysname: [256:0]u8,
+        nodename: [256:0]u8,
+        release: [256:0]u8,
+        version: [256:0]u8,
+        machine: [256:0]u8,
+    };
+    extern "c" fn __xuname(len: c_int, buf: *utsname) c_int;
+    extern "c" fn uname(buf: *utsname) c_int;
+};
+
+const Utsname = if (std.c.utsname != void) std.posix.utsname else bsd.utsname;
+
+fn uname() ?Utsname {
+    if (std.c.utsname != void) return std.posix.uname();
+    var uts: bsd.utsname = undefined;
+    const rc = switch (builtin.os.tag) {
+        .freebsd => bsd.__xuname(@sizeOf(@TypeOf(uts.sysname)), &uts),
+        .openbsd, .netbsd => bsd.uname(&uts),
+        else => return null,
+    };
+    return if (rc == 0) uts else null;
 }
 
 fn write_runtime(allocator: std.mem.Allocator, writer: *std.Io.Writer) std.Io.Writer.Error!void {
