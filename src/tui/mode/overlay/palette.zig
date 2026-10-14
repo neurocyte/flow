@@ -468,17 +468,24 @@ pub fn Create(options: type) type {
             };
 
             var matches: std.ArrayList(Match) = .empty;
+            defer {
+                for (matches.items) |match| self.allocator.free(match.matches);
+                matches.deinit(self.allocator);
+            }
 
             for (self.entries.items) |*entry| {
                 if (has_skip_entry and options.skip_entry(entry)) continue;
                 const match = searcher.scoreMatches(entry.label, query);
                 const bonus: i32 = if (has_score_bonus) options.score_bonus(entry, query) else 0;
-                if (match.score) |score|
+                if (match.score) |score| {
+                    const match_positions = try self.allocator.dupe(usize, match.matches);
+                    errdefer self.allocator.free(match_positions);
                     (try matches.addOne(self.allocator)).* = .{
                         .entry = entry,
                         .score = score + bonus,
-                        .matches = try self.allocator.dupe(usize, match.matches),
+                        .matches = match_positions,
                     };
+                }
             }
             if (matches.items.len == 0) {
                 self.total_items = 0;
