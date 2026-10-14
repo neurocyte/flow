@@ -19,6 +19,7 @@ const jump_labels = @import("jump_labels.zig");
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
+const Layer = @import("renderer").Layer;
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
@@ -8803,9 +8804,14 @@ pub const Editor = struct {
     };
 };
 
-pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
-    return EditorWidget.create(allocator, parent, buffer_manager, now);
+pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, layer_ids_: LayerIds, now: std.Io.Timestamp) !Widget {
+    return EditorWidget.create(allocator, parent, buffer_manager, layer_ids_, now);
 }
+
+pub const LayerIds = struct {
+    box: ?Layer.Id = null,
+    trailing: ?Layer.Id = null,
+};
 
 /// apply text edits to a buffer that is not shown in any editor
 pub fn apply_text_edits_to_buffer(allocator: Allocator, buffer: *Buffer, text_edits: cbor.Raw, metrics: Buffer.Metrics, now: std.Io.Timestamp) !void {
@@ -8855,11 +8861,12 @@ pub const EditorWidget = struct {
     const Self = @This();
     const Commands = command.Collection(Editor);
 
-    fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !Widget {
-        const layer = try tui.WidgetLayerBox.create(allocator, parent, .{ .name = "editor.layer" });
+    fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, layer_ids_: LayerIds, now: std.Io.Timestamp) !Widget {
+        const layer = try tui.WidgetLayerBox.create(allocator, parent, .{ .name = "editor.layer", .id = layer_ids_.box });
         layer.z_index = .main;
         errdefer layer.deinit(allocator);
         const container = try WidgetList.createH(allocator, layer.inner_plane(), "editor.container", .dynamic);
+        container.trailing_layer_id = layer_ids_.trailing;
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
         try self.init(allocator, container.plane, buffer_manager, now);

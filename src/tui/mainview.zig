@@ -15,6 +15,7 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
@@ -65,6 +66,7 @@ bottom_bar_drag: ?struct { bottom: i32, offset: i32 } = null,
 views: *WidgetList,
 views_widget: Widget,
 active_view: usize = 0,
+view_layer_ids: std.ArrayList(ed.LayerIds) = .empty,
 panes: *WidgetList,
 panes_widget: Widget,
 bottom_area: *PanelArea = undefined,
@@ -184,6 +186,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.widgets.deinit(allocator);
     self.symbols.deinit(allocator);
     self.floating_views.deinit();
+    self.view_layer_ids.deinit(allocator);
     self.buffer_manager.deinit();
     self.lsp_info.deinit();
     self.filelists.deinit();
@@ -2832,6 +2835,7 @@ fn remove_view(self: *Self, view: usize) void {
         tui.resize();
     }
     self.views.delete(view);
+    if (view < self.view_layer_ids.items.len) _ = self.view_layer_ids.orderedRemove(view);
     if (self.active_view >= self.views.widgets.items.len)
         self.active_view = self.views.widgets.items.len - 1;
     if (self.views.get_at(self.active_view)) |active_view| active_view.focus();
@@ -2851,11 +2855,20 @@ fn replace_active_view(self: *Self, widget: Widget) !void {
     if (self.views.get_at(n)) |view| view.focus();
 }
 
+fn get_view_layer_ids(self: *Self, view: usize) ed.LayerIds {
+    while (self.view_layer_ids.items.len <= view)
+        self.view_layer_ids.append(self.allocator, .{
+            .box = Layer.next_id(),
+            .trailing = Layer.next_id(),
+        }) catch return .{};
+    return self.view_layer_ids.items[view];
+}
+
 fn create_editor(self: *Self, now: std.Io.Timestamp) !void {
     const frame = tracy.initZone(@src(), .{ .name = "create_editor" });
     defer frame.deinit();
     command.executeName("enter_mode_default", .empty()) catch {};
-    var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager, now);
+    var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager, self.get_view_layer_ids(self.active_view), now);
     errdefer editor_widget.deinit(self.allocator);
     const editor = editor_widget.get("editor") orelse @panic("mainview editor not found");
     if (self.top_bar) |*bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");

@@ -30,6 +30,8 @@ pub const Options = struct {
     // edge offsets, in cells, measured from the placement edges
     offset_x: u16 = 0,
     offset_y: u16 = 0,
+    // reuse the GPU state of a previous layer
+    id: ?Layer.Id = null,
 };
 
 allocator: Allocator,
@@ -59,7 +61,7 @@ layout_override: ?Widget.Layout = null,
 pub fn create(allocator: Allocator, parent: Plane, options: Options) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    const layer = try Layer.init(allocator, .{ .h = 1, .w = 1 });
+    const layer = try Layer.init(allocator, .{ .h = 1, .w = 1, .id = options.id });
     errdefer layer.deinit();
     const plane = try Plane.init(&(Widget.Box{}).opts(options.name), parent);
     self.* = .{

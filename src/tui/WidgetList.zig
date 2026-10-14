@@ -35,6 +35,7 @@ layout_empty: bool = true,
 direction: Direction,
 deco_box: Widget.Box,
 trailing_layer: ?*Layer = null,
+trailing_layer_id: ?Layer.Id = null,
 trailing_z_index: ?Layer.Level = null,
 ctx: ?*anyopaque = null,
 on_deinit: ?*const fn (ctx: ?*anyopaque) void = null,
@@ -513,7 +514,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     };
 
     if (use_layer and self.trailing_layer == null)
-        self.trailing_layer = Layer.init(self.allocator, .{ .h = 1, .w = 1 }) catch null;
+        self.trailing_layer = Layer.init(self.allocator, .{ .h = 1, .w = 1, .id = self.trailing_layer_id }) catch null;
 
     self.reparent_main();
     if (use_layer) if (self.trailing_layer) |layer| {
