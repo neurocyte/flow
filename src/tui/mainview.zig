@@ -193,6 +193,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     var file_operations = self.file_operations.valueIterator();
     while (file_operations.next()) |request| request.deinit(allocator);
     self.file_operations.deinit(allocator);
+    self.filelist_streams.deinit(self.allocator);
     self.store_last_match_text(null);
     allocator.destroy(self);
 }
