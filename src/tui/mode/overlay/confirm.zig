@@ -83,7 +83,7 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
             .on_render = on_render,
         }),
         .logger = log.logger(module_name),
-        .arena = arena,
+        .arena = undefined,
         .options = .{
             .message = try a.dupe(u8, options.message),
             .choices = choices: {
@@ -106,10 +106,10 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
     self.mode.name = "confirm";
 
     var lines = std.mem.splitScalar(u8, self.options.message, '\n');
-    while (lines.next()) |line| try self.rows.append(self.arena.allocator(), .{ .text = line });
-    try self.rows.append(self.arena.allocator(), .separator);
-    for (0..self.options.choices.len) |idx| try self.rows.append(self.arena.allocator(), .{ .choice = idx });
-    try self.rows.append(self.arena.allocator(), .cancel);
+    while (lines.next()) |line| try self.rows.append(a, .{ .text = line });
+    try self.rows.append(a, .separator);
+    for (0..self.options.choices.len) |idx| try self.rows.append(a, .{ .choice = idx });
+    try self.rows.append(a, .cancel);
     for (self.rows.items, 0..) |row, pos| {
         var buf: [16]u8 = undefined;
         try self.list_box.add_item_with_handler(cbor.fmt(&buf, pos), on_click);
@@ -130,6 +130,7 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(layer.widget());
     layer.handle_resize(.{});
+    self.arena = arena;
     return self.mode;
 }
 
