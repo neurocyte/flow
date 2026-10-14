@@ -648,6 +648,7 @@ pub const Editor = struct {
         self.refresh_tab_width();
         if (op == .open_file)
             try self.open(file_path);
+        if (self.last_find_query) |old| self.allocator.free(old);
         self.last_find_query = if (last_find_query.len > 0) try self.allocator.dupe(u8, last_find_query) else null;
         const rows = self.view.rows;
         const cols = self.view.cols;
@@ -725,6 +726,11 @@ pub const Editor = struct {
         self.cursels.deinit(self.allocator);
         self.cursels_saved.deinit(self.allocator);
         self.matches.deinit(self.allocator);
+        if (self.last_find_query) |query| self.allocator.free(query);
+        if (self.find_history) |*history| {
+            for (history.items) |query| self.allocator.free(query);
+            history.deinit(self.allocator);
+        }
         self.highlight_references_pending.deinit(self.allocator);
         self.clear_jump_labels();
         self.handlers.deinit();
