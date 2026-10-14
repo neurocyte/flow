@@ -14,9 +14,11 @@ fn find_binary_in_path_posix(allocator: std.mem.Allocator, binary_name: []const 
         const resolved_binary_path = try std.fs.path.resolve(allocator, &.{ bin_path, binary_name });
         defer allocator.free(resolved_binary_path);
         const resolved_binary_pathZ = try allocator.dupeSentinel(u8, resolved_binary_path, 0);
-        errdefer allocator.free(resolved_binary_pathZ);
         const rc = std.posix.system.access(resolved_binary_pathZ, std.posix.X_OK);
-        if (rc == -1) continue;
+        if (rc == -1) {
+            allocator.free(resolved_binary_pathZ);
+            continue;
+        }
         return resolved_binary_pathZ;
     }
     return null;
