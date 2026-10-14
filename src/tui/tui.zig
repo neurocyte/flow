@@ -846,6 +846,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "MINI", tp.more })) // drop late mini mode replies
         return;
 
+    if (try m.match(.{ "HOVER", tp.more })) // drop late hover events
+        return;
+
     if (try m.match(.{ "FS", tp.more })) { // file store events
         if (self.file_probe.receive(root.get_io(), m)) {
             need_render(@src());
