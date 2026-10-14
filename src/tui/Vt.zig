@@ -705,6 +705,11 @@ pub fn register_profile_keybindings() void {
     }
 }
 
+pub fn deinit_profile_keybindings() void {
+    profile_keybindings.deinit(root.get_init().gpa);
+    profile_keybindings = .empty;
+}
+
 pub fn profile_config_changed(path: []const u8) void {
     if (Terminal.Profile.is_profile_file(path)) register_profile_keybindings();
 }
