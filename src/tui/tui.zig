@@ -449,6 +449,7 @@ fn deinit(self: *Self) void {
         Widget.deinit_themes(self.allocator);
         @import("logview.zig").deinit_persistent_buffer();
         @import("Vt.zig").deinit_profile_keybindings();
+        project_manager.deinit_project_state();
         if (self.input_mode_outer_) |*m| {
             m.deinit_command = null;
             m.deinit();

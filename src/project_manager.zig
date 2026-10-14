@@ -128,8 +128,24 @@ pub fn store_state(project_directory: []const u8, state: std.array_list.Managed(
     const io = root.get_io();
     project_state_mutex.lockUncancelable(io);
     defer project_state_mutex.unlock(io);
-    if (project_state.fetchRemove(project_directory)) |old_state| old_state.value.deinit();
+    if (project_state.fetchRemove(project_directory)) |old_state| {
+        project_state_allocator.free(old_state.key);
+        old_state.value.deinit();
+    }
     try project_state.put(project_state_allocator, try project_state_allocator.dupe(u8, project_directory), state);
+}
+
+pub fn deinit_project_state() void {
+    const io = root.get_io();
+    project_state_mutex.lockUncancelable(io);
+    defer project_state_mutex.unlock(io);
+    var it = project_state.iterator();
+    while (it.next()) |entry| {
+        project_state_allocator.free(entry.key_ptr.*);
+        entry.value_ptr.deinit();
+    }
+    project_state.deinit(project_state_allocator);
+    project_state = .empty;
 }
 
 pub fn close(project_directory: []const u8) (ProjectManagerError || error{CloseCurrentProject})!void {
