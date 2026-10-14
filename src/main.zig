@@ -42,7 +42,7 @@ pub const debug = struct {
     pub const handleSegfault = crash.handle_segfault;
 };
 
-pub fn main(init: std.process.Init) anyerror!void {
+pub fn main(init: std.process.Init) anyerror!u8 {
     global_init = init;
     have_global_init = true;
     const io = init.io;
@@ -160,8 +160,10 @@ pub fn main(init: std.process.Init) anyerror!void {
     const stderr = &stderr_file.interface;
     defer stderr.flush() catch {};
 
-    if (args.version)
-        return stdout.writeAll(version_info);
+    if (args.version) {
+        try stdout.writeAll(version_info);
+        return 0;
+    }
 
     if (args.list_languages) {
         const NO_COLOR = if (init.environ_map.get("NO_COLOR")) |v| v.len > 0 else false;
@@ -170,7 +172,8 @@ pub fn main(init: std.process.Init) anyerror!void {
             .writer = stdout,
             .mode = try std.Io.Terminal.Mode.detect(io, std.Io.File.stderr(), NO_COLOR, CLICOLOR_FORCE),
         };
-        return list_languages.list(a, tty);
+        try list_languages.list(a, tty);
+        return 0;
     }
 
     if (!build_options.gui and args.gui)
@@ -435,8 +438,12 @@ pub fn main(init: std.process.Init) anyerror!void {
     }
 
     if (want_restart) if (want_restart_with_sudo) restart_with_sudo() else restart();
-    if (builtin.mode == .debug) free_loaded_files();
-    if (get_init().environ_map.get("FLOW_LEAK_CHECK") == null) exit(final_exit_status);
+    if (builtin.mode == .debug) {
+        free_loaded_files();
+        drain_stdin();
+        return final_exit_status; // let the leak check run
+    }
+    exit(final_exit_status);
 }
 
 fn run_context(ctx: *thespian.context) void {
@@ -537,11 +544,15 @@ fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
 }
 
 pub fn exit(status: u8) noreturn {
+    drain_stdin();
+    std.process.exit(status);
+}
+
+fn drain_stdin() void {
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't leave junk at the next prompt
         _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
     }
-    std.process.exit(status);
 }
 
 pub fn free_config(allocator: std.mem.Allocator, arena: ?*std.heap.ArenaAllocator) void {
