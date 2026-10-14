@@ -182,6 +182,7 @@ const Process = struct {
 
     fn handle_terminated(self: *Process, m: tp.message) !void {
         const output = try self.output.toOwnedSlice();
+        defer self.allocator.free(output);
         var count: usize = 0;
         var it = std.mem.splitScalar(u8, output, '\n');
         while (it.next()) |json| {
@@ -211,9 +212,10 @@ const Process = struct {
     }
 
     fn dispatch(self: *Process, m: tp.message) !void {
+        var arena: std.heap.ArenaAllocator = .init(self.allocator);
+        defer arena.deinit();
         var obj: std.json.ObjectMap = .empty;
-        defer obj.deinit(self.allocator);
-        if (try m.match(cbor.extractAlloc(&obj, self.allocator))) {
+        if (try m.match(cbor.extractAlloc(&obj, arena.allocator()))) {
             if (obj.get("type")) |*val| {
                 if (std.mem.eql(u8, "match", val.string))
                     if (obj.get("data")) |*data| switch (data.*) {
