@@ -42,6 +42,7 @@ const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
 const terminal_view = @import("terminal_view.zig");
+const project_view_state = @import("project_view_state.zig");
 const PanelArea = @import("PanelArea.zig");
 const panel_registry = @import("panel_registry.zig");
 const Panel = @import("Panel.zig");
@@ -67,6 +68,7 @@ views: *WidgetList,
 views_widget: Widget,
 active_view: usize = 0,
 view_layer_ids: std.ArrayList(ed.LayerIds) = .empty,
+project_view_states: project_view_state,
 panes: *WidgetList,
 panes_widget: Widget,
 bottom_area: *PanelArea = undefined,
@@ -107,6 +109,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .buffer_manager = Buffer.Manager.init(allocator),
         .lsp_info = .init(allocator),
         .filelists = FileList.Manager.init(allocator),
+        .project_view_states = .init(allocator),
     };
     self.set_edit_set_applier();
     project_manager.request_file_store() catch |e| std.log.err("request_file_store: {}", .{e});
@@ -194,6 +197,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     while (file_operations.next()) |request| request.deinit(allocator);
     self.file_operations.deinit(allocator);
     self.filelist_streams.deinit(self.allocator);
+    self.project_view_states.deinit();
     self.store_last_match_text(null);
     allocator.destroy(self);
 }
@@ -676,7 +680,7 @@ const cmds = struct {
     pub const save_session_and_quit_meta: Meta = .{ .description = "Save session and quit" };
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
-        if (try project_manager.open(".")) |state|
+        if (try self.open_project(".")) |state|
             try self.restore_state(state, root.get_now());
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
@@ -687,7 +691,7 @@ const cmds = struct {
         var project_dir: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
-        if (try project_manager.open(project_dir)) |state|
+        if (try self.open_project(project_dir)) |state|
             try self.restore_state(state, root.get_now());
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
@@ -727,10 +731,9 @@ const cmds = struct {
             try self.write_state(&state_writer.writer);
             try state_writer.writer.flush();
             const old_project = tp.env.get().str("project");
-            var state_al = state_writer.toArrayList();
-            const state = state_al.toManaged(self.allocator);
-            try project_manager.store_state(old_project, state);
-            logger.print("stored project state for: {s} ({d} bytes)", .{ old_project, state.items.len });
+            const state = try state_writer.toOwnedSlice();
+            try self.project_view_states.store(old_project, state);
+            logger.print("stored project state for: {s} ({d} bytes)", .{ old_project, state.len });
         }
 
         {
@@ -739,7 +742,7 @@ const cmds = struct {
             for (buffers) |buffer| buffer_lsp.close(buffer);
         }
 
-        const project_state = try project_manager.open(project_dir);
+        const project_state = try self.open_project(project_dir);
 
         {
             self.quit_on_document_close = false;
@@ -2863,6 +2866,11 @@ fn get_view_layer_ids(self: *Self, view: usize) ed.LayerIds {
             .trailing = Layer.next_id(),
         }) catch return .{};
     return self.view_layer_ids.items[view];
+}
+
+fn open_project(self: *Self, project_dir: []const u8) !?[]const u8 {
+    const project = try project_manager.open(project_dir) orelse return null;
+    return self.project_view_states.get(project);
 }
 
 fn create_editor(self: *Self, now: std.Io.Timestamp) !void {

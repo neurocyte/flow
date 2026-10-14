@@ -98,54 +98,18 @@ pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSyste
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const io = root.get_io();
     const len = std.Io.Dir.cwd().realPathFile(io, rel_project_directory, &path_buf) catch {
-        return get_project_state("(none)");
+        return null;
     };
     const project_directory = path_buf[0..len];
     const current_project = tp.env.get().str("project");
-    if (std.mem.eql(u8, current_project, project_directory)) return get_project_state(project_directory);
+    if (std.mem.eql(u8, current_project, project_directory)) return current_project;
     if (!root.is_directory(project_directory)) return error.InvalidProjectDirectory;
     var dir = try std.Io.Dir.openDirAbsolute(io, project_directory, .{});
     try std.process.setCurrentDir(io, dir);
     dir.close(io);
     tp.env.get().str_set("project", project_directory);
     try send(.{ "open", project_directory });
-    return get_project_state(project_directory);
-}
-
-const project_state_allocator = std.heap.c_allocator;
-var project_state_mutex: std.Io.Mutex = .init;
-var project_state: ProjectStateMap = .empty;
-const ProjectStateMap = std.StringHashMapUnmanaged(std.array_list.Managed(u8));
-
-fn get_project_state(project_directory: []const u8) ?[]const u8 {
-    const io = root.get_io();
-    project_state_mutex.lockUncancelable(io);
-    defer project_state_mutex.unlock(io);
-    return if (project_state.get(project_directory)) |state| state.items else null;
-}
-
-pub fn store_state(project_directory: []const u8, state: std.array_list.Managed(u8)) error{OutOfMemory}!void {
-    const io = root.get_io();
-    project_state_mutex.lockUncancelable(io);
-    defer project_state_mutex.unlock(io);
-    if (project_state.fetchRemove(project_directory)) |old_state| {
-        project_state_allocator.free(old_state.key);
-        old_state.value.deinit();
-    }
-    try project_state.put(project_state_allocator, try project_state_allocator.dupe(u8, project_directory), state);
-}
-
-pub fn deinit_project_state() void {
-    const io = root.get_io();
-    project_state_mutex.lockUncancelable(io);
-    defer project_state_mutex.unlock(io);
-    var it = project_state.iterator();
-    while (it.next()) |entry| {
-        project_state_allocator.free(entry.key_ptr.*);
-        entry.value_ptr.deinit();
-    }
-    project_state.deinit(project_state_allocator);
-    project_state = .empty;
+    return tp.env.get().str("project");
 }
 
 pub fn close(project_directory: []const u8) (ProjectManagerError || error{CloseCurrentProject})!void {
