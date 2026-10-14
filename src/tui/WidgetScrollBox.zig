@@ -448,6 +448,18 @@ pub fn scroll_into_view(self: *Self, w: Widget) void {
     if (end > from + view) return self.scroll_to_px(end - view);
 }
 
+fn update_view(self: *Self) void {
+    const cell = self.cell_a();
+    const start: usize = @intCast(self.scroll_cells());
+    const len: usize = @intCast(@divFloor(self.viewport_px() + cell - 1, cell) + 1);
+    const visible: u16 = @intCast(@min(len, self.content_cells -| start));
+    const first: u16 = @intCast(@min(start, self.content_cells));
+    self.layer.view = switch (self.direction) {
+        .horizontal => .{ .x = first, .w = visible, .h = self.layer.screen.height },
+        .vertical => .{ .y = first, .w = self.layer.screen.width, .h = visible },
+    };
+}
+
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     if (self.drag_anchor_px != null) {
         const source, const button = tui.get_drag_source();
@@ -465,6 +477,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.layer.clip = self.region();
     const z_index = self.z();
     self.layer.z_index = z_index;
+    self.update_view();
 
     var more = animating;
     if (self.inner) |*w| if (w.render(theme)) {

@@ -328,20 +328,31 @@ pub fn render(self: *Self, focused: bool) error{}!?i64 {
             layers_buf.append(self.allocator, .{
                 .id = t.src.id,
                 .screen = &t.src.screen,
+                .view = t.src.view,
                 .transparent_bg = t.src.transparent_bg,
             }) catch @panic("OOM render");
         }
 
+        var x = t.x;
+        var y = t.y;
+        if (t.src.view) |view| {
+            x += view.x;
+            y += view.y;
+        }
         const parent_idx: u32 = if (t.parent) |h| blk: {
             const parent_target = &self.targets.items[@backingInt(h)];
+            if (parent_target.src.view) |view| {
+                x -= view.x;
+                y -= view.y;
+            }
             break :blk layer_index_by_ptr.get(parent_target.src) orelse @panic("parent layer not registered");
         } else 0; // stdplane
 
         targets_buf.append(self.allocator, .{
             .src_index = src_gop.value_ptr.*,
             .parent = parent_idx,
-            .y = t.y,
-            .x = t.x,
+            .y = y,
+            .x = x,
             .yoffset = t.yoffset,
             .xoffset = t.xoffset,
             .blend = t.blend,

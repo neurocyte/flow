@@ -65,6 +65,15 @@ origin_px_y: i32 = 0,
 /// layer is composited fully transparent, regardless of gui_window_transparency
 transparent_bg: bool = false,
 clip: ?Frame = null,
+/// visible part of `screen` in cells; the GUI renderer only paints this part
+view: ?View = null,
+
+pub const View = struct {
+    x: u16 = 0,
+    y: u16 = 0,
+    w: u16 = 0,
+    h: u16 = 0,
+};
 
 pub const Options = struct {
     h: u16 = 0,

@@ -64,6 +64,7 @@ pub const SymbolRasterizer = gpu.SymbolRasterizer;
 pub const LayerView = struct {
     id: Layer.Id,
     screen: *const vaxis.Screen,
+    view: ?Layer.View = null,
     cursor: gpu.CursorInfo = .{},
     secondary_cursors: []const gpu.CursorInfo = &.{},
     transparent_bg: bool = false,
@@ -423,7 +424,8 @@ fn buildLayerSnapshot(
     lv: *const LayerView,
     is_root: bool,
 ) std.mem.Allocator.Error!LayerSnapshot {
-    const cell_count: usize = @as(usize, lv.screen.width) * @as(usize, lv.screen.height);
+    const view = layerView(lv);
+    const cell_count: usize = @as(usize, view.w) * @as(usize, view.h);
     const cells = try allocator.alloc(gpu.Cell, cell_count);
     errdefer allocator.free(cells);
     const codepoints = try allocator.alloc(u21, cell_count);
@@ -441,53 +443,29 @@ fn buildLayerSnapshot(
     const transparent = window_transparency;
 
     // Convert vaxis cells to gpu.Cell (colours only; glyph indices filled on GPU thread).
-    for (lv.screen.buf[0..cell_count], cells, codepoints, widths, emoji) |*vc, *gc, *cp, *wt, *em| {
-        const ul_color: RGBA = switch (vc.style.ul) {
-            .default => RGBA.init(0, 0, 0, 0),
-            else => colorFromVaxis(vc.style.ul),
-        };
-        const face: u8 = (@as(u8, @intFromBool(vc.style.bold)) << 0) |
-            (@as(u8, @intFromBool(vc.style.italic)) << 1);
-        var bg = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg);
-        if (transparent) {
-            if (!is_root and vc.default) {
-                // empty non-root cells fully transparent
-                bg.a = 0;
-            } else {
-                bg.a = effectiveAlphaU8(bg.a, opacity, ignore);
-            }
-        } else if (lv.transparent_bg and !is_root and vc.default) {
-            // A transparent_bg layer reveal what is behind the layer
-            // instead of its fill.
-            bg.a = 0;
-        }
-        // bg_transparent zeroes only the background *fill* in the shader.
-        const flags: u8 = (if (vc.style.glyph_alpha_from_bg) gpu.flag_glyph_alpha_from_bg else 0) |
-            (if (vc.style.bg_transparent) gpu.flag_bg_transparent else 0);
-        gc.* = .{
-            .glyph_index = 0,
-            .background = bg,
-            .foreground = colorFromVaxis(if (vc.style.reverse) vc.style.bg else vc.style.fg),
-            .underline = ul_color,
-            .ul_style = @backingInt(vc.style.ul_style),
-            .strikethrough = if (vc.style.strikethrough) 1 else 0,
-            .face = face,
-            .flags = flags,
-        };
-        // Decode first codepoint from the grapheme cluster.
-        const g = vc.char.grapheme;
-        cp.* = if (g.len > 0) blk: {
-            const seq_len = std.unicode.utf8ByteSequenceLength(g[0]) catch break :blk ' ';
-            break :blk std.unicode.utf8Decode(g[0..@min(seq_len, g.len)]) catch ' ';
-        } else ' ';
-        wt.* = vc.char.width;
-        em.* = graphemeEmojiPresentation(g);
+    for (0..view.h) |row| {
+        const src_start = (@as(usize, view.y) + row) * lv.screen.width + view.x;
+        const dst_start = row * view.w;
+        const dst_end = dst_start + view.w;
+        for (
+            lv.screen.buf[src_start .. src_start + view.w],
+            cells[dst_start..dst_end],
+            codepoints[dst_start..dst_end],
+            widths[dst_start..dst_end],
+            emoji[dst_start..dst_end],
+        ) |*vc, *gc, *cp, *wt, *em| convertCell(vc, gc, cp, wt, em, lv.transparent_bg, is_root, transparent, opacity, ignore);
     }
 
     // Set cursor width from it's cell
     for (cursors) |*cur| {
-        const idx = @as(usize, cur.row) * lv.screen.width + cur.col;
-        cur.width = if (idx < cell_count and widths[idx] == 2) 2 else 1;
+        if (cur.row < view.y or cur.row >= view.y + view.h or cur.col < view.x or cur.col >= view.x + view.w) {
+            cur.vis = false;
+            continue;
+        }
+        cur.row -= view.y;
+        cur.col -= view.x;
+        const idx = @as(usize, cur.row) * view.w + cur.col;
+        cur.width = if (widths[idx] == 2) 2 else 1;
     }
 
     return .{
@@ -496,11 +474,74 @@ fn buildLayerSnapshot(
         .codepoints = codepoints,
         .widths = widths,
         .emoji = emoji,
-        .width = lv.screen.width,
-        .height = lv.screen.height,
+        .width = view.w,
+        .height = view.h,
         .cursors = cursors,
         .transparent_bg = lv.transparent_bg,
     };
+}
+
+fn layerView(lv: *const LayerView) Layer.View {
+    const sw = lv.screen.width;
+    const sh = lv.screen.height;
+    const v = lv.view orelse return .{ .w = sw, .h = sh };
+    const x = @min(v.x, sw);
+    const y = @min(v.y, sh);
+    return .{ .x = x, .y = y, .w = @min(v.w, sw - x), .h = @min(v.h, sh - y) };
+}
+
+fn convertCell(
+    vc: *const vaxis.Cell,
+    gc: *gpu.Cell,
+    cp: *u21,
+    wt: *u8,
+    em: *bool,
+    transparent_bg: bool,
+    is_root: bool,
+    transparent: bool,
+    opacity: f32,
+    ignore: bool,
+) void {
+    const ul_color: RGBA = switch (vc.style.ul) {
+        .default => RGBA.init(0, 0, 0, 0),
+        else => colorFromVaxis(vc.style.ul),
+    };
+    const face: u8 = (@as(u8, @intFromBool(vc.style.bold)) << 0) |
+        (@as(u8, @intFromBool(vc.style.italic)) << 1);
+    var bg = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg);
+    if (transparent) {
+        if (!is_root and vc.default) {
+            // empty non-root cells fully transparent
+            bg.a = 0;
+        } else {
+            bg.a = effectiveAlphaU8(bg.a, opacity, ignore);
+        }
+    } else if (transparent_bg and !is_root and vc.default) {
+        // A transparent_bg layer reveal what is behind the layer
+        // instead of its fill.
+        bg.a = 0;
+    }
+    // bg_transparent zeroes only the background *fill* in the shader.
+    const flags: u8 = (if (vc.style.glyph_alpha_from_bg) gpu.flag_glyph_alpha_from_bg else 0) |
+        (if (vc.style.bg_transparent) gpu.flag_bg_transparent else 0);
+    gc.* = .{
+        .glyph_index = 0,
+        .background = bg,
+        .foreground = colorFromVaxis(if (vc.style.reverse) vc.style.bg else vc.style.fg),
+        .underline = ul_color,
+        .ul_style = @backingInt(vc.style.ul_style),
+        .strikethrough = if (vc.style.strikethrough) 1 else 0,
+        .face = face,
+        .flags = flags,
+    };
+    // Decode first codepoint from the grapheme cluster.
+    const g = vc.char.grapheme;
+    cp.* = if (g.len > 0) blk: {
+        const seq_len = std.unicode.utf8ByteSequenceLength(g[0]) catch break :blk ' ';
+        break :blk std.unicode.utf8Decode(g[0..@min(seq_len, g.len)]) catch ' ';
+    } else ' ';
+    wt.* = vc.char.width;
+    em.* = graphemeEmojiPresentation(g);
 }
 
 fn freeLayerSnapshot(allocator: std.mem.Allocator, ls: *LayerSnapshot) void {
