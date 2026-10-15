@@ -20,17 +20,7 @@ pub const bash = .{
 
 pub const bibtex = .{
     .language_server = .{"texlab"},
-    .formatter = .{
-        "bibtex-tidy",
-        "-",
-        "--curly",
-        "--drop-all-caps",
-        "--remove-empty-fields",
-        "--sort-fields",
-        "--sort=year,author,id",
-        "--strip-enclosing-braces",
-        "--trailing-commas",
-    },
+    .formatter = .{ "bibtex-tidy", "--curly", "--trailing-commas" },
 };
 
 pub const c = .{
