@@ -130,6 +130,10 @@ pub const superhtml = .{
     .formatter = .{ "superhtml", "fmt", "--stdin-super" },
 };
 
+pub const supermd = .{
+    .language_server = .{ "ziggy", "lsp" },
+};
+
 pub const hurl = .{};
 
 pub const java = .{
@@ -351,6 +355,6 @@ pub const ziggy = .{
 };
 
 pub const @"ziggy-schema" = .{
-    .language_server = .{ "ziggy", "lsp", "--schema" },
+    .language_server = .{ "ziggy", "lsp" },
     .formatter = .{ "ziggy", "fmt", "--stdin-schema" },
 };
