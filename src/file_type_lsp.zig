@@ -10,7 +10,7 @@ pub const astro = .{
 };
 
 pub const awk = .{
-    .formatter = .{ "gawk", "--pretty-print=/dev/stdout" },
+    .formatter = .{ "gawk", "--pretty-print=/dev/stdout", "-f", "/dev/stdin" },
 };
 
 pub const bash = .{
