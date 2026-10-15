@@ -270,8 +270,9 @@ pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usi
     const language_server_protocol = file_type.protocol;
     const language_server_options = if (file_type.language_server) |lsp| lsp_config.get(project, lsp[0]) orelse &.{} else &.{};
     defer lsp_config.allocator.free(language_server_options);
-    const language_server_settings = if (file_type.language_server) |lsp| lsp_config.get_settings(project, lsp[0]) orelse &.{} else &.{};
-    defer lsp_config.allocator.free(language_server_settings);
+    const settings_file = if (file_type.language_server) |lsp| lsp_config.get_settings(project, lsp[0]) else null;
+    defer if (settings_file) |settings| lsp_config.allocator.free(settings);
+    const language_server_settings = settings_file orelse file_type.language_server_settings orelse &.{};
     const language_id = file_type.language_id orelse file_type.name;
     return send(.{ "did_open", project, file_path, language_id, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text });
 }
