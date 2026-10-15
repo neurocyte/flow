@@ -185,6 +185,11 @@ pub const markdown = .{
 
 pub const @"markdown-inline" = .{};
 
+pub const mojo = .{
+    .language_server = .{"mojo-lsp-server"},
+    .formatter = .{ "mojo", "format", "-q", "-" },
+};
+
 pub const nasm = .{
     .language_server = .{"asm-lsp"},
 };
