@@ -272,7 +272,8 @@ pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usi
     defer lsp_config.allocator.free(language_server_options);
     const language_server_settings = if (file_type.language_server) |lsp| lsp_config.get_settings(project, lsp[0]) orelse &.{} else &.{};
     defer lsp_config.allocator.free(language_server_settings);
-    return send(.{ "did_open", project, file_path, file_type.name, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text });
+    const language_id = file_type.language_id orelse file_type.name;
+    return send(.{ "did_open", project, file_path, language_id, language_server, language_server_options, language_server_settings, language_server_protocol, version, hash, text });
 }
 
 pub fn did_change(file_path: []const u8, version: usize, hash: EditSet.Hash, edit_set: cbor.Raw) (ProjectManagerError || ProjectError)!void {
