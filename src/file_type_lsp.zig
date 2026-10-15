@@ -246,8 +246,8 @@ pub const sql = .{};
 pub const @"ssh-config" = .{};
 
 pub const svg = .{
-    .language_server = .{"oxvg"},
-    .formatter = .{ "oxvg", "format", "-" },
+    .language_server = .{ "oxvg", "lint", "serve" },
+    .formatter = .{ "oxvg", "format" },
 };
 
 pub const swift = .{
