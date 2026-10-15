@@ -84,7 +84,7 @@ Make sure your system meets the requirements listed above.
 Flow builds with zig 0.17 at this time. Build with:
 
 ```shell
-zig build -Doptimize=ReleaseSafe
+zig build -Doptimize=fast
 ```
 
 Zig will by default build a binary optimized for your specific CPU. If you
@@ -96,9 +96,9 @@ Thanks to Zig you may also cross-compile from any host to pretty much any
 target. For example:
 
 ```shell
-zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
-zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
-zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux
+zig build -Doptimize=fast -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
+zig build -Doptimize=fast -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
+zig build -Doptimize=fast -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux
 ```
 
 When cross-compiling zig will build a binary with generic CPU support.
@@ -127,7 +127,7 @@ sudo cp zig-out/bin/flow /usr/local/bin
 Or if you prefer, let zig install it in your home directory:
 
 ```shell
-zig build -Doptimize=ReleaseSafe --prefix ~/.local
+zig build -Doptimize=fast --prefix ~/.local
 ```
 
 Flow Control is a single statically linked binary. No further runtime files
