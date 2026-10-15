@@ -176,7 +176,9 @@ pub const lua = .{
 
 pub const mail = .{};
 
-pub const make = .{};
+pub const make = .{
+    .formatter = .{ "mbake", "format", "--validate", "--stdin" },
+};
 
 pub const markdown = .{
     .language_server = .{ "marksman", "server" },
@@ -284,7 +286,9 @@ pub const rust = .{
     .formatter = .{"rustfmt"},
 };
 
-pub const scheme = .{};
+pub const scheme = .{
+    .formatter = .{"schemat"},
+};
 
 pub const scss = .{
     .language_server = .{ "vscode-css-language-server", "--stdio" },
