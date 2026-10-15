@@ -47,6 +47,14 @@ pub const css = .{
 
 pub const devicetree = .{
     .language_server = .{ "devicetree-language-server", "--stdio" },
+    .language_server_settings =
+    \\{
+    \\    "devicetree": {
+    \\        "allowAdhocContexts": true,
+    \\        "autoChangeContext": true
+    \\    }
+    \\}
+    ,
 };
 
 pub const diff = .{};
