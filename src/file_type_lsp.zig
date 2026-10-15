@@ -281,6 +281,12 @@ pub const toml = .{
     .formatter = .{ "tombi", "format", "-" },
 };
 
+pub const tsx = .{
+    .language_server = .{ "typescript-language-server", "--stdio" },
+    .language_id = "typescriptreact",
+    .formatter = .{ "prettier", "--parser", "typescript" },
+};
+
 pub const typescript = .{
     .language_server = .{ "typescript-language-server", "--stdio" },
     .formatter = .{ "prettier", "--parser", "typescript" },
