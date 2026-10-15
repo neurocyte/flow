@@ -335,6 +335,10 @@ pub const wgsl = .{
     .language_server = .{"wgsl-analyzer"},
 };
 
+pub const wikitext = .{
+    .language_server = .{ "wikitext-lsp", "--stdio" },
+};
+
 pub const xml = .{
     .formatter = .{ "xmllint", "--format", "-" },
 };
