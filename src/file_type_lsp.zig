@@ -45,10 +45,18 @@ pub const css = .{
     .formatter = .{ "prettier", "--parser", "css" },
 };
 
+pub const devicetree = .{
+    .language_server = .{ "devicetree-language-server", "--stdio" },
+};
+
 pub const diff = .{};
 
 pub const dockerfile = .{
     .language_server = .{ "docker-langserver", "--stdio" },
+};
+
+pub const dot = .{
+    .language_server = .{ "dot-language-server", "--stdio" },
 };
 
 pub const dtd = .{};
@@ -285,6 +293,10 @@ pub const vim = .{};
 
 pub const vue = .{
     .language_server = .{ "vue-language-server", "--stdio" },
+};
+
+pub const wat = .{
+    .language_server = .{"wat_server"},
 };
 
 pub const wgsl = .{
