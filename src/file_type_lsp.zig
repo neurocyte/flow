@@ -251,6 +251,17 @@ pub const python = .{
 
 pub const regex = .{};
 
+pub const roc = .{
+    // The Roc language server only provides diagnostics and semantic features
+    // in a trusted workspace, because checking a project can download packages
+    // and run compile-time Roc code. To trust a project, add this with
+    // "Edit LSP configuration (project)" (open_lsp_config_project):
+    //
+    // { "trustedWorkspace": true }
+    .language_server = .{ "roc", "experimental-lsp", "--stdio" },
+    .formatter = .{ "roc", "fmt", "--stdin" },
+};
+
 pub const rpmspec = .{
     .language_server = .{ "python3", "-mrpm_spec_language_server", "--stdio" },
 };
