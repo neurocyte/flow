@@ -13,14 +13,19 @@ pub const Error = error{ OutOfMemory, ThespianSpawnFailed };
 
 pub const Track = common.Track;
 
-pub fn create(allocator: std.mem.Allocator, path: []const u8, track: Track) Error!@This() {
-    const args = try Process.Args.init(allocator, path, track);
+pub const Options = struct {
+    track: Track = .none,
+    verbose: bool = false,
+};
+
+pub fn create(allocator: std.mem.Allocator, path: []const u8, options: Options) Error!@This() {
+    const args = try Process.Args.init(allocator, path, options);
     errdefer args.deinit();
     return .{ .pid = try tp.spawn_link(allocator, args, Process.start, module_name) };
 }
 
-pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?tp.env, path: []const u8, track: Track) !@This() {
-    const args = try Process.Args.init(allocator, path, track);
+pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?tp.env, path: []const u8, options: Options) !@This() {
+    const args = try Process.Args.init(allocator, path, options);
     errdefer args.deinit();
     return .{ .pid = try ctx.spawn_link(args, Process.start, module_name, eh, env) };
 }
@@ -65,6 +70,7 @@ const Process = struct {
     outstanding: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
     failed: usize = 0,
     track: Track,
+    verbose: bool,
     tracked_requests: std.AutoHashMapUnmanaged(u64, void) = .empty,
     tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
     tracked_any: bool = false,
@@ -73,10 +79,10 @@ const Process = struct {
     const Args = struct {
         allocator: std.mem.Allocator,
         path: [:0]const u8,
-        track: Track,
+        options: Options,
 
-        fn init(allocator: std.mem.Allocator, path: []const u8, track: Track) Error!Args {
-            return .{ .allocator = allocator, .path = try allocator.dupeSentinel(u8, path, 0), .track = track };
+        fn init(allocator: std.mem.Allocator, path: []const u8, options: Options) Error!Args {
+            return .{ .allocator = allocator, .path = try allocator.dupeSentinel(u8, path, 0), .options = options };
         }
 
         fn deinit(self: Args) void {
@@ -99,7 +105,8 @@ const Process = struct {
         self.* = .{
             .allocator = args.allocator,
             .path = args.path,
-            .track = args.track,
+            .track = args.options.track,
+            .verbose = args.options.verbose,
             .receiver = .init(receive_fn, @This().deinit, self),
         };
         errdefer self.deinit();
@@ -143,9 +150,9 @@ const Process = struct {
         } else if (try m.match(.{ "reply", tp.extract(&request_id), tp.extract(&args) })) {
             return self.handle_reply(request_id, args);
         } else if (try m.match(.{ "cmd", tp.extract(&cmd), tp.more })) {
-            log.debug("ignoring unsupported command: {s}", .{cmd});
+            self.log_verbose("ignoring unsupported command: {s}", .{cmd});
         } else if (try m.match(.{ "A", tp.more })) {
-            log.debug("ignoring unsupported selection request", .{});
+            self.log_verbose("ignoring unsupported selection request", .{});
         } else if (try m.match(.{ "connected", tp.extract(&conn_id) })) {
             try self.connected(conn_id);
         } else if (try m.match(.{ "hello", tp.extract(&server_version) })) {
@@ -176,7 +183,7 @@ const Process = struct {
         if (self.server != null) return;
         const server = from.clone();
         self.server = server;
-        log.info("connected to {s}: {s}", .{ self.path, server_version });
+        self.log_verbose("connected to {s}: {s}", .{ self.path, server_version });
         for (self.pending.items) |msg| try server.send_raw(.{ .buf = msg });
         for (self.pending.items) |msg| self.allocator.free(msg);
         self.pending.clearRetainingCapacity();
@@ -225,7 +232,7 @@ const Process = struct {
         var exit_msg: cbor.Raw = .empty;
         var reason: []const u8 = "";
         if (try cbor.match(payload.bytes, "ok")) {
-            log.debug("{s}: ok", .{cmd});
+            self.log_verbose("{s}: ok", .{cmd});
         } else if (try cbor.match(payload.bytes, .{ "error", cbor.extract(&exit_msg) })) {
             self.failed += 1;
             _ = self.tracked_requests.remove(request_id);
@@ -239,10 +246,15 @@ const Process = struct {
         return self.disconnect_when_done();
     }
 
+    fn log_verbose(self: *const @This(), comptime fmt: []const u8, args: anytype) void {
+        if (self.verbose) log.info(fmt, args);
+    }
+
     fn handle_event(self: *@This(), request_id: u64, payload: cbor.Raw) !bool {
         var buffer_id: u64 = 0;
         var path: []const u8 = "";
         var event: []const u8 = "";
+        var old_path: []const u8 = "";
         if (try cbor.match(payload.bytes, .{ "navigation", "complete", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
             _ = self.tracked_requests.remove(request_id);
             try self.tracked_buffers.put(self.allocator, buffer_id, {});
@@ -257,7 +269,7 @@ const Process = struct {
             if (std.mem.eql(u8, event, "hidden") or std.mem.eql(u8, event, "deleted")) {
                 if (self.tracked_buffers.remove(buffer_id)) log.info("closed {s}", .{path});
             } else {
-                log.debug("{s} {s}", .{ event, path });
+                self.log_verbose("{s} {s}", .{ event, path });
             }
         } else return false;
         return true;

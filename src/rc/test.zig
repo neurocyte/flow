@@ -164,7 +164,7 @@ const ClientTest = struct {
         };
         errdefer self.deinit();
         switch (args.scenario) {
-            .connect_failure => self.client = try RcClient.create(args.allocator, args.path, .none),
+            .connect_failure => self.client = try RcClient.create(args.allocator, args.path, .{}),
             else => {
                 self.server = try RcServer.create(args.allocator, args.path);
                 try self.server.?.pid.?.send(.{"sync"});
@@ -190,7 +190,7 @@ const ClientTest = struct {
         var reply_id: u64 = 0;
 
         if (try m.match(.{"synced"})) {
-            self.client = try RcClient.create(self.allocator, self.path, if (self.scenario == .track) .full else .none);
+            self.client = try RcClient.create(self.allocator, self.path, .{ .track = if (self.scenario == .track) .full else .none });
             try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
             if (self.scenario == .no_wait) try self.client.?.disconnect();
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
