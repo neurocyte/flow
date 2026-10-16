@@ -7943,6 +7943,7 @@ pub const Editor = struct {
         const sel = self.primary_selection_or_cursor();
         const indicator = &self.code_action_indicator;
         const mode = tui.config().code_action_indicator_mode;
+        if (mode == .none) return;
         if (indicator.state != .unknown and indicator.root == token_from(root) and indicator.sel.eql(sel) and indicator.mode == mode) return;
         indicator.* = .{
             .token = (indicator.token +% 1) | code_action_indicator_token,
@@ -7968,6 +7969,7 @@ pub const Editor = struct {
             switch (indicator.mode) {
                 .any => {},
                 .quickfix_on_line => if (!action.matches("quickfix") or !try action.on_line(indicator.row)) continue,
+                .none => continue,
             }
             indicator.state = .available;
         }
@@ -7984,6 +7986,7 @@ pub const Editor = struct {
         return switch (indicator.mode) {
             .any => if (indicator.sel.begin.row <= row and row <= indicator.sel.end.row) row else null,
             .quickfix_on_line => if (row == indicator.row) row else null,
+            .none => null,
         };
     }
 

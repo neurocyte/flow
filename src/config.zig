@@ -168,6 +168,7 @@ pub const IdleAction = enum {
 pub const CodeActionIndicatorMode = enum {
     any,
     quickfix_on_line,
+    none,
 
     pub const default = .quickfix_on_line;
 };

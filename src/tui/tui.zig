@@ -1899,7 +1899,8 @@ const cmds = struct {
     pub fn toggle_code_action_indicator_mode(self: *Self, _: Ctx) Result {
         self.config_.code_action_indicator_mode = switch (self.config_.code_action_indicator_mode) {
             .any => .quickfix_on_line,
-            .quickfix_on_line => .any,
+            .quickfix_on_line => .none,
+            .none => .any,
         };
         defer self.logger.print("code action indicator mode {t}", .{self.config_.code_action_indicator_mode});
         try save_config();
