@@ -106,12 +106,14 @@ const Process = struct {
         var args: cbor.Raw = .empty;
         var reason: []const u8 = "";
         var client_version: []const u8 = "";
+        var request_id: u64 = 0;
+        var cmd: []const u8 = "";
 
         if (try m.match(.{ "hello", tp.extract(&client_version) })) {
             log.info("client connected: {s}", .{client_version});
             try from.send(.{ "hello", common.build_version });
-        } else if (try m.match(.{ "navigate", tp.extract(&args) })) {
-            try self.parent.send(.{ "cmd", "navigate", args });
+        } else if (try m.match(.{ "request", tp.extract(&request_id), tp.extract(&cmd), tp.extract(&args) })) {
+            try self.parent.send(.{ "cmd", cmd, args, .{ "reply", from.instance_id(), request_id } });
         } else if (try m.match(.{ "connected", tp.extract(&conn_id) })) {
             const conn = tp.pid.from_id(conn_id) orelse return;
             errdefer conn.deinit();

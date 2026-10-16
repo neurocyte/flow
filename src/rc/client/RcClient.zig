@@ -43,8 +43,12 @@ pub fn disconnect(self: *const @This()) tp.result {
 }
 
 pub fn navigate(self: *const @This(), args: anytype) tp.result {
+    return self.request("navigate", args);
+}
+
+pub fn request(self: *const @This(), cmd: []const u8, args: anytype) tp.result {
     const pid = self.pid orelse return tp.exit_error(error.Shutdown, null);
-    return pid.send(.{ "navigate", args });
+    return pid.send(.{ "request", cmd, args });
 }
 
 const Process = struct {
@@ -55,6 +59,9 @@ const Process = struct {
     server: ?tp.pid = null,
     disconnecting: bool = false,
     pending: std.ArrayList([]const u8) = .empty,
+    next_request_id: u64 = 1,
+    outstanding: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
+    failed: usize = 0,
     receiver: tp.Receiver(*@This()),
 
     const Args = struct {
@@ -97,6 +104,9 @@ const Process = struct {
     fn deinit(self: *@This()) void {
         for (self.pending.items) |msg| self.allocator.free(msg);
         self.pending.deinit(self.allocator);
+        var it = self.outstanding.valueIterator();
+        while (it.next()) |cmd| self.allocator.free(cmd.*);
+        self.outstanding.deinit(self.allocator);
         if (self.server) |p| p.deinit();
         if (self.connection) |p| p.deinit();
         if (self.connector) |p| p.deinit();
@@ -114,11 +124,14 @@ const Process = struct {
         var server_version: []const u8 = "";
         var args: cbor.Raw = .empty;
         var cmd: []const u8 = "";
+        var request_id: u64 = 0;
 
-        if (try m.match(.{ "navigate", tp.more })) {
-            try self.send_request(m);
+        if (try m.match(.{ "request", tp.extract(&cmd), tp.extract(&args) })) {
+            try self.send_request(cmd, args);
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args) })) {
-            try self.send_request(tp.message.fmt(.{ "navigate", args }));
+            try self.send_request("navigate", args);
+        } else if (try m.match(.{ "reply", tp.extract(&request_id), tp.extract(&args) })) {
+            return self.handle_reply(request_id, args);
         } else if (try m.match(.{ "cmd", tp.extract(&cmd), tp.more })) {
             log.debug("ignoring unsupported command: {s}", .{cmd});
         } else if (try m.match(.{ "A", tp.more })) {
@@ -129,13 +142,10 @@ const Process = struct {
             try self.hello(from, server_version);
         } else if (try m.match(.{"disconnect"})) {
             self.disconnecting = true;
-            if (self.server) |server| try server.send(.{"sync"});
-        } else if (self.disconnecting and try m.match(.{"synced"})) {
-            self.shutdown();
-            return tp.exit_normal();
+            return self.disconnect_when_done();
         } else if (try m.match(.{"shutdown"})) {
             self.shutdown();
-            return tp.exit_normal();
+            return self.exit_done();
         } else if (try m.match(.{ "exit", tp.extract(&reason) }) or try m.match(.{ "exit", tp.extract(&reason), tp.more })) {
             return self.handle_exit(from, reason);
         } else {
@@ -160,14 +170,54 @@ const Process = struct {
         for (self.pending.items) |msg| try server.send_raw(.{ .buf = msg });
         for (self.pending.items) |msg| self.allocator.free(msg);
         self.pending.clearRetainingCapacity();
-        if (self.disconnecting) try server.send(.{"sync"});
+        return self.disconnect_when_done();
     }
 
-    fn send_request(self: *@This(), m: tp.message) !void {
+    fn send_request(self: *@This(), cmd: []const u8, args: cbor.Raw) !void {
+        const request_id = self.next_request_id;
+        self.next_request_id += 1;
+        const cmd_owned = try self.allocator.dupe(u8, cmd);
+        errdefer self.allocator.free(cmd_owned);
+        try self.outstanding.put(self.allocator, request_id, cmd_owned);
+        const m = tp.message.fmt(.{ "request", request_id, cmd, args });
         if (self.server) |server| return server.send_raw(m);
         const msg = try self.allocator.dupe(u8, m.buf);
         errdefer self.allocator.free(msg);
         return self.pending.append(self.allocator, msg);
+    }
+
+    fn handle_reply(self: *@This(), request_id: u64, payload: cbor.Raw) !void {
+        const entry = self.outstanding.fetchRemove(request_id) orelse {
+            log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
+            return;
+        };
+        const cmd = entry.value;
+        defer self.allocator.free(cmd);
+        var exit_msg: cbor.Raw = .empty;
+        var reason: []const u8 = "";
+        if (try cbor.match(payload.bytes, "ok")) {
+            log.debug("{s}: ok", .{cmd});
+        } else if (try cbor.match(payload.bytes, .{ "error", cbor.extract(&exit_msg) })) {
+            self.failed += 1;
+            if (try cbor.match(exit_msg.bytes, .{ "exit", cbor.extract(&reason), cbor.more }))
+                log.err("{s} failed: {s}", .{ cmd, reason })
+            else
+                log.err("{s} failed: {f}", .{ cmd, tp.message{ .buf = exit_msg.bytes } });
+        } else {
+            log.info("{s}: {f}", .{ cmd, tp.message{ .buf = payload.bytes } });
+        }
+        return self.disconnect_when_done();
+    }
+
+    fn disconnect_when_done(self: *@This()) !void {
+        if (!self.disconnecting or self.server == null or self.outstanding.count() > 0) return;
+        self.shutdown();
+        return self.exit_done();
+    }
+
+    fn exit_done(self: *@This()) error{Exit} {
+        if (self.failed > 0) return tp.exit_fmt("{d} remote request(s) failed", .{self.failed});
+        return tp.exit_normal();
     }
 
     fn handle_exit(self: *@This(), from: tp.pid_ref, reason: []const u8) !void {
@@ -181,7 +231,7 @@ const Process = struct {
         if (self.connection) |connection| if (id == connection.instance_id()) {
             connection.deinit();
             self.connection = null;
-            if (std.mem.eql(u8, reason, "peer_closed")) return tp.exit_normal();
+            if (std.mem.eql(u8, reason, "peer_closed")) return self.exit_done();
             return tp.exit(reason);
         };
     }
