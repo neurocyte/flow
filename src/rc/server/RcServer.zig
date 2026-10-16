@@ -4,7 +4,7 @@ const cbor = @import("cbor");
 const remote = @import("remote");
 const common = @import("common");
 
-const log = std.log.scoped(.RcServer);
+const log = std.log.scoped(.server);
 
 pid: ?tp.pid,
 
@@ -114,19 +114,19 @@ const Process = struct {
             try from.send(.{ "hello", common.build_version });
         } else if (try m.match(.{ "request", tp.extract(&request_id), tp.extract(&cmd), tp.extract(&args) })) {
             try self.parent.send(.{ "cmd", cmd, args, .{ "reply", from.instance_id(), request_id } });
-        } else if (try m.match(.{ "connected", tp.extract(&conn_id) })) {
+        } else if (self.is_listener(from) and try m.match(.{ "connected", tp.extract(&conn_id) })) {
             const conn = tp.pid.from_id(conn_id) orelse return;
             errdefer conn.deinit();
             try conn.link();
             try self.connections.append(self.allocator, conn);
-        } else if (try m.match(.{ "path", tp.any })) {
+        } else if (self.is_listener(from) and try m.match(.{ "path", tp.any })) {
             self.listening = true;
             for (self.sync_waiters.items) |waiter| {
                 waiter.send(.{"synced"}) catch {};
                 waiter.deinit();
             }
             self.sync_waiters.clearRetainingCapacity();
-        } else if (try m.match(.{"sync"})) {
+        } else if (self.is_parent(from) and try m.match(.{"sync"})) {
             if (self.listening) return from.send(.{"synced"});
             try self.sync_waiters.append(self.allocator, from.clone());
         } else if (try m.match(.{"shutdown"})) {
@@ -138,6 +138,15 @@ const Process = struct {
             var buf: [256]u8 = undefined;
             log.warn("ignoring unexpected message: {s}", .{m.to_json(&buf) catch "(too large)"});
         }
+    }
+
+    fn is_listener(self: *const @This(), from: tp.pid_ref) bool {
+        const listener = self.listener orelse return false;
+        return from.instance_id() == listener.instance_id();
+    }
+
+    fn is_parent(self: *const @This(), from: tp.pid_ref) bool {
+        return from.instance_id() == self.parent.instance_id();
     }
 
     fn handle_exit(self: *@This(), from: tp.pid_ref, reason: []const u8) !void {

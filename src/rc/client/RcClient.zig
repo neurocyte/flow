@@ -4,7 +4,7 @@ const cbor = @import("cbor");
 const remote = @import("remote");
 const common = @import("common");
 
-const log = std.log.scoped(.RcClient);
+const log = std.log.scoped(.client);
 
 pid: ?tp.pid,
 
