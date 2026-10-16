@@ -866,6 +866,11 @@ const cmds = struct {
             break;
         };
 
+        if (is_excluded and view == null and line == null and offset == null and goto_args.len == 0) {
+            line = 1;
+            column = 1;
+        }
+
         if (tui.config().restore_last_cursor_position and
             !is_excluded and
             view == null and
