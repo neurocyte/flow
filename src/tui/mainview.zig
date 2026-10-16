@@ -464,6 +464,11 @@ pub fn is_terminal_visible(self: *Self, vt: *const Vt) bool {
     return f.group.is_active(f.panel.id);
 }
 
+fn terminal_view_of(self: *Self, vt: *const Vt) ?*terminal_view {
+    const f = self.terminal_panel(vt) orelse return null;
+    return f.panel.cast(terminal_view);
+}
+
 fn current_terminal(self: *Self) ?*terminal_view {
     return self.bottom_area.current_of(terminal_view);
 }
@@ -1652,6 +1657,46 @@ const cmds = struct {
         }
     }
     pub const unfocus_terminal_meta: Meta = .{};
+
+    pub fn get_terminal_state(self: *Self, ctx: Ctx) Result {
+        var id: u64 = 0;
+        if (!try ctx.args.match(.{tp.extract(&id)})) return error.InvalidTerminalStateArgument;
+        const reply = ctx.reply orelse return;
+        const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+        const focus: enum { focused, unfocused } = if (self.terminal_view_of(vt)) |tv|
+            if (tv.panel_input.focused) .focused else .unfocused
+        else
+            .unfocused;
+        const panel: enum { maximized, normal } = if (self.bottom_area.is_maximized()) .maximized else .normal;
+        try reply.send(.{ "terminal_state", focus, panel });
+    }
+    pub const get_terminal_state_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn focus_terminal_id(self: *Self, ctx: Ctx) Result {
+        var id: u64 = 0;
+        if (!try ctx.args.match(.{tp.extract(&id)})) return error.InvalidTerminalIdArgument;
+        const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+        _ = try self.open_terminal_panel(vt, .{ .focus = true });
+    }
+    pub const focus_terminal_id_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn unfocus_terminal_id(self: *Self, ctx: Ctx) Result {
+        var id: u64 = 0;
+        if (!try ctx.args.match(.{tp.extract(&id)})) return error.InvalidTerminalIdArgument;
+        const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+        if (self.terminal_view_of(vt)) |tv| tv.unfocus();
+    }
+    pub const unfocus_terminal_id_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn maximize_panel(self: *Self, _: Ctx) Result {
+        self.bottom_area.set_maximized(true);
+    }
+    pub const maximize_panel_meta: Meta = .{};
+
+    pub fn unmaximize_panel(self: *Self, _: Ctx) Result {
+        self.bottom_area.set_maximized(false);
+    }
+    pub const unmaximize_panel_meta: Meta = .{};
 
     pub fn close_terminal(self: *Self, ctx: Ctx) Result {
         var ref: usize = 0;
