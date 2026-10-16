@@ -17,7 +17,10 @@ pub const Options = struct {
     track: Track = .none,
     verbose: bool = false,
     terminal: ?u64 = null,
+    focus_mode: FocusMode = .auto,
 };
+
+pub const FocusMode = enum { auto, always, never };
 
 pub fn create(allocator: std.mem.Allocator, path: []const u8, options: Options) Error!@This() {
     const args = try Process.Args.init(allocator, path, options);
@@ -74,6 +77,7 @@ const Process = struct {
     track: Track,
     verbose: bool,
     terminal: ?u64,
+    focus_mode: FocusMode,
     focus: Focus = .{},
     tracked_requests: std.AutoHashMapUnmanaged(u64, void) = .empty,
     tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -125,6 +129,7 @@ const Process = struct {
             .track = args.options.track,
             .verbose = args.options.verbose,
             .terminal = args.options.terminal,
+            .focus_mode = args.options.focus_mode,
             .receiver = .init(receive_fn, @This().deinit, self),
         };
         errdefer self.deinit();
@@ -211,7 +216,12 @@ const Process = struct {
     }
 
     fn send_request(self: *@This(), cmd: []const u8, args: cbor.Raw) !void {
-        if (std.mem.eql(u8, cmd, "navigate")) try self.query_terminal_state();
+        const manage_focus = switch (self.focus_mode) {
+            .auto => std.mem.eql(u8, cmd, "navigate"),
+            .always => true,
+            .never => false,
+        };
+        if (manage_focus) try self.query_terminal_state();
         return self.send_request_from(.user, cmd, args);
     }
 

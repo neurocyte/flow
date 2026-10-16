@@ -76,6 +76,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .connect = "Connect to a remote control service by absolute socket path or name",
             .wait = "Wait for remote instance (default)",
             .no_wait = "Do not wait for remote instance",
+            .focus = "Unfocus the terminal and unmaximize the panel (default when opening files)",
+            .no_focus = "Leave the terminal focus and panel unchanged",
             .no_sleep = "Do not sleep the main loop when idle",
             .no_alternate = "Do not use the alternate terminal screen",
             .trace_level = "Enable internal tracing (level of detail from 1-5)",
@@ -127,6 +129,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         connect: ?[]const u8,
         wait: bool,
         no_wait: bool,
+        focus: bool,
+        no_focus: bool,
         no_sleep: bool,
         no_alternate: bool,
         trace_level: u8 = 0,
@@ -162,6 +166,10 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     if (args.wait and args.no_wait) {
         std.debug.print("--wait and --no-wait cannot be used together\n", .{});
+        exit(1);
+    }
+    if (args.focus and args.no_focus) {
+        std.debug.print("--focus and --no-focus cannot be used together\n", .{});
         exit(1);
     }
 
@@ -324,6 +332,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .track = if (args.no_wait) .none else .full,
             .verbose = args.log_stdout,
             .terminal = get_flow_terminal(path),
+            .focus_mode = if (args.focus) .always else if (args.no_focus) .never else .auto,
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();
