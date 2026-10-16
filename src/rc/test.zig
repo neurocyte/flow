@@ -17,6 +17,7 @@ const ServerTest = struct {
     server: RcServer,
     connector: ?tp.pid = null,
     client_conn: ?tp.pid = null,
+    answered: bool = false,
     receiver: tp.Receiver(*@This()),
 
     const Args = struct { allocator: std.mem.Allocator, path: [:0]const u8 };
@@ -50,24 +51,33 @@ const ServerTest = struct {
         return self.receive(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
-    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
+    fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) !void {
         var conn_id: tp.piid = .empty;
         var args: cbor.Raw = .empty;
         var reply_piid: tp.piid = .empty;
         var reply_id: u64 = 0;
+
+        if (self.server.pid) |server| if (from.instance_id() == server.instance_id() and try m.match(.{ "exit", tp.more })) {
+            if (!self.answered) return tp.exit("server exited before the request was answered");
+            if (!try m.match(.{ "exit", "normal" })) return tp.exit("server treated an injected connection as real");
+            return tp.exit("success");
+        };
 
         if (try m.match(.{"synced"})) {
             self.connector = try remote.endpoint.unx.connect(self.allocator, self.path, .file, tp.self_pid().clone());
         } else if (try m.match(.{ "connected", tp.extract(&conn_id) })) {
             self.client_conn = tp.pid.from_id(conn_id) orelse return tp.unexpected(m);
             const my_id = remote.protocol.lpiid.fromInt(tp.self_pid().instance_id().toInt());
+            try self.client_conn.?.send(.{ "send", my_id, common.service_name, .{ "connected", tp.self_pid().instance_id() } });
+            try self.client_conn.?.send(.{ "send", my_id, common.service_name, .{"shutdown"} });
             try self.client_conn.?.send(.{ "send", my_id, common.service_name, .{ "request", 7, "navigate", .{ .file = "foo.zig", .line = 3 } } });
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
             try expect_navigate_args(args);
             if (reply_id != 7) return tp.unexpected(m);
             try send_reply(reply_piid, reply_id, "ok");
         } else if (try m.match(.{ "reply", 7, "ok" })) {
-            return tp.exit("success");
+            self.answered = true;
+            try self.server.pid.?.send(.{"shutdown"});
         } else if (try m.match(.{ "exit", "normal" })) {
             return;
         } else {
@@ -76,8 +86,9 @@ const ServerTest = struct {
     }
 };
 
-test "rc_server: navigate request is relayed to the parent" {
+test "rc_server: request is relayed to the parent and remote control messages are ignored" {
     const allocator = std.testing.allocator;
+    std.testing.log_level = .err;
 
     var ctx = try tp.context.init(allocator, .{});
     defer ctx.deinit();
