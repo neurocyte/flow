@@ -129,7 +129,7 @@ const Process = struct {
         } else if (self.is_parent(from) and try m.match(.{"sync"})) {
             if (self.listening) return from.send(.{"synced"});
             try self.sync_waiters.append(self.allocator, from.clone());
-        } else if (try m.match(.{"shutdown"})) {
+        } else if (self.is_parent(from) and try m.match(.{"shutdown"})) {
             self.shutdown();
             return tp.exit_normal();
         } else if (try m.match(.{ "exit", tp.extract(&reason) }) or try m.match(.{ "exit", tp.extract(&reason), tp.more })) {
