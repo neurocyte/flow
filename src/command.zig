@@ -11,10 +11,23 @@ pub const ID = usize;
 pub const ID_unknown = std.math.maxInt(ID);
 
 pub const Result = anyerror!void;
+
+pub const Reply = struct {
+    piid: tp.piid,
+    id: u64,
+
+    pub fn send(self: Reply, payload: anytype) tp.result {
+        const pid = tp.pid.from_id(self.piid) orelse return;
+        defer pid.deinit();
+        return pid.send(.{ "reply", self.id, payload });
+    }
+};
+
 pub const Context = struct {
     args: tp.message = .{},
     io: std.Io,
     now: std.Io.Timestamp,
+    reply: ?Reply = null,
 
     pub fn init(args: tp.message) @This() {
         const io = root.get_io();

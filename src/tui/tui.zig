@@ -561,6 +561,16 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     };
 }
 
+fn send_command_result(self: *Self, cmd: []const u8, reply: command.Reply, result: tp.result) void {
+    if (result) |_| {
+        reply.send("ok") catch {};
+    } else |e| {
+        const msg: tp.message = if (e == error.Exit) .{ .buf = tp.error_message() } else tp.exit_message(e, null);
+        reply.send(.{ "error", cbor.Raw{ .bytes = msg.buf } }) catch {};
+        self.logger.err(cmd, e);
+    }
+}
+
 fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "RDR", tp.more })) {
         self.rdr_.process_renderer_event(m.buf) catch |e| switch (e) {
@@ -594,6 +604,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return command.execute(cmd_id, command.get_name(cmd_id) orelse "(unknown)", ctx) catch |e| self.logger.err("command", e);
 
     var arg: []const u8 = undefined;
+    var reply: command.Reply = undefined;
 
     if (try m.match(.{ "cmd", tp.extract(&cmd), tp.extract_cbor(&arg) })) {
         ctx.args = .{ .buf = arg };
@@ -602,6 +613,17 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "cmd", tp.extract(&cmd_id), tp.extract_cbor(&arg) })) {
         ctx.args = .{ .buf = arg };
         return command.execute(cmd_id, command.get_name(cmd_id) orelse "(unknown)", ctx) catch |e| self.logger.err("command", e);
+    }
+    if (try m.match(.{ "cmd", tp.extract(&cmd), tp.extract_cbor(&arg), .{ "reply", tp.extract(&reply.piid), tp.extract(&reply.id) } })) {
+        ctx.args = .{ .buf = arg };
+        ctx.reply = reply;
+        return self.send_command_result(cmd, reply, command.executeName(cmd, ctx));
+    }
+    if (try m.match(.{ "cmd", tp.extract(&cmd_id), tp.extract_cbor(&arg), .{ "reply", tp.extract(&reply.piid), tp.extract(&reply.id) } })) {
+        ctx.args = .{ .buf = arg };
+        ctx.reply = reply;
+        const name = command.get_name(cmd_id) orelse "(unknown)";
+        return self.send_command_result(name, reply, command.execute(cmd_id, name, ctx));
     }
 
     if (try m.match(.{ "dbus", tp.more }))
