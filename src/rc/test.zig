@@ -192,7 +192,7 @@ const ClientTest = struct {
         if (try m.match(.{"synced"})) {
             self.client = try RcClient.create(self.allocator, self.path, .{ .track = if (self.scenario == .track) .full else .none });
             try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
-            if (self.scenario == .no_wait) try self.client.?.disconnect();
+            if (self.scenario == .no_wait or self.scenario == .track) try self.client.?.disconnect();
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
             if (self.scenario == .track) {
                 try expect_tracked_navigate_args(args);
