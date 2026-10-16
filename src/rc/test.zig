@@ -53,18 +53,20 @@ const ServerTest = struct {
     fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
         var conn_id: tp.piid = .empty;
         var args: cbor.Raw = .empty;
+        var reply_piid: tp.piid = .empty;
+        var reply_id: u64 = 0;
 
         if (try m.match(.{"synced"})) {
             self.connector = try remote.endpoint.unx.connect(self.allocator, self.path, .file, tp.self_pid().clone());
         } else if (try m.match(.{ "connected", tp.extract(&conn_id) })) {
             self.client_conn = tp.pid.from_id(conn_id) orelse return tp.unexpected(m);
             const my_id = remote.protocol.lpiid.fromInt(tp.self_pid().instance_id().toInt());
-            try self.client_conn.?.send(.{ "send", my_id, common.service_name, .{ "navigate", .{ .file = "foo.zig", .line = 3 } } });
-        } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args) })) {
-            var expected_buf: [64]u8 = undefined;
-            var expected: std.Io.Writer = .fixed(&expected_buf);
-            try cbor.writeValue(&expected, .{ .file = "foo.zig", .line = 3 });
-            if (!std.mem.eql(u8, expected.buffered(), args.bytes)) return tp.unexpected(m);
+            try self.client_conn.?.send(.{ "send", my_id, common.service_name, .{ "request", 7, "navigate", .{ .file = "foo.zig", .line = 3 } } });
+        } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
+            try expect_navigate_args(args);
+            if (reply_id != 7) return tp.unexpected(m);
+            try send_reply(reply_piid, reply_id, "ok");
+        } else if (try m.match(.{ "reply", 7, "ok" })) {
             return tp.exit("success");
         } else if (try m.match(.{ "exit", "normal" })) {
             return;
@@ -95,6 +97,19 @@ test "rc_server: navigate request is relayed to the parent" {
 
     try std.testing.expect(success);
     try std.testing.expect(!socket_file_exists(path));
+}
+
+fn expect_navigate_args(args: cbor.Raw) !void {
+    var expected_buf: [64]u8 = undefined;
+    var expected: std.Io.Writer = .fixed(&expected_buf);
+    try cbor.writeValue(&expected, .{ .file = "foo.zig", .line = 3 });
+    if (!std.mem.eql(u8, expected.buffered(), args.bytes)) return error.UnexpectedNavigateArgs;
+}
+
+fn send_reply(piid: tp.piid, id: u64, payload: anytype) !void {
+    const pid = tp.pid.from_id(piid) orelse return error.ReplyTargetGone;
+    defer pid.deinit();
+    try pid.send(.{ "reply", id, payload });
 }
 
 fn socket_file_exists(path: [:0]const u8) bool {
@@ -153,16 +168,16 @@ const ClientTest = struct {
     fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) !void {
         var args: cbor.Raw = .empty;
         var reason: []const u8 = "";
+        var reply_piid: tp.piid = .empty;
+        var reply_id: u64 = 0;
 
         if (try m.match(.{"synced"})) {
             self.client = try RcClient.create(self.allocator, self.path);
             try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
             if (self.scenario == .no_wait) try self.client.?.disconnect();
-        } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args) })) {
-            var expected_buf: [64]u8 = undefined;
-            var expected: std.Io.Writer = .fixed(&expected_buf);
-            try cbor.writeValue(&expected, .{ .file = "foo.zig", .line = 3 });
-            if (!std.mem.eql(u8, expected.buffered(), args.bytes)) return tp.unexpected(m);
+        } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
+            try expect_navigate_args(args);
+            try send_reply(reply_piid, reply_id, "ok");
             self.navigated = true;
             switch (self.scenario) {
                 .relay_then_server_shutdown => self.server.?.pid.?.send(.{"shutdown"}) catch {},
