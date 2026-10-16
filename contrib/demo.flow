@@ -1,0 +1,38 @@
+# A small flow script demo: build a markdown checklist in a scratch buffer.
+# Run it with: flow --exec-file contrib/demo.flow
+
+create_scratch_buffer "demo.md" "" "markdown"
+
+# write a title and a few list items
+insert_chars "# shopping list"
+insert_line_after
+insert_line_after
+insert_chars "- apples"
+insert_line_after
+insert_chars "- bread"
+insert_line_after
+insert_chars "- coffee"
+
+# turn every list item into a checkbox at once, with one cursor per line
+goto_line 3
+add_cursor_down 2
+move_begin
+delete_forward
+delete_forward
+insert_chars "- [ ] "
+cancel
+
+# shout the title
+goto_line 1
+goto_column 3
+to_upper
+
+# duplicate the last item and tick the copy
+goto_line 5
+dupe_down
+cancel
+goto_column 4
+delete_forward
+insert_chars "x"
+move_end
+insert_chars " (done)"
