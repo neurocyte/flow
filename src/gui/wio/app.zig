@@ -115,6 +115,9 @@ var screen_pending: std.atomic.Value(bool) = .init(false);
 var screen_snap: ?ScreenSnapshot = null;
 var screenshot_mutex: std.Io.Mutex = .init;
 var screenshot_path: ?[]const u8 = null;
+var screenshot_announce: ScreenshotAnnounce = .announce;
+
+pub const ScreenshotAnnounce = enum { announce, quiet };
 var tui_pid: thespian.pid = undefined;
 var render_pid: ?thespian.pid = null;
 var last_mods: input_translate.Mods = .{};
@@ -558,13 +561,14 @@ fn freeScreenSnapshot(allocator: std.mem.Allocator, snap: *ScreenSnapshot) void 
     allocator.free(snap.targets);
 }
 
-pub fn requestScreenshot(path: []const u8) void {
+pub fn requestScreenshot(path: []const u8, announce: ScreenshotAnnounce) void {
     const allocator = root.get_init().gpa;
     const io = root.get_io();
     const path_ = allocator.dupe(u8, path) catch |e| return log.err("screenshot: {t}", .{e});
     screenshot_mutex.lockUncancelable(io);
     const prev = screenshot_path;
     screenshot_path = path_;
+    screenshot_announce = announce;
     screenshot_mutex.unlock(io);
     if (prev) |p| allocator.free(p);
     requestRender();
@@ -575,12 +579,13 @@ fn saveScreenshot(ctx: *RenderCtx) void {
     const io = root.get_io();
     screenshot_mutex.lockUncancelable(io);
     const path_ = screenshot_path;
+    const announce = screenshot_announce;
     screenshot_path = null;
     screenshot_mutex.unlock(io);
     const path = path_ orelse return;
     defer allocator.free(path);
     writeScreenshot(ctx, allocator, io, path) catch |e| return log.err("screenshot {s} failed: {t}", .{ path, e });
-    log.info("screenshot saved to {s}", .{path});
+    if (announce == .announce) log.info("screenshot saved to {s}", .{path});
 }
 
 fn writeScreenshot(ctx: *RenderCtx, allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {

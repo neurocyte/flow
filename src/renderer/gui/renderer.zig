@@ -640,9 +640,11 @@ pub fn set_color_scheme(self: *Self, scheme: ColorScheme) void {
     app.enableDarkMode(scheme == .dark);
 }
 
-pub fn save_screenshot(self: *Self, path: []const u8) void {
+pub const ScreenshotAnnounce = app.ScreenshotAnnounce;
+
+pub fn save_screenshot(self: *Self, path: []const u8, announce: ScreenshotAnnounce) void {
     _ = self;
-    app.requestScreenshot(path);
+    app.requestScreenshot(path, announce);
 }
 
 pub fn adjust_fontsize(self: *Self, amount: f32) void {

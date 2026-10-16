@@ -2234,9 +2234,9 @@ const cmds = struct {
             return self.logger.print("save_screenshot not supported", .{});
         var path: []const u8 = undefined;
         if (try ctx.args.match(.{tp.extract(&path)}))
-            return self.rdr_.save_screenshot(path);
+            return self.rdr_.save_screenshot(path, .quiet);
         var path_buf: [std.posix.PATH_MAX]u8 = undefined;
-        self.rdr_.save_screenshot(try root.default_screenshot_path(self.allocator, &path_buf));
+        self.rdr_.save_screenshot(try root.default_screenshot_path(self.allocator, &path_buf), .announce);
     }
     pub const save_screenshot_meta: Meta = .{
         .description = if (@hasDecl(renderer, "save_screenshot")) "Save screenshot" else &.{},
