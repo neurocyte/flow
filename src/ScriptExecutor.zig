@@ -6,7 +6,7 @@ const log = std.log.scoped(.exec);
 
 const module_name = @typeName(@This());
 
-pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?tp.env, target: tp.pid_ref, script: []const u8, then: ?tp.message) !void {
+pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?tp.env, target: tp.pid_ref, script: Script, then: ?tp.message) !void {
     const args = try Process.Args.init(allocator, target, script, then);
     errdefer args.deinit();
     const pid = try ctx.spawn_link(args, Process.start, module_name, eh, env);
@@ -16,6 +16,20 @@ pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?
 const Command = struct {
     name: []const u8,
     args: []const u8,
+};
+
+pub const Script = struct {
+    allocator: std.mem.Allocator,
+    commands: []Command,
+
+    pub fn deinit(self: Script) void {
+        free_commands(self.allocator, self.commands);
+    }
+};
+
+pub const Diagnostic = struct {
+    line: usize = 0,
+    text: []const u8 = "",
 };
 
 const Process = struct {
@@ -32,11 +46,10 @@ const Process = struct {
         commands: []Command,
         then: ?[]const u8,
 
-        fn init(allocator: std.mem.Allocator, target: tp.pid_ref, script: []const u8, then: ?tp.message) !Args {
-            const commands = try parse(allocator, script);
-            errdefer free_commands(allocator, commands);
+        fn init(allocator: std.mem.Allocator, target: tp.pid_ref, script: Script, then: ?tp.message) !Args {
+            errdefer script.deinit();
             const then_owned = if (then) |m| try allocator.dupe(u8, m.buf) else null;
-            return .{ .allocator = allocator, .target = target.clone(), .commands = commands, .then = then_owned };
+            return .{ .allocator = allocator, .target = target.clone(), .commands = script.commands, .then = then_owned };
         }
 
         fn deinit(self: Args) void {
@@ -131,15 +144,12 @@ const Process = struct {
     }
 };
 
-fn parse(allocator: std.mem.Allocator, script: []const u8) ![]Command {
-    var commands: std.ArrayList(Command) = .empty;
-    errdefer {
-        for (commands.items) |command| free_command(allocator, command);
-        commands.deinit(allocator);
-    }
-    var it = std.mem.splitScalar(u8, script, ';');
-    while (it.next()) |text| {
-        var parts = std.mem.splitScalar(u8, text, ':');
+pub fn parse_exec(allocator: std.mem.Allocator, text: []const u8) !Script {
+    var commands: CommandList = .{ .allocator = allocator };
+    errdefer commands.deinit();
+    var it = std.mem.splitScalar(u8, text, ';');
+    while (it.next()) |command| {
+        var parts = std.mem.splitScalar(u8, command, ':');
         const name = parts.first();
         if (name.len == 0) continue;
         var count: usize = 0;
@@ -156,15 +166,101 @@ fn parse(allocator: std.mem.Allocator, script: []const u8) ![]Command {
             else
                 try cbor.writeValue(&args.writer, arg);
         }
-
-        const name_owned = try allocator.dupe(u8, name);
-        errdefer allocator.free(name_owned);
-        const args_owned = try allocator.dupe(u8, args.written());
-        errdefer allocator.free(args_owned);
-        try commands.append(allocator, .{ .name = name_owned, .args = args_owned });
+        try commands.append(name, args.written());
     }
-    return commands.toOwnedSlice(allocator);
+    return commands.to_script();
 }
+
+/// parse script file: one `command_name [json_value...]` per line.
+/// empty lines and lines starting with `#` are ignored.
+pub fn parse_file(allocator: std.mem.Allocator, content: []const u8, diag: *Diagnostic) !Script {
+    var commands: CommandList = .{ .allocator = allocator };
+    errdefer commands.deinit();
+    var it = std.mem.splitScalar(u8, content, '\n');
+    var lineno: usize = 0;
+    while (it.next()) |line_| {
+        lineno += 1;
+        const line = std.mem.trim(u8, line_, " \t\r");
+        if (line.len == 0 or line[0] == '#') continue;
+        diag.* = .{ .line = lineno, .text = line };
+        const name_end = std.mem.indexOfAny(u8, line, " \t") orelse line.len;
+        var rest = line[name_end..];
+
+        var values: std.ArrayList(u8) = .empty;
+        defer values.deinit(allocator);
+        var count: usize = 0;
+        while (true) {
+            rest = std.mem.trimStart(u8, rest, " \t");
+            if (rest.len == 0) break;
+            const end = json_value_end(rest) orelse return error.InvalidScriptValue;
+            const value = cbor.fromJsonAlloc(allocator, rest[0..end]) catch return error.InvalidScriptValue;
+            defer allocator.free(value);
+            try values.appendSlice(allocator, value);
+            count += 1;
+            rest = rest[end..];
+        }
+
+        var args: std.Io.Writer.Allocating = .init(allocator);
+        defer args.deinit();
+        try cbor.writeArrayHeader(&args.writer, count);
+        try args.writer.writeAll(values.items);
+        try commands.append(line[0..name_end], args.written());
+    }
+    diag.* = .{};
+    return commands.to_script();
+}
+
+fn json_value_end(text: []const u8) ?usize {
+    var depth: usize = 0;
+    var in_string = false;
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (in_string) {
+            if (c == '\\') {
+                i += 1;
+            } else if (c == '"') {
+                in_string = false;
+                if (depth == 0) return i + 1;
+            }
+            continue;
+        }
+        switch (c) {
+            '"' => in_string = true,
+            '{', '[' => depth += 1,
+            '}', ']' => {
+                if (depth == 0) return null;
+                depth -= 1;
+                if (depth == 0) return i + 1;
+            },
+            ' ', '\t' => if (depth == 0) return i,
+            else => {},
+        }
+    }
+    return if (depth == 0 and !in_string) text.len else null;
+}
+
+const CommandList = struct {
+    allocator: std.mem.Allocator,
+    list: std.ArrayList(Command) = .empty,
+
+    fn append(self: *CommandList, name: []const u8, args: []const u8) !void {
+        const name_owned = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(name_owned);
+        const args_owned = try self.allocator.dupe(u8, args);
+        errdefer self.allocator.free(args_owned);
+        try self.list.append(self.allocator, .{ .name = name_owned, .args = args_owned });
+    }
+
+    fn to_script(self: *CommandList) !Script {
+        return .{ .allocator = self.allocator, .commands = try self.list.toOwnedSlice(self.allocator) };
+    }
+
+    fn deinit(self: *CommandList) void {
+        for (self.list.items) |command| free_command(self.allocator, command);
+        self.list.deinit(self.allocator);
+    }
+};
 
 fn free_command(allocator: std.mem.Allocator, command: Command) void {
     allocator.free(command.name);

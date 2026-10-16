@@ -95,7 +95,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .gui = "Open a GUI window",
             .no_syntax = "Disable syntax highlighting",
             .syntax_report_timing = "Report syntax highlighting time",
-            .exec = "Execute a command on startup",
+            .exec = "Execute commands",
+            .exec_file = "Execute commands from a file",
             .literal = "Disable :LINE and +LINE syntax",
             .scratch = "Open a scratch (temporary) buffer on start",
             .new_file = "Create a new untitled file on start",
@@ -105,7 +106,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .class = "Set window class",
         };
 
-        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .class = "name", .debug_socket = "path", .server = "path", .connect = "path" };
+        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .exec_file = "file", .class = "name", .debug_socket = "path", .server = "path", .connect = "path" };
 
         pub const switches = .{
             .project = 'p',
@@ -149,6 +150,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         no_syntax: bool,
         syntax_report_timing: bool,
         exec: ?[]const u8,
+        exec_file: ?[]const u8,
         literal: bool,
         scratch: bool,
         new_file: bool,
@@ -173,6 +175,17 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         std.debug.print("--focus and --no-focus cannot be used together\n", .{});
         exit(1);
     }
+    if (args.exec != null and args.exec_file != null) {
+        std.debug.print("--exec and --exec-file cannot be used together\n", .{});
+        exit(1);
+    }
+    var script: ?ScriptExecutor.Script = if (args.exec_file) |file_name|
+        load_script_file(a, file_name)
+    else if (args.exec) |text|
+        try ScriptExecutor.parse_exec(a, text)
+    else
+        null;
+    errdefer if (script) |s| s.deinit();
 
     var stdout_buf: [4096]u8 = undefined;
     var stdout_file = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
@@ -449,9 +462,10 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     var exec_eh = thespian.make_exit_handler({}, ignore_exit_status);
     const then_disconnect: ?thespian.message = if (connect != null) thespian.message.fmt(.{"disconnect"}) else null;
-    if (args.exec) |script|
-        try ScriptExecutor.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), script, then_disconnect)
-    else if (then_disconnect) |m|
+    if (script) |s| {
+        script = null;
+        try ScriptExecutor.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), s, then_disconnect);
+    } else if (then_disconnect) |m|
         try main_proc.send_raw(m);
 
     if (renderer.needs_main_thread and connect == null) {
@@ -484,6 +498,19 @@ var have_global_init = false;
 var global_init: std.process.Init = undefined;
 
 fn ignore_exit_status(_: void, _: []const u8) void {}
+
+fn load_script_file(allocator: std.mem.Allocator, file_name: []const u8) ScriptExecutor.Script {
+    const content = std.Io.Dir.cwd().readFileAlloc(get_io(), file_name, allocator, .unlimited) catch |e| {
+        std.debug.print("{s}: cannot read script: {t}\n", .{ file_name, e });
+        exit(1);
+    };
+    defer allocator.free(content);
+    var diag: ScriptExecutor.Diagnostic = .{};
+    return ScriptExecutor.parse_file(allocator, content, &diag) catch |e| {
+        std.debug.print("{s}:{d}: {t}: {s}\n", .{ file_name, diag.line, e, diag.text });
+        exit(1);
+    };
+}
 
 fn client_exit_status(_: void, msg: []const u8) void {
     if (!std.mem.eql(u8, msg, RcClient.exit_failed)) return print_exit_status({}, msg);
