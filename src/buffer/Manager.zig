@@ -17,6 +17,22 @@ next_request_id: usize = 1,
 saves: std.AutoHashMapUnmanaged(usize, PendingSave) = .empty,
 save_groups: std.AutoHashMapUnmanaged(usize, SaveGroup) = .empty,
 loads: std.AutoHashMapUnmanaged(usize, PendingLoad) = .empty,
+listeners: std.AutoHashMapUnmanaged(*Buffer, std.ArrayList(Listener)) = .empty,
+
+pub const Track = enum { none, full };
+
+pub const Listener = struct {
+    piid: tp.piid,
+    id: u64,
+    track: Track,
+
+    pub fn send(self: Listener, event: anytype) bool {
+        const pid = tp.pid.from_id(self.piid) orelse return false;
+        defer pid.deinit();
+        pid.send(.{ "reply", self.id, event }) catch return false;
+        return true;
+    }
+};
 
 pub const LoadError = error{ OutOfMemory, LoadNoFileName };
 
@@ -116,6 +132,9 @@ pub fn deinit(self: *Self) void {
     }
     self.buffers.deinit(self.allocator);
     self.watched.deinit(self.allocator);
+    var listeners = self.listeners.valueIterator();
+    while (listeners.next()) |list| list.deinit(self.allocator);
+    self.listeners.deinit(self.allocator);
     var saves = self.saves.valueIterator();
     while (saves.next()) |pending| {
         if (self.file_store) |*file_store| pending.stream.abort(file_store);
@@ -142,8 +161,34 @@ fn add_buffer(self: *Self, buffer: *Buffer) error{OutOfMemory}!void {
     try self.buffers.put(self.allocator, try self.allocator.dupe(u8, buffer.get_file_path()), buffer);
 }
 
+pub fn add_listener(self: *Self, buffer: *Buffer, listener: Listener) error{OutOfMemory}!void {
+    if (listener.track == .none) return;
+    const entry = try self.listeners.getOrPut(self.allocator, buffer);
+    if (!entry.found_existing) entry.value_ptr.* = .empty;
+    for (entry.value_ptr.items) |l| if (l.piid == listener.piid and l.id == listener.id) return;
+    try entry.value_ptr.append(self.allocator, listener);
+}
+
+fn notify(self: *Self, buffer: *Buffer, event: anytype) void {
+    const list = self.listeners.getPtr(buffer) orelse return;
+    var i: usize = 0;
+    while (i < list.items.len) {
+        if (list.items[i].send(.{ "buffer", event, buffer.id, buffer.get_file_path() }))
+            i += 1
+        else
+            _ = list.swapRemove(i);
+    }
+}
+
+fn remove_listeners(self: *Self, buffer: *Buffer) void {
+    var kv = self.listeners.fetchRemove(buffer) orelse return;
+    kv.value.deinit(self.allocator);
+}
+
 pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
     const buffer = self.buffer_from_ref(buffer_.to_ref()) orelse return; // check buffer is valid
+    self.notify(buffer, "deleted");
+    self.remove_listeners(buffer);
     self.unwatch_buffer(buffer);
     if (self.buffers.fetchRemove(buffer.get_file_path())) |kv| {
         self.allocator.free(kv.key);
@@ -154,6 +199,7 @@ pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
 pub fn open_file(self: *Self, file_path: []const u8, now: std.Io.Timestamp) error{BufferNotLoaded}!*Buffer {
     const buffer = self.get_buffer(file_path) orelse return error.BufferNotLoaded;
     buffer.update_last_used_time(now);
+    if (buffer.hidden) self.notify(buffer, "shown");
     buffer.hidden = false;
     return buffer;
 }
@@ -332,6 +378,7 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
         .crlf => .crlf,
     }, now);
     buffer.update_last_used_time(now);
+    self.notify(buffer, "reloaded");
     if (reload_of.reason == .external)
         log.info("reloaded {s} from disk", .{pending.file_path});
 }
@@ -442,6 +489,7 @@ pub fn rename_buffer(self: *Self, buffer: *Buffer, file_path: []const u8) error{
     buffer.set_file_path(file_path);
     self.buffers.putAssumeCapacity(new_key, buffer);
     self.watch_buffer(buffer);
+    self.notify(buffer, "renamed");
 }
 
 pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
@@ -453,6 +501,7 @@ pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
     buffer.hidden = true;
     buffer.set_last_view(null);
+    self.notify(buffer, "hidden");
     tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.get_file_path(), "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
     if (buffer.is_ephemeral())
         self.delete_buffer(buffer);
@@ -641,6 +690,7 @@ fn finish_save(self: *Self, id: usize, ok: bool) void {
     if (ok) {
         if (self.buffer_from_ref(pending.buffer)) |buffer| {
             buffer.mark_saved(pending.root, pending.eol_mode);
+            self.notify(buffer, "saved");
             tp.self_pid().send(.{ "cmd", "buffer_saved", .{ pending.file_path, pending.auto_save } }) catch {};
         }
         const total_us = pending.started.durationTo(get_now()).toMicroseconds();
