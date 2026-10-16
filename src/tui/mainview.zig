@@ -20,6 +20,7 @@ const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const Buffer = @import("Buffer");
+const BufferManager = Buffer.Manager;
 const FileStore = @import("FileStore");
 const EditSet = @import("EditSet");
 const keybind = @import("keybind");
@@ -218,6 +219,7 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var line: ?i64 = null;
     var column: ?i64 = null;
     var offset: ?i64 = null;
+    var listener: BufferManager.Listener = undefined;
     var stream: FileList.Stream = undefined;
 
     if (try m.match(.{ "FLS", tp.extract(&stream), "done" })) {
@@ -247,10 +249,17 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         }
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column), tp.extract(&offset) })) {
-        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        return true;
+    } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column), tp.extract(&offset), tp.extract(&listener.track), tp.extract(&listener.piid), tp.extract(&listener.id) })) {
+        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, listener, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{"navigate_failed"})) {
         self.unblock_navigate_render();
+        return true;
+    } else if (try m.match(.{ "navigate_failed", tp.extract(&path), tp.extract(&listener.track), tp.extract(&listener.piid), tp.extract(&listener.id) })) {
+        self.unblock_navigate_render();
+        _ = listener.send(.{ "navigation", "failed", path });
         return true;
     } else if (try m.match(.{ "vt", "gone" })) {
         if (self.quit_on_terminal_exit) _ = self.quit_if_idle();
@@ -796,6 +805,7 @@ const cmds = struct {
         var column: ?i64 = null;
         var offset: ?i64 = null;
         var goto_args: []const u8 = &.{};
+        var track: BufferManager.Track = .none;
 
         var iter = ctx.args.buf;
         if (cbor.decodeMapHeader(&iter)) |len_| {
@@ -819,6 +829,9 @@ const cmds = struct {
                 } else if (std.mem.eql(u8, field_name, "offset")) {
                     if (!try cbor.matchValue(&iter, cbor.extract(&offset)))
                         return error.InvalidNavigateOffsetArgument;
+                } else if (std.mem.eql(u8, field_name, "track")) {
+                    if (!try cbor.matchValue(&iter, cbor.extract(&track)))
+                        return error.InvalidNavigateTrackArgument;
                 } else {
                     try cbor.skipValue(&iter);
                 }
@@ -830,6 +843,11 @@ const cmds = struct {
         if (tp.env.get().str("project").len == 0) {
             try open_project_cwd(self, .empty_from(ctx));
         }
+
+        const listener: ?BufferManager.Listener = if (track == .none) null else if (ctx.reply) |reply|
+            .{ .piid = reply.piid, .id = reply.id, .track = track }
+        else
+            null;
 
         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         const f_ = project_manager.normalize_file_path(file orelse return, &file_path_buf);
@@ -860,6 +878,7 @@ const cmds = struct {
                 from: tp.pid,
                 path: []const u8,
                 goto_args: []const u8,
+                listener: ?BufferManager.Listener,
 
                 pub fn deinit(ctx_: *@This()) void {
                     ctx_.from.deinit();
@@ -870,20 +889,24 @@ const cmds = struct {
                     var line_: ?i64 = null;
                     var column_: ?i64 = null;
                     _ = try cbor.match(rsp.buf, .{ tp.extract(&line_), tp.extract(&column_) });
-                    try ctx_.from.send(.{ "navigate_complete", ctx_.path, ctx_.goto_args, line_, column_, null });
+                    if (ctx_.listener) |l|
+                        try ctx_.from.send(.{ "navigate_complete", ctx_.path, ctx_.goto_args, line_, column_, null, l.track, l.piid, l.id })
+                    else
+                        try ctx_.from.send(.{ "navigate_complete", ctx_.path, ctx_.goto_args, line_, column_, null });
                 }
             } = .{
                 .allocator = self.allocator,
                 .from = tp.self_pid().clone(),
                 .path = try self.allocator.dupe(u8, f),
                 .goto_args = try self.allocator.dupe(u8, goto_args),
+                .listener = listener,
             };
 
             try project_manager.get_mru_position(self.allocator, f, ctx_);
             return;
         }
 
-        return cmds.navigate_complete(self, view, f, goto_args, line, column, offset, ctx.now);
+        return cmds.navigate_complete(self, view, f, goto_args, line, column, offset, listener, ctx.now);
     }
     pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
@@ -895,6 +918,7 @@ const cmds = struct {
         line: ?i64,
         column: ?i64,
         offset: ?i64,
+        listener: ?BufferManager.Listener,
         now: std.Io.Timestamp,
     ) Result {
         errdefer self.unblock_navigate_render();
@@ -905,8 +929,14 @@ const cmds = struct {
         if (view == null or different_file) {
             if (self.buffer_manager.needs_load(f)) {
                 var then_buf: [tp.max_message_size]u8 = undefined;
-                const then: cbor.Raw = .{ .bytes = cbor.fmt(&then_buf, .{ "navigate_complete", f, goto_args, line, column, offset }) };
-                const on_error: cbor.Raw = .{ .bytes = tp.message.fmt(.{"navigate_failed"}).buf };
+                var on_error_buf: [tp.max_message_size]u8 = undefined;
+                const then: cbor.Raw, const on_error: cbor.Raw = if (listener) |l| .{
+                    .{ .bytes = cbor.fmt(&then_buf, .{ "navigate_complete", f, goto_args, line, column, offset, l.track, l.piid, l.id }) },
+                    .{ .bytes = cbor.fmt(&on_error_buf, .{ "navigate_failed", f, l.track, l.piid, l.id }) },
+                } else .{
+                    .{ .bytes = cbor.fmt(&then_buf, .{ "navigate_complete", f, goto_args, line, column, offset }) },
+                    .{ .bytes = cbor.fmt(&on_error_buf, .{"navigate_failed"}) },
+                };
                 return self.buffer_manager.load(f, .{ .then = then, .on_error = on_error });
             }
             if (self.get_active_editor()) |editor| {
@@ -931,6 +961,10 @@ const cmds = struct {
         tui.need_render(@src());
         self.location_update_from_editor();
         self.unblock_navigate_render();
+        if (listener) |l| if (self.buffer_manager.get_buffer_for_file(f)) |buffer| {
+            try self.buffer_manager.add_listener(buffer, l);
+            _ = l.send(.{ "navigation", "complete", buffer.id, buffer.get_file_path() });
+        };
     }
 
     pub fn open_help(self: *Self, ctx: Ctx) Result {
