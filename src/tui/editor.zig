@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const tp = @import("thespian");
+const shell = @import("shell");
 const cbor = @import("cbor");
 const bin_path = @import("bin_path");
 const log = @import("log");
@@ -8566,7 +8567,9 @@ pub const Editor = struct {
         var buf: [1024]u8 = undefined;
         const json = try cmd.to_json(&buf);
         std.log.debug("filter: start {s}", .{json});
-        var sp = try tp.subprocess.init(root_mod.get_io(), self.allocator, cmd, "filter", .pipe);
+        var env = try shell.child_env(self.allocator);
+        defer if (env) |*e| e.deinit();
+        var sp = try tp.subprocess.init_with_env(root_mod.get_io(), self.allocator, cmd, "filter", .pipe, if (env) |*e| e else null);
         defer {
             sp.close() catch {};
             sp.deinit();

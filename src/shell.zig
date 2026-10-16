@@ -59,6 +59,16 @@ pub fn execute_pipe(allocator: std.mem.Allocator, argv: tp.message, output_handl
     return .{ .pid = try Process.create(allocator, argv, stdin_behavior, output_handler, exit_handler), .stdin_behavior = stdin_behavior };
 }
 
+pub fn child_env(allocator: std.mem.Allocator) error{OutOfMemory}!?std.process.Environ.Map {
+    const rc_socket = tp.env.get().str("rc-socket");
+    if (rc_socket.len == 0) return null;
+    var env = try root.get_init().environ_map.clone(allocator);
+    errdefer env.deinit();
+    try env.put("FLOW_SOCKET", rc_socket);
+    _ = env.swapRemove("FLOW_TERMINAL");
+    return env;
+}
+
 pub const DetachedError = error{ OutOfMemory, ExecutableNotFound, SpawnFailed };
 
 pub fn execute_detached(allocator: std.mem.Allocator, argv: []const []const u8) DetachedError!void {
@@ -284,7 +294,9 @@ const Process = struct {
         const json = self.argv.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
         if (self.handlers.log_execute)
             self.logger.print("execute {s}", .{json});
-        self.sp = tp.subprocess.init(root.get_io(), self.allocator, self.argv, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        var env = child_env(self.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        defer if (env) |*e| e.deinit();
+        self.sp = tp.subprocess.init_with_env(root.get_io(), self.allocator, self.argv, module_name, self.stdin_behavior, if (env) |*e| e else null) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }
 
