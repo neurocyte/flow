@@ -109,9 +109,10 @@ const ClientTest = struct {
     client: ?RcClient = null,
     server_exited: bool = false,
     client_exited: bool = false,
+    navigated: bool = false,
     receiver: tp.Receiver(*@This()),
 
-    const Scenario = enum { relay_then_server_shutdown, client_shutdown, connect_failure };
+    const Scenario = enum { relay_then_server_shutdown, client_shutdown, connect_failure, no_wait };
 
     const Args = struct { allocator: std.mem.Allocator, path: [:0]const u8, scenario: Scenario };
 
@@ -156,15 +157,18 @@ const ClientTest = struct {
         if (try m.match(.{"synced"})) {
             self.client = try RcClient.create(self.allocator, self.path);
             try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
+            if (self.scenario == .no_wait) try self.client.?.disconnect();
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args) })) {
             var expected_buf: [64]u8 = undefined;
             var expected: std.Io.Writer = .fixed(&expected_buf);
             try cbor.writeValue(&expected, .{ .file = "foo.zig", .line = 3 });
             if (!std.mem.eql(u8, expected.buffered(), args.bytes)) return tp.unexpected(m);
+            self.navigated = true;
             switch (self.scenario) {
                 .relay_then_server_shutdown => self.server.?.pid.?.send(.{"shutdown"}) catch {},
                 .client_shutdown => self.client.?.pid.?.send(.{"shutdown"}) catch {},
                 .connect_failure => return tp.unexpected(m),
+                .no_wait => {},
             }
         } else if (try m.match(.{ "exit", tp.extract(&reason) }) or try m.match(.{ "exit", tp.extract(&reason), tp.more })) {
             if (self.client) |c| if (c.pid) |p| if (p.instance_id() == from.instance_id()) {
@@ -177,6 +181,11 @@ const ClientTest = struct {
                         self.server.?.pid.?.send(.{"shutdown"}) catch {};
                     },
                     .relay_then_server_shutdown => if (!normal) return tp.exit("client disconnect not normal"),
+                    .no_wait => {
+                        if (!normal) return tp.exit("client no_wait exit not normal");
+                        if (!self.navigated) return tp.exit("client exited before request was delivered");
+                        self.server.?.pid.?.send(.{"shutdown"}) catch {};
+                    },
                 }
             };
             if (self.server) |s| if (s.pid) |p| if (p.instance_id() == from.instance_id()) {
@@ -227,4 +236,8 @@ test "rc_client: client shutdown disconnects cleanly" {
 
 test "rc_client: connect failure exits the client with an error" {
     try run_client_test(.connect_failure);
+}
+
+test "rc_client: disconnect after queued requests are delivered" {
+    try run_client_test(.no_wait);
 }
