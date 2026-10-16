@@ -562,6 +562,7 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 }
 
 fn send_command_result(self: *Self, cmd: []const u8, reply: command.Reply, result: tp.result) void {
+    need_render(@src());
     if (result) |_| {
         reply.send("ok") catch {};
     } else |e| {

@@ -12,6 +12,7 @@ const module_name = @typeName(@This());
 pub const Error = error{ OutOfMemory, ThespianSpawnFailed };
 
 pub const Track = common.Track;
+pub const exit_failed = "remote_requests_failed";
 
 pub const Options = struct {
     track: Track = .none,
@@ -86,6 +87,18 @@ const Process = struct {
     const Request = struct {
         cmd: []const u8,
         origin: enum { user, focus },
+        reply_to: ?LocalReply = null,
+    };
+
+    const LocalReply = struct {
+        piid: tp.piid,
+        id: u64,
+
+        fn send(self: LocalReply, payload: cbor.Raw) void {
+            const pid = tp.pid.from_id(self.piid) orelse return;
+            defer pid.deinit();
+            pid.send(.{ "reply", self.id, payload }) catch {};
+        }
     };
 
     const TerminalFocus = enum { focused, unfocused };
@@ -167,11 +180,14 @@ const Process = struct {
         var args: cbor.Raw = .empty;
         var cmd: []const u8 = "";
         var request_id: u64 = 0;
+        var local: LocalReply = undefined;
 
         if (try m.match(.{ "request", tp.extract(&cmd), tp.extract(&args) })) {
-            try self.send_request(cmd, args);
+            try self.send_request(cmd, args, null);
+        } else if (try m.match(.{ "cmd", tp.extract(&cmd), tp.extract(&args), .{ "reply", tp.extract(&local.piid), tp.extract(&local.id) } })) {
+            try self.send_request(cmd, args, local);
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args) })) {
-            try self.send_request("navigate", args);
+            try self.send_request("navigate", args, null);
         } else if (try m.match(.{ "reply", tp.extract(&request_id), tp.extract(&args) })) {
             return self.handle_reply(request_id, args);
         } else if (try m.match(.{ "cmd", tp.extract(&cmd), tp.more })) {
@@ -215,19 +231,19 @@ const Process = struct {
         return self.disconnect_when_done();
     }
 
-    fn send_request(self: *@This(), cmd: []const u8, args: cbor.Raw) !void {
+    fn send_request(self: *@This(), cmd: []const u8, args: cbor.Raw, reply_to: ?LocalReply) !void {
         const manage_focus = switch (self.focus_mode) {
             .auto => std.mem.eql(u8, cmd, "navigate"),
             .always => true,
             .never => false,
         };
         if (manage_focus) try self.query_terminal_state();
-        return self.send_request_from(.user, cmd, args);
+        return self.send_request_from(.user, cmd, args, reply_to);
     }
 
     fn send_focus_request(self: *@This(), cmd: []const u8, args: anytype) !void {
         var buf: [64]u8 = undefined;
-        return self.send_request_from(.focus, cmd, .{ .bytes = cbor.fmt(&buf, args) });
+        return self.send_request_from(.focus, cmd, .{ .bytes = cbor.fmt(&buf, args) }, null);
     }
 
     fn query_terminal_state(self: *@This()) !void {
@@ -269,12 +285,12 @@ const Process = struct {
         return true;
     }
 
-    fn send_request_from(self: *@This(), origin: @FieldType(Request, "origin"), cmd: []const u8, args: cbor.Raw) !void {
+    fn send_request_from(self: *@This(), origin: @FieldType(Request, "origin"), cmd: []const u8, args: cbor.Raw, reply_to: ?LocalReply) !void {
         const request_id = self.next_request_id;
         self.next_request_id += 1;
         const cmd_owned = try self.allocator.dupe(u8, cmd);
         errdefer self.allocator.free(cmd_owned);
-        try self.outstanding.put(self.allocator, request_id, .{ .cmd = cmd_owned, .origin = origin });
+        try self.outstanding.put(self.allocator, request_id, .{ .cmd = cmd_owned, .origin = origin, .reply_to = reply_to });
         var tracked_args: std.Io.Writer.Allocating = .init(self.allocator);
         defer tracked_args.deinit();
         const request_args = if (self.track != .none and std.mem.eql(u8, cmd, "navigate")) blk: {
@@ -301,6 +317,7 @@ const Process = struct {
     }
 
     fn handle_reply(self: *@This(), request_id: u64, payload: cbor.Raw) !void {
+        if (self.outstanding.get(request_id)) |pending_request| if (pending_request.reply_to) |reply_to| reply_to.send(payload);
         if (try self.handle_event(request_id, payload)) return self.disconnect_when_done();
         const entry = self.outstanding.fetchRemove(request_id) orelse {
             log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
@@ -321,7 +338,9 @@ const Process = struct {
         } else if (try cbor.match(payload.bytes, .{ "error", cbor.extract(&exit_msg) })) {
             self.failed += 1;
             _ = self.tracked_requests.remove(request_id);
-            if (try cbor.match(exit_msg.bytes, .{ "exit", cbor.extract(&reason), cbor.more }))
+            if (entry.value.reply_to != null) {
+                self.log_verbose("{s} failed", .{cmd});
+            } else if (try cbor.match(exit_msg.bytes, .{ "exit", cbor.extract(&reason), cbor.more }))
                 log.err("{s} failed: {s}", .{ cmd, reason })
             else
                 log.err("{s} failed: {f}", .{ cmd, tp.message{ .buf = exit_msg.bytes } });
@@ -373,8 +392,9 @@ const Process = struct {
     }
 
     fn exit_done(self: *@This()) error{Exit} {
-        if (self.failed > 0) return tp.exit_fmt("{d} remote request(s) failed", .{self.failed});
-        return tp.exit_normal();
+        if (self.failed == 0) return tp.exit_normal();
+        log.err("{d} remote request(s) failed", .{self.failed});
+        return tp.exit(exit_failed);
     }
 
     fn handle_exit(self: *@This(), from: tp.pid_ref, reason: []const u8) !void {

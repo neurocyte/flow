@@ -10,6 +10,7 @@ const bin_path = @import("bin_path");
 const sep = std.fs.path.sep;
 
 const list_languages = @import("list_languages.zig");
+const ScriptExecutor = @import("ScriptExecutor.zig");
 const file_link = @import("file_link");
 
 const c = @import("c");
@@ -321,6 +322,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
+    var client_eh = thespian.make_exit_handler({}, client_exit_status);
     var rc_connect_buf: [std.posix.PATH_MAX]u8 = undefined;
     const connect = args.connect orelse if (init.environ_map.get("FLOW_SOCKET")) |v| if (v.len > 0) v else null else null;
     const main_proc = if (connect) |name| blk: {
@@ -328,7 +330,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
             exit(1);
         };
-        break :blk (try RcClient.spawn(a, &ctx, &eh, env, path, .{
+        break :blk (try RcClient.spawn(a, &ctx, &client_eh, env, path, .{
             .track = if (args.no_wait) .none else .full,
             .verbose = args.log_stdout,
             .terminal = get_flow_terminal(path),
@@ -444,38 +446,12 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     else if (args.light)
         try main_proc.send(.{ "cmd", "force_color_scheme", .{"light"} });
 
-    if (args.exec) |exec_str| {
-        var cmds = std.mem.splitScalar(u8, exec_str, ';');
-        while (cmds.next()) |cmd| {
-            var count_args_ = std.mem.splitScalar(u8, cmd, ':');
-            var count: usize = 0;
-            while (count_args_.next()) |_| count += 1;
-            if (count == 0) break;
-
-            var msg: std.Io.Writer.Allocating = .init(a);
-            defer msg.deinit();
-            const writer = &msg.writer;
-
-            var cmd_args = std.mem.splitScalar(u8, cmd, ':');
-            const cmd_ = cmd_args.next();
-            try cbor.writeArrayHeader(writer, 3);
-            try cbor.writeValue(writer, if (connect != null) "request" else "cmd");
-            try cbor.writeValue(writer, cmd_);
-            try cbor.writeArrayHeader(writer, count - 1);
-
-            while (cmd_args.next()) |arg| {
-                if (std.fmt.parseInt(isize, arg, 10) catch null) |i|
-                    try cbor.writeValue(writer, i)
-                else
-                    try cbor.writeValue(writer, arg);
-            }
-
-            try main_proc.send_raw(.{ .buf = msg.written() });
-        }
-    }
-
-    if (connect != null)
-        try main_proc.send(.{"disconnect"});
+    var exec_eh = thespian.make_exit_handler({}, ignore_exit_status);
+    const then_disconnect: ?thespian.message = if (connect != null) thespian.message.fmt(.{"disconnect"}) else null;
+    if (args.exec) |script|
+        try ScriptExecutor.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), script, then_disconnect)
+    else if (then_disconnect) |m|
+        try main_proc.send_raw(m);
 
     if (renderer.needs_main_thread and connect == null) {
         const ctx_thread = try std.Thread.spawn(.{}, run_context, .{&ctx});
@@ -505,6 +481,14 @@ var want_restart: bool = false;
 var want_restart_with_sudo: bool = false;
 var have_global_init = false;
 var global_init: std.process.Init = undefined;
+
+fn ignore_exit_status(_: void, _: []const u8) void {}
+
+fn client_exit_status(_: void, msg: []const u8) void {
+    if (!std.mem.eql(u8, msg, RcClient.exit_failed)) return print_exit_status({}, msg);
+    print_exit_status({}, "normal");
+    final_exit_status = 1;
+}
 
 pub fn print_exit_status(_: void, msg: []const u8) void {
     if (debug_console) |p| {
