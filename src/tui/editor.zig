@@ -610,12 +610,52 @@ pub const Editor = struct {
         view.row = self.scroll_dest;
         try view.write(writer);
 
-        try cbor.writeArrayHeader(writer, self.count_cursels());
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            try cursel.write(writer);
-        };
+        try write_cursels(writer, self.cursels.items);
         try cbor.writeValue(writer, self.last_find_query_find_mode);
         try cbor.writeValue(writer, self.find_mode);
+    }
+
+    fn write_cursels(writer: *std.Io.Writer, cursels: []const ?CurSel) !void {
+        var count: usize = 0;
+        for (cursels) |cursel| if (cursel) |_| {
+            count += 1;
+        };
+        try cbor.writeArrayHeader(writer, count);
+        for (cursels) |*cursel_| if (cursel_.*) |*cursel| {
+            try cursel.write(writer);
+        };
+    }
+
+    fn extract_cursels(allocator: Allocator, cursels_cbor: []const u8, cursels: *CurSel.List) !void {
+        var iter = cursels_cbor;
+        var len = cbor.decodeArrayHeader(&iter) catch return error.RestoreCurSels;
+        while (len > 0) : (len -= 1) {
+            var cursel: CurSel = .{};
+            if (!(cursel.extract(&iter) catch false)) break;
+            (try cursels.addOne(allocator)).* = cursel;
+        }
+    }
+
+    fn state_cursels(state: []const u8) !?[]const u8 {
+        var cursels_cbor: []const u8 = undefined;
+        if (!try cbor.match(state, .{
+            tp.any, // file_path
+            tp.any, // last_find_query
+            tp.any, // enable_format_on_save
+            tp.any, // indent_size
+            tp.any, // tab_width
+            tp.any, // indent_mode
+            tp.any, // reflow_width
+            tp.any, // syntax_no_render
+            tp.any, // insert_triggers
+            tp.any, // delete_triggers
+            tp.any, // find_history
+            tp.any, // view
+            tp.extract_cbor(&cursels_cbor),
+            tp.any, // last_find_query_find_mode
+            tp.any, // find_mode
+        })) return null;
+        return cursels_cbor;
     }
 
     pub fn extract_state(self: *Self, iter: *[]const u8, comptime op: Buffer.ExtractStateOperation, now: std.Io.Timestamp) !void {
@@ -663,15 +703,9 @@ pub const Editor = struct {
 
         if (cursels_cbor.len > 0)
             self.clear_all_cursors();
-        var cursels_iter = cursels_cbor;
-        var len = cbor.decodeArrayHeader(&cursels_iter) catch return error.RestoreCurSels;
-        while (len > 0) : (len -= 1) {
-            var cursel: CurSel = .{};
-            if (!(cursel.extract(&cursels_iter) catch false)) break;
-            (try self.cursels.addOne(self.allocator)).* = cursel;
-        }
+        try extract_cursels(self.allocator, cursels_cbor, &self.cursels);
 
-        len = cbor.decodeArrayHeader(&find_history) catch return error.RestoreFindHistory;
+        var len = cbor.decodeArrayHeader(&find_history) catch return error.RestoreFindHistory;
         while (len > 0) : (len -= 1) {
             var value: []const u8 = undefined;
             if (!(cbor.matchValue(&find_history, cbor.extract(&value)) catch return error.RestoreFindHistory))
@@ -2918,10 +2952,34 @@ pub const Editor = struct {
         self.collapse_cursors();
     }
 
-    pub fn nudge_insert(self: *Self, nudge: Buffer.Nudge, exclude: *const CurSel, _: usize) void {
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+    fn nudge_insert_cursels(cursels: []?CurSel, nudge: Buffer.Nudge, exclude: *const CurSel) void {
+        for (cursels) |*cursel_| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 cursel.nudge_insert(nudge);
+    }
+
+    fn nudge_delete_cursels(cursels: []?CurSel, nudge: Buffer.Nudge, exclude: *const CurSel) void {
+        for (cursels) |*cursel_| if (cursel_.*) |*cursel|
+            if (cursel != exclude)
+                if (!cursel.nudge_delete(nudge)) {
+                    cursel_.* = null;
+                };
+    }
+
+    const CurSelsNudger = struct {
+        cursels: *CurSel.List,
+
+        pub fn nudge_insert(self: CurSelsNudger, nudge: Buffer.Nudge, exclude: *const CurSel, _: usize) void {
+            nudge_insert_cursels(self.cursels.items, nudge, exclude);
+        }
+
+        pub fn nudge_delete(self: CurSelsNudger, nudge: Buffer.Nudge, exclude: *const CurSel, _: usize) void {
+            nudge_delete_cursels(self.cursels.items, nudge, exclude);
+        }
+    };
+
+    pub fn nudge_insert(self: *Self, nudge: Buffer.Nudge, exclude: *const CurSel, _: usize) void {
+        nudge_insert_cursels(self.cursels.items, nudge, exclude);
         for (self.matches.items) |*match_| if (match_.*) |*match|
             match.nudge_insert(nudge);
         for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
@@ -2929,11 +2987,7 @@ pub const Editor = struct {
     }
 
     fn nudge_delete(self: *Self, nudge: Buffer.Nudge, exclude: *const CurSel, _: usize) void {
-        for (self.cursels.items, 0..) |*cursel_, i| if (cursel_.*) |*cursel|
-            if (cursel != exclude)
-                if (!cursel.nudge_delete(nudge)) {
-                    self.cursels.items[i] = null;
-                };
+        nudge_delete_cursels(self.cursels.items, nudge, exclude);
         for (self.matches.items, 0..) |*match_, i| if (match_.*) |*match|
             if (!match.nudge_delete(nudge)) {
                 self.matches.items[i] = null;
@@ -2956,11 +3010,15 @@ pub const Editor = struct {
     }
 
     fn delete_range(self: *Self, root: Buffer.Root, cursel: *CurSel, sel: Selection, allocator: Allocator) error{Stop}!struct { Buffer.Root, Buffer.Nudge, ?u8 } {
+        return delete_range_nudged(self, root, cursel, sel, allocator, self.metrics);
+    }
+
+    fn delete_range_nudged(nudger: anytype, root: Buffer.Root, cursel: *CurSel, sel: Selection, allocator: Allocator, metrics: Buffer.Metrics) error{Stop}!struct { Buffer.Root, Buffer.Nudge, ?u8 } {
         var size: usize = 0;
-        const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, self.metrics);
-        const nudge: Buffer.Nudge = .delete(sel, root, root_, self.metrics);
+        const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, metrics);
+        const nudge: Buffer.Nudge = .delete(sel, root, root_, metrics);
         _ = cursel.cursor.nudge_delete(nudge);
-        self.nudge_delete(nudge, cursel, size);
+        nudger.nudge_delete(nudge, cursel, size);
         return .{ root_, nudge, trigger_char };
     }
 
@@ -6333,30 +6391,54 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    const EditSetDocument = struct {
-        editor: *Self,
-        base: Buffer.Root,
-        root: Buffer.Root,
-        allocator: Allocator,
+    fn EditSetDocument(Nudger: type) type {
+        return struct {
+            nudger: Nudger,
+            cursels: *CurSel.List,
+            metrics: Buffer.Metrics,
+            base: Buffer.Root,
+            root: Buffer.Root,
+            allocator: Allocator,
 
-        pub fn hash(doc: *const @This()) EditSet.Hash {
-            return doc.root.hash();
-        }
+            pub fn hash(doc: *const @This()) EditSet.Hash {
+                return doc.root.hash();
+            }
 
-        pub fn replace(doc: *@This(), edit: EditSet.Edit) !void {
-            const pos: Selection = .{
-                .begin = .{ .row = edit.begin.row, .col = edit.begin.pos },
-                .end = .{ .row = edit.end.row, .col = edit.end.pos },
-            };
-            doc.root = try doc.editor.apply_text_edit(doc.root, pos.from_pos(doc.base, doc.editor.metrics), edit.text, doc.allocator);
-        }
-    };
+            pub fn replace(doc: *@This(), edit: EditSet.Edit) !void {
+                const pos: Selection = .{
+                    .begin = .{ .row = edit.begin.row, .col = edit.begin.pos },
+                    .end = .{ .row = edit.end.row, .col = edit.end.pos },
+                };
+                doc.root = try apply_text_edit(doc.nudger, doc.cursels, doc.root, pos.from_pos(doc.base, doc.metrics), edit.text, doc.allocator, doc.metrics);
+            }
+        };
+    }
+
+    fn apply_text_edits_nudged(allocator: Allocator, cursels: *CurSel.List, root: Buffer.Root, text_edits: cbor.Raw, buffer_allocator: Allocator, metrics: Buffer.Metrics) !Buffer.Root {
+        var doc: EditSetDocument(CurSelsNudger) = .{
+            .nudger = .{ .cursels = cursels },
+            .cursels = cursels,
+            .metrics = metrics,
+            .base = root,
+            .root = root,
+            .allocator = buffer_allocator,
+        };
+        try EditSet.apply(allocator, text_edits, &doc);
+        return doc.root;
+    }
 
     fn apply_text_edits(self: *Self, root: Buffer.Root, text_edits: cbor.Raw, allocator: Allocator) !Buffer.Root {
         if (text_edits.bytes.len == 0) return root;
         var saved = try self.cursels.clone(self.allocator);
         defer saved.deinit(self.allocator);
-        var doc: EditSetDocument = .{ .editor = self, .base = root, .root = root, .allocator = allocator };
+        var doc: EditSetDocument(*Self) = .{
+            .nudger = self,
+            .cursels = &self.cursels,
+            .metrics = self.metrics,
+            .base = root,
+            .root = root,
+            .allocator = allocator,
+        };
         EditSet.apply(self.allocator, text_edits, &doc) catch |e| {
             std.mem.swap(CurSel.List, &self.cursels, &saved);
             log_edit_set_error(self.file_path orelse "", text_edits, e);
@@ -6365,28 +6447,28 @@ pub const Editor = struct {
         return doc.root;
     }
 
-    fn apply_text_edit(self: *Self, root: Buffer.Root, sel: Selection, text: []const u8, allocator: Allocator) !Buffer.Root {
+    fn apply_text_edit(nudger: anytype, cursels: *CurSel.List, root: Buffer.Root, sel: Selection, text: []const u8, allocator: Allocator, metrics: Buffer.Metrics) !Buffer.Root {
         var cursel: CurSel = .{ .cursor = sel.end };
         var root_ = root;
         if (text.len > 0) {
-            cursel.cursor.row, cursel.cursor.col, root_ = try root.insert_chars(sel.end.row, sel.end.col, text, allocator, self.metrics);
-            self.nudge_insert(.insert(.{ .begin = sel.end, .end = cursel.cursor }, root, root_, self.metrics), &cursel, text.len);
+            cursel.cursor.row, cursel.cursor.col, root_ = try root.insert_chars(sel.end.row, sel.end.col, text, allocator, metrics);
+            nudger.nudge_insert(.insert(.{ .begin = sel.end, .end = cursel.cursor }, root, root_, metrics), &cursel, text.len);
         }
         if (!sel.empty()) {
-            const primary = self.primary_index();
-            root_, _, _ = try self.delete_range(root_, &cursel, sel, allocator);
+            const primary = primary_index(cursels.items);
+            root_, _, _ = try delete_range_nudged(nudger, root_, &cursel, sel, allocator, metrics);
             // an edit must not remove the primary cursor, move it to the end of the edited range
-            if (primary) |idx| if (self.cursels.items[idx] == null) {
-                self.cursels.items[idx] = .{ .cursor = cursel.cursor };
+            if (primary) |idx| if (cursels.items[idx] == null) {
+                cursels.items[idx] = .{ .cursor = cursel.cursor };
             };
         }
         return root_;
     }
 
-    fn primary_index(self: *const Self) ?usize {
-        var idx = self.cursels.items.len;
+    fn primary_index(cursels: []const ?CurSel) ?usize {
+        var idx = cursels.len;
         while (idx > 0) : (idx -= 1)
-            if (self.cursels.items[idx - 1]) |_| return idx - 1;
+            if (cursels[idx - 1]) |_| return idx - 1;
         return null;
     }
 
