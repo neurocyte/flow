@@ -320,7 +320,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
             exit(1);
         };
-        break :blk (try RcClient.spawn(a, &ctx, &eh, env, path)).pid.?;
+        break :blk (try RcClient.spawn(a, &ctx, &eh, env, path, if (args.no_wait) .none else .full)).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();
 

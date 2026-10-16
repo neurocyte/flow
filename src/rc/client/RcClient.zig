@@ -11,14 +11,16 @@ pid: ?tp.pid,
 const module_name = @typeName(@This());
 pub const Error = error{ OutOfMemory, ThespianSpawnFailed };
 
-pub fn create(allocator: std.mem.Allocator, path: []const u8) Error!@This() {
-    const args = try Process.Args.init(allocator, path);
+pub const Track = common.Track;
+
+pub fn create(allocator: std.mem.Allocator, path: []const u8, track: Track) Error!@This() {
+    const args = try Process.Args.init(allocator, path, track);
     errdefer args.deinit();
     return .{ .pid = try tp.spawn_link(allocator, args, Process.start, module_name) };
 }
 
-pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?tp.env, path: []const u8) !@This() {
-    const args = try Process.Args.init(allocator, path);
+pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?tp.env, path: []const u8, track: Track) !@This() {
+    const args = try Process.Args.init(allocator, path, track);
     errdefer args.deinit();
     return .{ .pid = try ctx.spawn_link(args, Process.start, module_name, eh, env) };
 }
@@ -62,14 +64,19 @@ const Process = struct {
     next_request_id: u64 = 1,
     outstanding: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
     failed: usize = 0,
+    track: Track,
+    tracked_requests: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    tracked_any: bool = false,
     receiver: tp.Receiver(*@This()),
 
     const Args = struct {
         allocator: std.mem.Allocator,
         path: [:0]const u8,
+        track: Track,
 
-        fn init(allocator: std.mem.Allocator, path: []const u8) Error!Args {
-            return .{ .allocator = allocator, .path = try allocator.dupeSentinel(u8, path, 0) };
+        fn init(allocator: std.mem.Allocator, path: []const u8, track: Track) Error!Args {
+            return .{ .allocator = allocator, .path = try allocator.dupeSentinel(u8, path, 0), .track = track };
         }
 
         fn deinit(self: Args) void {
@@ -92,6 +99,7 @@ const Process = struct {
         self.* = .{
             .allocator = args.allocator,
             .path = args.path,
+            .track = args.track,
             .receiver = .init(receive_fn, @This().deinit, self),
         };
         errdefer self.deinit();
@@ -107,6 +115,8 @@ const Process = struct {
         var it = self.outstanding.valueIterator();
         while (it.next()) |cmd| self.allocator.free(cmd.*);
         self.outstanding.deinit(self.allocator);
+        self.tracked_requests.deinit(self.allocator);
+        self.tracked_buffers.deinit(self.allocator);
         if (self.server) |p| p.deinit();
         if (self.connection) |p| p.deinit();
         if (self.connector) |p| p.deinit();
@@ -179,14 +189,33 @@ const Process = struct {
         const cmd_owned = try self.allocator.dupe(u8, cmd);
         errdefer self.allocator.free(cmd_owned);
         try self.outstanding.put(self.allocator, request_id, cmd_owned);
-        const m = tp.message.fmt(.{ "request", request_id, cmd, args });
+        var tracked_args: std.Io.Writer.Allocating = .init(self.allocator);
+        defer tracked_args.deinit();
+        const request_args = if (self.track != .none and std.mem.eql(u8, cmd, "navigate")) blk: {
+            if (!try add_track_field(&tracked_args.writer, args, self.track)) break :blk args;
+            try self.tracked_requests.put(self.allocator, request_id, {});
+            self.tracked_any = true;
+            break :blk cbor.Raw{ .bytes = tracked_args.written() };
+        } else args;
+        const m = tp.message.fmt(.{ "request", request_id, cmd, request_args });
         if (self.server) |server| return server.send_raw(m);
         const msg = try self.allocator.dupe(u8, m.buf);
         errdefer self.allocator.free(msg);
         return self.pending.append(self.allocator, msg);
     }
 
+    fn add_track_field(writer: *std.Io.Writer, args: cbor.Raw, track: Track) !bool {
+        var iter = args.bytes;
+        const len = cbor.decodeMapHeader(&iter) catch return false;
+        try cbor.writeMapHeader(writer, len + 1);
+        try writer.writeAll(iter);
+        try cbor.writeValue(writer, "track");
+        try cbor.writeValue(writer, track);
+        return true;
+    }
+
     fn handle_reply(self: *@This(), request_id: u64, payload: cbor.Raw) !void {
+        if (try self.handle_event(request_id, payload)) return self.disconnect_when_done();
         const entry = self.outstanding.fetchRemove(request_id) orelse {
             log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
             return;
@@ -199,6 +228,7 @@ const Process = struct {
             log.debug("{s}: ok", .{cmd});
         } else if (try cbor.match(payload.bytes, .{ "error", cbor.extract(&exit_msg) })) {
             self.failed += 1;
+            _ = self.tracked_requests.remove(request_id);
             if (try cbor.match(exit_msg.bytes, .{ "exit", cbor.extract(&reason), cbor.more }))
                 log.err("{s} failed: {s}", .{ cmd, reason })
             else
@@ -209,8 +239,32 @@ const Process = struct {
         return self.disconnect_when_done();
     }
 
+    fn handle_event(self: *@This(), request_id: u64, payload: cbor.Raw) !bool {
+        var buffer_id: u64 = 0;
+        var path: []const u8 = "";
+        var event: []const u8 = "";
+        if (try cbor.match(payload.bytes, .{ "navigation", "complete", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
+            _ = self.tracked_requests.remove(request_id);
+            try self.tracked_buffers.put(self.allocator, buffer_id, {});
+            log.info("opened {s}", .{path});
+        } else if (try cbor.match(payload.bytes, .{ "navigation", "failed", cbor.extract(&path) })) {
+            _ = self.tracked_requests.remove(request_id);
+            self.failed += 1;
+            log.err("open {s} failed", .{path});
+        } else if (try cbor.match(payload.bytes, .{ "buffer", cbor.extract(&event), .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
+            if (std.mem.eql(u8, event, "hidden") or std.mem.eql(u8, event, "deleted")) {
+                if (self.tracked_buffers.remove(buffer_id)) log.info("closed {s}", .{path});
+            } else {
+                log.debug("{s} {s}", .{ event, path });
+            }
+        } else return false;
+        return true;
+    }
+
     fn disconnect_when_done(self: *@This()) !void {
-        if (!self.disconnecting or self.server == null or self.outstanding.count() > 0) return;
+        if (self.server == null or self.outstanding.count() > 0 or self.tracked_requests.count() > 0) return;
+        const tracking_done = self.tracked_any and self.tracked_buffers.count() == 0;
+        if (!self.disconnecting and !tracking_done) return;
         self.shutdown();
         return self.exit_done();
     }
