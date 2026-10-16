@@ -330,11 +330,12 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
             exit(1);
         };
+        const terminal = get_flow_terminal(path);
         break :blk (try RcClient.spawn(a, &ctx, &client_eh, env, path, .{
             .track = if (args.no_wait) .none else .full,
             .verbose = args.log_stdout,
-            .terminal = get_flow_terminal(path),
-            .focus_mode = if (args.focus) .always else if (args.no_focus) .never else .auto,
+            .terminal = terminal,
+            .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();
