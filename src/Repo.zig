@@ -8,8 +8,8 @@ const git = @import("git");
 const VcsStatus = @import("VcsStatus");
 const file_watcher = @import("file_watcher");
 const gitignore = @import("gitignore");
+const file_finder = @import("file_finder");
 
-const Project = @import("Project.zig");
 const LSPClient = @import("LSPClient.zig");
 const convert_path = LSPClient.convert_path;
 
@@ -130,7 +130,7 @@ pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) error{InvalidRequ
 
 fn resolve_meta(file: *VcsStatusFile) void {
     if (file.meta_resolved) return;
-    file.type, file.icon, file.color = Project.guess_file_type(file.path);
+    file.type, file.icon, file.color = file_finder.guess_file_type(file.path);
     file.meta_resolved = true;
 }
 
