@@ -10,6 +10,7 @@ const TerminalOnExit = @import("config").TerminalOnExit;
 var vts: std.ArrayListUnmanaged(*Vt) = .empty;
 
 var most_recent: ?*Vt = null;
+var next_id: u64 = 1;
 
 pub fn set_most_recent(vt: *Vt) void {
     most_recent = vt;
@@ -42,6 +43,7 @@ pub fn create(env: std.process.Environ.Map, on_exit: TerminalOnExit) !*Vt {
     const self = try allocator.create(Vt);
     errdefer allocator.destroy(self);
     self.* = .{
+        .id = next_id,
         .vt = undefined,
         .env = env,
         .write_buf = undefined, // managed via self.vt's pty_writer pointer
@@ -49,6 +51,7 @@ pub fn create(env: std.process.Environ.Map, on_exit: TerminalOnExit) !*Vt {
         .on_exit = on_exit,
     };
     try vts.append(allocator, self);
+    next_id += 1;
     return self;
 }
 
@@ -127,6 +130,11 @@ pub fn running_except(exclude: *const Vt) ?*Vt {
 pub fn index_of(target: ?*const Vt) ?usize {
     const t = target orelse return null;
     for (vts.items, 0..) |vt, i| if (vt == t) return i;
+    return null;
+}
+
+pub fn by_id(id: u64) ?*Vt {
+    for (vts.items) |vt| if (vt.id == id) return vt;
     return null;
 }
 

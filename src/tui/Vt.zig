@@ -26,6 +26,7 @@ pub const Manager = @import("VtManager.zig");
 
 const Vt = @This();
 
+id: u64,
 vt: Terminal,
 env: std.process.Environ.Map,
 write_buf: [4096]u8,
@@ -53,11 +54,13 @@ fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, 
     const home = env.get("HOME") orelse "/tmp";
 
     const self = try Manager.create(env, on_exit);
+    var id_buf: [20]u8 = undefined;
+    try self.env.put("FLOW_TERMINAL", std.fmt.bufPrint(&id_buf, "{d}", .{self.id}) catch unreachable);
     self.vt = try Terminal.init(
         io,
         allocator,
         cmd_argv,
-        &env,
+        &self.env,
         .{
             .winsize = winsize_for(rows, cols),
             .scrollback_bytes = @as(usize, tui.config().terminal_scrollback_mb) << 20,
