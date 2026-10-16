@@ -417,7 +417,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         try file_link.navigate(main_proc.ref(), &link);
     }
 
-    if (!have_file) {
+    if (!have_file and connect == null) {
         if (!have_project)
             try main_proc.send(.{ "cmd", "open_project_cwd" });
         try main_proc.send(.{ "cmd", "show_home" });
