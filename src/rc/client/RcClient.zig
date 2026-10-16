@@ -251,7 +251,9 @@ const Process = struct {
             _ = self.tracked_requests.remove(request_id);
             self.failed += 1;
             log.err("open {s} failed", .{path});
-        } else if (try cbor.match(payload.bytes, .{ "buffer", cbor.extract(&event), .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
+        } else if (try cbor.match(payload.bytes, .{ "buffer", "renamed", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path), cbor.extract(&old_path) })) {
+            self.log_verbose("renamed {s} -> {s}", .{ old_path, path });
+        } else if (try cbor.match(payload.bytes, .{ "buffer", cbor.extract(&event), .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path), cbor.more })) {
             if (std.mem.eql(u8, event, "hidden") or std.mem.eql(u8, event, "deleted")) {
                 if (self.tracked_buffers.remove(buffer_id)) log.info("closed {s}", .{path});
             } else {

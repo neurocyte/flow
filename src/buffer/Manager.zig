@@ -169,11 +169,11 @@ pub fn add_listener(self: *Self, buffer: *Buffer, listener: Listener) error{OutO
     try entry.value_ptr.append(self.allocator, listener);
 }
 
-fn notify(self: *Self, buffer: *Buffer, event: anytype) void {
+fn notify(self: *Self, buffer: *Buffer, event: []const u8, extra: anytype) void {
     const list = self.listeners.getPtr(buffer) orelse return;
     var i: usize = 0;
     while (i < list.items.len) {
-        if (list.items[i].send(.{ "buffer", event, buffer.id, buffer.get_file_path() }))
+        if (list.items[i].send(.{ "buffer", event, buffer.id, buffer.get_file_path() } ++ extra))
             i += 1
         else
             _ = list.swapRemove(i);
@@ -187,7 +187,7 @@ fn remove_listeners(self: *Self, buffer: *Buffer) void {
 
 pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
     const buffer = self.buffer_from_ref(buffer_.to_ref()) orelse return; // check buffer is valid
-    self.notify(buffer, "deleted");
+    self.notify(buffer, "deleted", .{});
     self.remove_listeners(buffer);
     self.unwatch_buffer(buffer);
     if (self.buffers.fetchRemove(buffer.get_file_path())) |kv| {
@@ -199,7 +199,7 @@ pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
 pub fn open_file(self: *Self, file_path: []const u8, now: std.Io.Timestamp) error{BufferNotLoaded}!*Buffer {
     const buffer = self.get_buffer(file_path) orelse return error.BufferNotLoaded;
     buffer.update_last_used_time(now);
-    if (buffer.hidden) self.notify(buffer, "shown");
+    if (buffer.hidden) self.notify(buffer, "shown", .{});
     buffer.hidden = false;
     return buffer;
 }
@@ -378,7 +378,7 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
         .crlf => .crlf,
     }, now);
     buffer.update_last_used_time(now);
-    self.notify(buffer, "reloaded");
+    self.notify(buffer, "reloaded", .{});
     if (reload_of.reason == .external)
         log.info("reloaded {s} from disk", .{pending.file_path});
 }
@@ -484,12 +484,12 @@ pub fn rename_buffer(self: *Self, buffer: *Buffer, file_path: []const u8) error{
     errdefer self.allocator.free(new_key);
     try self.buffers.ensureUnusedCapacity(self.allocator, 1);
     const kv = self.buffers.fetchRemove(buffer.get_file_path()) orelse return error.BufferNotFound;
-    self.allocator.free(kv.key);
+    defer self.allocator.free(kv.key);
     self.unwatch_buffer(buffer);
     buffer.set_file_path(file_path);
     self.buffers.putAssumeCapacity(new_key, buffer);
     self.watch_buffer(buffer);
-    self.notify(buffer, "renamed");
+    self.notify(buffer, "renamed", .{kv.key});
 }
 
 pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
@@ -501,7 +501,7 @@ pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
     buffer.hidden = true;
     buffer.set_last_view(null);
-    self.notify(buffer, "hidden");
+    self.notify(buffer, "hidden", .{});
     tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.get_file_path(), "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
     if (buffer.is_ephemeral())
         self.delete_buffer(buffer);
@@ -690,7 +690,7 @@ fn finish_save(self: *Self, id: usize, ok: bool) void {
     if (ok) {
         if (self.buffer_from_ref(pending.buffer)) |buffer| {
             buffer.mark_saved(pending.root, pending.eol_mode);
-            self.notify(buffer, "saved");
+            self.notify(buffer, "saved", .{});
             tp.self_pid().send(.{ "cmd", "buffer_saved", .{ pending.file_path, pending.auto_save } }) catch {};
         }
         const total_us = pending.started.durationTo(get_now()).toMicroseconds();
