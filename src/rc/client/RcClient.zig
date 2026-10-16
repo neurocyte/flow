@@ -16,6 +16,7 @@ pub const Track = common.Track;
 pub const Options = struct {
     track: Track = .none,
     verbose: bool = false,
+    terminal: ?u64 = null,
 };
 
 pub fn create(allocator: std.mem.Allocator, path: []const u8, options: Options) Error!@This() {
@@ -66,14 +67,31 @@ const Process = struct {
     server: ?tp.pid = null,
     disconnecting: bool = false,
     pending: std.ArrayList([]const u8) = .empty,
+    held: std.ArrayList([]const u8) = .empty,
     next_request_id: u64 = 1,
-    outstanding: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
+    outstanding: std.AutoHashMapUnmanaged(u64, Request) = .empty,
     failed: usize = 0,
     track: Track,
     verbose: bool,
+    terminal: ?u64,
+    focus: Focus = .{},
     tracked_requests: std.AutoHashMapUnmanaged(u64, void) = .empty,
     tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
     receiver: tp.Receiver(*@This()),
+
+    const Request = struct {
+        cmd: []const u8,
+        origin: enum { user, focus },
+    };
+
+    const TerminalFocus = enum { focused, unfocused };
+    const PanelState = enum { maximized, normal };
+
+    const Focus = struct {
+        state: enum { unknown, querying, known, restoring } = .unknown,
+        unfocused: bool = false,
+        unmaximized: bool = false,
+    };
 
     const Args = struct {
         allocator: std.mem.Allocator,
@@ -106,6 +124,7 @@ const Process = struct {
             .path = args.path,
             .track = args.options.track,
             .verbose = args.options.verbose,
+            .terminal = args.options.terminal,
             .receiver = .init(receive_fn, @This().deinit, self),
         };
         errdefer self.deinit();
@@ -118,8 +137,10 @@ const Process = struct {
     fn deinit(self: *@This()) void {
         for (self.pending.items) |msg| self.allocator.free(msg);
         self.pending.deinit(self.allocator);
+        for (self.held.items) |msg| self.allocator.free(msg);
+        self.held.deinit(self.allocator);
         var it = self.outstanding.valueIterator();
-        while (it.next()) |cmd| self.allocator.free(cmd.*);
+        while (it.next()) |pending_request| self.allocator.free(pending_request.cmd);
         self.outstanding.deinit(self.allocator);
         self.tracked_requests.deinit(self.allocator);
         self.tracked_buffers.deinit(self.allocator);
@@ -190,11 +211,60 @@ const Process = struct {
     }
 
     fn send_request(self: *@This(), cmd: []const u8, args: cbor.Raw) !void {
+        if (std.mem.eql(u8, cmd, "navigate")) try self.query_terminal_state();
+        return self.send_request_from(.user, cmd, args);
+    }
+
+    fn send_focus_request(self: *@This(), cmd: []const u8, args: anytype) !void {
+        var buf: [64]u8 = undefined;
+        return self.send_request_from(.focus, cmd, .{ .bytes = cbor.fmt(&buf, args) });
+    }
+
+    fn query_terminal_state(self: *@This()) !void {
+        const terminal = self.terminal orelse return;
+        if (self.focus.state != .unknown) return;
+        self.focus.state = .querying;
+        try self.send_focus_request("get_terminal_state", .{terminal});
+    }
+
+    fn apply_terminal_state(self: *@This(), focus: TerminalFocus, panel: PanelState) !void {
+        const terminal = self.terminal orelse return;
+        if (self.focus.state != .querying) return;
+        self.focus.state = .known;
+        if (panel == .maximized) {
+            try self.send_focus_request("unmaximize_panel", .{});
+            self.focus.unmaximized = true;
+        }
+        if (focus == .focused) {
+            try self.send_focus_request("unfocus_terminal_id", .{terminal});
+            self.focus.unfocused = true;
+        }
+        return self.release_held();
+    }
+
+    fn release_held(self: *@This()) !void {
+        const server = self.server orelse return;
+        for (self.held.items) |msg| try server.send_raw(.{ .buf = msg });
+        for (self.held.items) |msg| self.allocator.free(msg);
+        self.held.clearRetainingCapacity();
+    }
+
+    fn restore_terminal_state(self: *@This()) !bool {
+        const terminal = self.terminal orelse return false;
+        if (self.track == .none or self.focus.state != .known) return false;
+        if (!self.focus.unfocused and !self.focus.unmaximized) return false;
+        self.focus.state = .restoring;
+        if (self.focus.unfocused) try self.send_focus_request("focus_terminal_id", .{terminal});
+        if (self.focus.unmaximized) try self.send_focus_request("maximize_panel", .{});
+        return true;
+    }
+
+    fn send_request_from(self: *@This(), origin: @FieldType(Request, "origin"), cmd: []const u8, args: cbor.Raw) !void {
         const request_id = self.next_request_id;
         self.next_request_id += 1;
         const cmd_owned = try self.allocator.dupe(u8, cmd);
         errdefer self.allocator.free(cmd_owned);
-        try self.outstanding.put(self.allocator, request_id, cmd_owned);
+        try self.outstanding.put(self.allocator, request_id, .{ .cmd = cmd_owned, .origin = origin });
         var tracked_args: std.Io.Writer.Allocating = .init(self.allocator);
         defer tracked_args.deinit();
         const request_args = if (self.track != .none and std.mem.eql(u8, cmd, "navigate")) blk: {
@@ -203,10 +273,11 @@ const Process = struct {
             break :blk cbor.Raw{ .bytes = tracked_args.written() };
         } else args;
         const m = tp.message.fmt(.{ "request", request_id, cmd, request_args });
-        if (self.server) |server| return server.send_raw(m);
+        const hold = origin == .user and self.focus.state == .querying;
+        if (!hold) if (self.server) |server| return server.send_raw(m);
         const msg = try self.allocator.dupe(u8, m.buf);
         errdefer self.allocator.free(msg);
-        return self.pending.append(self.allocator, msg);
+        return (if (hold) &self.held else &self.pending).append(self.allocator, msg);
     }
 
     fn add_track_field(writer: *std.Io.Writer, args: cbor.Raw, track: Track) !bool {
@@ -225,12 +296,18 @@ const Process = struct {
             log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
             return;
         };
-        const cmd = entry.value;
+        const cmd = entry.value.cmd;
         defer self.allocator.free(cmd);
         var exit_msg: cbor.Raw = .empty;
         var reason: []const u8 = "";
         if (try cbor.match(payload.bytes, "ok")) {
             self.log_verbose("{s}: ok", .{cmd});
+        } else if (entry.value.origin == .focus and try cbor.match(payload.bytes, .{ "error", cbor.extract(&exit_msg) })) {
+            self.log_verbose("{s} failed: {f}", .{ cmd, tp.message{ .buf = exit_msg.bytes } });
+            if (self.focus.state == .querying) {
+                self.focus.state = .known;
+                try self.release_held();
+            }
         } else if (try cbor.match(payload.bytes, .{ "error", cbor.extract(&exit_msg) })) {
             self.failed += 1;
             _ = self.tracked_requests.remove(request_id);
@@ -253,7 +330,11 @@ const Process = struct {
         var path: []const u8 = "";
         var event: []const u8 = "";
         var old_path: []const u8 = "";
-        if (try cbor.match(payload.bytes, .{ "navigation", "complete", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
+        var focus: TerminalFocus = .unfocused;
+        var panel: PanelState = .normal;
+        if (try cbor.match(payload.bytes, .{ "terminal_state", cbor.extract(&focus), cbor.extract(&panel) })) {
+            try self.apply_terminal_state(focus, panel);
+        } else if (try cbor.match(payload.bytes, .{ "navigation", "complete", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
             _ = self.tracked_requests.remove(request_id);
             try self.tracked_buffers.put(self.allocator, buffer_id, {});
             log.info("opened {s}", .{path});
@@ -276,6 +357,7 @@ const Process = struct {
     fn disconnect_when_done(self: *@This()) !void {
         if (!self.disconnecting or self.server == null) return;
         if (self.outstanding.count() > 0 or self.tracked_requests.count() > 0 or self.tracked_buffers.count() > 0) return;
+        if (try self.restore_terminal_state()) return;
         self.shutdown();
         return self.exit_done();
     }

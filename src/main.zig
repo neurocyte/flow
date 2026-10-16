@@ -323,6 +323,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         break :blk (try RcClient.spawn(a, &ctx, &eh, env, path, .{
             .track = if (args.no_wait) .none else .full,
             .verbose = args.log_stdout,
+            .terminal = get_flow_terminal(path),
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();
@@ -1338,6 +1339,15 @@ fn get_rc_socket_path(server: ?[]const u8, buf: []u8) !?[]const u8 {
         return try std.fmt.bufPrint(buf, "{s}{c}flow-{d}.sock", .{ try get_rc_socket_dir(), sep, get_pid() });
     if (std.mem.eql(u8, name, "disable")) return null;
     return try resolve_rc_socket_name(name, buf);
+}
+
+fn get_flow_terminal(connect_path: []const u8) ?u64 {
+    const environ = get_init().environ_map;
+    const socket = environ.get("FLOW_SOCKET") orelse return null;
+    var buf: [std.posix.PATH_MAX]u8 = undefined;
+    const socket_path = resolve_rc_socket_name(socket, &buf) catch return null;
+    if (!std.mem.eql(u8, socket_path, connect_path)) return null;
+    return std.fmt.parseInt(u64, environ.get("FLOW_TERMINAL") orelse return null, 10) catch null;
 }
 
 fn resolve_rc_socket_name(name: []const u8, buf: []u8) ![]const u8 {
