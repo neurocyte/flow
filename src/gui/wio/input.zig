@@ -148,6 +148,29 @@ pub fn codepointFromButton(b: wio.Button, mods: Mods) ?u21 {
     };
 }
 
+// Keypad keys that produce text when num lock is on. kp_enter never does.
+pub fn isKeypadTextKey(cp: u21) bool {
+    return cp >= vaxis.Key.kp_0 and cp <= vaxis.Key.kp_equal and cp != vaxis.Key.kp_enter;
+}
+
+// The key a keypad key reports when it produces no text (num lock off).
+pub fn keypadNavCodepoint(cp: u21) u21 {
+    return switch (cp) {
+        vaxis.Key.kp_0 => vaxis.Key.kp_insert,
+        vaxis.Key.kp_1 => vaxis.Key.kp_end,
+        vaxis.Key.kp_2 => vaxis.Key.kp_down,
+        vaxis.Key.kp_3 => vaxis.Key.kp_page_down,
+        vaxis.Key.kp_4 => vaxis.Key.kp_left,
+        vaxis.Key.kp_5 => vaxis.Key.kp_begin,
+        vaxis.Key.kp_6 => vaxis.Key.kp_right,
+        vaxis.Key.kp_7 => vaxis.Key.kp_home,
+        vaxis.Key.kp_8 => vaxis.Key.kp_up,
+        vaxis.Key.kp_9 => vaxis.Key.kp_page_up,
+        vaxis.Key.kp_decimal => vaxis.Key.kp_delete,
+        else => cp,
+    };
+}
+
 pub const mouse_button_left: u8 = 0;
 pub const mouse_button_middle: u8 = 1;
 pub const mouse_button_right: u8 = 2;
