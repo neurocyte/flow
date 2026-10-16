@@ -39,6 +39,7 @@ const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
 const IndentMode = @import("config").IndentMode;
 const WhitespaceMode = @import("config").WhitespaceMode;
+const CodeActionIndicatorMode = @import("config").CodeActionIndicatorMode;
 const info_view = @import("info_view.zig");
 
 pub const Cursor = Buffer.Cursor;
@@ -471,6 +472,7 @@ pub const Editor = struct {
         root: usize = 0,
         sel: Selection = .{},
         row: usize = 0,
+        mode: CodeActionIndicatorMode = .default,
         state: enum { unknown, pending, none, available } = .unknown,
     } = .{},
     completion_resolve: struct {
@@ -7940,12 +7942,14 @@ pub const Editor = struct {
         const root = self.buf_root() catch return;
         const sel = self.primary_selection_or_cursor();
         const indicator = &self.code_action_indicator;
-        if (indicator.state != .unknown and indicator.root == token_from(root) and indicator.sel.eql(sel)) return;
+        const mode = tui.config().code_action_indicator_mode;
+        if (indicator.state != .unknown and indicator.root == token_from(root) and indicator.sel.eql(sel) and indicator.mode == mode) return;
         indicator.* = .{
             .token = (indicator.token +% 1) | code_action_indicator_token,
             .root = token_from(root),
             .sel = sel,
             .row = self.get_primary().cursor.row,
+            .mode = mode,
             .state = .pending,
         };
         return self.send_code_actions_request(root, sel, "", .automatic, indicator.token);
@@ -7955,14 +7959,13 @@ pub const Editor = struct {
         const indicator = &self.code_action_indicator;
         if (token != indicator.token) return;
         indicator.state = .none;
-        const mode = tui.config().code_action_indicator_mode;
         var iter = entries.bytes;
         var len = try cbor.decodeArrayHeader(&iter);
         while (len > 0) : (len -= 1) {
             var action: CodeAction = .{};
             if (!try action.extract(&iter)) return error.InvalidCodeActionEntry;
             if (action.disabled_reason.len != 0) continue;
-            switch (mode) {
+            switch (indicator.mode) {
                 .any => {},
                 .quickfix_on_line => if (!action.matches("quickfix") or !try action.on_line(indicator.row)) continue,
             }
@@ -7975,9 +7978,10 @@ pub const Editor = struct {
     pub fn code_action_indicator_row(self: *const Self) ?usize {
         const indicator = &self.code_action_indicator;
         if (indicator.state != .available) return null;
+        if (indicator.mode != tui.config().code_action_indicator_mode) return null;
         if (indicator.root != token_from(self.buf_root() catch return null)) return null;
         const row = self.get_primary().cursor.row;
-        return switch (tui.config().code_action_indicator_mode) {
+        return switch (indicator.mode) {
             .any => if (indicator.sel.begin.row <= row and row <= indicator.sel.end.row) row else null,
             .quickfix_on_line => if (row == indicator.row) row else null,
         };

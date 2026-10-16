@@ -1896,6 +1896,17 @@ const cmds = struct {
     }
     pub const toggle_hover_info_mode_meta: Meta = .{ .description = "Toggle hover info display" };
 
+    pub fn toggle_code_action_indicator_mode(self: *Self, _: Ctx) Result {
+        self.config_.code_action_indicator_mode = switch (self.config_.code_action_indicator_mode) {
+            .any => .quickfix_on_line,
+            .quickfix_on_line => .any,
+        };
+        defer self.logger.print("code action indicator mode {t}", .{self.config_.code_action_indicator_mode});
+        try save_config();
+        need_render(@src());
+    }
+    pub const toggle_code_action_indicator_mode_meta: Meta = .{ .description = "Toggle code action indicator" };
+
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
         self.hint_mode = switch (self.hint_mode) {
             .all => .prefix,
