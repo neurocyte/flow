@@ -1406,10 +1406,36 @@ pub fn build_exe(
         },
     });
 
+    const file_finder_imports: []const std.Build.Module.Import = &.{
+        .{ .name = "soft_root", .module = soft_root_mod },
+        .{ .name = "file_type_config", .module = file_type_config_mod },
+    };
+
+    const file_finder_mod = b.createModule(.{
+        .root_source_file = b.path("src/file_finder/file_finder.zig"),
+        .imports = file_finder_imports,
+    });
+
+    const file_finder_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-file_finder",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/file_finder/file_finder.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = file_finder_imports,
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const project_manager_mod = b.createModule(.{
         .root_source_file = b.path("src/project_manager.zig"),
         .imports = &.{
             .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "file_finder", .module = file_finder_mod },
             .{ .name = "config", .module = config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
@@ -1691,6 +1717,7 @@ pub fn build_exe(
     test_step.dependOn(&dbus_test_run_cmd.step);
     test_step.dependOn(&rc_test_run_cmd.step);
     test_step.dependOn(&file_store_test_run_cmd.step);
+    test_step.dependOn(&file_finder_test_run_cmd.step);
     test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);

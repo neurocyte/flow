@@ -14,6 +14,8 @@ const Buffer = @import("Buffer");
 const file_link = @import("file_link");
 const builtin = @import("builtin");
 
+const file_finder = @import("file_finder");
+
 const Project = @import("Project.zig");
 const Repo = @import("Repo.zig");
 const LSPClient = @import("LSPClient.zig");
@@ -1940,7 +1942,7 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
                 const default = file_type_config.default;
                 const file_type, const icon, const color = switch (entry.kind) {
                     .directory => .{ "directory", file_type_config.folder_icon, default.color },
-                    .sym_link, .file => Project.guess_path_file_type(self.path, entry.name),
+                    .sym_link, .file => file_finder.guess_path_file_type(self.path, entry.name),
                     else => .{ default.name, default.icon, default.color },
                 };
                 try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, event_type, entry.name, file_type, icon, color });
