@@ -74,6 +74,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .debug_socket = "Enable debug console on a unix socket",
             .server = "Remote control socket: absolute path, name in the default directory or 'disable'",
             .connect = "Connect to a remote control service by absolute socket path or name",
+            .wait = "Wait for remote instance (default)",
             .no_wait = "Do not wait for remote instance",
             .no_sleep = "Do not sleep the main loop when idle",
             .no_alternate = "Do not use the alternate terminal screen",
@@ -124,6 +125,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         debug_socket: ?[]const u8,
         server: ?[]const u8,
         connect: ?[]const u8,
+        wait: bool,
         no_wait: bool,
         no_sleep: bool,
         no_alternate: bool,
@@ -157,6 +159,11 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     const args_alloc = try init.minimal.args.toSlice(init.arena.allocator());
     const args = flags.parse(io, init.environ_map, args_alloc, "flow", Flags, .{});
+
+    if (args.wait and args.no_wait) {
+        std.debug.print("--wait and --no-wait cannot be used together\n", .{});
+        exit(1);
+    }
 
     var stdout_buf: [4096]u8 = undefined;
     var stdout_file = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
