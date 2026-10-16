@@ -1468,7 +1468,6 @@ pub fn build_exe(
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "lsp_config", .module = lsp_config_mod },
-            .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "git", .module = git_mod },
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },

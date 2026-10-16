@@ -8,7 +8,6 @@
 
 const std = @import("std");
 const tp = @import("thespian");
-const fuzzig = @import("fuzzig");
 
 const file_finder = @import("file_finder.zig");
 const file_type = @import("file_type.zig");
@@ -336,95 +335,34 @@ pub fn nth_most_recent(self: *Self, n: usize) ?[]const u8 {
 pub fn send_recent(self: *Self, to: tp.pid_ref, max: usize) void {
     self.refresh_order();
     defer file_finder.send_recent_done(to, self.longest, "", self.files.items.len);
+    const recipient: Recipient = .{ .list = self, .to = to };
     for (self.files.items, 0..) |*file, i| {
-        self.resolve_meta(file);
-        file_finder.send_recent(to, self.longest, file.path, file.type, file.icon, file.color, null) catch |e| {
-            std.log.err("send recent failed: {t}", .{e});
-            return;
-        };
+        if (!recipient.send(file, null)) return;
         if (i >= max) return;
     }
 }
 
-/// Send the best matches for `query_` to `to`. Returns the number sent.
-pub fn send_query(self: *Self, to: tp.pid_ref, max: usize, query_: []const u8) OutOfMemoryError!usize {
+/// Send the best matches for `query` to `to`. Returns the number sent.
+pub fn send_query(self: *Self, to: tp.pid_ref, max: usize, query: []const u8) OutOfMemoryError!usize {
     self.refresh_order();
-    defer file_finder.send_recent_done(to, self.longest, query_, self.files.items.len);
-    const query = try strip_non_search_chars(self.allocator, query_);
-    defer self.allocator.free(query);
-    if (query.len < 3)
-        return self.send_simple_query(to, max, query);
-
-    var searcher = try fuzzig.Ascii.init(
-        self.allocator,
-        4096, // haystack max size
-        4096, // needle max size
-        .{ .case_sensitive = false },
-    );
-    defer searcher.deinit();
-
-    const Match = struct {
-        index: usize,
-        score: i32,
-        matches: []const usize,
-    };
-    var matches: std.ArrayList(Match) = .empty;
-    defer {
-        for (matches.items) |match| self.allocator.free(match.matches);
-        matches.deinit(self.allocator);
-    }
-
-    for (self.files.items, 0..) |file, index| {
-        const match = searcher.scoreMatches(file.path, query);
-        if (match.score) |score| {
-            const match_indexes = try self.allocator.dupe(usize, match.matches);
-            errdefer self.allocator.free(match_indexes);
-            (try matches.addOne(self.allocator)).* = .{
-                .index = index,
-                .score = score,
-                .matches = match_indexes,
-            };
-        }
-    }
-    if (matches.items.len == 0) return 0;
-
-    // stable, so equal scores keep their recency order
-    std.mem.sort(Match, matches.items, {}, struct {
-        fn higher_score_first(_: void, lhs: Match, rhs: Match) bool {
-            return lhs.score > rhs.score;
-        }
-    }.higher_score_first);
-
-    const results = matches.items[0..@min(max, matches.items.len)];
-    for (results, 0..) |match, sent| {
-        const file = &self.files.items[match.index];
-        self.resolve_meta(file);
-        file_finder.send_recent(to, self.longest, file.path, file.type, file.icon, file.color, match.matches) catch |e| {
-            std.log.err("send recent failed: {t}", .{e});
-            return sent;
-        };
-    }
-    return results.len;
+    defer file_finder.send_recent_done(to, self.longest, query, self.files.items.len);
+    return file_finder.send_matches(self.allocator, self.files.items, max, query, Recipient{ .list = self, .to = to });
 }
 
-fn send_simple_query(self: *Self, to: tp.pid_ref, max: usize, query: []const u8) OutOfMemoryError!usize {
-    var sent: usize = 0;
-    for (self.files.items) |*file| {
-        if (file.path.len < query.len) continue;
-        const idx = std.mem.indexOf(u8, file.path, query) orelse continue;
-        const matches = try self.allocator.alloc(usize, query.len);
-        defer self.allocator.free(matches);
-        for (matches, 0..) |*match, n| match.* = idx + n;
-        self.resolve_meta(file);
-        file_finder.send_recent(to, self.longest, file.path, file.type, file.icon, file.color, matches) catch |e| {
+/// Sends files of the list as the results of a request or query.
+const Recipient = struct {
+    list: *const Self,
+    to: tp.pid_ref,
+
+    pub fn send(self: Recipient, file: *File, matches: ?[]const usize) bool {
+        self.list.resolve_meta(file);
+        file_finder.send_recent(self.to, self.list.longest, file.path, file.type, file.icon, file.color, matches) catch |e| {
             std.log.err("send recent failed: {t}", .{e});
-            return sent;
+            return false;
         };
-        sent += 1;
-        if (sent >= max) return sent;
+        return true;
     }
-    return sent;
-}
+};
 
 /// Sort by recency if anything changed since the last sort.
 pub fn refresh_order(self: *Self) void {
@@ -521,16 +459,6 @@ fn resolve_meta(self: *const Self, file: *File) void {
 }
 
 pub const is_in_subtree = file_finder.is_in_subtree;
-
-fn strip_non_search_chars(allocator: std.mem.Allocator, s: []const u8) OutOfMemoryError![]const u8 {
-    var stripped: std.ArrayList(u8) = try .initCapacity(allocator, s.len);
-    errdefer stripped.deinit(allocator);
-    for (s) |c| switch (c) {
-        ' ', '\t', '\n' => {},
-        else => stripped.appendAssumeCapacity(c),
-    };
-    return stripped.toOwnedSlice(allocator);
-}
 
 const testing = std.testing;
 
