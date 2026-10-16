@@ -74,6 +74,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .debug_socket = "Enable debug console on a unix socket",
             .server = "Remote control socket: absolute path, name in the default directory or 'disable'",
             .connect = "Connect to a remote control service by absolute socket path or name",
+            .no_wait = "Do not wait for remote instance",
             .no_sleep = "Do not sleep the main loop when idle",
             .no_alternate = "Do not use the alternate terminal screen",
             .trace_level = "Enable internal tracing (level of detail from 1-5)",
@@ -123,6 +124,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         debug_socket: ?[]const u8,
         server: ?[]const u8,
         connect: ?[]const u8,
+        no_wait: bool,
         no_sleep: bool,
         no_alternate: bool,
         trace_level: u8 = 0,
@@ -451,6 +453,9 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             try main_proc.send_raw(.{ .buf = msg.written() });
         }
     }
+
+    if (connect != null and args.no_wait)
+        try main_proc.send(.{"disconnect"});
 
     if (renderer.needs_main_thread and connect == null) {
         const ctx_thread = try std.Thread.spawn(.{}, run_context, .{&ctx});

@@ -37,6 +37,11 @@ pub fn shutdown(self: *@This()) void {
     }
 }
 
+pub fn disconnect(self: *const @This()) tp.result {
+    const pid = self.pid orelse return tp.exit_error(error.Shutdown, null);
+    return pid.send(.{"disconnect"});
+}
+
 pub fn navigate(self: *const @This(), args: anytype) tp.result {
     const pid = self.pid orelse return tp.exit_error(error.Shutdown, null);
     return pid.send(.{ "navigate", args });
@@ -48,6 +53,7 @@ const Process = struct {
     connector: ?tp.pid = null,
     connection: ?tp.pid = null,
     server: ?tp.pid = null,
+    disconnecting: bool = false,
     pending: std.ArrayList([]const u8) = .empty,
     receiver: tp.Receiver(*@This()),
 
@@ -121,6 +127,12 @@ const Process = struct {
             try self.connected(conn_id);
         } else if (try m.match(.{ "hello", tp.extract(&server_version) })) {
             try self.hello(from, server_version);
+        } else if (try m.match(.{"disconnect"})) {
+            self.disconnecting = true;
+            if (self.server) |server| try server.send(.{"sync"});
+        } else if (self.disconnecting and try m.match(.{"synced"})) {
+            self.shutdown();
+            return tp.exit_normal();
         } else if (try m.match(.{"shutdown"})) {
             self.shutdown();
             return tp.exit_normal();
@@ -148,6 +160,7 @@ const Process = struct {
         for (self.pending.items) |msg| try server.send_raw(.{ .buf = msg });
         for (self.pending.items) |msg| self.allocator.free(msg);
         self.pending.clearRetainingCapacity();
+        if (self.disconnecting) try server.send(.{"sync"});
     }
 
     fn send_request(self: *@This(), m: tp.message) !void {
