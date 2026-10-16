@@ -74,7 +74,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .debug_dump_on_error = "Dump stack traces on errors",
             .debug_socket = "Enable debug console on a unix socket",
             .server = "Remote control socket: absolute path, name in the default directory or 'disable'",
-            .connect = "Connect to a remote control service by absolute socket path or name",
+            .connect = "Remote control socket to connect to: absolute path, name or 'disable' (overrides FLOW_SOCKET)",
             .wait = "Wait for remote instance (default)",
             .no_wait = "Do not wait for remote instance",
             .focus = "Unfocus the terminal and unmaximize the panel (default when opening files)",
@@ -337,7 +337,9 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     var eh = thespian.make_exit_handler({}, print_exit_status);
     var client_eh = thespian.make_exit_handler({}, client_exit_status);
     var rc_connect_buf: [std.posix.PATH_MAX]u8 = undefined;
-    const connect = args.connect orelse if (init.environ_map.get("FLOW_SOCKET")) |v| if (v.len > 0) v else null else null;
+    const connect = if (args.connect) |name|
+        if (std.mem.eql(u8, name, "disable")) null else name
+    else if (init.environ_map.get("FLOW_SOCKET")) |v| if (v.len > 0) v else null else null;
     const main_proc = if (connect) |name| blk: {
         const path = resolve_rc_socket_name(name, &rc_connect_buf) catch |e| {
             std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
