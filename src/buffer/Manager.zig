@@ -47,7 +47,7 @@ const Reload = struct {
     reason: Reason = .user,
     state: State = .current,
 
-    const Reason = enum { user, external };
+    const Reason = enum { user, external, open };
     const State = enum { current, superseded };
 };
 
@@ -214,7 +214,10 @@ pub fn load(self: *Self, file_path: []const u8, options: LoadOptions) LoadError!
     errdefer if (then) |t| self.allocator.free(t.bytes);
     const on_error: ?cbor.Raw = if (options.on_error) |t| .{ .bytes = try self.allocator.dupe(u8, t.bytes) } else null;
     errdefer if (on_error) |t| self.allocator.free(t.bytes);
-    const pending = self.find_load(file_path) orelse try self.add_load(file_path, null);
+    const pending = if (self.get_buffer(file_path)) |buffer|
+        self.find_reload(buffer.to_ref()) orelse try self.add_load(file_path, .{ .buffer = buffer.to_ref(), .root = buffer.root, .reason = .open })
+    else
+        self.find_load(file_path) orelse try self.add_load(file_path, null);
     try pending.thens.ensureUnusedCapacity(self.allocator, 1);
     try pending.on_errors.ensureUnusedCapacity(self.allocator, 1);
     if (then) |t| pending.thens.appendAssumeCapacity(t);
@@ -363,6 +366,7 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
     const reload_of = pending.reload orelse return error.LoadFailed;
     const applier = self.edit_set_applier orelse return error.LoadFailed;
     const buffer = self.buffer_from_ref(reload_of.buffer) orelse return;
+    if (reload_of.reason == .open) buffer.hidden = false;
     if (buffer.root != reload_of.root)
         return log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path});
     if (!EditSet.is_empty(.{ .bytes = edit_set }))
@@ -390,10 +394,11 @@ fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*
             self.allocator.free(bytes);
             return null;
         };
+        if (reload_of.reason == .open) buffer.hidden = false;
         if (buffer.root != reload_of.root) {
             log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path});
             self.allocator.free(bytes);
-            return null;
+            return if (reload_of.reason == .open) buffer else null;
         }
         buffer.store_undo(&[_]u8{}) catch {};
         try buffer.load_from_owned_bytes_and_update(buffer.get_file_path(), bytes, exists, now);

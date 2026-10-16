@@ -8946,14 +8946,33 @@ pub const LayerIds = struct {
 /// apply text edits to a buffer that is not shown in any editor
 pub fn apply_text_edits_to_buffer(allocator: Allocator, buffer: *Buffer, text_edits: cbor.Raw, metrics: Buffer.Metrics, now: std.Io.Timestamp) !void {
     const old_root = buffer.root;
-    const root = old_root.apply_edit_set(buffer.allocator, allocator, text_edits, metrics) catch |e| {
+    const state = buffer.get_meta();
+    const state_cursels = if (state) |s| try Editor.state_cursels(s) else null;
+    var cursels: CurSel.List = .empty;
+    defer cursels.deinit(allocator);
+    const root = if (state_cursels) |cursels_cbor| blk: {
+        try Editor.extract_cursels(allocator, cursels_cbor, &cursels);
+        break :blk Editor.apply_text_edits_nudged(allocator, &cursels, old_root, text_edits, buffer.allocator, metrics);
+    } else old_root.apply_edit_set(buffer.allocator, allocator, text_edits, metrics);
+    const new_root = root catch |e| {
         log_edit_set_error(buffer.get_file_path(), text_edits, e);
         return e;
     };
-    if (root == old_root) return;
+    if (new_root == old_root) return;
 
+    if (state_cursels) |cursels_cbor| {
+        const s = state.?;
+        const prefix = s[0 .. cursels_cbor.ptr - s.ptr];
+        const suffix = s[prefix.len + cursels_cbor.len ..];
+        var new_state: std.Io.Writer.Allocating = .init(allocator);
+        defer new_state.deinit();
+        try new_state.writer.writeAll(prefix);
+        try Editor.write_cursels(&new_state.writer, cursels.items);
+        try new_state.writer.writeAll(suffix);
+        try buffer.set_meta(new_state.written());
+    }
     try buffer.store_undo(&.{});
-    buffer.update(root, now);
+    buffer.update(new_root, now);
     try buffer_lsp.sync(buffer);
 }
 
