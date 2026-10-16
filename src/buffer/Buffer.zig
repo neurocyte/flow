@@ -72,6 +72,7 @@ pub const BlameLine = struct {
 
 pub var retain_symlinks: bool = true;
 
+id: Id,
 arena: std.heap.ArenaAllocator,
 allocator: Allocator,
 external_allocator: Allocator,
@@ -1358,6 +1359,7 @@ pub fn create(allocator: Allocator, now: std.Io.Timestamp) error{OutOfMemory}!*S
     errdefer allocator.destroy(self);
     const arena_a = if (builtin.is_test) allocator else std.heap.page_allocator;
     self.* = .{
+        .id = @fromBackingInt(next_id),
         .arena = std.heap.ArenaAllocator.init(arena_a),
         .allocator = self.arena.allocator(),
         .external_allocator = allocator,
@@ -1365,8 +1367,12 @@ pub fn create(allocator: Allocator, now: std.Io.Timestamp) error{OutOfMemory}!*S
         .mtime = now_ms,
         .utime = now_ms,
     };
+    next_id += 1;
     return self;
 }
+
+pub const Id = TypedInt.Tagged(u64, "BUFID");
+var next_id: u64 = 1;
 
 pub fn deinit(self: *Self) void {
     self.clear_vcs_content();
