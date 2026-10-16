@@ -332,6 +332,7 @@ pub fn build_exe(
         .optimize = optimize_deps,
     });
     const cbor_mod = cbor_dep.module("cbor");
+    const remote_mod = thespian_dep.module("remote");
 
     const tracy_dep = if (tracy_enabled) thespian_dep.builder.dependency("zig_tracy", .{
         .target = target,
@@ -497,6 +498,33 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
+    const rc_common_mod = b.createModule(.{
+        .root_source_file = b.path("src/rc/common/common.zig"),
+        .imports = &.{
+            .{ .name = "version", .module = b.createModule(.{ .root_source_file = version_file }) },
+        },
+    });
+
+    const RcServer_mod = b.createModule(.{
+        .root_source_file = b.path("src/rc/server/RcServer.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "remote", .module = remote_mod },
+            .{ .name = "common", .module = rc_common_mod },
+        },
+    });
+
+    const RcClient_mod = b.createModule(.{
+        .root_source_file = b.path("src/rc/client/RcClient.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "remote", .module = remote_mod },
+            .{ .name = "common", .module = rc_common_mod },
         },
     });
 
@@ -1140,6 +1168,28 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const rc_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-rc",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/rc/test.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "cbor", .module = cbor_mod },
+                    .{ .name = "thespian", .module = thespian_mod },
+                    .{ .name = "remote", .module = remote_mod },
+                    .{ .name = "common", .module = rc_common_mod },
+                    .{ .name = "RcServer", .module = RcServer_mod },
+                    .{ .name = "RcClient", .module = RcClient_mod },
+                },
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const file_store_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-FileStore",
@@ -1481,6 +1531,7 @@ pub fn build_exe(
             .{ .name = "time_fmt", .module = time_fmt_mod },
             .{ .name = "Terminal", .module = Terminal_mod },
             .{ .name = "dbus", .module = dbus_mod },
+            .{ .name = "RcServer", .module = RcServer_mod },
         },
     });
 
@@ -1538,6 +1589,7 @@ pub fn build_exe(
     exe.root_module.addImport("file_type_config", file_type_config_mod);
     exe.root_module.addImport("color", color_mod);
     exe.root_module.addImport("bin_path", bin_path_mod);
+    exe.root_module.addImport("RcClient", RcClient_mod);
     exe.root_module.addImport("regex", regex_mod);
     exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
@@ -1628,6 +1680,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("file_type_config", file_type_config_mod);
     check_exe.root_module.addImport("color", color_mod);
     check_exe.root_module.addImport("bin_path", bin_path_mod);
+    check_exe.root_module.addImport("RcClient", RcClient_mod);
     check_exe.root_module.addImport("regex", regex_mod);
     check_exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
@@ -1672,6 +1725,7 @@ pub fn build_exe(
     test_step.dependOn(&edit_set_test_run_cmd.step);
     test_step.dependOn(&gitignore_test_run_cmd.step);
     test_step.dependOn(&dbus_test_run_cmd.step);
+    test_step.dependOn(&rc_test_run_cmd.step);
     test_step.dependOn(&file_store_test_run_cmd.step);
     test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);

@@ -33,6 +33,7 @@ pub const MenuPopup = @import("mode/overlay/MenuPopup.zig");
 const MenuButton = @import("MenuButton.zig");
 const IdleAction = @import("config").IdleAction;
 const DbusClient = @import("DbusClient.zig");
+const RcServer = @import("RcServer");
 const Terminal = @import("Terminal");
 
 // exports for unittesting
@@ -123,6 +124,8 @@ alt_scroll_: bool = false,
 jump_mode_: bool = false,
 
 auto_run_timer: ?tp.Cancellable = null,
+
+rc_server: ?RcServer = null,
 
 dbus_client: if (build_options.gui and builtin.os.tag != .windows and builtin.os.tag != .macos)
     ?DbusClient
@@ -297,6 +300,9 @@ fn init(allocator: Allocator) InitError!*Self {
         command.executeName("restore_session", .empty()) catch |e| self.logger.err("restore_session", e);
     }
     self.start_config_watcher();
+    const rc_socket = tp.env.get().str("rc-socket");
+    if (rc_socket.len > 0)
+        self.rc_server = try RcServer.create(allocator, rc_socket);
     return self;
 }
 
@@ -382,6 +388,7 @@ fn deinit_stdio_capture(self: *Self) void {
 }
 
 fn deinit(self: *Self) void {
+    if (self.rc_server) |*rcs| rcs.shutdown();
     if (@TypeOf(self.dbus_client) != void) if (self.dbus_client) |*dbc| {
         dbc.deinit();
         self.dbus_client = null;

@@ -16,6 +16,7 @@ const c = @import("c");
 
 const build_options = @import("build_options");
 const log = @import("log");
+const RcClient = @import("RcClient");
 
 pub const version = @embedFile("version");
 pub const version_info = @embedFile("version_info");
@@ -71,6 +72,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .debug_wait = "Wait for key press before starting UI",
             .debug_dump_on_error = "Dump stack traces on errors",
             .debug_socket = "Enable debug console on a unix socket",
+            .server = "Remote control socket: absolute path, name in the default directory or 'disable'",
+            .connect = "Connect to a remote control service by absolute socket path or name",
             .no_sleep = "Do not sleep the main loop when idle",
             .no_alternate = "Do not use the alternate terminal screen",
             .trace_level = "Enable internal tracing (level of detail from 1-5)",
@@ -97,7 +100,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .class = "Set window class",
         };
 
-        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .class = "name", .debug_socket = "path" };
+        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .class = "name", .debug_socket = "path", .server = "path", .connect = "path" };
 
         pub const switches = .{
             .project = 'p',
@@ -118,6 +121,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         debug_wait: bool,
         debug_dump_on_error: bool,
         debug_socket: ?[]const u8,
+        server: ?[]const u8,
+        connect: ?[]const u8,
         no_sleep: bool,
         no_alternate: bool,
         trace_level: u8 = 0,
@@ -282,6 +287,16 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     env.proc_set("log", log_proc.ref());
     if (args.language) |s| env.str_set("language", s);
     if (args.class) |s| env.str_set("window-class", s);
+    var rc_socket_buf: [std.posix.PATH_MAX]u8 = undefined;
+    if (get_rc_socket_path(args.server, &rc_socket_buf)) |rc_socket| {
+        if (rc_socket) |path| env.str_set("rc-socket", path);
+    } else |e| switch (e) {
+        error.InvalidServerName => {
+            std.debug.print("invalid --server value: '{s}'\n", .{args.server orelse ""});
+            exit(1);
+        },
+        else => std.log.err("remote control socket unavailable: {t}", .{e}),
+    }
 
     if (args.debug_socket) |path| {
         const path_z = try init.arena.allocator().dupeSentinel(u8, path, 0);
@@ -289,8 +304,16 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
-    const tui_proc = try tui.spawn(a, &ctx, &eh, env);
-    defer tui_proc.deinit();
+    var rc_connect_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const connect = args.connect orelse if (init.environ_map.get("FLOW_SOCKET")) |v| if (v.len > 0) v else null else null;
+    const main_proc = if (connect) |name| blk: {
+        const path = resolve_rc_socket_name(name, &rc_connect_buf) catch |e| {
+            std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
+            exit(1);
+        };
+        break :blk (try RcClient.spawn(a, &ctx, &eh, env, path)).pid.?;
+    } else try tui.spawn(a, &ctx, &eh, env);
+    defer main_proc.deinit();
 
     var links: std.ArrayList(file_link.Dest) = .empty;
     defer links.deinit(a);
@@ -361,7 +384,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     var have_project = false;
     var have_file = false;
     if (args.project) |project| {
-        try tui_proc.send(.{ "cmd", "open_project_dir", .{project} });
+        try main_proc.send(.{ "cmd", "open_project_dir", .{project} });
         have_project = true;
     }
     for (links.items) |link| switch (link) {
@@ -370,7 +393,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
                 std.debug.print("more than one project directory is not allowed\n", .{});
                 exit(1);
             }
-            try tui_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
+            try main_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
             have_project = true;
         },
         else => {
@@ -379,25 +402,25 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     };
 
     for (links.items) |link| {
-        try file_link.navigate(tui_proc.ref(), &link);
+        try file_link.navigate(main_proc.ref(), &link);
     }
 
     if (!have_file) {
         if (!have_project)
-            try tui_proc.send(.{ "cmd", "open_project_cwd" });
-        try tui_proc.send(.{ "cmd", "show_home" });
+            try main_proc.send(.{ "cmd", "open_project_cwd" });
+        try main_proc.send(.{ "cmd", "show_home" });
     }
 
     if (args.new_file) {
-        try tui_proc.send(.{ "cmd", "create_new_file", .{} });
+        try main_proc.send(.{ "cmd", "create_new_file", .{} });
     } else if (args.scratch) {
-        try tui_proc.send(.{ "cmd", "create_scratch_buffer", .{} });
+        try main_proc.send(.{ "cmd", "create_scratch_buffer", .{} });
     }
 
     if (args.dark)
-        try tui_proc.send(.{ "cmd", "force_color_scheme", .{"dark"} })
+        try main_proc.send(.{ "cmd", "force_color_scheme", .{"dark"} })
     else if (args.light)
-        try tui_proc.send(.{ "cmd", "force_color_scheme", .{"light"} });
+        try main_proc.send(.{ "cmd", "force_color_scheme", .{"light"} });
 
     if (args.exec) |exec_str| {
         var cmds = std.mem.splitScalar(u8, exec_str, ';');
@@ -425,11 +448,11 @@ pub fn main(init: std.process.Init) anyerror!u8 {
                     try cbor.writeValue(writer, arg);
             }
 
-            try tui_proc.send_raw(.{ .buf = msg.written() });
+            try main_proc.send_raw(.{ .buf = msg.written() });
         }
     }
 
-    if (comptime renderer.needs_main_thread) {
+    if (renderer.needs_main_thread and connect == null) {
         const ctx_thread = try std.Thread.spawn(.{}, run_context, .{&ctx});
         renderer.run_main_thread();
         ctx_thread.join();
@@ -1281,6 +1304,32 @@ fn get_sessions_dir() ![]const u8 {
     create_dir_path(get_io(), dir) catch |e| return make_dir_error(dir, e);
     local.dir = dir;
     return dir;
+}
+
+fn get_rc_socket_dir() ![]const u8 {
+    const local = struct {
+        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var dir: ?[]const u8 = null;
+    };
+    if (local.dir) |dir| return dir;
+    const dir = try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}run", .{ try get_app_state_dir(application_name), sep });
+    create_dir_path(get_io(), dir) catch |e| return make_dir_error(dir, e);
+    local.dir = dir;
+    return dir;
+}
+
+fn get_rc_socket_path(server: ?[]const u8, buf: []u8) !?[]const u8 {
+    const name = server orelse
+        return try std.fmt.bufPrint(buf, "{s}{c}flow-{d}.sock", .{ try get_rc_socket_dir(), sep, get_pid() });
+    if (std.mem.eql(u8, name, "disable")) return null;
+    return try resolve_rc_socket_name(name, buf);
+}
+
+fn resolve_rc_socket_name(name: []const u8, buf: []u8) ![]const u8 {
+    if (std.fs.path.isAbsolute(name)) return name;
+    if (name.len == 0 or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return error.InvalidServerName;
+    for (name) |ch| if (std.fs.path.isSep(ch)) return error.InvalidServerName;
+    return try std.fmt.bufPrint(buf, "{s}{c}{s}.sock", .{ try get_rc_socket_dir(), sep, name });
 }
 
 pub fn get_session_file_name(allocator: std.mem.Allocator, project_dir: []const u8) ![]const u8 {

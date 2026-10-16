@@ -455,6 +455,8 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
     errdefer env.deinit();
     try env.put("TERM", tui.config().terminal_TERM);
     try env.put("COLORTERM", "truecolor");
+    const rc_socket = tp.env.get().str("rc-socket");
+    if (rc_socket.len > 0) try env.put("FLOW_SOCKET", rc_socket);
     // COLORFGBG tells apps whether the terminal background is dark or light
     try env.put("COLORFGBG", switch (tui.active_color_scheme()) {
         .dark => "15;0",
