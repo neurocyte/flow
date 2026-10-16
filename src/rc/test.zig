@@ -117,6 +117,13 @@ fn expect_navigate_args(args: cbor.Raw) !void {
     if (!std.mem.eql(u8, expected.buffered(), args.bytes)) return error.UnexpectedNavigateArgs;
 }
 
+fn expect_tracked_navigate_args(args: cbor.Raw) !void {
+    var expected_buf: [64]u8 = undefined;
+    var expected: std.Io.Writer = .fixed(&expected_buf);
+    try cbor.writeValue(&expected, .{ .file = "foo.zig", .line = 3, .track = RcClient.Track.full });
+    if (!std.mem.eql(u8, expected.buffered(), args.bytes)) return error.UnexpectedNavigateArgs;
+}
+
 fn send_reply(piid: tp.piid, id: u64, payload: anytype) !void {
     const pid = tp.pid.from_id(piid) orelse return error.ReplyTargetGone;
     defer pid.deinit();
@@ -138,7 +145,7 @@ const ClientTest = struct {
     navigated: bool = false,
     receiver: tp.Receiver(*@This()),
 
-    const Scenario = enum { relay_then_server_shutdown, client_shutdown, connect_failure, no_wait };
+    const Scenario = enum { relay_then_server_shutdown, client_shutdown, connect_failure, no_wait, track };
 
     const Args = struct { allocator: std.mem.Allocator, path: [:0]const u8, scenario: Scenario };
 
@@ -157,7 +164,7 @@ const ClientTest = struct {
         };
         errdefer self.deinit();
         switch (args.scenario) {
-            .connect_failure => self.client = try RcClient.create(args.allocator, args.path),
+            .connect_failure => self.client = try RcClient.create(args.allocator, args.path, .none),
             else => {
                 self.server = try RcServer.create(args.allocator, args.path);
                 try self.server.?.pid.?.send(.{"sync"});
@@ -183,10 +190,19 @@ const ClientTest = struct {
         var reply_id: u64 = 0;
 
         if (try m.match(.{"synced"})) {
-            self.client = try RcClient.create(self.allocator, self.path);
+            self.client = try RcClient.create(self.allocator, self.path, if (self.scenario == .track) .full else .none);
             try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
             if (self.scenario == .no_wait) try self.client.?.disconnect();
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
+            if (self.scenario == .track) {
+                try expect_tracked_navigate_args(args);
+                try send_reply(reply_piid, reply_id, "ok");
+                try send_reply(reply_piid, reply_id, .{ "navigation", "complete", .{ "BUFID", 42 }, "foo.zig" });
+                try send_reply(reply_piid, reply_id, .{ "buffer", "saved", .{ "BUFID", 42 }, "foo.zig" });
+                try send_reply(reply_piid, reply_id, .{ "buffer", "hidden", .{ "BUFID", 42 }, "foo.zig" });
+                self.navigated = true;
+                return;
+            }
             try expect_navigate_args(args);
             try send_reply(reply_piid, reply_id, "ok");
             self.navigated = true;
@@ -194,7 +210,7 @@ const ClientTest = struct {
                 .relay_then_server_shutdown => self.server.?.pid.?.send(.{"shutdown"}) catch {},
                 .client_shutdown => self.client.?.pid.?.send(.{"shutdown"}) catch {},
                 .connect_failure => return tp.unexpected(m),
-                .no_wait => {},
+                .no_wait, .track => {},
             }
         } else if (try m.match(.{ "exit", tp.extract(&reason) }) or try m.match(.{ "exit", tp.extract(&reason), tp.more })) {
             if (self.client) |c| if (c.pid) |p| if (p.instance_id() == from.instance_id()) {
@@ -207,8 +223,8 @@ const ClientTest = struct {
                         self.server.?.pid.?.send(.{"shutdown"}) catch {};
                     },
                     .relay_then_server_shutdown => if (!normal) return tp.exit("client disconnect not normal"),
-                    .no_wait => {
-                        if (!normal) return tp.exit("client no_wait exit not normal");
+                    .no_wait, .track => {
+                        if (!normal) return tp.exit("client exit not normal");
                         if (!self.navigated) return tp.exit("client exited before request was delivered");
                         self.server.?.pid.?.send(.{"shutdown"}) catch {};
                     },
@@ -266,4 +282,8 @@ test "rc_client: connect failure exits the client with an error" {
 
 test "rc_client: disconnect after queued requests are delivered" {
     try run_client_test(.no_wait);
+}
+
+test "rc_client: tracked navigation ends when the buffer is hidden" {
+    try run_client_test(.track);
 }
