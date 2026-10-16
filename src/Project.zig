@@ -12,6 +12,8 @@ const Buffer = @import("Buffer");
 const bin_path = @import("bin_path");
 const builtin = @import("builtin");
 
+const file_finder = @import("file_finder");
+
 const project_manager = @import("project_manager.zig");
 const Repo = @import("Repo.zig");
 const LSP = @import("LSP.zig");
@@ -591,7 +593,7 @@ fn rebuild_file_index(self: *Self, items: []const File) void {
 
 fn resolve_meta(file: anytype) void {
     if (file.meta_resolved) return;
-    const file_type, const file_icon, const file_color = guess_file_type(file.path);
+    const file_type, const file_icon, const file_color = file_finder.guess_file_type(file.path);
     file.type = file_type;
     file.icon = file_icon;
     file.color = file_color;
@@ -776,123 +778,6 @@ pub fn walk_tree_done(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     return self.loaded(parent);
 }
 
-fn default_ft() struct { []const u8, []const u8, u24 } {
-    return .{
-        file_type_config.default.name,
-        file_type_config.default.icon,
-        file_type_config.default.color,
-    };
-}
-
-pub fn guess_path_file_type(path: []const u8, file_name: []const u8) struct { []const u8, []const u8, u24 } {
-    var buf: [4096]u8 = undefined;
-    const file_path = std.fmt.bufPrint(&buf, "{s}{}{s}", .{ path, std.fs.path.sep, file_name }) catch return default_ft();
-    return guess_file_type(file_path);
-}
-
-pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
-    var buf: [1024]u8 = undefined;
-    const content: []const u8 = blk: {
-        const io = root.get_io();
-        const file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch break :blk &.{};
-        defer file.close(io);
-        const size = safe_file_read(file, &buf) catch break :blk &.{};
-        break :blk buf[0..size];
-    };
-    return if (file_type_config.guess_file_type(file_path, content)) |ft| .{
-        ft.name,
-        ft.icon orelse file_type_config.default.icon,
-        ft.color orelse file_type_config.default.color,
-    } else default_ft();
-}
-
-fn safe_file_read(self: std.Io.File, buffer: []u8) (error{ FileHandleInvalidForReading, ProcessNotFound, ConnectionTimedOut } || std.Io.File.ReadStreamingError)!usize {
-    return switch (builtin.os.tag) {
-        .windows => safe_windows_read(self.handle, buffer),
-        else => safe_posix_read(self.handle, buffer),
-    };
-}
-
-fn safe_windows_read(handle: std.os.windows.HANDLE, buffer: []u8) (error{ FileHandleInvalidForReading, ProcessNotFound, ConnectionTimedOut } || std.Io.File.ReadStreamingError)!usize {
-    const windows = std.os.windows;
-    const ReadFile = struct {
-        extern "kernel32" fn ReadFile(hFile: windows.HANDLE, lpBuffer: ?[*]u8, nNumberOfBytesToRead: windows.DWORD, lpNumberOfBytesRead: ?*windows.DWORD, lpOverlapped: ?*anyopaque) callconv(.winapi) windows.BOOL;
-    }.ReadFile;
-    var bytes_read: windows.DWORD = 0;
-    const len: windows.DWORD = @intCast(@min(buffer.len, std.math.maxInt(windows.DWORD)));
-    if (ReadFile(handle, buffer.ptr, len, &bytes_read, null) == .FALSE)
-        return windows.unexpectedError(windows.GetLastError());
-    return @intCast(bytes_read);
-}
-
-fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{ FileHandleInvalidForReading, ConnectionTimedOut, ProcessNotFound } || std.Io.File.ReadStreamingError)!usize {
-    const native_os = builtin.os.tag;
-    const unexpectedErrno = safe_unexpectedErrno;
-    const maxInt = std.math.maxInt;
-    const system = std.posix.system;
-    const errno = std.posix.errno;
-    if (buf.len == 0) return 0;
-    if (native_os == .wasi and !builtin.link_libc) {
-        const iovec = std.os.posix.iovec;
-        const wasi = std.os.wasi;
-        const iovs = [1]iovec{iovec{
-            .base = buf.ptr,
-            .len = buf.len,
-        }};
-
-        var nread: usize = undefined;
-        switch (wasi.fd_read(fd, &iovs, iovs.len, &nread)) {
-            .SUCCESS => return nread,
-            .INTR => unreachable,
-            .INVAL => return error.FileHandleInvalidForReading,
-            .FAULT => unreachable,
-            .AGAIN => unreachable,
-            .BADF => return error.NotOpenForReading, // Can be a race condition.
-            .IO => return error.InputOutput,
-            .ISDIR => return error.IsDir,
-            .NOBUFS => return error.SystemResources,
-            .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketUnconnected,
-            .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
-            .NOTCAPABLE => return error.AccessDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-
-    // Prevents EINVAL.
-    const max_count = switch (native_os) {
-        .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
-        else => maxInt(isize),
-    };
-    while (true) {
-        const rc = system.read(fd, buf.ptr, @min(buf.len, max_count));
-        switch (errno(rc)) {
-            .SUCCESS => return @intCast(rc),
-            .INTR => continue,
-            .INVAL => return error.FileHandleInvalidForReading,
-            .FAULT => unreachable,
-            .SRCH => return error.ProcessNotFound,
-            .AGAIN => return error.WouldBlock,
-            .CANCELED => return error.Canceled,
-            .BADF => return error.NotOpenForReading, // Can be a race condition.
-            .IO => return error.InputOutput,
-            .ISDIR => return error.IsDir,
-            .NOBUFS => return error.SystemResources,
-            .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketUnconnected,
-            .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-}
-
-fn safe_unexpectedErrno(_: std.posix.system.E) std.posix.UnexpectedError {
-    return error.Unexpected;
-}
-
 fn merge_pending_files(self: *Self) OutOfMemoryError!void {
     defer self.sort_files_by_mtime();
     const existing = try self.files.toOwnedSlice(self.allocator);
@@ -935,7 +820,7 @@ pub fn file_added(self: *Self, file_path: []const u8) OutOfMemoryError!void {
         if (std.mem.eql(u8, file.path, file_path)) return;
     for (self.pending.items) |file|
         if (std.mem.eql(u8, file.path, file_path)) return;
-    const file_type, const file_icon, const file_color = guess_file_type(file_path);
+    const file_type, const file_icon, const file_color = file_finder.guess_file_type(file_path);
     (try self.files.addOne(self.allocator)).* = .{
         .path = try self.allocator.dupe(u8, file_path),
         .type = file_type,
@@ -1037,7 +922,7 @@ fn update_mru_internal(self: *Self, source_location: *const SourceLocation, mtim
         }
         return;
     }
-    const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(source_location.src.path);
+    const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = file_finder.guess_file_type(source_location.src.path);
     if (source_location.src.line != 0) {
         (try self.files.addOne(self.allocator)).* = .{
             .path = try self.allocator.dupe(u8, source_location.src.path),
