@@ -449,7 +449,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             var cmd_args = std.mem.splitScalar(u8, cmd, ':');
             const cmd_ = cmd_args.next();
             try cbor.writeArrayHeader(writer, 3);
-            try cbor.writeValue(writer, "cmd");
+            try cbor.writeValue(writer, if (connect != null) "request" else "cmd");
             try cbor.writeValue(writer, cmd_);
             try cbor.writeArrayHeader(writer, count - 1);
 
