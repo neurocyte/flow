@@ -464,7 +464,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         }
     }
 
-    if (connect != null and args.no_wait)
+    if (connect != null)
         try main_proc.send(.{"disconnect"});
 
     if (renderer.needs_main_thread and connect == null) {

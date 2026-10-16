@@ -73,7 +73,6 @@ const Process = struct {
     verbose: bool,
     tracked_requests: std.AutoHashMapUnmanaged(u64, void) = .empty,
     tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    tracked_any: bool = false,
     receiver: tp.Receiver(*@This()),
 
     const Args = struct {
@@ -201,7 +200,6 @@ const Process = struct {
         const request_args = if (self.track != .none and std.mem.eql(u8, cmd, "navigate")) blk: {
             if (!try add_track_field(&tracked_args.writer, args, self.track)) break :blk args;
             try self.tracked_requests.put(self.allocator, request_id, {});
-            self.tracked_any = true;
             break :blk cbor.Raw{ .bytes = tracked_args.written() };
         } else args;
         const m = tp.message.fmt(.{ "request", request_id, cmd, request_args });
@@ -276,9 +274,8 @@ const Process = struct {
     }
 
     fn disconnect_when_done(self: *@This()) !void {
-        if (self.server == null or self.outstanding.count() > 0 or self.tracked_requests.count() > 0) return;
-        const tracking_done = self.tracked_any and self.tracked_buffers.count() == 0;
-        if (!self.disconnecting and !tracking_done) return;
+        if (!self.disconnecting or self.server == null) return;
+        if (self.outstanding.count() > 0 or self.tracked_requests.count() > 0 or self.tracked_buffers.count() > 0) return;
         self.shutdown();
         return self.exit_done();
     }
