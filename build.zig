@@ -8,21 +8,25 @@ var shader_mod_counter: usize = 0;
 pub const Renderer = enum { terminal, gui };
 
 pub fn build(b: *std.Build) void {
-    const all_targets = b.option(bool, "all-targets", "Build all known good targets during release builds (default: no)") orelse false;
-    const tracy_enabled = b.option(bool, "enable-tracy", "Enable tracy client library (default: no)") orelse false;
-    const use_tree_sitter = b.option(bool, "use-tree-sitter", "Enable tree-sitter (default: yes)") orelse true;
-    const strip = b.option(bool, "strip", "Disable debug information (default: no)");
-    const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
-    const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
-    const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (default), gui") orelse .terminal;
-    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
-    const embed_emoji = b.option(bool, "embed-emoji", "Embed Noto Color Emoji as a built-in color glyph fallback (default: true)") orelse true;
-    const install_tests = b.option(bool, "install-tests", "Install unit test executables (default: no)") orelse false;
+    const flow_options: FlowOptions = .{
+        .all_targets = b.option(bool, "all-targets", "Build all known good targets during release builds (default: no)") orelse false,
+        .tracy_enabled = b.option(bool, "enable-tracy", "Enable tracy client library (default: no)") orelse false,
+        .use_tree_sitter = b.option(bool, "use-tree-sitter", "Enable tree-sitter (default: yes)") orelse true,
+        .strip = b.option(bool, "strip", "Disable debug information (default: no)") orelse false,
+        .use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)"),
+        .pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)"),
+        .renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (default), gui") orelse .terminal,
+        .test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{},
+        .embed_emoji = b.option(bool, "embed-emoji", "Embed Noto Color Emoji as a built-in color glyph fallback (default: true)") orelse true,
+        .install_tests = b.option(bool, "install-tests", "Install unit test executables (default: no)") orelse false,
+    };
 
-    const run_step = b.step("run", "Run the app");
-    const check_step = b.step("check", "Check the app");
-    const test_step = b.step("test", "Run unit tests");
-    const lint_step = b.step("lint", "Run lints");
+    const flow_steps: FlowSteps = .{
+        .run_step = b.step("run", "Run the app"),
+        .check_step = b.step("check", "Check the app"),
+        .test_step = b.step("test", "Run unit tests"),
+        .lint_step = b.step("lint", "Run lints"),
+    };
 
     var version: std.Io.Writer.Allocating = .init(b.allocator);
     defer version.deinit();
@@ -44,89 +48,62 @@ pub fn build(b: *std.Build) void {
 
     return (if (release) &build_release else &build_development)(
         b,
-        run_step,
-        check_step,
-        test_step,
-        lint_step,
-        tracy_enabled,
-        use_tree_sitter,
-        strip,
-        use_llvm,
-        pie,
-        renderer,
+        flow_steps,
+        flow_options,
         version.written(),
-        all_targets,
-        test_filters,
-        embed_emoji,
-        install_tests,
     );
 }
 
-fn build_development(
-    b: *std.Build,
+const FlowSteps = struct {
     run_step: *std.Build.Step,
     check_step: *std.Build.Step,
     test_step: *std.Build.Step,
     lint_step: *std.Build.Step,
+};
+
+const FlowOptions = struct {
     tracy_enabled: bool,
     use_tree_sitter: bool,
-    strip: ?bool,
+    strip: bool,
     use_llvm: ?bool,
     pie: ?bool,
     renderer: Renderer,
-    version: []const u8,
-    _: bool, // all_targets
+    all_targets: bool,
     test_filters: []const []const u8,
     embed_emoji: bool,
     install_tests: bool,
+};
+
+fn build_development(
+    b: *std.Build,
+    flow_steps: FlowSteps,
+    flow_options: FlowOptions,
+    version: []const u8,
 ) void {
     // The gui renderer links system GL/X11 libraries which are not available
     // via the musl sysroot, so use the native ABI when building it.
-    const force_musl = builtin.os.tag == .linux and !tracy_enabled and renderer != .gui;
+    const force_musl = builtin.os.tag == .linux and !flow_options.tracy_enabled and flow_options.renderer != .gui;
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (force_musl) .musl else null } });
     const optimize = b.standardOptimizeOption(.{});
 
     return build_exe(
         b,
-        run_step,
-        check_step,
-        test_step,
-        lint_step,
+        flow_steps,
+        flow_options,
         target,
         optimize,
         .{},
-        tracy_enabled,
-        use_tree_sitter,
-        strip orelse false,
-        use_llvm,
-        pie,
-        renderer,
         version,
-        test_filters,
-        embed_emoji,
-        install_tests,
     );
 }
 
 fn build_release(
     b: *std.Build,
-    run_step: *std.Build.Step,
-    check_step: *std.Build.Step,
-    test_step: *std.Build.Step,
-    lint_step: *std.Build.Step,
-    tracy_enabled: bool,
-    use_tree_sitter: bool,
-    _: ?bool, //release builds control strip
-    use_llvm: ?bool,
-    pie: ?bool,
-    _: Renderer, //renderer
+    flow_steps: FlowSteps,
+    flow_options: FlowOptions,
     version: []const u8,
-    all_targets: bool,
-    test_filters: []const []const u8,
-    embed_emoji: bool,
-    install_tests: bool,
 ) void {
-    const targets: []const struct { std.Target.Query, Renderer } = if (all_targets) &.{
+    const targets: []const struct { std.Target.Query, Renderer } = if (flow_options.all_targets) &.{
         .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .terminal },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu }, .gui },
         .{ .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl }, .terminal },
@@ -195,7 +172,8 @@ fn build_release(
     b.getInstallStep().dependOn(&b.addInstallFile(version_file, "version").step);
 
     for (targets) |t| {
-        const renderer = t.@"1";
+        var common_options = flow_options;
+        common_options.renderer = t.@"1";
         const target = b.resolveTargetQuery(t.@"0");
         var triple = std.mem.splitScalar(u8, t.@"0".zigTriple(b.allocator) catch unreachable, '-');
         const arch = triple.next() orelse unreachable;
@@ -203,70 +181,56 @@ fn build_release(
         const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
         const target_path_debug = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch, "debug" }) catch unreachable;
 
+        var release_options = common_options;
+        release_options.strip = true;
         build_exe(
             b,
-            run_step,
-            check_step,
-            test_step,
-            lint_step,
+            flow_steps,
+            release_options,
             target,
             optimize_release,
             .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
-            tracy_enabled,
-            use_tree_sitter,
-            true, // strip release builds
-            use_llvm,
-            pie,
-            renderer,
             version,
-            test_filters,
-            embed_emoji,
-            install_tests,
         );
 
+        var debug_options = common_options;
+        debug_options.strip = false;
         build_exe(
             b,
-            run_step,
-            check_step,
-            test_step,
-            lint_step,
+            flow_steps,
+            debug_options,
             target,
             optimize_debug,
             .{ .dest_dir = .{ .override = .{ .custom = target_path_debug } } },
-            tracy_enabled,
-            use_tree_sitter,
-            false, // don't strip debug builds
-            use_llvm,
-            pie,
-            renderer,
             version,
-            test_filters,
-            embed_emoji,
-            install_tests,
         );
     }
 }
 
 pub fn build_exe(
     b: *std.Build,
-    run_step: *std.Build.Step,
-    check_step: *std.Build.Step,
-    test_step: *std.Build.Step,
-    lint_step: *std.Build.Step,
+    flow_steps: FlowSteps,
+    flow_options: FlowOptions,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     exe_install_options: std.Build.Step.InstallArtifact.Options,
-    tracy_enabled: bool,
-    use_tree_sitter: bool,
-    strip: bool,
-    use_llvm: ?bool,
-    pie: ?bool,
-    renderer: Renderer,
     version: []const u8,
-    test_filters: []const []const u8,
-    embed_emoji: bool,
-    install_tests: bool,
 ) void {
+    const run_step = flow_steps.run_step;
+    const check_step = flow_steps.check_step;
+    const test_step = flow_steps.test_step;
+    const lint_step = flow_steps.lint_step;
+
+    const tracy_enabled = flow_options.tracy_enabled;
+    const use_tree_sitter = flow_options.use_tree_sitter;
+    const strip = flow_options.strip;
+    const use_llvm = flow_options.use_llvm;
+    const pie = flow_options.pie;
+    const renderer = flow_options.renderer;
+    const test_filters = flow_options.test_filters;
+    const embed_emoji = flow_options.embed_emoji;
+    const install_tests = flow_options.install_tests;
+
     const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
     const is_native = target.query.isNative();
     const options = b.addOptions();
