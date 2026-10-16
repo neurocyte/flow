@@ -190,7 +190,9 @@ fn write_dir(writer: *std.Io.Writer, name: []const u8, dir: anyerror![]const u8)
 fn write_environment(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const environ = root.get_init().environ_map;
     var buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const rc_socket = tp.env.get().str("rc-socket");
     try writer.writeAll("\nenvironment:\n\n");
+    try writer.print("FLOW_SOCKET: {s}\n", .{if (rc_socket.len > 0) rc_socket else "(not set)"});
     try write_effective(writer, "FLOW_CONFIG_DIR", root.get_config_dir() catch null);
     try write_effective(writer, "FLOW_KEYS_DIR", root.get_keybind_namespaces_directory(&buffer) catch null);
     try write_effective(writer, "FLOW_THEMES_DIR", root.get_theme_directory(&buffer) catch null);
