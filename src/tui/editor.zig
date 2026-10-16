@@ -470,6 +470,7 @@ pub const Editor = struct {
         token: u32 = 0,
         root: usize = 0,
         sel: Selection = .{},
+        row: usize = 0,
         state: enum { unknown, pending, none, available } = .unknown,
     } = .{},
     completion_resolve: struct {
@@ -7944,6 +7945,7 @@ pub const Editor = struct {
             .token = (indicator.token +% 1) | code_action_indicator_token,
             .root = token_from(root),
             .sel = sel,
+            .row = self.get_primary().cursor.row,
             .state = .pending,
         };
         return self.send_code_actions_request(root, sel, "", .automatic, indicator.token);
@@ -7953,12 +7955,18 @@ pub const Editor = struct {
         const indicator = &self.code_action_indicator;
         if (token != indicator.token) return;
         indicator.state = .none;
+        const mode = tui.config().code_action_indicator_mode;
         var iter = entries.bytes;
         var len = try cbor.decodeArrayHeader(&iter);
         while (len > 0) : (len -= 1) {
             var action: CodeAction = .{};
             if (!try action.extract(&iter)) return error.InvalidCodeActionEntry;
-            if (action.disabled_reason.len == 0) indicator.state = .available;
+            if (action.disabled_reason.len != 0) continue;
+            switch (mode) {
+                .any => {},
+                .quickfix_on_line => if (!action.matches("quickfix") or !try action.on_line(indicator.row)) continue,
+            }
+            indicator.state = .available;
         }
         if (indicator.state == .available) tui.need_render(@src());
     }
@@ -7969,7 +7977,10 @@ pub const Editor = struct {
         if (indicator.state != .available) return null;
         if (indicator.root != token_from(self.buf_root() catch return null)) return null;
         const row = self.get_primary().cursor.row;
-        return if (indicator.sel.begin.row <= row and row <= indicator.sel.end.row) row else null;
+        return switch (tui.config().code_action_indicator_mode) {
+            .any => if (indicator.sel.begin.row <= row and row <= indicator.sel.end.row) row else null,
+            .quickfix_on_line => if (row == indicator.row) row else null,
+        };
     }
 
     const CodeAction = struct {
@@ -7978,6 +7989,7 @@ pub const Editor = struct {
         preference: project_manager.CodeActionPreference = .normal,
         disabled_reason: []const u8 = "",
         action: []const u8 = "",
+        lines: []const u8 = "",
 
         fn extract(self: *CodeAction, iter: *[]const u8) !bool {
             return cbor.matchValue(iter, .{
@@ -7986,7 +7998,20 @@ pub const Editor = struct {
                 cbor.extract(&self.preference),
                 cbor.extract(&self.disabled_reason),
                 cbor.extract_cbor(&self.action),
+                cbor.extract_cbor(&self.lines),
             });
+        }
+
+        fn on_line(self: *const CodeAction, row: usize) !bool {
+            var iter = self.lines;
+            var len = try cbor.decodeArrayHeader(&iter);
+            while (len > 0) : (len -= 1) {
+                var first: usize = 0;
+                var last: usize = 0;
+                if (!try cbor.matchValue(&iter, .{ cbor.extract(&first), cbor.extract(&last) })) return error.InvalidCodeActionEntry;
+                if (first <= row and row <= last) return true;
+            }
+            return false;
         }
 
         // a kind matches a filter if it is equal to it or below it in the kind hierarchy

@@ -45,6 +45,7 @@ hover_time_ms: usize = 500, //milliseconds
 hover_info_mode: HoverInfoMode = .box,
 input_idle_time_ms: usize = 100, //milliseconds
 idle_actions: []const IdleAction = &default_actions,
+code_action_indicator_mode: CodeActionIndicatorMode = .quickfix_on_line,
 idle_commands: ?[]const []const u8 = null, // a list of simple commands
 enable_format_on_save: bool = false,
 restore_last_cursor_position: bool = true,
@@ -162,6 +163,11 @@ pub const IdleAction = enum {
     hover,
     highlight_references,
     code_actions,
+};
+
+pub const CodeActionIndicatorMode = enum {
+    any,
+    quickfix_on_line,
 };
 
 pub const DigitStyle = enum {

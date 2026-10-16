@@ -484,7 +484,7 @@ fn expect_code_actions(json: []const u8, expected_json: []const u8) !void {
     defer a.free(actions);
     var result: std.Io.Writer.Allocating = .init(a);
     defer result.deinit();
-    try write_code_actions(&result.writer, actions);
+    try write_code_actions(&result.writer, "file:///p/main.zig", actions);
     const result_json = try cbor.toJsonAlloc(a, result.written());
     defer a.free(result_json);
     try std.testing.expectEqualStrings(expected_json, result_json);
@@ -498,7 +498,7 @@ test "code actions: code action with all fields" {
     try expect_code_actions(
         \\[{"title":"Fix it","kind":"quickfix","isPreferred":true,"data":{"id":1}}]
     ,
-        \\[["Fix it","quickfix","preferred","",{"title":"Fix it","kind":"quickfix","isPreferred":true,"data":{"id":1}}]]
+        \\[["Fix it","quickfix","preferred","",{"title":"Fix it","kind":"quickfix","isPreferred":true,"data":{"id":1}},[]]]
     );
 }
 
@@ -506,7 +506,7 @@ test "code actions: disabled action" {
     try expect_code_actions(
         \\[{"title":"Extract","kind":"refactor.extract","disabled":{"reason":"no selection"}}]
     ,
-        \\[["Extract","refactor.extract","normal","no selection",{"title":"Extract","kind":"refactor.extract","disabled":{"reason":"no selection"}}]]
+        \\[["Extract","refactor.extract","normal","no selection",{"title":"Extract","kind":"refactor.extract","disabled":{"reason":"no selection"}},[]]]
     );
 }
 
@@ -514,7 +514,7 @@ test "code actions: command item" {
     try expect_code_actions(
         \\[{"title":"Run","command":"server.run","arguments":[1,"x"]}]
     ,
-        \\[["Run","","normal","",{"title":"Run","command":"server.run","arguments":[1,"x"]}]]
+        \\[["Run","","normal","",{"title":"Run","command":"server.run","arguments":[1,"x"]},[]]]
     );
 }
 
@@ -522,6 +522,30 @@ test "code actions: code action with an embedded command" {
     try expect_code_actions(
         \\[{"title":"Both","command":{"title":"Run","command":"server.run"},"edit":{"changes":{}}}]
     ,
-        \\[["Both","","normal","",{"title":"Both","command":{"title":"Run","command":"server.run"},"edit":{"changes":{}}}]]
+        \\[["Both","","normal","",{"title":"Both","command":{"title":"Run","command":"server.run"},"edit":{"changes":{}}},[]]]
+    );
+}
+
+test "code actions: lines from text edits in the document only" {
+    try expect_code_actions(
+        \\[{"title":"Fix","kind":"quickfix","edit":{"changes":{"file:///p/main.zig":[{"range":{"start":{"line":4,"character":13},"end":{"line":4,"character":21}},"newText":""}],"file:///p/other.zig":[{"range":{"start":{"line":9,"character":0},"end":{"line":9,"character":0}},"newText":"x"}]}}}]
+    ,
+        \\[["Fix","quickfix","normal","",{"title":"Fix","kind":"quickfix","edit":{"changes":{"file:///p/main.zig":[{"range":{"start":{"line":4,"character":13},"end":{"line":4,"character":21}},"newText":""}],"file:///p/other.zig":[{"range":{"start":{"line":9,"character":0},"end":{"line":9,"character":0}},"newText":"x"}]}}},[[4,4]]]]
+    );
+}
+
+test "code actions: lines from document changes" {
+    try expect_code_actions(
+        \\[{"title":"Fix","edit":{"documentChanges":[{"textDocument":{"uri":"file:///p/main%2Ezig","version":1},"edits":[{"range":{"start":{"line":2,"character":0},"end":{"line":3,"character":0}},"newText":""}]},{"kind":"create","uri":"file:///p/new.zig"}]}}]
+    ,
+        \\[["Fix","","normal","",{"title":"Fix","edit":{"documentChanges":[{"textDocument":{"uri":"file:///p/main%2Ezig","version":1},"edits":[{"range":{"start":{"line":2,"character":0},"end":{"line":3,"character":0}},"newText":""}]},{"kind":"create","uri":"file:///p/new.zig"}]}},[[2,3]]]]
+    );
+}
+
+test "code actions: lines from diagnostics before text edits" {
+    try expect_code_actions(
+        \\[{"title":"Fix","diagnostics":[{"range":{"start":{"line":7,"character":1},"end":{"line":7,"character":5}},"message":"bad"}],"edit":{"changes":{"file:///p/main.zig":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"x"}]}}}]
+    ,
+        \\[["Fix","","normal","",{"title":"Fix","diagnostics":[{"range":{"start":{"line":7,"character":1},"end":{"line":7,"character":5}},"message":"bad"}],"edit":{"changes":{"file:///p/main.zig":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"x"}]}}},[[7,7]]]]
     );
 }
