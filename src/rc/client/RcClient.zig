@@ -366,7 +366,7 @@ const Process = struct {
         } else if (try cbor.match(payload.bytes, .{ "navigation", "complete", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
             _ = self.tracked_requests.remove(request_id);
             try self.tracked_buffers.put(self.allocator, buffer_id, {});
-            log.info("opened {s}", .{path});
+            self.log_verbose("opened {s}", .{path});
         } else if (try cbor.match(payload.bytes, .{ "navigation", "failed", cbor.extract(&path) })) {
             _ = self.tracked_requests.remove(request_id);
             self.failed += 1;
@@ -375,7 +375,7 @@ const Process = struct {
             self.log_verbose("renamed {s} -> {s}", .{ old_path, path });
         } else if (try cbor.match(payload.bytes, .{ "buffer", cbor.extract(&event), .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path), cbor.more })) {
             if (std.mem.eql(u8, event, "hidden") or std.mem.eql(u8, event, "deleted")) {
-                if (self.tracked_buffers.remove(buffer_id)) log.info("closed {s}", .{path});
+                if (self.tracked_buffers.remove(buffer_id)) self.log_verbose("closed {s}", .{path});
             } else {
                 self.log_verbose("{s} {s}", .{ event, path });
             }
