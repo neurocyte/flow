@@ -1408,7 +1408,9 @@ pub fn build_exe(
 
     const file_finder_imports: []const std.Build.Module.Import = &.{
         .{ .name = "soft_root", .module = soft_root_mod },
+        .{ .name = "thespian", .module = thespian_mod },
         .{ .name = "file_type_config", .module = file_type_config_mod },
+        .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
     };
 
     const file_finder_mod = b.createModule(.{
@@ -1424,6 +1426,21 @@ pub fn build_exe(
                 .target = target,
                 .optimize = optimize,
                 .imports = file_finder_imports,
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
+    const recent_files_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-RecentFiles",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/RecentFiles.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{.{ .name = "file_finder", .module = file_finder_mod }},
             }),
             .filters = test_filters,
         });
@@ -1718,6 +1735,7 @@ pub fn build_exe(
     test_step.dependOn(&rc_test_run_cmd.step);
     test_step.dependOn(&file_store_test_run_cmd.step);
     test_step.dependOn(&file_finder_test_run_cmd.step);
+    test_step.dependOn(&recent_files_test_run_cmd.step);
     test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);
