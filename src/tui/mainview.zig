@@ -114,7 +114,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     };
     self.set_edit_set_applier();
     project_manager.request_file_store() catch |e| std.log.err("request_file_store: {}", .{e});
-    self.startup_render_block = tui.block_render(startup_render_block_timeout_ms);
+    self.startup_render_block = tui.block_render(startup_render_block_timeout_ms, "startup");
     errdefer self.unblock_startup_render();
     try self.commands.init(self);
     const w = Widget.to(self);
@@ -280,7 +280,7 @@ const quit_render_block_timeout_ms = 500;
 
 fn block_quit_render(self: *Self) void {
     if (self.quit_render_block == null)
-        self.quit_render_block = tui.block_render(quit_render_block_timeout_ms);
+        self.quit_render_block = tui.block_render(quit_render_block_timeout_ms, "quit");
 }
 
 fn terminal_close_will_quit(self: *const Self, closing: *const Vt) bool {
@@ -3273,7 +3273,7 @@ const navigate_render_block_timeout_ms = 250;
 
 fn block_navigate_render(self: *Self) void {
     if (self.navigate_render_block == null)
-        self.navigate_render_block = tui.block_render(navigate_render_block_timeout_ms);
+        self.navigate_render_block = tui.block_render(navigate_render_block_timeout_ms, "navigate");
 }
 
 fn unblock_navigate_render(self: *Self) void {

@@ -286,7 +286,7 @@ fn set_app_title(self: *@This(), title: []const u8) void {
 pub fn block_render_for_output(self: *@This()) void {
     self.unblock_output_render();
     if (self.process_exited or self.vt.input_delay_us == 0) return;
-    self.output_render_block = tui.block_render_expiring(self.vt.input_delay_us / std.time.us_per_ms + 2);
+    self.output_render_block = tui.block_render_expiring(self.vt.input_delay_us / std.time.us_per_ms + 2, "vt output");
 }
 
 fn unblock_output_render(self: *@This()) void {

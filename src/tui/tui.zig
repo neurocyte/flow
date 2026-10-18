@@ -683,14 +683,15 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     var render_block: usize = 0;
-    if (try m.match(.{ "render_block_timeout", tp.extract(&render_block) })) {
+    var render_block_name: []const u8 = undefined;
+    if (try m.match(.{ "render_block_timeout", tp.extract(&render_block), tp.extract(&render_block_name) })) {
         if (self.render_blocks.contains(render_block)) {
-            self.logger.print_err("render", "render block {d} timed out", .{render_block});
+            self.logger.print_err("render", "render block {d} ({s}) timed out", .{ render_block, render_block_name });
             unblock_render(@fromBackingInt(@intCast(render_block)));
         }
         return;
     }
-    if (try m.match(.{ "render_block_expired", tp.extract(&render_block) })) {
+    if (try m.match(.{ "render_block_expired", tp.extract(&render_block), tp.extract(&render_block_name) })) {
         unblock_render(@fromBackingInt(@intCast(render_block)));
         return;
     }
@@ -2909,20 +2910,20 @@ fn maybe_reset_drag_source(self: *Self, btn: MouseEvent.Button) void {
 
 pub const RenderBlock = enum(usize) { _ };
 
-pub fn block_render(timeout_ms: u64) RenderBlock {
-    return block_render_with(timeout_ms, "render_block_timeout");
+pub fn block_render(timeout_ms: u64, name: []const u8) RenderBlock {
+    return block_render_with(timeout_ms, name, "render_block_timeout");
 }
 
 /// a render block that is expected to expire without an error
-pub fn block_render_expiring(timeout_ms: u64) RenderBlock {
-    return block_render_with(timeout_ms, "render_block_expired");
+pub fn block_render_expiring(timeout_ms: u64, name: []const u8) RenderBlock {
+    return block_render_with(timeout_ms, name, "render_block_expired");
 }
 
-fn block_render_with(timeout_ms: u64, timeout_msg: []const u8) RenderBlock {
+fn block_render_with(timeout_ms: u64, name: []const u8, timeout_msg: []const u8) RenderBlock {
     const self = current();
     const id = self.next_render_block;
     self.next_render_block += 1;
-    var timeout = tp.timeout.init_ms(timeout_ms, tp.message.fmt(.{ timeout_msg, id })) catch |e| {
+    var timeout = tp.timeout.init_ms(timeout_ms, tp.message.fmt(.{ timeout_msg, id, name })) catch |e| {
         self.logger.err("render", e);
         return @fromBackingInt(@intCast(0));
     };
