@@ -278,6 +278,11 @@ highlighting.
 
 `background_syntax_threshold` is a number of lines. The default is 20000.
 
+`syntax_injection_depth` sets how deep Flow Control highlights embedded
+languages, for example Rust code in a Rust macro in another Rust macro.
+The default is 6. With 1, only languages that are embedded directly in the
+file get highlights. With 0, embedded languages get no highlights.
+
 File types may be configured with the `Edit file type configuration`
 command. You can also create a new file type by adding a new `.conf` file
 to the `file_type` directory. Have a look at an existing file type to see
