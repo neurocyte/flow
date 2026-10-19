@@ -683,7 +683,7 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, ?*std.heap
     var bufs: [][]const u8 = &[_][]const u8{};
     var conf: T = get_default(T);
     _ = read_config_file(T, arena.allocator(), &conf, &bufs, file_name);
-    read_nested_include_files(T, arena.allocator(), &conf, &bufs);
+    read_nested_include_files(T, arena.allocator(), &conf, &bufs, file_name);
     return .{ conf, arena };
 }
 
@@ -824,12 +824,23 @@ fn read_cbor_config(
     }
 }
 
-fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8) void {
+fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) void {
     if (conf.include_files.len == 0) return;
+    const config_dir = std.fs.path.dirname(file_name) orelse "";
     var it = std.mem.splitScalar(u8, conf.include_files, std.fs.path.delimiter);
-    while (it.next()) |path| if (!read_config_file(T, allocator, conf, bufs, path)) {
-        std.log.err("config include file '{s}' is not found", .{path});
-    };
+    while (it.next()) |include_path| {
+        if (include_path.len == 0) continue;
+        var path_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        const path = if (std.fs.path.isAbsolute(include_path))
+            include_path
+        else
+            std.fmt.bufPrint(&path_buffer, "{s}{c}{s}", .{ config_dir, sep, include_path }) catch {
+                std.log.err("config include file path '{s}' is too long", .{include_path});
+                continue;
+            };
+        if (!read_config_file(T, allocator, conf, bufs, path))
+            std.log.err("config include file '{s}' is not found", .{path});
+    }
 }
 
 pub const ConfigWriteError = error{ CreateConfigFileFailed, WriteConfigFileFailed, WriteFailed };
