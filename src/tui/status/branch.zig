@@ -76,7 +76,9 @@ fn refresh_vcs_status(self: *Self) void {
     if (self.status.branch) |_| project_manager.request_vcs_status() catch {};
 }
 
-pub fn receive(_: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (!tui.config().enable_file_watcher and try m.match(.{ "E", "save", tp.more }))
+        self.refresh_vcs_status();
     if (try m.match(.{ "PRJ", "open" }))
         project_manager.request_vcs_status() catch {};
     return false;
