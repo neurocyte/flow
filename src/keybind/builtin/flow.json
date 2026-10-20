@@ -83,6 +83,7 @@
             ["ctrl+tab", "next_tab"],
             ["ctrl+shift+g s", "show_vcs_status"],
             ["ctrl+shift+g alt+b", "toggle_inline_vcs_blame"],
+            ["ctrl+alt+a s", "show_vcs_status"],
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+page_down", "next_tab"],
             ["ctrl+page_up", "previous_tab"],
