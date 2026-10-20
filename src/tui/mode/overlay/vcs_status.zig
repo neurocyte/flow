@@ -471,5 +471,5 @@ fn run_in_terminal(terminal_action: TerminalAction) !void {
         .push => config.vcs_push_command,
     };
     try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
-    try tp.self_pid().send(.{ "cmd", "open_terminal", .{ cmd, config.task_terminal_on_exit } });
+    try tp.self_pid().send(.{ "cmd", "open_terminal", .{ cmd, config.terminal_on_exit } });
 }
