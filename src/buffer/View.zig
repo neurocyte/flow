@@ -80,6 +80,10 @@ pub inline fn is_visible(self: *const Self, cursor: *const Cursor) bool {
         col_min <= cursor.col and cursor.col < col_max;
 }
 
+pub inline fn is_row_visible(self: *const Self, row: usize) bool {
+    return self.row <= row and row < self.row + self.rows;
+}
+
 inline fn is_visible_selection(self: *const Self, sel: *const Selection) bool {
     const row_min = self.row;
     const row_max = row_min + self.rows;

@@ -1559,10 +1559,7 @@ pub const Editor = struct {
     }
 
     fn render_line_highlight(self: *Self, pc_row: usize, theme: *const Widget.Theme) !void {
-        const row_min = self.view.row;
-        const row_max = row_min + self.view.rows;
-        if (pc_row < row_min or row_max < pc_row)
-            return;
+        if (!self.view.is_row_visible(pc_row)) return;
         const row = pc_row - self.view.row;
         for (0..self.view.cols) |i| {
             self.plane.cursor_move_yx(@intCast(row), @intCast(i));
@@ -1880,8 +1877,8 @@ pub const Editor = struct {
             }
             fn render_line_bg(ctx: *@This(), sel: Selection, style: Widget.Theme.Style) !void {
                 for (sel.begin.row..sel.end.row + 1) |row| {
+                    if (!ctx.self.view.is_row_visible(row)) continue;
                     const y = row - ctx.self.view.row;
-                    if (y >= ctx.self.view.rows) continue;
                     for (0..ctx.self.view.cols) |x| {
                         ctx.self.plane.cursor_move_yx(@intCast(y), @intCast(x));
                         var cell = ctx.self.plane.cell_init();
@@ -1964,7 +1961,7 @@ pub const Editor = struct {
     }
 
     fn render_diff_word_pair(self: *Self, theme: *const Widget.Theme, root: Buffer.Root, src_row: usize, dst_row: usize) !void {
-        if (!self.is_row_visible(src_row) and !self.is_row_visible(dst_row)) return;
+        if (!self.view.is_row_visible(src_row) and !self.view.is_row_visible(dst_row)) return;
         var src: std.Io.Writer.Allocating = .init(self.allocator);
         defer src.deinit();
         try root.get_line(src_row, &src.writer, self.metrics);
@@ -1980,12 +1977,8 @@ pub const Editor = struct {
         for (changes.dst) |range| self.render_text_bg(root, dst_row, range.begin + 1, range.end + 1, theme.diff_editor_inserted_text);
     }
 
-    fn is_row_visible(self: *const Self, row: usize) bool {
-        return self.view.row <= row and row < self.view.row + self.view.rows;
-    }
-
     fn render_text_bg(self: *Self, root: Buffer.Root, row: usize, begin: usize, end: usize, style: Widget.Theme.Style) void {
-        if (!self.is_row_visible(row)) return;
+        if (!self.view.is_row_visible(row)) return;
         const begin_col = root.pos_to_width(row, begin, self.metrics) catch return;
         const end_col = root.pos_to_width(row, end, self.metrics) catch return;
         const y = row - self.view.row;
