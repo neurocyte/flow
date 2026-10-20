@@ -108,6 +108,8 @@ pub fn Create(options: type) type {
                 .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{
                     .ctx = self,
                     .on_click = mouse_palette_menu_cancel,
+                    .on_click4 = mouse_modal_scroll_up,
+                    .on_click5 = mouse_modal_scroll_down,
                     .effect = if (@hasDecl(options, "modal_dim") and !options.modal_dim) .none else .dim,
                 }),
                 .list_box_layer = list_box_layer,
@@ -381,6 +383,8 @@ pub fn Create(options: type) type {
                 scrollbar.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
+        pub const ScrollDirection = enum { up, down };
+
         fn mouse_click_button4(list_box: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &list_box.*.opts.ctx.*;
             if (async_query) return;
@@ -400,6 +404,14 @@ pub fn Create(options: type) type {
                 self.view_pos += ListBox.scroll_lines;
             self.update_scrollbar();
             self.start_query(0) catch {};
+        }
+
+        fn mouse_modal_scroll_up(self: *Self, _: *ModalBackground.State(*Self)) void {
+            if (@hasDecl(options, "scroll_background")) options.scroll_background(self, .up);
+        }
+
+        fn mouse_modal_scroll_down(self: *Self, _: *ModalBackground.State(*Self)) void {
+            if (@hasDecl(options, "scroll_background")) options.scroll_background(self, .down);
         }
 
         fn mouse_palette_menu_cancel(self: *Self, _: *ModalBackground.State(*Self)) void {

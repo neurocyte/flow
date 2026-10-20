@@ -123,7 +123,11 @@ pub fn State(ctx_type: type) type {
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
             var btn: MouseEvent.Button = .none;
-            if (try m.match(.{ MouseEvent.Type.press, tp.more })) {
+            if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more })) {
+                switch (btn) {
+                    .wheel_up, .wheel_down => self.call_click_handler(btn),
+                    else => {},
+                }
                 return true;
             } else if (try m.match(.{ MouseEvent.Type.release, tp.extract(&btn), tp.more })) {
                 self.call_click_handler(btn);

@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const project_manager = @import("project_manager");
+const root = @import("soft_root").root;
 const command = @import("command");
 
 const tui = @import("../../tui.zig");
@@ -645,6 +646,15 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
             .alternate => open_hunk(palette, &item),
         },
         .header, .empty => {},
+    }
+}
+
+pub fn scroll_background(palette: *Type, direction: Type.ScrollDirection) void {
+    if (palette.value.shown_diff == null) return;
+    const editor = tui.get_active_editor() orelse return;
+    switch (direction) {
+        .up => editor.mouse_scroll_up(root.get_now()),
+        .down => editor.mouse_scroll_down(root.get_now()),
     }
 }
 
