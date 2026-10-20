@@ -206,6 +206,15 @@ pub fn request_vcs_first_change(file_path: []const u8, staged: bool) (ProjectMan
     return send(.{ "request_vcs_first_change", project, file_path, staged });
 }
 
+pub const VcsIndexUpdate = Project.VcsIndexUpdate;
+
+pub fn request_vcs_update_index(update: VcsIndexUpdate, file_paths: []const []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_update_index", project, update, file_paths });
+}
+
 pub const VcsFileState = Project.VcsFileState;
 
 pub fn request_vcs_file_state(id: usize, file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -545,6 +554,8 @@ const Process = struct {
         var project_directory: []const u8 = undefined;
         var path: []const u8 = undefined;
         var staged: bool = undefined;
+        var index_update: VcsIndexUpdate = undefined;
+        var paths_cbor: []const u8 = undefined;
         var query: []const u8 = undefined;
         var file_type: []const u8 = undefined;
         var language_server: []const u8 = undefined;
@@ -611,6 +622,10 @@ const Process = struct {
             const request: *Project.VcsFileStateRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
                 project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-file-state", e);
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "update_index", tp.more })) {
+            const request: *Project.VcsIndexUpdateRequest = @ptrFromInt(context);
+            if (self.project_from_ref(request.project)) |project|
+                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-update-index", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "first_change", tp.more })) {
             const request: *Project.VcsFirstChangeRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
@@ -657,6 +672,8 @@ const Process = struct {
             self.request_tasks(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_status", tp.extract(&project_directory) })) {
             self.request_vcs_status(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_update_index", tp.extract(&project_directory), tp.extract(&index_update), tp.extract_cbor(&paths_cbor) })) {
+            self.request_vcs_update_index(from, project_directory, index_update, paths_cbor) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_first_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&staged) })) {
             self.request_vcs_first_change(from, project_directory, path, staged) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_id", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -1108,6 +1125,20 @@ const Process = struct {
     fn request_vcs_status(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_vcs_status(from);
+    }
+
+    fn request_vcs_update_index(self: *Process, _: tp.pid_ref, project_directory: []const u8, update: VcsIndexUpdate, paths_cbor: []const u8) (ProjectError || Project.RequestError || cbor.Error)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        var paths: std.ArrayList([]const u8) = .empty;
+        defer paths.deinit(self.allocator);
+        var iter = paths_cbor;
+        var len = try cbor.decodeArrayHeader(&iter);
+        while (len > 0) : (len -= 1) {
+            var path: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &path)) return error.InvalidVcsUpdateIndexRequest;
+            try paths.append(self.allocator, path);
+        }
+        try project.request_vcs_update_index(update, paths.items);
     }
 
     fn request_vcs_first_change(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, staged: bool) (ProjectError || Project.RequestError)!void {

@@ -84,6 +84,7 @@ const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 pub const RequestError = error{
     InvalidMostRecentFileRequest,
     InvalidRequestVcsStatusFilesRequest,
+    InvalidVcsUpdateIndexRequest,
     InvalidRecentFilesRequest,
     InvalidQueryRecentFilesRequest,
     InvalidGetMruPositionRequest,
@@ -2071,14 +2072,38 @@ pub const VcsFirstChangeRequest = struct {
     }
 };
 
+pub const VcsIndexUpdate = enum { stage, unstage };
+
+pub fn request_vcs_update_index(self: *Self, update: VcsIndexUpdate, file_paths: []const []const u8) error{OutOfMemory}!void {
+    const request = try self.allocator.create(VcsIndexUpdateRequest);
+    request.* = .{ .allocator = self.allocator, .project = @intFromPtr(self) };
+    const initial = if (self.status.commit) |commit| std.mem.eql(u8, commit, "(initial)") else false;
+    const git_update: git.IndexUpdate = switch (update) {
+        .stage => .stage,
+        .unstage => if (initial) .unstage_initial else .unstage,
+    };
+    git.update_index(@intFromPtr(request), git_update, file_paths) catch |e| {
+        self.logger_git.print_err("update-index", "failed: {t}", .{e});
+        request.deinit();
+    };
+}
+
+pub const VcsIndexUpdateRequest = struct {
+    allocator: std.mem.Allocator,
+    project: usize,
+
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
+    }
+};
+
 pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || GitError || error{Exit})!void {
     var context: usize = undefined;
     var vcs_id: []const u8 = undefined;
     var vcs_content: []const u8 = undefined;
     var blame_output: []const u8 = undefined;
     var line: usize = undefined;
-
-    _ = self;
+    var exit_code: i64 = undefined;
 
     if (try m.match(.{ tp.any, tp.extract(&context), "rev_parse", tp.extract(&vcs_id) })) {
         const request: *VcsIdRequest = @ptrFromInt(context);
@@ -2111,6 +2136,12 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     } else if (try m.match(.{ tp.any, tp.extract(&context), "file_status", tp.null_ })) {
         const request: *VcsFileStateRequest = @ptrFromInt(context);
         request.done(parent);
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "update_index", tp.extract(&exit_code) })) {
+        const request: *VcsIndexUpdateRequest = @ptrFromInt(context);
+        request.deinit();
+        parent.send(.{ "PRJ", "vcs_update_index_done", exit_code }) catch {};
+        self.status_reply = true;
+        self.refresh_vcs_status();
     } else if (try m.match(.{ tp.any, tp.extract(&context), "first_change", tp.extract(&line) })) {
         const request: *VcsFirstChangeRequest = @ptrFromInt(context);
         if (request.line == null) request.line = line;
