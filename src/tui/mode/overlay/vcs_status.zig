@@ -392,11 +392,12 @@ fn append_entry(palette: *Type, file: *const File, section: Section, status: u8)
 fn append_hunk_entries(palette: *Type, path: []const u8, section: Section) !void {
     const diff = palette.value.shown_diff orelse return;
     if (diff.mode != section_diff_mode(section) or !std.mem.eql(u8, diff.path, path)) return;
-    for (palette.value.hunks.items, 0..) |*hunk, i| {
+    for (0..palette.value.hunks.items.len) |i| {
         const path_ = try palette.allocator.dupe(u8, path);
         errdefer palette.allocator.free(path_);
+        // hunk entries have no label so the palette width stays the same
         (try palette.entries.addOne(palette.allocator)).* = .{
-            .label = hunk.label,
+            .label = "",
             .path = path_,
             .kind = .hunk,
             .section = section,
@@ -431,7 +432,7 @@ pub fn add_list_box_entry(palette: *Type, entry: *Entry, _: ?[]const usize) !voi
     try cbor.writeValue(writer, entry.section);
     try cbor.writeValue(writer, entry.status);
     try cbor.writeValue(writer, entry.path);
-    try cbor.writeValue(writer, entry.label);
+    try cbor.writeValue(writer, if (entry.kind == .hunk) palette.value.hunks.items[entry.hunk].label else entry.label);
     try cbor.writeValue(writer, entry.file_icon);
     try cbor.writeValue(writer, entry.file_color);
     try cbor.writeValue(writer, indicator);
@@ -536,7 +537,7 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     const item = Item.decode(button) orelse return;
     switch (item.kind) {
         .file => switch (activate) {
-            .normal => show_diff(palette, &item),
+            .normal => if (is_shown_diff(palette, &item)) close_diff(palette) else show_diff(palette, &item),
             .alternate => open_file(palette, &item),
         },
         .hunk => switch (activate) {
@@ -556,6 +557,29 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
         .hunk => show_hunk(palette, &item),
         .header, .empty => {},
     }
+}
+
+fn is_shown_diff(palette: *Type, item: *const Item) bool {
+    if (palette.value.pending_diff != null) return false;
+    const diff = palette.value.shown_diff orelse return false;
+    return diff.eql(item.path, section_diff_mode(item.section));
+}
+
+fn close_diff(palette: *Type) void {
+    if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
+    palette.value.pending_diff = null;
+    const diff = palette.value.shown_diff orelse return;
+    palette.value.shown_diff = null;
+    defer palette.allocator.free(diff.path);
+    clear_hunks(palette);
+    update_entries(palette) catch |e| palette.logger.err(module_name, e);
+    const buffer_name = diff.buffer_name(palette.allocator) catch |e| return palette.logger.err(module_name, e);
+    defer palette.allocator.free(buffer_name);
+    send(palette, .{ "cmd", "close_buffer", .{buffer_name} });
+}
+
+pub fn cancel(palette: *Type, ctx: command.Context) !void {
+    if (try ctx.args.match(.{"close_diff"})) close_diff(palette);
 }
 
 fn show_hunk(palette: *Type, item: *const Item) void {

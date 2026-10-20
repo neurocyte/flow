@@ -467,7 +467,8 @@
             ["F", "palette_menu_action", "fetch"],
             ["P", "palette_menu_action", "push"],
             ["e", "palette_menu_activate_alternate"],
-            ["q", "palette_menu_cancel"]
+            ["escape", "palette_menu_cancel", "close_diff"],
+            ["q", "palette_menu_cancel", "close_diff"]
         ],
         "release": [
             ["left_control", "unbind"],

@@ -855,7 +855,7 @@ pub fn Create(options: type) type {
                 if (@hasDecl(options, "cancel")) try options.cancel(self, ctx);
                 try self.cmd("exit_overlay_mode", .empty_from(ctx));
             }
-            pub const palette_menu_cancel_meta: Meta = .{};
+            pub const palette_menu_cancel_meta: Meta = .{ .arguments = &.{.string} };
 
             pub fn overlay_delete_word_left(self: *Self, _: Ctx) Result {
                 self.delete_word() catch |e| return tp.exit_error(e, @errorReturnTrace());
