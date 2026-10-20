@@ -9,9 +9,9 @@ pub const Type = @import("palette.zig").Create(@This());
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
 
-pub const label = "Status";
+pub const label = "Git Status";
 pub const name = " status";
-pub const description = "vcs status";
+pub const description = "git status";
 pub const icon = "  ";
 pub const modal_dim = false;
 pub const placement = .top_right;
