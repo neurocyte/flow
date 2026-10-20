@@ -91,7 +91,8 @@ pub const ValueType = struct {
 
 const GotoHunk = struct {
     path: []const u8,
-    line: usize,
+    section: ?Section = null,
+    line: ?usize,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -191,8 +192,14 @@ fn save(palette: *Type) void {
     const writer = &data.writer;
     if (selected_index(palette)) |idx| {
         const entry = &palette.entries.items[idx];
-        const kind: Kind = if (entry.kind == .hunk) .file else entry.kind;
-        cbor.writeValue(writer, .{ kind, entry.section, entry.path, idx }) catch return;
+        const diff_open = if (palette.value.shown_diff) |*diff| diff.eql(entry.path, section_diff_mode(entry.section)) else false;
+        const hunk_line: ?usize = if (entry.kind != .hunk)
+            null
+        else if (hunk_for(palette, entry.path, entry.section, entry.hunk)) |hunk|
+            hunk.new_line
+        else
+            null;
+        cbor.writeValue(writer, .{ entry.kind, entry.section, entry.path, idx, palette.value.context_lines, diff_open, hunk_line }) catch return;
     }
     tui.set_last_palette(.vcs_status, .init(.{ .buf = data.written() }));
 }
@@ -210,7 +217,18 @@ fn restore(palette: *Type, ctx: command.Context) !void {
         palette.value.goto_hunk = .{ .path = try palette.allocator.dupe(u8, path), .line = line };
         return;
     }
-    if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&section), tp.extract(&path), tp.extract(&index) })) return;
+    var context_lines: usize = undefined;
+    var diff_open: bool = undefined;
+    var hunk_line: ?usize = undefined;
+    if (!try ctx.args.match(.{
+        tp.extract(&kind),
+        tp.extract(&section),
+        tp.extract(&path),
+        tp.extract(&index),
+        tp.extract(&context_lines),
+        tp.extract(&diff_open),
+        tp.extract(&hunk_line),
+    })) return;
     clear_restore_target(palette);
     palette.value.restore_target = .{
         .kind = kind,
@@ -218,6 +236,11 @@ fn restore(palette: *Type, ctx: command.Context) !void {
         .path = try palette.allocator.dupe(u8, path),
         .index = index,
     };
+    palette.value.context_lines = context_lines;
+    if (diff_open) {
+        clear_goto_hunk(palette);
+        palette.value.goto_hunk = .{ .path = try palette.allocator.dupe(u8, path), .section = section, .line = hunk_line };
+    }
 }
 
 fn clear_goto_hunk(palette: *Type) void {
@@ -228,7 +251,7 @@ fn clear_goto_hunk(palette: *Type) void {
 fn request_goto_diff(palette: *Type) void {
     const goto = palette.value.goto_hunk orelse return;
     if (palette.value.pending_diff != null) return;
-    const section = goto_section(palette, goto.path) orelse return clear_goto_hunk(palette);
+    const section = goto.section orelse goto_section(palette, goto.path) orelse return clear_goto_hunk(palette);
     request_diff(palette, goto.path, section_diff_mode(section));
 }
 
@@ -246,10 +269,11 @@ fn select_goto_hunk(palette: *Type, mode: project_manager.VcsDiffMode) !void {
     const diff = palette.value.shown_diff orelse return;
     if (!diff.eql(goto.path, mode)) return;
     defer clear_goto_hunk(palette);
+    const line = goto.line orelse return;
     var best: ?usize = null;
     var best_distance: usize = std.math.maxInt(usize);
     for (palette.value.hunks.items, 0..) |*hunk, i| {
-        const distance = hunk_distance(hunk.label, goto.line);
+        const distance = hunk_distance(hunk.label, line);
         if (distance < best_distance) {
             best = i;
             best_distance = distance;
