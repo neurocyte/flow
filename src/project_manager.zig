@@ -15,6 +15,9 @@ const file_link = @import("file_link");
 const builtin = @import("builtin");
 
 const Project = @import("Project.zig");
+const Repo = @import("Repo.zig");
+const LSPClient = @import("LSPClient.zig");
+const git = @import("git");
 pub const SourceLocation = Project.SourceLocation;
 
 pid: tp.pid_ref,
@@ -499,6 +502,9 @@ const Process = struct {
     logger: log.Logger,
     receiver: Receiver,
     projects: ProjectsMap,
+    repos: std.StringHashMapUnmanaged(*Repo) = .empty,
+    repo_dirs: std.StringHashMapUnmanaged(?*Repo) = .empty,
+    repo_discoveries: std.ArrayListUnmanaged(*RepoDiscovery) = .empty,
     non_indexed: []const []const u8,
     watch_non_indexed: bool,
     file_store: ?tp.pid = null,
@@ -508,6 +514,20 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
     const ProjectsMap = std.StringHashMapUnmanaged(*Project);
+
+    const RepoDiscovery = struct {
+        dir: []const u8,
+        lines: std.ArrayListUnmanaged([]const u8) = .empty,
+        projects: std.ArrayListUnmanaged(usize) = .empty,
+
+        fn deinit(self: *RepoDiscovery, allocator: std.mem.Allocator) void {
+            for (self.lines.items) |line| allocator.free(line);
+            self.lines.deinit(allocator);
+            self.projects.deinit(allocator);
+            allocator.free(self.dir);
+            allocator.destroy(self);
+        }
+    };
     const RecentProject = struct {
         name: []const u8,
         last_used: i128,
@@ -539,6 +559,17 @@ const Process = struct {
             self.allocator.destroy(p.value_ptr.*);
         }
         self.projects.deinit(self.allocator);
+        for (self.repo_discoveries.items) |discovery| discovery.deinit(self.allocator);
+        self.repo_discoveries.deinit(self.allocator);
+        var i_dirs = self.repo_dirs.keyIterator();
+        while (i_dirs.next()) |dir| self.allocator.free(dir.*);
+        self.repo_dirs.deinit(self.allocator);
+        var i_repos = self.repos.valueIterator();
+        while (i_repos.next()) |repo| {
+            repo.*.deinit();
+            self.allocator.destroy(repo.*);
+        }
+        self.repos.deinit(self.allocator);
         for (self.non_indexed) |dir| self.allocator.free(dir);
         self.allocator.free(self.non_indexed);
         self.parent.deinit();
@@ -607,6 +638,7 @@ const Process = struct {
         var object_type: file_watcher.ObjectType = undefined;
         var from_path: []const u8 = undefined;
         var mtime_high: i64 = 0;
+        var exit_code: i64 = 0;
         var mtime_low: i64 = 0;
 
         if (try cbor.match(m.buf, .{ "FW", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) })) {
@@ -618,8 +650,8 @@ const Process = struct {
             self.handle_vcs_watch_event(path);
         } else if (try cbor.match(m.buf, .{ "VW", "change", tp.extract(&path), tp.any, tp.any })) {
             self.handle_vcs_watch_event(path);
-        } else if (try cbor.match(m.buf, .{ "vcs_changed_timeout", tp.extract(&project_directory) })) {
-            if (self.projects.get(project_directory)) |project| project.vcs_changed_timeout();
+        } else if (try cbor.match(m.buf, .{ "vcs_changed_timeout", tp.extract(&path) })) {
+            if (self.repos.get(path)) |repo| repo.vcs_changed_timeout();
         } else if (try cbor.match(m.buf, .{ "FS", "stat", tp.any, tp.extract(&path), tp.extract(&mtime_high), tp.extract(&mtime_low) })) {
             self.handle_file_store_mtime(path, mtime_high, mtime_low);
         } else if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.more })) {
@@ -629,40 +661,49 @@ const Process = struct {
             if (self.projects.get(project_directory)) |project|
                 project.walk_tree_done(self.parent.ref()) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "rev_parse", tp.more })) {
-            const request: *Project.VcsIdRequest = @ptrFromInt(context);
-            if (self.project_from_ref(request.project)) |project|
-                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-rev-parse", e);
+            const request: *Repo.VcsIdRequest = @ptrFromInt(context);
+            self.process_repo_response(request.repo, m);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "cat_file", tp.more })) {
-            const request: *Project.VcsContentRequest = @ptrFromInt(context);
-            if (self.project_from_ref(request.project)) |project|
-                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-cat-file", e);
+            const request: *Repo.VcsContentRequest = @ptrFromInt(context);
+            self.process_repo_response(request.repo, m);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "ls_tree", tp.more }) or
             try cbor.match(m.buf, .{ "git", tp.extract(&context), "file_status", tp.more }))
         {
-            const request: *Project.VcsFileStateRequest = @ptrFromInt(context);
-            if (self.project_from_ref(request.project)) |project|
-                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-file-state", e);
+            const request: *Repo.VcsFileStateRequest = @ptrFromInt(context);
+            self.process_repo_response(request.repo, m);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "update_index", tp.more }) or
             try cbor.match(m.buf, .{ "git", tp.extract(&context), "apply_patch", tp.more }))
         {
-            const request: *Project.VcsIndexUpdateRequest = @ptrFromInt(context);
-            if (self.project_from_ref(request.project)) |project|
-                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-update-index", e);
+            const request: *Repo.VcsIndexUpdateRequest = @ptrFromInt(context);
+            self.process_repo_response(request.repo, m);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "diff", tp.more })) {
-            const request: *Project.VcsDiffRequest = @ptrFromInt(context);
-            if (self.project_from_ref(request.project)) |project|
-                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-diff", e);
+            const request: *Repo.VcsDiffRequest = @ptrFromInt(context);
+            self.process_repo_response(request.repo, m);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "first_change", tp.more })) {
-            const request: *Project.VcsFirstChangeRequest = @ptrFromInt(context);
-            if (self.project_from_ref(request.project)) |project|
-                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-first-change", e);
+            const request: *Repo.VcsFirstChangeRequest = @ptrFromInt(context);
+            self.process_repo_response(request.repo, m);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "blame", tp.more })) {
             const request: *Project.GitBlameRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
                 project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-blame", e);
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "status", tp.more })) {
+            const repo: *Repo = @ptrFromInt(context);
+            repo.process_status(self.parent.ref(), m, self.is_active_repo(repo)) catch |e| self.logger.err("git-status", e);
+            if (try cbor.match(m.buf, .{ "git", tp.any, "status", tp.null_ })) self.repo_status_done(repo);
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "discover", tp.extract(&path) })) {
+            const discovery: *RepoDiscovery = @ptrFromInt(context);
+            const line = LSPClient.convert_path(self.allocator.dupe(u8, path) catch |e| return self.logger.err("git-discover", e));
+            discovery.lines.append(self.allocator, line) catch |e| {
+                self.allocator.free(line);
+                self.logger.err("git-discover", e);
+            };
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "discover", tp.extract(&exit_code) })) {
+            self.repo_discovery_done(@ptrFromInt(context), exit_code);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
             const project: *Project = @ptrFromInt(context);
             project.process_git(self.parent.ref(), m) catch {};
+            if (try cbor.match(m.buf, .{ "git", tp.any, "workspace_path", tp.string }))
+                self.discover_project_repo(project);
         } else if (try cbor.match(m.buf, .{ "update_mru", tp.extract(&project_directory), tp.extract(&source_location) })) {
             self.update_mru(project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
@@ -870,9 +911,112 @@ const Process = struct {
     }
 
     fn handle_vcs_watch_event(self: *Process, abs_path: []const u8) void {
+        var it = self.repos.valueIterator();
+        while (it.next()) |repo| if (repo.*.owns_vcs_path(abs_path))
+            repo.*.vcs_changed();
+    }
+
+    fn process_repo_response(self: *Process, repo_ref: usize, m: tp.message) void {
+        const repo: *Repo = @ptrFromInt(repo_ref);
+        repo.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git", e);
+    }
+
+    /// the active project's repository broadcasts its status changes
+    fn is_active_repo(self: *const Process, repo: *const Repo) bool {
         var it = self.projects.valueIterator();
-        while (it.next()) |project| if (project.*.owns_vcs_path(abs_path))
-            project.*.vcs_changed();
+        while (it.next()) |project| if (project.*.active and project.*.repo == repo) return true;
+        return false;
+    }
+
+    fn repo_status_done(self: *Process, repo: *const Repo) void {
+        var it = self.projects.valueIterator();
+        while (it.next()) |project| if (project.*.repo == repo)
+            project.*.repo_done(self.parent.ref()) catch |e| self.logger.err("repo_done", e);
+    }
+
+    fn discover_project_repo(self: *Process, project: *Project) void {
+        self.discover_repo(project.name, @intFromPtr(project)) catch |e| {
+            self.logger.err("git-discover", e);
+            project.set_repo(self.parent.ref(), null) catch {};
+        };
+    }
+
+    fn discover_repo(self: *Process, path: []const u8, project_ref: usize) (git.Error || error{FileNotFound})!void {
+        const dir = try discovery_dir(self.allocator, path);
+        if (self.repo_dirs.get(dir)) |repo| {
+            self.allocator.free(dir);
+            return self.link_repo(project_ref, repo);
+        }
+        for (self.repo_discoveries.items) |discovery| if (std.mem.eql(u8, discovery.dir, dir)) {
+            self.allocator.free(dir);
+            return discovery.projects.append(self.allocator, project_ref);
+        };
+        const discovery = try self.allocator.create(RepoDiscovery);
+        discovery.* = .{ .dir = dir };
+        errdefer discovery.deinit(self.allocator);
+        try discovery.projects.append(self.allocator, project_ref);
+        try self.repo_discoveries.append(self.allocator, discovery);
+        errdefer _ = self.repo_discoveries.pop();
+        try git.discover(@intFromPtr(discovery), dir);
+    }
+
+    /// the nearest directory that exists, with symlinks resolved
+    fn discovery_dir(allocator: std.mem.Allocator, path: []const u8) error{ OutOfMemory, FileNotFound }![]const u8 {
+        var dir = path;
+        while (!root.is_directory(dir)) dir = std.fs.path.dirname(dir) orelse return error.FileNotFound;
+        var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const len = std.Io.Dir.cwd().realPathFile(root.get_io(), dir, &path_buf) catch return error.FileNotFound;
+        return allocator.dupe(u8, path_buf[0..len]);
+    }
+
+    fn repo_discovery_done(self: *Process, discovery: *RepoDiscovery, exit_code: i64) void {
+        for (self.repo_discoveries.items, 0..) |d, i| if (d == discovery) {
+            _ = self.repo_discoveries.swapRemove(i);
+            break;
+        } else return;
+        defer discovery.deinit(self.allocator);
+        const lines = discovery.lines.items;
+        const repo: ?*Repo = if (exit_code == 0 and lines.len >= 3) self.open_repo(.{
+            .root = lines[0],
+            .git_dir = lines[1],
+            .git_common_dir = lines[2],
+            .superproject = if (lines.len > 3) lines[3] else null,
+        }) catch |e| blk: {
+            self.logger.err("open_repo", e);
+            break :blk null;
+        } else null;
+        self.cache_repo_dir(discovery.dir, repo) catch |e| self.logger.err("git-discover", e);
+        for (discovery.projects.items) |project_ref| self.link_repo(project_ref, repo);
+    }
+
+    fn cache_repo_dir(self: *Process, dir: []const u8, repo: ?*Repo) error{OutOfMemory}!void {
+        const gop = try self.repo_dirs.getOrPut(self.allocator, dir);
+        if (!gop.found_existing) gop.key_ptr.* = self.allocator.dupe(u8, dir) catch |e| {
+            _ = self.repo_dirs.remove(dir);
+            return e;
+        };
+        gop.value_ptr.* = repo;
+    }
+
+    fn uncache_repo_dir(self: *Process, dir: []const u8) void {
+        const kv = self.repo_dirs.fetchRemove(dir) orelse return;
+        self.allocator.free(kv.key);
+    }
+
+    fn link_repo(self: *Process, project_ref: usize, repo: ?*Repo) void {
+        const project = self.project_from_ref(project_ref) orelse return;
+        project.set_repo(self.parent.ref(), repo) catch |e| self.logger.err("set_repo", e);
+    }
+
+    fn open_repo(self: *Process, discovery: Repo.Discovery) error{OutOfMemory}!*Repo {
+        if (self.repos.get(discovery.root)) |repo| return repo;
+        const repo = try self.allocator.create(Repo);
+        errdefer self.allocator.destroy(repo);
+        repo.* = try Repo.init(self.allocator, discovery);
+        errdefer repo.deinit();
+        try self.repos.put(self.allocator, repo.root, repo);
+        repo.start_vcs_watcher();
+        return repo;
     }
 
     fn handle_file_watch_rename(self: *Process, abs_from: []const u8, abs_to: []const u8, object_type: file_watcher.ObjectType) void {
@@ -1051,6 +1195,7 @@ const Process = struct {
 
     fn request_sync_with_vcs(self: *Process, _: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
+        self.uncache_repo_dir(project.name);
         return project.query_git();
     }
 

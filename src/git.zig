@@ -200,15 +200,24 @@ pub fn rev_parse(context_: usize, dir: []const u8, rev: []const u8, file_path: [
     }.result, exit_null(tag));
 }
 
-pub fn git_dirs(context_: usize, dir: []const u8) Error!void {
+/// sends the worktree root, the git dir, the common dir and, in a submodule,
+/// the superproject root, one per message, then the exit code
+pub fn discover(context_: usize, dir: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git(context_, dir, .{ "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir" }, struct {
+    try git(context_, dir, .{
+        "rev-parse",
+        "--path-format=absolute",
+        "--show-toplevel",
+        "--git-dir",
+        "--git-common-dir",
+        "--show-superproject-working-tree",
+    }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
                 parent.send(.{ module_name, context, tag, value }) catch {};
         }
-    }.result, exit_null(tag));
+    }.result, exit_result(tag));
 }
 
 pub fn cat_file(context_: usize, dir: []const u8, object: []const u8) Error!void {
