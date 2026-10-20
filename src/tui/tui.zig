@@ -2087,6 +2087,14 @@ const cmds = struct {
     pub const switch_mode_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn enter_mode_default(self: *Self, _: Ctx) Result {
+        if (self.input_mode_outer_) |*outer| if (self.delayed_init_done) {
+            // keep the overlay open and reset the mode below it
+            const new_mode = try self.get_input_mode(keybind.default_mode);
+            outer.deinit();
+            self.input_mode_outer_ = new_mode;
+            if (self.input_mode_outer_) |*m| m.run_init();
+            return;
+        };
         return enter_mode(self, .fmt(.{keybind.default_mode}));
     }
     pub const enter_mode_default_meta: Meta = .{};
@@ -2121,9 +2129,13 @@ const cmds = struct {
             self.logger.print("no previously used palette", .{});
             return;
         };
+        // closing an open palette may call set_last_palette and free palette.ctx
+        const args = try palette.ctx.args.clone(self.allocator);
+        defer self.allocator.free(args.buf);
+        const ctx: command.Context = .{ .io = palette.ctx.io, .now = palette.ctx.now, .args = args };
         switch (palette.type_) {
-            .open_recent => return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent.zig").Type, palette.ctx),
-            .vcs_status => return self.enter_overlay_mode_with_args(@import("mode/overlay/vcs_status.zig").Type, palette.ctx),
+            .open_recent => return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent.zig").Type, ctx),
+            .vcs_status => return self.enter_overlay_mode_with_args(@import("mode/overlay/vcs_status.zig").Type, ctx),
         }
     }
     pub const last_palette_meta: Meta = .{ .description = "Open last used palette" };
