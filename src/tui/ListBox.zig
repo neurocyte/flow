@@ -24,6 +24,7 @@ pub fn Options(context: type) type {
         prepare_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) Widget.Box = prepare_resize_default,
         after_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) void = after_resize_default,
         on_scroll: ?EventHandler = null,
+        select_on_click: bool = false,
 
         pub const Context = context;
         pub const ListBoxType = State(Context);
@@ -143,6 +144,7 @@ pub fn State(ctx_type: type) type {
                 .ctx = self,
                 .on_layout = on_layout,
                 .label = label,
+                .before_click = if (self.opts.select_on_click) select_button else Button.Options(*Self).do_nothing,
                 .on_click = on_click,
                 .on_click4 = self.opts.on_click4,
                 .on_click5 = self.opts.on_click5,
@@ -233,6 +235,14 @@ pub fn State(ctx_type: type) type {
 
         pub fn select_last(self: *Self) void {
             self.selected = if (self.count() > 0) self.count() - self.header_count - 1 else null;
+        }
+
+        fn select_button(self: **Self, button: *ButtonType, _: Widget.Pos) void {
+            for (self.*.list.widgets.items[self.*.header_count..], 0..) |*w, i|
+                if (w.widget.dynamic_cast(ButtonType)) |b| if (b == button) {
+                    self.*.selected = i;
+                    return;
+                };
         }
 
         pub fn activate_selected(self: *Self) void {

@@ -16,6 +16,7 @@ pub fn Options(context: type) type {
         ctx: Context,
         cursor: tui.renderer.MouseCursorShape = .pointer,
 
+        before_click: ClickHandler = do_nothing,
         on_click: ClickHandler = do_nothing,
         on_click2: ClickHandler = do_nothing,
         on_click3: ClickHandler = do_nothing,
@@ -207,7 +208,10 @@ fn State(ctx_type: type) type {
             }
             if (!self.hover) return;
             switch (btn) {
-                .left => self.opts.on_click(&self.opts.ctx, self, pos),
+                .left => {
+                    self.opts.before_click(&self.opts.ctx, self, pos);
+                    self.opts.on_click(&self.opts.ctx, self, pos);
+                },
                 .middle => if (!self.middle_dragged) self.opts.on_click2(&self.opts.ctx, self, pos),
                 .right => self.opts.on_click3(&self.opts.ctx, self, pos),
                 .wheel_up => self.opts.on_click4(&self.opts.ctx, self, pos),

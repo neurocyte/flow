@@ -541,7 +541,6 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     const activate = palette.activate;
     palette.activate = .normal;
     const item = Item.decode(button) orelse return;
-    select_button(palette, button);
     switch (item.kind) {
         .file => switch (activate) {
             // close_diff rebuilds the list and would free this button while it is still in use
@@ -557,17 +556,6 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
         },
         .header, .empty => {},
     }
-}
-
-// a mouse click activates a button that may not be the selected one
-fn select_button(palette: *Type, button: *Type.ButtonType) void {
-    const list_box = palette.list_box;
-    for (list_box.list.widgets.items[list_box.header_count..], 0..) |*w, i|
-        if (w.widget.dynamic_cast(Type.ButtonType)) |b| if (b == button) {
-            list_box.selected = i;
-            tui.need_render(@src());
-            return;
-        };
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {

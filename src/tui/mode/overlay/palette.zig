@@ -119,6 +119,7 @@ pub fn Create(options: type) type {
                     .on_scroll = EventHandler.bind(self, Self.on_scroll),
                     .on_click4 = mouse_click_button4,
                     .on_click5 = mouse_click_button5,
+                    .select_on_click = true,
                 }),
                 .logger = log.logger(@typeName(Self)),
                 .inputbox = (try self.list_box.add_header(try InputBox.create(*Self, self.allocator, self.list_box.list.parent, .{
