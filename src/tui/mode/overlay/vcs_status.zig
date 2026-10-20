@@ -73,6 +73,7 @@ const File = struct {
 pub const ValueType = struct {
     files: std.ArrayList(File) = .empty,
     pending_open: ?[]const u8 = null,
+    pending_diff: ?[]const u8 = null,
     pending_target: ?Target = null,
     pending_target_done: bool = false,
 };
@@ -106,6 +107,7 @@ pub fn deinit(palette: *Type) void {
     clear_files(palette);
     palette.value.files.deinit(palette.allocator);
     if (palette.value.pending_open) |path| palette.allocator.free(path);
+    if (palette.value.pending_diff) |path| palette.allocator.free(path);
     clear_pending_target(palette);
 }
 
@@ -135,6 +137,8 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     var orig_path: []const u8 = undefined;
     var line: usize = undefined;
     var exit_code: i64 = undefined;
+    var diff_mode: project_manager.VcsDiffMode = undefined;
+    var diff_output: []const u8 = undefined;
 
     if (try cbor.match(m.buf, .{
         "PRJ",
@@ -149,6 +153,8 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     })) {
         if (x.len != 1 or y.len != 1) return true;
         try append_file(palette, file_path, orig_path, file_icon, file_color, x[0], y[0]);
+    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_diff", tp.extract(&file_path), tp.extract(&diff_mode), tp.extract(&diff_output) })) {
+        show_pending_diff(palette, file_path, diff_mode, diff_output);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.extract(&line) })) {
         open_pending(palette, file_path, line);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.null_ })) {
@@ -378,8 +384,48 @@ pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widg
 
 fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
     const palette = list_box.*.opts.ctx;
+    const activate = palette.activate;
+    palette.activate = .normal;
     const item = Item.decode(button) orelse return;
     if (item.kind != .file) return;
+    switch (activate) {
+        .normal => show_diff(palette, &item),
+        .alternate => open_file(palette, &item),
+    }
+}
+
+fn show_diff(palette: *Type, item: *const Item) void {
+    const mode: project_manager.VcsDiffMode = switch (item.section) {
+        .staged => .staged,
+        .unstaged => .unstaged,
+        .untracked => .untracked,
+    };
+    const path = palette.allocator.dupe(u8, item.path) catch |e| return palette.logger.err(module_name, e);
+    if (palette.value.pending_diff) |p| palette.allocator.free(p);
+    palette.value.pending_diff = path;
+    project_manager.request_vcs_diff(path, mode) catch |e| palette.logger.err(module_name, e);
+}
+
+fn show_pending_diff(palette: *Type, file_path: []const u8, mode: project_manager.VcsDiffMode, output: []const u8) void {
+    const pending = palette.value.pending_diff orelse return;
+    if (!std.mem.eql(u8, pending, file_path)) return;
+    var buffer_name: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer buffer_name.deinit();
+    const cmd = switch (mode) {
+        .staged => "git diff --cached",
+        .unstaged, .untracked => "git diff",
+    };
+    buffer_name.writer.print("*{s} {s}*", .{ cmd, file_path }) catch |e| return palette.logger.err(module_name, e);
+    send(palette, .{ "cmd", "exit_overlay_mode" });
+    send(palette, .{ "cmd", "delete_buffer", .{buffer_name.written()} });
+    send(palette, .{ "cmd", "create_scratch_buffer", .{ buffer_name.written(), output, "diff" } });
+}
+
+fn send(palette: *Type, m: anytype) void {
+    tp.self_pid().send(m) catch |e| palette.logger.err(module_name, e);
+}
+
+fn open_file(palette: *Type, item: *const Item) void {
     if (item.status == 'D') {
         palette.logger.print("{s} is deleted", .{item.path});
         return;
