@@ -107,7 +107,10 @@
     "overlay/vcs_status": {
         "inherit": "overlay/palette",
         "press": [
-            ["u", "palette_menu_action"]
+            ["u", "palette_menu_action"],
+            ["C", "palette_menu_action", "commit"],
+            ["F", "palette_menu_action", "fetch"],
+            ["P", "palette_menu_action", "push"]
         ]
     },
     "mini/file_browser": {

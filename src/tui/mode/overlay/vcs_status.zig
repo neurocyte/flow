@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const project_manager = @import("project_manager");
+const command = @import("command");
 
 const tui = @import("../../tui.zig");
 const MessageFilter = @import("../../MessageFilter.zig");
@@ -408,7 +409,13 @@ fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
     result catch |e| palette.logger.err(module_name, e);
 }
 
-pub fn action(palette: *Type, _: ?*Type.ButtonType) !void {
+const TerminalAction = enum { commit, fetch, push };
+
+pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
+    var terminal_action: TerminalAction = undefined;
+    if (try ctx.args.match(.{tp.extract(&terminal_action)}))
+        return run_in_terminal(terminal_action);
+
     const idx = selected_index(palette) orelse return;
     const entries = palette.entries.items;
     const entry = &entries[idx];
@@ -454,4 +461,15 @@ fn set_pending_target(palette: *Type, idx: usize) !void {
         .path = try palette.allocator.dupe(u8, target.path),
         .index = target_idx,
     };
+}
+
+fn run_in_terminal(terminal_action: TerminalAction) !void {
+    const config = tui.config();
+    const cmd = switch (terminal_action) {
+        .commit => config.vcs_commit_command,
+        .fetch => config.vcs_fetch_command,
+        .push => config.vcs_push_command,
+    };
+    try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
+    try tp.self_pid().send(.{ "cmd", "open_terminal", .{ cmd, config.task_terminal_on_exit } });
 }

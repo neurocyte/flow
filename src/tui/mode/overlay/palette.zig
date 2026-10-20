@@ -800,11 +800,11 @@ pub fn Create(options: type) type {
                 .icon = "󰗨",
             };
 
-            pub fn palette_menu_action(self: *Self, _: Ctx) Result {
+            pub fn palette_menu_action(self: *Self, ctx: Ctx) Result {
                 if (@hasDecl(options, "action"))
-                    try options.action(self, self.list_box.get_selected());
+                    try options.action(self, self.list_box.get_selected(), ctx);
             }
-            pub const palette_menu_action_meta: Meta = .{};
+            pub const palette_menu_action_meta: Meta = .{ .arguments = &.{.string} };
 
             pub fn palette_menu_complete(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "complete"))
