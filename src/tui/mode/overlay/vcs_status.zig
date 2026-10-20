@@ -465,10 +465,7 @@ fn first_file(palette: *Type) usize {
 
 fn append_entry(palette: *Type, file: *const File, section: Section, status: u8) !void {
     const allocator = palette.allocator;
-    const display = if (file.orig_path.len > 0)
-        try std.fmt.allocPrint(allocator, "{s} -> {s}", .{ file.orig_path, file.path })
-    else
-        try allocator.dupe(u8, file.path);
+    const display = try allocator.dupe(u8, file.path);
     errdefer allocator.free(display);
     const path = try allocator.dupe(u8, file.path);
     errdefer allocator.free(path);
