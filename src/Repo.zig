@@ -22,6 +22,7 @@ vcs_status_files: std.ArrayListUnmanaged(VcsStatusFile) = .empty,
 vcs_status_files_next: std.ArrayListUnmanaged(VcsStatusFile) = .empty,
 
 vcs_watcher: ?file_watcher.Owned = null,
+worktree_watcher: ?file_watcher.Owned = null,
 vcs_ref_watches: [2]?[]const u8 = .{ null, null },
 
 state: State = .none,
@@ -90,6 +91,7 @@ pub fn init(allocator: std.mem.Allocator, discovery: Discovery) OutOfMemoryError
 
 pub fn deinit(self: *Self) void {
     if (self.vcs_watcher) |*watcher| watcher.deinit();
+    if (self.worktree_watcher) |*watcher| watcher.deinit();
     for (self.vcs_ref_watches) |p| if (p) |p_| self.allocator.free(p_);
     if (self.status_timer) |*t| t.deinit();
     self.status.reset(self.allocator);
@@ -109,7 +111,7 @@ pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) error{InvalidRequ
     defer from.send(.{ "PRJ", "vcs_status_files_done", self.root }) catch {};
     for (self.vcs_status_files.items) |*file| {
         resolve_meta(file);
-        from.send(.{ "PRJ", "vcs_status_files", file.path, file.type, file.icon, file.color, &[_]u8{file.x}, &[_]u8{file.y}, file.orig_path }) catch |e| {
+        from.send(.{ "PRJ", "vcs_status_files", self.root, file.path, file.type, file.icon, file.color, &[_]u8{file.x}, &[_]u8{file.y}, file.orig_path }) catch |e| {
             std.log.err("send vcs_status_files failed: {t}", .{e});
             return error.InvalidRequestVcsStatusFilesRequest;
         };
@@ -125,9 +127,13 @@ fn resolve_meta(file: *VcsStatusFile) void {
 pub fn request_vcs_status(self: *Self, from: tp.pid_ref) void {
     switch (self.state) {
         .failed => return,
-        .none, .running => self.status_reply = true,
+        .none => {
+            self.status_reply = true;
+            self.refresh_vcs_status();
+        },
+        .running => self.status_reply = true,
         .done => {
-            from.send(.{ "vcs_status", self.status }) catch {};
+            from.send(.{ "vcs_status", self.root, self.status }) catch {};
             self.refresh_vcs_status();
         },
     }
@@ -185,6 +191,18 @@ pub fn start_vcs_watcher(self: *Self) void {
         self.vcs_watch(path);
     }
     self.update_vcs_ref_watches();
+}
+
+/// watches the files of the repository, for a repository that no project watcher covers
+pub fn start_worktree_watcher(self: *Self) void {
+    if (!tp.env.get().is("enable_file_watcher")) return;
+    if (self.worktree_watcher != null) return;
+    self.worktree_watcher = file_watcher.Owned.init(.repo_worktree) catch |e| {
+        std.log.err("worktree_watcher.init: {s} -> {}", .{ self.root, e });
+        return;
+    };
+    self.worktree_watcher.?.watch(self.root) catch |e|
+        std.log.err("worktree_watcher.watch: {s} -> {}", .{ self.root, e });
 }
 
 fn vcs_watch(self: *Self, path: []const u8) void {
@@ -245,8 +263,7 @@ fn eql_opt_path(a: ?[]const u8, b: ?[]const u8) bool {
     return std.mem.eql(u8, a_, b_);
 }
 
-/// broadcast: send status changes to parent, not only replies
-pub fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message, broadcast: bool) (OutOfMemoryError || error{Exit})!void {
+pub fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || error{Exit})!void {
     const any = cbor.any;
     const extract = cbor.extract;
     const null_ = cbor.null_;
@@ -304,8 +321,8 @@ pub fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message, broadcast:
         next.reset(self.allocator);
         std.mem.swap(std.ArrayListUnmanaged(VcsStatusFile), &self.vcs_status_files, &self.vcs_status_files_next);
         VcsStatusFile.free_all(self.allocator, &self.vcs_status_files_next);
-        if (broadcast and (changed or self.status_reply))
-            parent.send(.{ "vcs_status", self.status }) catch {};
+        if (changed or self.status_reply)
+            parent.send(.{ "vcs_status", self.root, self.status }) catch {};
         self.status_reply = false;
         self.update_vcs_ref_watches();
         if (self.status_dirty) self.refresh_vcs_status();

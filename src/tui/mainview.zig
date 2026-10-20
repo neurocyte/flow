@@ -75,7 +75,7 @@ panes: *WidgetList,
 panes_widget: Widget,
 bottom_area: *PanelArea = undefined,
 panel_layout_state: ?[]const u8 = null,
-vcs_commit: ?[]const u8 = null,
+vcs_commits: std.StringHashMapUnmanaged([]const u8) = .empty,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
@@ -187,7 +187,12 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.bottom_area.deinit();
     if (self.panel_layout_state) |state| allocator.free(state);
-    if (self.vcs_commit) |commit| allocator.free(commit);
+    var vcs_commits = self.vcs_commits.iterator();
+    while (vcs_commits.next()) |p| {
+        allocator.free(p.key_ptr.*);
+        allocator.free(p.value_ptr.*);
+    }
+    self.vcs_commits.deinit(allocator);
     terminal_view.shutdown_all();
     self.commands.deinit();
     self.widgets.deinit(allocator);
@@ -3575,19 +3580,50 @@ pub fn vcs_id_update(self: *Self, m: tp.message) void {
 }
 
 pub fn vcs_status_update(self: *Self, m: tp.message) void {
+    var repo_root: []const u8 = undefined;
     var status: VcsStatus = .{};
-    if (!(m.match(.{ "vcs_status", tp.extract(&status) }) catch return)) return;
+    if (!(m.match(.{ "vcs_status", tp.extract(&repo_root), tp.extract(&status) }) catch return)) return;
     const commit = status.commit orelse return;
-    if (self.vcs_commit) |last| {
-        if (std.mem.eql(u8, last, commit)) return;
-        self.allocator.free(last);
-        self.vcs_commit = null;
-        const buffers = self.buffer_manager.list_unordered(self.allocator) catch return;
-        defer self.allocator.free(buffers);
-        for (buffers) |buffer| if (!buffer.is_ephemeral())
-            project_manager.request_vcs_id(buffer.get_file_path()) catch {};
+    const gop = self.vcs_commits.getOrPut(self.allocator, repo_root) catch return;
+    if (gop.found_existing) {
+        if (std.mem.eql(u8, gop.value_ptr.*, commit)) return;
+        const new_commit = self.allocator.dupe(u8, commit) catch return;
+        self.allocator.free(gop.value_ptr.*);
+        gop.value_ptr.* = new_commit;
+        self.request_repo_vcs_ids(repo_root);
+        return;
     }
-    self.vcs_commit = self.allocator.dupe(u8, commit) catch null;
+    gop.key_ptr.* = self.allocator.dupe(u8, repo_root) catch {
+        _ = self.vcs_commits.remove(repo_root);
+        return;
+    };
+    gop.value_ptr.* = self.allocator.dupe(u8, commit) catch {
+        const key = gop.key_ptr.*;
+        _ = self.vcs_commits.remove(repo_root);
+        self.allocator.free(key);
+        return;
+    };
+}
+
+fn request_repo_vcs_ids(self: *Self, repo_root: []const u8) void {
+    const project = tp.env.get().str("project");
+    const buffers = self.buffer_manager.list_unordered(self.allocator) catch return;
+    defer self.allocator.free(buffers);
+    for (buffers) |buffer| if (!buffer.is_ephemeral()) {
+        const file_path = buffer.get_file_path();
+        const abs_path = if (std.fs.path.isAbsolute(file_path))
+            self.allocator.dupe(u8, file_path) catch continue
+        else
+            std.fs.path.join(self.allocator, &.{ project, file_path }) catch continue;
+        defer self.allocator.free(abs_path);
+        if (!is_in_dir(abs_path, repo_root)) continue;
+        project_manager.request_vcs_id(file_path) catch {};
+    };
+}
+
+fn is_in_dir(path: []const u8, dir: []const u8) bool {
+    if (!std.mem.startsWith(u8, path, dir)) return false;
+    return path.len == dir.len or std.fs.path.isSep(path[dir.len]);
 }
 
 pub fn vcs_content_update(self: *Self, m: tp.message) void {

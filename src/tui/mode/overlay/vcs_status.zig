@@ -7,6 +7,7 @@ const command = @import("command");
 
 const tui = @import("../../tui.zig");
 const MessageFilter = @import("../../MessageFilter.zig");
+const vcs_repo = @import("../../vcs_repo.zig");
 pub const Type = @import("palette.zig").Create(@This());
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
@@ -88,6 +89,7 @@ pub const ValueType = struct {
     goto_hunk: ?GotoHunk = null,
     context_lines: usize = 3,
     root: []const u8 = "",
+    repo_path: ?[]const u8 = null,
 };
 
 const GotoHunk = struct {
@@ -133,13 +135,8 @@ const Diff = struct {
 
     /// the reverse of buffer_name; an untracked diff reads as unstaged, and the path may start with ~
     fn from_buffer_name(buffer_name_: []const u8) ?Diff {
-        if (buffer_name_.len < 2 or buffer_name_[0] != '*' or buffer_name_[buffer_name_.len - 1] != '*') return null;
-        const inner = buffer_name_[1 .. buffer_name_.len - 1];
-        const staged = "git diff --cached ";
-        const unstaged = "git diff ";
-        if (std.mem.startsWith(u8, inner, staged)) return .{ .path = inner[staged.len..], .mode = .staged };
-        if (std.mem.startsWith(u8, inner, unstaged)) return .{ .path = inner[unstaged.len..], .mode = .unstaged };
-        return null;
+        const diff = vcs_repo.DiffBuffer.parse(buffer_name_) orelse return null;
+        return .{ .path = diff.path, .mode = if (diff.staged) .staged else .unstaged };
     }
 };
 
@@ -162,9 +159,14 @@ fn display_path(palette: *Type, path: []const u8) []const u8 {
 
 pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
     tui.message_filters().add(MessageFilter.bind(palette, receive_project_manager)) catch {};
-    if (ctx.args.buf.len != 0)
-        try restore(palette, ctx)
-    else if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
+    if (ctx.args.buf.len != 0) {
+        try restore(palette, ctx);
+        if (palette.value.root.len > 0) {
+            try set_title(palette);
+            try request_status(palette);
+            return 6;
+        }
+    } else if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
         if (Diff.from_buffer_name(file_path)) |diff| {
             palette.value.initial_path = try abs_path(palette.allocator, diff.path);
             palette.value.goto_hunk = .{
@@ -174,9 +176,45 @@ pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
             };
         } else palette.value.initial_path = try abs_path(palette.allocator, file_path);
     };
-    try project_manager.request_vcs_status_files();
-    project_manager.request_vcs_status() catch {};
+    const repo_path = if (palette.value.initial_path) |path|
+        try palette.allocator.dupe(u8, path)
+    else
+        try vcs_repo.current_path(palette.allocator);
+    palette.value.repo_path = repo_path;
+    try project_manager.request_vcs_repo(repo_path, true);
     return 6;
+}
+
+fn request_status(palette: *Type) !void {
+    try project_manager.request_vcs_status_files(palette.value.root);
+    project_manager.request_vcs_status(palette.value.root) catch {};
+}
+
+fn set_repo(palette: *Type, path: []const u8, repo_root: ?[]const u8) !void {
+    const repo_path = palette.value.repo_path orelse return;
+    if (!std.mem.eql(u8, repo_path, path)) return;
+    palette.allocator.free(repo_path);
+    palette.value.repo_path = null;
+    const root_ = try palette.allocator.dupe(u8, repo_root orelse "");
+    palette.allocator.free(palette.value.root);
+    palette.value.root = root_;
+    try set_title(palette);
+    if (root_.len == 0) {
+        try update_entries(palette);
+        tui.need_render(@src());
+        return;
+    }
+    try request_status(palette);
+}
+
+fn set_title(palette: *Type) !void {
+    const title = &palette.inputbox.label;
+    title.clearRetainingCapacity();
+    try title.appendSlice(palette.allocator, label);
+    if (palette.value.root.len == 0) return;
+    const repo_root = try vcs_repo.display_root(palette.allocator, palette.value.root) orelse return;
+    defer palette.allocator.free(repo_root);
+    try title.print(palette.allocator, " {s}", .{repo_root});
 }
 
 pub fn clear_entries(palette: *Type) void {
@@ -217,6 +255,7 @@ pub fn deinit(palette: *Type) void {
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     if (palette.value.shown_diff) |diff| palette.allocator.free(diff.path);
     palette.allocator.free(palette.value.root);
+    if (palette.value.repo_path) |path| palette.allocator.free(path);
     clear_goto_hunk(palette);
     clear_pending_target(palette);
     clear_restore_target(palette);
@@ -242,7 +281,7 @@ fn save(palette: *Type) void {
             hunk.new_line
         else
             null;
-        cbor.writeValue(writer, .{ entry.kind, entry.section, entry.path, idx, palette.value.context_lines, diff_open, hunk_line }) catch return;
+        cbor.writeValue(writer, .{ entry.kind, entry.section, entry.path, idx, palette.value.context_lines, diff_open, hunk_line, palette.value.root }) catch return;
     }
     tui.set_last_palette(.vcs_status, .init(.{ .buf = data.written() }));
 }
@@ -263,6 +302,7 @@ fn restore(palette: *Type, ctx: command.Context) !void {
     var context_lines: usize = undefined;
     var diff_open: bool = undefined;
     var hunk_line: ?usize = undefined;
+    var repo_root: []const u8 = undefined;
     if (!try ctx.args.match(.{
         tp.extract(&kind),
         tp.extract(&section),
@@ -271,7 +311,11 @@ fn restore(palette: *Type, ctx: command.Context) !void {
         tp.extract(&context_lines),
         tp.extract(&diff_open),
         tp.extract(&hunk_line),
+        tp.extract(&repo_root),
     })) return;
+    const root_ = try palette.allocator.dupe(u8, repo_root);
+    palette.allocator.free(palette.value.root);
+    palette.value.root = root_;
     clear_restore_target(palette);
     palette.value.restore_target = .{
         .kind = kind,
@@ -384,8 +428,10 @@ pub fn update_count_hint(palette: *Type) void {
 }
 
 fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    if (try cbor.match(m.buf, .{ "vcs_status", tp.more })) {
-        project_manager.request_vcs_status_files() catch {};
+    var repo_root: []const u8 = undefined;
+    if (try cbor.match(m.buf, .{ "vcs_status", tp.extract(&repo_root), tp.more })) {
+        if (palette.value.root.len > 0 and std.mem.eql(u8, repo_root, palette.value.root))
+            project_manager.request_vcs_status_files(palette.value.root) catch {};
         return false;
     }
     if (!(cbor.match(m.buf, .{ "PRJ", tp.more }) catch false)) return false;
@@ -401,11 +447,17 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     var exit_code: i64 = undefined;
     var diff_mode: project_manager.VcsDiffMode = undefined;
     var diff_output: []const u8 = undefined;
-    var repo_root: []const u8 = undefined;
 
-    if (try cbor.match(m.buf, .{
+    if (try cbor.match(m.buf, .{ "PRJ", "vcs_repo", tp.extract(&file_path), tp.extract(&repo_root) })) {
+        try set_repo(palette, file_path, repo_root);
+        return false;
+    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_repo", tp.extract(&file_path), tp.null_ })) {
+        try set_repo(palette, file_path, null);
+        return false;
+    } else if (try cbor.match(m.buf, .{
         "PRJ",
         "vcs_status_files",
+        tp.extract(&repo_root),
         tp.extract(&file_path),
         tp.extract(&file_type),
         tp.extract(&file_icon),
@@ -414,7 +466,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         tp.extract(&y),
         tp.extract(&orig_path),
     })) {
-        if (x.len != 1 or y.len != 1) return true;
+        if (x.len != 1 or y.len != 1 or !std.mem.eql(u8, repo_root, palette.value.root)) return true;
         try append_file(palette, file_path, orig_path, file_icon, file_color, x[0], y[0]);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_diff", tp.extract(&file_path), tp.extract(&diff_mode), tp.extract(&diff_output) })) {
         show_pending_diff(palette, file_path, diff_mode, diff_output);
@@ -428,11 +480,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         else
             clear_pending_target(palette);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_status_files_done", tp.extract(&repo_root) })) {
-        if (!std.mem.eql(u8, palette.value.root, repo_root)) {
-            const root_ = try palette.allocator.dupe(u8, repo_root);
-            palette.allocator.free(palette.value.root);
-            palette.value.root = root_;
-        }
+        if (!std.mem.eql(u8, palette.value.root, repo_root)) return true;
         clear_files(palette, &palette.value.files);
         std.mem.swap(std.ArrayList(File), &palette.value.files, &palette.value.files_next);
         palette.value.diff_stale = true;
@@ -803,7 +851,7 @@ fn request_diff(palette: *Type, file_path: []const u8, mode: project_manager.Vcs
     const path = palette.allocator.dupe(u8, file_path) catch |e| return palette.logger.err(module_name, e);
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     palette.value.pending_diff = .{ .path = path, .mode = mode };
-    project_manager.request_vcs_diff(path, orig_path_of(palette, path, mode), mode, palette.value.context_lines) catch |e| palette.logger.err(module_name, e);
+    project_manager.request_vcs_diff(palette.value.root, path, orig_path_of(palette, path, mode), mode, palette.value.context_lines) catch |e| palette.logger.err(module_name, e);
 }
 
 fn orig_path_of(palette: *Type, path: []const u8, mode: project_manager.VcsDiffMode) []const u8 {
@@ -937,7 +985,7 @@ fn open_file(palette: *Type, item: *const Item) void {
     const path = palette.allocator.dupe(u8, item.path) catch |e| return palette.logger.err(module_name, e);
     if (palette.value.pending_open) |p| palette.allocator.free(p);
     palette.value.pending_open = path;
-    project_manager.request_vcs_first_change(path, item.section == .staged) catch |e| {
+    project_manager.request_vcs_first_change(palette.value.root, path, item.section == .staged) catch |e| {
         palette.logger.err(module_name, e);
         navigate(palette, path, null);
     };
@@ -999,7 +1047,7 @@ pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void 
         .staged => .unstage,
         .unstaged, .untracked => .stage,
     };
-    try project_manager.request_vcs_update_index(update, paths.items);
+    try project_manager.request_vcs_update_index(palette.value.root, update, paths.items);
 }
 
 fn apply_hunk(palette: *Type, idx: usize) !void {
@@ -1018,7 +1066,7 @@ fn apply_hunk(palette: *Type, idx: usize) !void {
         .index = idx,
         .hunk = entry.hunk,
     };
-    try project_manager.request_vcs_apply_patch(update, hunk.patch);
+    try project_manager.request_vcs_apply_patch(palette.value.root, update, hunk.patch);
 }
 
 fn revert(palette: *Type) !void {
@@ -1046,7 +1094,7 @@ fn revert(palette: *Type) !void {
 
     var confirmed: std.Io.Writer.Allocating = .init(palette.allocator);
     defer confirmed.deinit();
-    try cbor.writeValue(&confirmed.writer, .{ "cmd", "vcs_revert", .{ kind, arg } });
+    try cbor.writeValue(&confirmed.writer, .{ "cmd", "vcs_revert", .{ kind, arg, palette.value.root } });
     var cancelled_buf: [64]u8 = undefined;
     const cancelled = cbor.fmt(&cancelled_buf, .{ "cmd", "last_palette" });
     var confirm: std.Io.Writer.Allocating = .init(palette.allocator);
@@ -1095,5 +1143,5 @@ fn run_in_terminal(palette: *Type, terminal_action: TerminalAction) !void {
         .push => config.vcs_push_command,
     };
     try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
-    try tp.self_pid().send(.{ "cmd", "open_terminal", .{ cmd, config.terminal_on_exit } });
+    try tp.self_pid().send(.{ "cmd", "open_terminal", .{ cmd, config.terminal_on_exit, palette.value.root } });
 }

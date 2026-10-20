@@ -47,7 +47,6 @@ parent: tp.pid,
 
 workspace: ?[]const u8 = null,
 repo: ?*Repo = null,
-repo_status_reply: bool = false,
 active: bool = false,
 
 walker: ?tp.pid = null,
@@ -79,7 +78,6 @@ pub const RequestError = error{
     InvalidRecentFilesRequest,
     InvalidQueryRecentFilesRequest,
     InvalidGetMruPositionRequest,
-    InvalidVcsStatusRequest,
     InvalidTasksRequest,
 } || OutOfMemoryError || cbor.Error;
 pub const StartLspError = LSPClient.StartLspError;
@@ -673,11 +671,6 @@ fn strip_non_search_chars(self: *const Self, s: []const u8) error{OutOfMemory}![
     return try stripped.toOwnedSlice(self.allocator);
 }
 
-pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) RequestError!void {
-    const repo = self.repo orelse return from.send(.{ "PRJ", "vcs_status_files_done", "" }) catch {};
-    return repo.request_vcs_status_files(from);
-}
-
 fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
     var i: usize = 0;
     for (self.files.items) |*file| {
@@ -1077,31 +1070,10 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) Re
     from.send(.{"none"}) catch return error.InvalidGetMruPositionRequest;
 }
 
-pub fn request_vcs_status(self: *Self, from: tp.pid_ref) RequestError!void {
-    if (self.repo) |repo| return repo.request_vcs_status(from);
-    switch (self.state.workspace_path) {
-        .running => self.repo_status_reply = true,
-        .failed => return,
-        .done => if (self.state.repo == .running) {
-            self.repo_status_reply = true;
-        },
-        .none => return error.InvalidVcsStatusRequest,
-    }
-}
-
-pub fn vcs_changed(self: *Self) void {
-    if (self.repo) |repo| repo.vcs_changed();
-}
-
 /// links the repository that contains the project, or none
 pub fn set_repo(self: *Self, parent: tp.pid_ref, repo_: ?*Repo) OutOfMemoryError!void {
     self.repo = repo_;
-    const repo = repo_ orelse {
-        self.repo_status_reply = false;
-        return self.repo_done(parent);
-    };
-    if (self.repo_status_reply) repo.status_reply = true;
-    self.repo_status_reply = false;
+    const repo = repo_ orelse return self.repo_done(parent);
     repo.refresh_vcs_status();
     if (repo.state != .running) return self.repo_done(parent);
 }
@@ -1766,33 +1738,6 @@ pub fn request_vcs_content(self: *Self, file_path: []const u8, vcs_id: []const u
     return repo.request_vcs_content(file_path, vcs_id);
 }
 
-pub fn request_vcs_first_change(self: *Self, file_path: []const u8, staged: bool) error{OutOfMemory}!void {
-    const repo = self.repo orelse return self.parent.send(.{ "PRJ", "vcs_first_change", file_path, null }) catch {};
-    return repo.request_vcs_first_change(file_path, staged);
-}
-
-pub const VcsDiffMode = Repo.VcsDiffMode;
-
-pub fn request_vcs_diff(self: *Self, file_path: []const u8, orig_path: []const u8, mode: VcsDiffMode, context_lines: usize) error{OutOfMemory}!void {
-    const repo = self.repo orelse return self.parent.send(.{ "PRJ", "vcs_diff", file_path, mode, "" }) catch {};
-    return repo.request_vcs_diff(file_path, orig_path, mode, context_lines);
-}
-
-pub const VcsIndexUpdate = Repo.VcsIndexUpdate;
-
-/// git's exit code outside a repository
-const not_a_repository = 128;
-
-pub fn request_vcs_update_index(self: *Self, update: VcsIndexUpdate, file_paths: []const []const u8) error{OutOfMemory}!void {
-    const repo = self.repo orelse return self.parent.send(.{ "PRJ", "vcs_update_index_done", not_a_repository }) catch {};
-    return repo.request_vcs_update_index(update, file_paths);
-}
-
-pub fn request_vcs_apply_patch(self: *Self, update: VcsIndexUpdate, patch: []const u8) error{OutOfMemory}!void {
-    const repo = self.repo orelse return self.parent.send(.{ "PRJ", "vcs_update_index_done", not_a_repository }) catch {};
-    return repo.request_vcs_apply_patch(update, patch);
-}
-
 pub fn process_git_response(_: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || GitError || error{Exit})!void {
     var context: usize = undefined;
     var blame_output: []const u8 = undefined;
@@ -1807,6 +1752,8 @@ pub fn process_git_response(_: *Self, parent: tp.pid_ref, m: tp.message) (OutOfM
     }
 }
 
+pub const VcsDiffMode = Repo.VcsDiffMode;
+pub const VcsIndexUpdate = Repo.VcsIndexUpdate;
 pub const VcsFileState = Repo.VcsFileState;
 
 pub fn request_vcs_file_state(self: *Self, from: tp.pid_ref, id: usize, file_path: []const u8) error{OutOfMemory}!void {

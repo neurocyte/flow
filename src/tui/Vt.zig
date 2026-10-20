@@ -50,7 +50,7 @@ synthesize_marks: bool = false,
 started_at: i64 = 0,
 profile: ?Terminal.Profile = null,
 
-fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit, spawn: bool) !*@This() {
+fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit, spawn: bool, working_directory: ?[]const u8) !*@This() {
     const home = env.get("HOME") orelse "/tmp";
 
     const self = try Manager.create(env, on_exit);
@@ -66,7 +66,7 @@ fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, 
             .scrollback_bytes = @as(usize, tui.config().terminal_scrollback_mb) << 20,
             .frame_time_us = tui.get_frame_time(),
             .input_delay_us = @as(u64, tui.config().terminal_input_delay_ms) * std.time.us_per_ms,
-            .initial_working_directory = blk: {
+            .initial_working_directory = working_directory orelse blk: {
                 const project = tp.env.get().str("project");
                 break :blk if (project.len > 0) project else home;
             },
@@ -98,7 +98,7 @@ fn start_reader(self: *@This(), allocator: std.mem.Allocator) !void {
 }
 
 /// Replace the exited command with a new one.
-fn respawn(self: *@This(), cmd_argv: []const []const u8) !void {
+fn respawn(self: *@This(), cmd_argv: []const []const u8, working_directory: ?[]const u8) !void {
     if (self.pty_pid) |pid| {
         pid.send(.{"quit"}) catch {};
         pid.deinit();
@@ -106,7 +106,7 @@ fn respawn(self: *@This(), cmd_argv: []const []const u8) !void {
     }
     const home = self.env.get("HOME") orelse "/tmp";
     const project = tp.env.get().str("project");
-    const wd = if (project.len > 0) project else home;
+    const wd = working_directory orelse if (project.len > 0) project else home;
     try self.vt.respawn(cmd_argv, &self.env, wd, &self.write_buf);
     self.process_exited = false;
     self.exit_code = null;
@@ -441,6 +441,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
     have_arg: bool,
     argv_list: std.ArrayListUnmanaged([]const u8),
     on_exit: TerminalOnExit,
+    working_directory: ?[]const u8,
 
     env_owned: bool = true,
     expanded_cmd_arg: []const u8,
@@ -471,8 +472,10 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
         po.on_exit orelse tui.config().terminal_on_exit
     else
         tui.config().terminal_on_exit;
+    var working_directory: []const u8 = "";
     const have_arg = (cbor.match(ctx.args.buf, .{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0) or
-        (cbor.match(ctx.args.buf, .{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0);
+        (cbor.match(ctx.args.buf, .{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0) or
+        (cbor.match(ctx.args.buf, .{ tp.extract(&cmd_arg), tp.extract(&on_exit), tp.extract(&working_directory) }) catch false and cmd_arg.len > 0);
 
     const expanded_cmd_arg = @import("expansion.zig").expand(allocator, cmd_arg) catch |e| switch (e) {
         error.Unavailable, error.NotFound => return error.Stop,
@@ -542,6 +545,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
         .have_arg = have_arg,
         .argv_list = argv_list,
         .on_exit = on_exit,
+        .working_directory = if (working_directory.len > 0) working_directory else null,
         .profile = profile,
     };
 }
@@ -558,7 +562,7 @@ fn run_new_cmd_impl(io: std.Io, allocator: std.mem.Allocator, ctx: command.Conte
     var cmd = try prepare_cmd(allocator, ctx, profile_override);
     defer cmd.deinit(allocator);
     cmd.env_owned = false;
-    const self = try Vt.init(io, allocator, cmd.argv_list.items, cmd.env, rows, cols, cmd.on_exit, true);
+    const self = try Vt.init(io, allocator, cmd.argv_list.items, cmd.env, rows, cols, cmd.on_exit, true, cmd.working_directory);
     self.profile = cmd.profile; // move ownership out of cmd
     cmd.profile = null;
     self.synthesize_marks = cmd.have_cmd;
@@ -585,7 +589,7 @@ pub fn run_cmd(self: *@This(), ctx: command.Context) !enum { ok, busy } {
     if (cmd.have_cmd and !can_take_over) return .busy;
 
     if (cmd.have_cmd) {
-        try self.respawn(cmd.argv_list.items);
+        try self.respawn(cmd.argv_list.items, cmd.working_directory);
         self.on_exit = cmd.on_exit;
         self.synthesize_marks = true;
         self.inject_prompt(cmd.display_cmd);
@@ -632,7 +636,7 @@ fn re_run_argv(self: *@This()) !void {
     }
     try argv_copy.ensureTotalCapacity(allocator, cmd_argv.len);
     for (cmd_argv) |arg| argv_copy.appendAssumeCapacity(try allocator.dupe(u8, arg));
-    try self.respawn(argv_copy.items);
+    try self.respawn(argv_copy.items, null);
     try self.start_reader(allocator);
 }
 
@@ -787,7 +791,7 @@ pub fn restart_shell(self: *Vt) !void {
     errdefer if (profile) |*p| p.deinit(self.vt.allocator);
     const shell_argv = try defaultShellArgv(self.vt.allocator, self.env, &profile);
     defer Terminal.command_line.free(self.vt.allocator, shell_argv);
-    try self.respawn(shell_argv);
+    try self.respawn(shell_argv, null);
     if (self.profile) |*p| p.deinit(self.vt.allocator);
     self.profile = profile;
     self.synthesize_marks = false;
@@ -867,7 +871,7 @@ pub fn restore(io: std.Io, allocator: std.mem.Allocator, state: []const u8) !*@T
     defer cmd.deinit(allocator);
     cmd.env_owned = false;
     const cmd_argv = if (saved_argv.items.len > 0) saved_argv.items else cmd.argv_list.items;
-    const self = try Vt.init(io, allocator, cmd_argv, cmd.env, @max(1, rows), @max(1, cols), tui.config().terminal_on_exit, false);
+    const self = try Vt.init(io, allocator, cmd_argv, cmd.env, @max(1, rows), @max(1, cols), tui.config().terminal_on_exit, false, null);
     errdefer self.deinit(allocator);
     self.process_exited = true;
     self.set_title(title);

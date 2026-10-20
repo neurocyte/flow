@@ -12,6 +12,7 @@ const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
 const Menu = @import("../Menu.zig");
 const MenuButton = @import("../MenuButton.zig");
+const vcs_repo = @import("../vcs_repo.zig");
 
 const branch_symbol = "󰘬 ";
 const ahead_symbol = "⇡";
@@ -33,6 +34,8 @@ const menu: Menu = .{ .items = &.{
 
 allocator: std.mem.Allocator,
 status: VcsStatus = .{},
+repo_root: ?[]const u8 = null,
+repo_path: ?[]const u8 = null,
 
 const Self = @This();
 const ButtonType = Button.Options(Self).ButtonType;
@@ -58,47 +61,84 @@ pub fn create(
 
 pub fn ctx_init(self: *Self) error{OutOfMemory}!void {
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
-    project_manager.request_vcs_status() catch {};
+    self.request_repo(false);
 }
 
 pub fn ctx_deinit(self: *Self) void {
     tui.message_filters().remove_ptr(self);
     self.status.reset(self.allocator);
+    if (self.repo_root) |p| self.allocator.free(p);
+    if (self.repo_path) |p| self.allocator.free(p);
 }
 
 fn on_click(self: *Self, btn: *ButtonType, _: Widget.Pos) void {
     self.refresh_vcs_status();
     tui.sync_with_vcs() catch {};
+    self.request_repo(true);
     tui.open_menu(&menu, MenuButton.anchor(btn), null) catch |e|
         std.log.err("branch menu: {t}", .{e});
 }
 
 fn refresh_vcs_status(self: *Self) void {
-    if (self.status.branch) |_| project_manager.request_vcs_status() catch {};
+    if (self.repo_root) |repo_root| project_manager.request_vcs_status(repo_root) catch {};
+}
+
+/// the repository follows the active file, see vcs_repo.current_path
+fn request_repo(self: *Self, refresh: bool) void {
+    const path = vcs_repo.current_path(self.allocator) catch return;
+    if (self.repo_path) |p| self.allocator.free(p);
+    self.repo_path = path;
+    project_manager.request_vcs_repo(path, refresh) catch {};
 }
 
 pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (!tui.config().enable_file_watcher and try m.match(.{ "E", "save", tp.more }))
         self.refresh_vcs_status();
-    if (try m.match(.{ "PRJ", "open" }))
-        project_manager.request_vcs_status() catch {};
+    if (try m.match(.{ "PRJ", "open" }) or try m.match(.{ "E", "open", tp.more }) or try m.match(.{ "E", "close" }))
+        self.request_repo(false);
     return false;
 }
 
 fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    return if (try match(m.buf, .{ "vcs_status", tp.more }))
-        self.process_vcs_status(m)
-    else
-        false;
+    var path: []const u8 = undefined;
+    var repo_root: []const u8 = undefined;
+    if (try match(m.buf, .{ "vcs_status", tp.more }))
+        return self.process_vcs_status(m);
+    if (try match(m.buf, .{ "PRJ", "vcs_repo", extract(&path), extract(&repo_root) }))
+        try self.set_repo(path, repo_root)
+    else if (try match(m.buf, .{ "PRJ", "vcs_repo", extract(&path), null_ }))
+        try self.set_repo(path, null);
+    return false;
+}
+
+fn set_repo(self: *Self, path: []const u8, repo_root_: ?[]const u8) error{OutOfMemory}!void {
+    const repo_path = self.repo_path orelse return;
+    if (!std.mem.eql(u8, repo_path, path)) return;
+    const repo_root = repo_root_ orelse {
+        if (self.repo_root) |p| self.allocator.free(p);
+        self.repo_root = null;
+        self.status.reset(self.allocator);
+        if (tui.frames_rendered() > 0) Widget.need_render();
+        return;
+    };
+    if (self.repo_root) |p| if (std.mem.eql(u8, p, repo_root)) return;
+    const new_root = try self.allocator.dupe(u8, repo_root);
+    if (self.repo_root) |p| self.allocator.free(p);
+    self.repo_root = new_root;
+    self.status.reset(self.allocator);
+    project_manager.request_vcs_status(new_root) catch {};
 }
 
 fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
+    var repo_root: []const u8 = undefined;
+    var status: VcsStatus = .{};
+    if (!try match(m.buf, .{ any, extract(&repo_root), extract(&status) })) return false;
+    const current_root = self.repo_root orelse return false;
+    if (!std.mem.eql(u8, current_root, repo_root)) return false;
+
     defer if (tui.frames_rendered() > 0)
         Widget.need_render();
-
-    var status: VcsStatus = .{};
     self.status.reset(self.allocator);
-    if (!try match(m.buf, .{ any, extract(&status) })) return false;
 
     if (status.branch) |branch| self.status.branch = try self.allocator.dupe(u8, branch);
     if (status.ahead) |ahead| self.status.ahead = try self.allocator.dupe(u8, ahead);

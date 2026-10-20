@@ -2151,11 +2151,12 @@ const cmds = struct {
     pub fn vcs_revert(self: *Self, ctx: Ctx) Result {
         var kind: VcsRevert = undefined;
         var arg: []const u8 = undefined;
-        if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&arg) }))
+        var repo_root: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&arg), tp.extract(&repo_root) }))
             return error.InvalidVcsRevertArgument;
         switch (kind) {
-            .file => try project_manager.request_vcs_update_index(.revert, &.{arg}),
-            .hunk => try project_manager.request_vcs_apply_patch(.revert, arg),
+            .file => try project_manager.request_vcs_update_index(repo_root, .revert, &.{arg}),
+            .hunk => try project_manager.request_vcs_apply_patch(repo_root, .revert, arg),
             .untracked => {
                 const directory = std.mem.endsWith(u8, arg, "/");
                 try MainView.apply_single_file_operation(self.allocator, .{
@@ -2168,7 +2169,7 @@ const cmds = struct {
         }
         return cmds.last_palette(self, .empty_from(ctx));
     }
-    pub const vcs_revert_meta: Meta = .{ .arguments = &.{ .string, .string } };
+    pub const vcs_revert_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
 
     pub fn open_recent_project(_: *Self, _: Ctx) Result {
         try project_manager.request_recent_projects();

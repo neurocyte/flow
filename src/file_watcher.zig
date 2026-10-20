@@ -45,6 +45,7 @@ pub const Instance = struct {
     pub const project_tree: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
     pub const file_store: Instance = .{ .name = "file_store_watcher", .tag = "FSW", .recursive = false };
     pub const vcs_metadata: Instance = .{ .name = "vcs_metadata_watcher", .tag = "VW", .recursive = false, .quiet_missing = true };
+    pub const repo_worktree: Instance = .{ .name = "repo_worktree_watcher", .tag = "RW", .filtered = true };
 
     pub fn watch(self: Instance, path: []const u8) Error!void {
         return self.send(.{ "watch", path });
