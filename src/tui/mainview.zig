@@ -1156,6 +1156,28 @@ const cmds = struct {
     }
     pub const create_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
 
+    pub fn replace_scratch_buffer(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var content: []const u8 = undefined;
+        if (!(try ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content), tp.string }) or
+            try ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) })))
+            return error.InvalidReplaceScratchBufferArgument;
+        const existing = self.buffer_manager.get_buffer_for_file(file_path) != null;
+        try create_scratch_buffer(self, ctx);
+        if (!existing) return;
+        const editor = self.get_active_editor() orelse return;
+        const buffer = editor.buffer orelse return;
+        var sel: Buffer.Selection = .{};
+        sel.end.move_buffer_end(buffer.root, editor.metrics);
+        var root_ = try buffer.root.delete_range(sel, buffer.allocator, null, editor.metrics);
+        _, _, root_ = try root_.insert_chars(0, 0, content, buffer.allocator, editor.metrics);
+        try editor.update_buf(root_, ctx.now);
+        editor.clamp(ctx.now);
+        editor.forced_mark_clean(.empty_from(ctx)) catch {};
+        tui.need_render(@src());
+    }
+    pub const replace_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
+
     pub fn create_new_file(self: *Self, ctx: Ctx) Result {
         var n: usize = 1;
         var found_unique = false;

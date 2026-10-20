@@ -493,14 +493,13 @@ fn show_pending_diff(palette: *Type, file_path: []const u8, mode: project_manage
 
     const buffer_name = pending.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
     defer allocator.free(buffer_name);
+    send(palette, .{ "cmd", "replace_scratch_buffer", .{ buffer_name, output, "diff" } });
     if (previous) |*diff| {
         const previous_name = diff.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
         defer allocator.free(previous_name);
         if (!std.mem.eql(u8, previous_name, buffer_name))
-            send(palette, .{ "cmd", "delete_buffer", .{previous_name} });
+            send(palette, .{ "cmd", "close_buffer", .{previous_name} });
     }
-    send(palette, .{ "cmd", "delete_buffer", .{buffer_name} });
-    send(palette, .{ "cmd", "create_scratch_buffer", .{ buffer_name, output, "diff" } });
 }
 
 fn send(palette: *Type, m: anytype) void {
