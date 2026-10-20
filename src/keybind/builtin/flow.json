@@ -468,6 +468,7 @@
             ["plus", "palette_menu_action", "amend"],
             ["F", "palette_menu_action", "fetch"],
             ["P", "palette_menu_action", "push"],
+            ["!", "palette_menu_action", "revert"],
             ["e", "palette_menu_activate_alternate"],
             ["=", "palette_menu_action", "more_context"],
             ["-", "palette_menu_action", "less_context"],

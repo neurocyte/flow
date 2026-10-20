@@ -2102,7 +2102,7 @@ pub const VcsDiffRequest = struct {
     }
 };
 
-pub const VcsIndexUpdate = enum { stage, unstage };
+pub const VcsIndexUpdate = enum { stage, unstage, revert };
 
 pub fn request_vcs_update_index(self: *Self, update: VcsIndexUpdate, file_paths: []const []const u8) error{OutOfMemory}!void {
     const request = try self.allocator.create(VcsIndexUpdateRequest);
@@ -2111,6 +2111,7 @@ pub fn request_vcs_update_index(self: *Self, update: VcsIndexUpdate, file_paths:
     const git_update: git.IndexUpdate = switch (update) {
         .stage => .stage,
         .unstage => if (initial) .unstage_initial else .unstage,
+        .revert => .revert,
     };
     git.update_index(@intFromPtr(request), git_update, file_paths) catch |e| {
         self.logger_git.print_err("update-index", "failed: {t}", .{e});
@@ -2124,6 +2125,7 @@ pub fn request_vcs_apply_patch(self: *Self, update: VcsIndexUpdate, patch: []con
     const git_update: git.IndexUpdate = switch (update) {
         .stage => .stage,
         .unstage => .unstage,
+        .revert => .revert,
     };
     git.apply_patch(@intFromPtr(request), git_update, patch) catch |e| {
         self.logger_git.print_err("apply", "failed: {t}", .{e});

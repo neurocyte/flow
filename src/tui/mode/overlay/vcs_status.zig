@@ -847,6 +847,7 @@ const TerminalAction = enum { commit, amend, fetch, push };
 
 pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
     if (try ctx.args.match(.{"close_diff"})) return close_diff(palette);
+    if (try ctx.args.match(.{"revert"})) return revert(palette);
     if (try ctx.args.match(.{"cancel"})) {
         if (palette.value.shown_diff != null or palette.value.pending_diff != null)
             close_diff(palette)
@@ -903,6 +904,47 @@ fn apply_hunk(palette: *Type, idx: usize) !void {
         .hunk = entry.hunk,
     };
     try project_manager.request_vcs_apply_patch(update, hunk.patch);
+}
+
+fn revert(palette: *Type) !void {
+    const idx = selected_index(palette) orelse return;
+    const entry = &palette.entries.items[idx];
+    if (entry.kind == .header or entry.kind == .empty) return;
+    if (entry.section == .staged) {
+        palette.logger.print("staged changes can not be reverted, unstage them first", .{});
+        return;
+    }
+    const kind: tui.VcsRevert, const arg: []const u8, const choice_label: []const u8 = switch (entry.kind) {
+        .file => if (entry.section == .untracked) .{ .untracked, entry.path, "Delete" } else .{ .file, entry.path, "Revert" },
+        .hunk => .{ .hunk, (hunk_for(palette, entry.path, entry.section, entry.hunk) orelse return).patch, "Revert" },
+        .header, .empty => return,
+    };
+    var message_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+    const message = switch (kind) {
+        .file => std.fmt.bufPrint(&message_buf, "Revert all unstaged changes?\n{s}", .{entry.path}),
+        .hunk => std.fmt.bufPrint(&message_buf, "Revert this hunk?\n{s}", .{entry.path}),
+        .untracked => std.fmt.bufPrint(&message_buf, "Delete untracked {s}?\n{s}", .{
+            if (std.mem.endsWith(u8, entry.path, "/")) "directory" else "file",
+            entry.path,
+        }),
+    } catch entry.path;
+
+    var confirmed: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer confirmed.deinit();
+    try cbor.writeValue(&confirmed.writer, .{ "cmd", "vcs_revert", .{ kind, arg } });
+    var cancelled_buf: [64]u8 = undefined;
+    const cancelled = cbor.fmt(&cancelled_buf, .{ "cmd", "last_palette" });
+    var confirm: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer confirm.deinit();
+    try cbor.writeValue(&confirm.writer, .{ "cmd", "confirm", .{
+        message,
+        .{.{ choice_label, cbor.Raw{ .bytes = confirmed.written() }, tui.Confirm.Severity.err }},
+        cbor.Raw{ .bytes = cancelled },
+    } });
+
+    // the confirm dialog replaces this palette, so close the diff view and open the dialog after returning
+    close_diff(palette);
+    try tp.self_pid().send_raw(.{ .buf = confirm.written() });
 }
 
 fn set_pending_target(palette: *Type, idx: usize) !void {

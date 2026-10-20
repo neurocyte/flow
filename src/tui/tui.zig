@@ -2148,6 +2148,35 @@ const cmds = struct {
     }
     pub const show_vcs_status_meta: Meta = .{ .description = "Show git status" };
 
+    pub fn vcs_revert(self: *Self, ctx: Ctx) Result {
+        var kind: VcsRevert = undefined;
+        var arg: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&arg) }))
+            return error.InvalidVcsRevertArgument;
+        switch (kind) {
+            .file => try project_manager.request_vcs_update_index(.revert, &.{arg}),
+            .hunk => try project_manager.request_vcs_apply_patch(.revert, arg),
+            .untracked => {
+                const directory = std.mem.endsWith(u8, arg, "/");
+                var edit: std.Io.Writer.Allocating = .init(self.allocator);
+                defer edit.deinit();
+                try cbor.writeValue(&edit.writer, .{.{
+                    project_manager.FileOperation.delete,
+                    if (directory) arg[0 .. arg.len - 1] else arg,
+                    "",
+                    project_manager.FileConflict.overwrite,
+                    if (directory) project_manager.FileScope.recursive else project_manager.FileScope.file,
+                }});
+                var args: std.Io.Writer.Allocating = .init(self.allocator);
+                defer args.deinit();
+                try cbor.writeValue(&args.writer, .{ cbor.Raw{ .bytes = edit.written() }, null, "confirmed" });
+                try command.executeName("apply_workspace_edit", .{ .args = .{ .buf = args.written() }, .io = ctx.io, .now = ctx.now });
+            },
+        }
+        return cmds.last_palette(self, .empty_from(ctx));
+    }
+    pub const vcs_revert_meta: Meta = .{ .arguments = &.{ .string, .string } };
+
     pub fn open_recent_project(_: *Self, _: Ctx) Result {
         try project_manager.request_recent_projects();
     }
@@ -2744,6 +2773,8 @@ pub fn open_overlay_create(mode: type, ctx: command.Context, args: anytype) comm
 }
 
 pub const Confirm = @import("mode/overlay/confirm.zig");
+
+pub const VcsRevert = enum { file, hunk, untracked };
 
 pub fn open_confirm(options: Confirm.Options) command.Result {
     return open_overlay_create(Confirm, .empty(), .{options});

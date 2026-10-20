@@ -255,7 +255,7 @@ pub fn first_change(context_: usize, staged: bool, file_path: []const u8) Error!
         try git(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--", pathspec.written() }, handler, exit_null(tag));
 }
 
-pub const IndexUpdate = enum { stage, unstage, unstage_initial };
+pub const IndexUpdate = enum { stage, unstage, unstage_initial, revert };
 
 pub fn update_index(context_: usize, update: IndexUpdate, file_paths: []const []const u8) Error!void {
     const tag = @src().fn_name;
@@ -263,6 +263,7 @@ pub fn update_index(context_: usize, update: IndexUpdate, file_paths: []const []
         .stage => &.{ "add", "--" },
         .unstage => &.{ "restore", "--staged", "--" },
         .unstage_initial => &.{ "rm", "--cached", "-q", "--" },
+        .revert => &.{ "restore", "--" },
     };
     var args: std.ArrayList([]const u8) = .empty;
     defer {
@@ -309,6 +310,7 @@ pub fn apply_patch(context_: usize, update: IndexUpdate, patch: []const u8) Erro
     const args: []const []const u8 = switch (update) {
         .stage => &.{ "apply", "--cached", "--unidiff-zero", "-" },
         .unstage, .unstage_initial => &.{ "apply", "--cached", "--unidiff-zero", "--reverse", "-" },
+        .revert => &.{ "apply", "--unidiff-zero", "--reverse", "-" },
     };
     try git_input(context_, args, patch, noop, log_err, exit_result(tag));
 }
