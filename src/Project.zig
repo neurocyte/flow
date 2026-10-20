@@ -2046,11 +2046,37 @@ pub const VcsContentRequest = struct {
     }
 };
 
+pub fn request_vcs_first_change(self: *Self, file_path: []const u8, staged: bool) error{OutOfMemory}!void {
+    const request = try self.allocator.create(VcsFirstChangeRequest);
+    request.* = .{
+        .allocator = self.allocator,
+        .project = @intFromPtr(self),
+        .file_path = try self.allocator.dupe(u8, file_path),
+    };
+    git.first_change(@intFromPtr(request), staged, file_path) catch |e| {
+        self.logger_git.print_err("diff", "failed: {t}", .{e});
+        request.deinit();
+    };
+}
+
+pub const VcsFirstChangeRequest = struct {
+    allocator: std.mem.Allocator,
+    project: usize,
+    file_path: []const u8,
+    line: ?usize = null,
+
+    pub fn deinit(self: *@This()) void {
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+};
+
 pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || GitError || error{Exit})!void {
     var context: usize = undefined;
     var vcs_id: []const u8 = undefined;
     var vcs_content: []const u8 = undefined;
     var blame_output: []const u8 = undefined;
+    var line: usize = undefined;
 
     _ = self;
 
@@ -2085,6 +2111,13 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     } else if (try m.match(.{ tp.any, tp.extract(&context), "file_status", tp.null_ })) {
         const request: *VcsFileStateRequest = @ptrFromInt(context);
         request.done(parent);
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "first_change", tp.extract(&line) })) {
+        const request: *VcsFirstChangeRequest = @ptrFromInt(context);
+        if (request.line == null) request.line = line;
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "first_change", tp.null_ })) {
+        const request: *VcsFirstChangeRequest = @ptrFromInt(context);
+        defer request.deinit();
+        parent.send(.{ "PRJ", "vcs_first_change", request.file_path, request.line }) catch {};
     } else if (try m.match(.{ tp.any, tp.extract(&context), "blame", tp.extract(&blame_output) })) {
         const request: *GitBlameRequest = @ptrFromInt(context);
         parent.send(.{ "PRJ", "git_blame", request.file_path, blame_output }) catch {};

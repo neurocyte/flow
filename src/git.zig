@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const tp = @import("thespian");
 const shell = @import("shell");
 const bin_path = @import("bin_path");
@@ -233,6 +234,39 @@ pub fn file_status(context_: usize, file_path: []const u8) Error!void {
                 parent.send(.{ module_name, context, tag, value }) catch {};
         }
     }.result, exit_null(tag));
+}
+
+pub fn first_change(context_: usize, staged: bool, file_path: []const u8) Error!void {
+    const tag = @src().fn_name;
+    var pathspec: std.Io.Writer.Allocating = .init(allocator);
+    defer pathspec.deinit();
+    try pathspec.writer.print(":(top,literal){s}", .{file_path});
+    if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec.written(), '\\', '/');
+    const handler = struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            var it = std.mem.splitScalar(u8, output, '\n');
+            while (it.next()) |line| if (parse_hunk_line(line)) |first_line|
+                parent.send(.{ module_name, context, tag, first_line }) catch {};
+        }
+    }.result;
+    if (staged)
+        try git(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--cached", "--", pathspec.written() }, handler, exit_null(tag))
+    else
+        try git(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--", pathspec.written() }, handler, exit_null(tag));
+}
+
+/// Returns the first new line of a hunk header: @@ -a[,b] +c[,d] @@
+fn parse_hunk_line(line: []const u8) ?usize {
+    if (!std.mem.startsWith(u8, line, "@@ -")) return null;
+    var it = std.mem.splitScalar(u8, line, ' ');
+    _ = it.next();
+    _ = it.next();
+    const new = it.next() orelse return null;
+    if (new.len < 2 or new[0] != '+') return null;
+    var range = std.mem.splitScalar(u8, new[1..], ',');
+    const start = std.fmt.parseInt(usize, range.next() orelse return null, 10) catch return null;
+    const count = std.fmt.parseInt(usize, range.next() orelse "1", 10) catch return null;
+    return if (count == 0) start + 1 else @max(start, 1);
 }
 
 pub fn check_ignore(context_: usize, file_path: []const u8) Error!void {

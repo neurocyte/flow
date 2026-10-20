@@ -68,6 +68,7 @@ const File = struct {
 
 pub const ValueType = struct {
     files: std.ArrayList(File) = .empty,
+    pending_open: ?[]const u8 = null,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -97,6 +98,7 @@ pub fn deinit(palette: *Type) void {
     clear_entries(palette);
     clear_files(palette);
     palette.value.files.deinit(palette.allocator);
+    if (palette.value.pending_open) |path| palette.allocator.free(path);
 }
 
 pub fn update_count_hint(palette: *Type) void {
@@ -117,6 +119,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     var x: []const u8 = undefined;
     var y: []const u8 = undefined;
     var orig_path: []const u8 = undefined;
+    var line: usize = undefined;
 
     if (try cbor.match(m.buf, .{
         "PRJ",
@@ -131,6 +134,10 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     })) {
         if (x.len != 1 or y.len != 1) return true;
         try append_file(palette, file_path, orig_path, file_icon, file_color, x[0], y[0]);
+    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.extract(&line) })) {
+        open_pending(palette, file_path, line);
+    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.null_ })) {
+        open_pending(palette, file_path, null);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_status_files_done" })) {
         try update_entries(palette);
         clear_files(palette);
@@ -249,6 +256,7 @@ pub fn add_list_box_entry(palette: *Type, entry: *Entry, _: ?[]const usize) !voi
     else
         "";
     try cbor.writeValue(writer, entry.kind);
+    try cbor.writeValue(writer, entry.section);
     try cbor.writeValue(writer, entry.status);
     try cbor.writeValue(writer, entry.path);
     try cbor.writeValue(writer, entry.label);
@@ -261,6 +269,7 @@ pub fn add_list_box_entry(palette: *Type, entry: *Entry, _: ?[]const usize) !voi
 
 const Item = struct {
     kind: Kind,
+    section: Section,
     status: u8,
     path: []const u8,
     label: []const u8,
@@ -272,6 +281,7 @@ const Item = struct {
         var item: Item = undefined;
         var iter = button.opts.label;
         if (!(cbor.matchValue(&iter, tp.extract(&item.kind)) catch false)) return null;
+        if (!(cbor.matchValue(&iter, tp.extract(&item.section)) catch false)) return null;
         if (!(cbor.matchValue(&iter, tp.extract(&item.status)) catch false)) return null;
         if (!(cbor.matchString(&iter, &item.path) catch false)) return null;
         if (!(cbor.matchString(&iter, &item.label) catch false)) return null;
@@ -338,8 +348,34 @@ pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widg
 }
 
 fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
+    const palette = list_box.*.opts.ctx;
     const item = Item.decode(button) orelse return;
     if (item.kind != .file) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = item.path } }) catch |e| list_box.*.opts.ctx.logger.err(module_name, e);
+    if (item.status == 'D') {
+        palette.logger.print("{s} is deleted", .{item.path});
+        return;
+    }
+    if (item.section == .untracked) return navigate(palette, item.path, 1);
+    const path = palette.allocator.dupe(u8, item.path) catch |e| return palette.logger.err(module_name, e);
+    if (palette.value.pending_open) |p| palette.allocator.free(p);
+    palette.value.pending_open = path;
+    project_manager.request_vcs_first_change(path, item.section == .staged) catch |e| {
+        palette.logger.err(module_name, e);
+        navigate(palette, path, null);
+    };
+}
+
+fn open_pending(palette: *Type, file_path: []const u8, line: ?usize) void {
+    const pending = palette.value.pending_open orelse return;
+    if (!std.mem.eql(u8, pending, file_path)) return;
+    navigate(palette, pending, line);
+}
+
+fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
+    const result = if (line) |l|
+        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path, .line = l } })
+    else
+        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
+    result catch |e| palette.logger.err(module_name, e);
 }

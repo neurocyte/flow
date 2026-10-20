@@ -199,6 +199,13 @@ pub fn request_vcs_id(file_path: []const u8) (ProjectManagerError || ProjectErro
     return send(.{ "request_vcs_id", project, file_path });
 }
 
+pub fn request_vcs_first_change(file_path: []const u8, staged: bool) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_first_change", project, file_path, staged });
+}
+
 pub const VcsFileState = Project.VcsFileState;
 
 pub fn request_vcs_file_state(id: usize, file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -537,6 +544,7 @@ const Process = struct {
     fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) (error{ ExitNormal, ClientFailed } || cbor.Error)!void {
         var project_directory: []const u8 = undefined;
         var path: []const u8 = undefined;
+        var staged: bool = undefined;
         var query: []const u8 = undefined;
         var file_type: []const u8 = undefined;
         var language_server: []const u8 = undefined;
@@ -603,6 +611,10 @@ const Process = struct {
             const request: *Project.VcsFileStateRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
                 project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-file-state", e);
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "first_change", tp.more })) {
+            const request: *Project.VcsFirstChangeRequest = @ptrFromInt(context);
+            if (self.project_from_ref(request.project)) |project|
+                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-first-change", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "blame", tp.more })) {
             const request: *Project.GitBlameRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
@@ -645,6 +657,8 @@ const Process = struct {
             self.request_tasks(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_status", tp.extract(&project_directory) })) {
             self.request_vcs_status(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_first_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&staged) })) {
+            self.request_vcs_first_change(from, project_directory, path, staged) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_id", tp.extract(&project_directory), tp.extract(&path) })) {
             self.request_vcs_id(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_file_state", tp.extract(&project_directory), tp.extract(&n), tp.extract(&path) })) {
@@ -1094,6 +1108,11 @@ const Process = struct {
     fn request_vcs_status(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_vcs_status(from);
+    }
+
+    fn request_vcs_first_change(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, staged: bool) (ProjectError || Project.RequestError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.request_vcs_first_change(file_path, staged);
     }
 
     fn request_vcs_id(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.RequestError)!void {
