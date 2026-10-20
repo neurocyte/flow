@@ -478,6 +478,7 @@
             ["page_down", "move_scroll_page_down"],
             ["ctrl+u", "move_scroll_half_page_up"],
             ["ctrl+d", "move_scroll_half_page_down"],
+            ["ctrl+w", "palette_menu_action", "cancel"],
             ["escape", "palette_menu_action", "cancel"],
             ["q", "palette_menu_action", "cancel"]
         ],
