@@ -3196,8 +3196,8 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "keyword.type", .tm = "keyword.structure" },
     .{ .ts = "keyword.function", .tm = "storage.type.function" },
     .{ .ts = "text.title", .tm = "entity.name.section" },
-    .{ .ts = "diff.minus", .tm = "markup.deleted" },
-    .{ .ts = "diff.plus", .tm = "markup.inserted" },
+    .{ .ts = "diff.minus", .tm = "markup.deleted.diff" },
+    .{ .ts = "diff.plus", .tm = "markup.inserted.diff" },
 };
 
 fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
