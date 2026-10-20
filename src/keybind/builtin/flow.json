@@ -83,7 +83,7 @@
             ["ctrl+tab", "next_tab"],
             ["ctrl+shift+g s", "show_vcs_status"],
             ["ctrl+shift+g alt+b", "toggle_inline_vcs_blame"],
-            ["ctrl+alt+a s", "show_vcs_status"],
+            ["ctrl+alt+a ctrl+alt+s", "show_vcs_status"],
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+page_down", "next_tab"],
             ["ctrl+page_up", "previous_tab"],
@@ -466,6 +466,7 @@
             ["C", "palette_menu_action", "commit"],
             ["F", "palette_menu_action", "fetch"],
             ["P", "palette_menu_action", "push"],
+            ["e", "palette_menu_activate_alternate"],
             ["q", "palette_menu_cancel"]
         ],
         "release": [
