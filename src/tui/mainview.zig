@@ -368,7 +368,9 @@ pub fn editor_area_frame(self: *const Self) Layer.Frame {
     const panes = self.panes_widget.plane.frame();
     const bar_offset: i32 = if (self.bottom_bar) |bar| if (bar.dynamic_cast(tui.WidgetLayerBox)) |layer| layer.offset_px_y else 0 else 0;
     const bottom = if (self.widgets.trailing_frame_px()) |trailing| trailing.y + bar_offset else panes.y + panes.h;
-    return .{ .x = views.x, .y = panes.y, .w = views.w, .h = bottom - panes.y };
+    const window = tui.window_frame();
+    const right = if (window.w - (views.x + views.w) < self.plane.cell_x()) window.w else views.x + views.w;
+    return .{ .x = views.x, .y = panes.y, .w = right - views.x, .h = bottom - panes.y };
 }
 
 pub fn active_panel_plane(self: *const Self) ?Plane {

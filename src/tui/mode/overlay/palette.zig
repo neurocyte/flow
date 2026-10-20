@@ -300,7 +300,23 @@ pub fn Create(options: type) type {
                 const right_edge = ((screen.w - centered_view_width) / 2) + centered_view_width;
                 return self.prepare_resize_at_x(screen, w, @min(x, right_edge));
             };
-            return self.prepare_resize_at_x(screen, w, x);
+            return align_right_px(self.prepare_resize_at_x(screen, w, x), padding, tui.window_frame().w);
+        }
+
+        fn align_right_px(client: Widget.Box, padding: Widget.Style.Margin, right_px: i32) Widget.Box {
+            const root = tui.plane();
+            const cw: i32 = root.cell_x();
+            const ch: i32 = root.cell_y();
+            const padded = client.from_client_box(padding);
+            const frame_w: i32 = @as(i32, @intCast(padded.w)) * cw;
+            var box = client;
+            box.frame = .{
+                .x = right_px - frame_w,
+                .y = @as(i32, @intCast(padded.y)) * ch,
+                .w = frame_w,
+                .h = @as(i32, @intCast(padded.h)) * ch,
+            };
+            return box;
         }
 
         fn prepare_resize_bottom_right(self: *Self, screen: Widget.Box, w: usize, padding: Widget.Style.Margin) Widget.Box {
