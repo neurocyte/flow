@@ -97,7 +97,7 @@ fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
 
     var status: VcsStatus = .{};
     self.status.reset(self.allocator);
-    if (!try match(m.buf, .{ any, extract(&status) })) return true;
+    if (!try match(m.buf, .{ any, extract(&status) })) return false;
 
     if (status.branch) |branch| self.status.branch = try self.allocator.dupe(u8, branch);
     if (status.ahead) |ahead| self.status.ahead = try self.allocator.dupe(u8, ahead);
@@ -106,7 +106,7 @@ fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
     self.status.changed = status.changed;
     self.status.untracked = status.untracked;
 
-    return true;
+    return false;
 }
 
 fn format(self: *Self, buf: []u8) []const u8 {

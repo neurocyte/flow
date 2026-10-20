@@ -882,7 +882,7 @@ pub const Editor = struct {
                     null;
             };
 
-            if (buffer_meta == null) if (self.file_type) |_| if (!new_buf.is_ephemeral())
+            if (buffer_meta == null and !new_buf.is_ephemeral())
                 project_manager.request_vcs_id(file_path) catch {};
             break :syntax syn;
         };

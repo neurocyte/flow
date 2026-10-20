@@ -20,6 +20,7 @@ const input = @import("input");
 const MouseEvent = @import("MouseEvent");
 const command = @import("command");
 const Buffer = @import("Buffer");
+const VcsStatus = @import("VcsStatus");
 const BufferManager = Buffer.Manager;
 const FileStore = @import("FileStore");
 const EditSet = @import("EditSet");
@@ -74,6 +75,7 @@ panes: *WidgetList,
 panes_widget: Widget,
 bottom_area: *PanelArea = undefined,
 panel_layout_state: ?[]const u8 = null,
+vcs_commit: ?[]const u8 = null,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
 buffer_manager: Buffer.Manager,
@@ -185,6 +187,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.bottom_area.deinit();
     if (self.panel_layout_state) |state| allocator.free(state);
+    if (self.vcs_commit) |commit| allocator.free(commit);
     terminal_view.shutdown_all();
     self.commands.deinit();
     self.widgets.deinit(allocator);
@@ -3540,6 +3543,22 @@ pub fn vcs_id_update(self: *Self, m: tp.message) void {
             project_manager.request_vcs_blame(file_path) catch {};
         }
     }
+}
+
+pub fn vcs_status_update(self: *Self, m: tp.message) void {
+    var status: VcsStatus = .{};
+    if (!(m.match(.{ "vcs_status", tp.extract(&status) }) catch return)) return;
+    const commit = status.commit orelse return;
+    if (self.vcs_commit) |last| {
+        if (std.mem.eql(u8, last, commit)) return;
+        self.allocator.free(last);
+        self.vcs_commit = null;
+        const buffers = self.buffer_manager.list_unordered(self.allocator) catch return;
+        defer self.allocator.free(buffers);
+        for (buffers) |buffer| if (!buffer.is_ephemeral())
+            project_manager.request_vcs_id(buffer.get_file_path()) catch {};
+    }
+    self.vcs_commit = self.allocator.dupe(u8, commit) catch null;
 }
 
 pub fn vcs_content_update(self: *Self, m: tp.message) void {

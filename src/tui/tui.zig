@@ -802,6 +802,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", "vcs_file_state", tp.more }))
         return if (mainview()) |mv| mv.receive_vcs_file_state(m);
 
+    if (try m.match(.{ "vcs_status", tp.more }))
+        return if (mainview()) |mv| mv.vcs_status_update(m);
+
     if (try m.match(.{ "PRJ", "vcs_content", tp.more }))
         return if (mainview()) |mv| mv.vcs_content_update(m);
 

@@ -587,6 +587,7 @@ pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.E
     if (cbor.match(m.buf, .{ "DIFF", tp.extract(&file_path), tp.extract_cbor(&cb) }) catch false) {
         if (std.mem.eql(u8, file_path, self.editor.file_path orelse return false)) {
             try self.process_diff(cb);
+            tui.need_render(@src());
             return true;
         }
     }
