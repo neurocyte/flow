@@ -440,10 +440,6 @@ pub fn add_list_box_entry(palette: *Type, entry: *Entry, _: ?[]const usize) !voi
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
-    const indicator = if (entry.kind == .file)
-        if (tui.get_buffer_manager()) |bm| tui.get_file_state_indicator(bm, entry.path) else ""
-    else
-        "";
     try cbor.writeValue(writer, entry.kind);
     try cbor.writeValue(writer, entry.section);
     try cbor.writeValue(writer, entry.status);
@@ -451,7 +447,6 @@ pub fn add_list_box_entry(palette: *Type, entry: *Entry, _: ?[]const usize) !voi
     try cbor.writeValue(writer, if (entry.kind == .hunk) palette.value.hunks.items[entry.hunk].label else entry.label);
     try cbor.writeValue(writer, entry.file_icon);
     try cbor.writeValue(writer, entry.file_color);
-    try cbor.writeValue(writer, indicator);
     try cbor.writeValue(writer, entry.hunk);
     try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
@@ -465,7 +460,6 @@ const Item = struct {
     label: []const u8,
     file_icon: []const u8,
     file_color: u24,
-    indicator: []const u8,
     hunk: usize,
 
     fn decode(button: *Type.ButtonType) ?Item {
@@ -478,7 +472,6 @@ const Item = struct {
         if (!(cbor.matchString(&iter, &item.label) catch false)) return null;
         if (!(cbor.matchString(&iter, &item.file_icon) catch false)) return null;
         if (!(cbor.matchValue(&iter, tp.extract(&item.file_color)) catch false)) return null;
-        if (!(cbor.matchString(&iter, &item.indicator) catch false)) return null;
         if (!(cbor.matchValue(&iter, tp.extract(&item.hunk)) catch false)) return null;
         return item;
     }
@@ -526,19 +519,16 @@ pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widg
             _ = plane.print("{s}", .{item.label}) catch {};
         },
         .file => {
-            plane.set_style(style_label);
-            plane.set_style(.{ .fg = status_style(theme, item.status).fg });
-            _ = plane.print("{c} ", .{item.status}) catch {};
             _ = tui.render_file_icon(plane, item.file_icon, item.file_color);
             plane.set_style(style_label);
             _ = plane.print("{s} ", .{item.label}) catch {};
-            plane.set_style(style_hint);
-            _ = plane.print_aligned_right(0, "{s} ", .{item.indicator}) catch {};
+            plane.set_style(.{ .fg = status_style(theme, item.status).fg });
+            _ = plane.print_aligned_right(0, "{c} ", .{item.status}) catch {};
         },
         .hunk => {
             const end = if (std.mem.indexOfPos(u8, item.label, 2, "@@")) |pos| pos + 2 else item.label.len;
             plane.set_style(style_hint);
-            _ = plane.print("    {s}", .{item.label[0..end]}) catch {};
+            _ = plane.print("  {s}", .{item.label[0..end]}) catch {};
             plane.set_style(style_label);
             _ = plane.print("{s}", .{item.label[end..]}) catch {};
         },
@@ -553,7 +543,11 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     const item = Item.decode(button) orelse return;
     switch (item.kind) {
         .file => switch (activate) {
-            .normal => if (is_shown_diff(palette, &item)) close_diff(palette) else show_diff(palette, &item),
+            // close_diff rebuilds the list and would free this button while it is still in use
+            .normal => if (is_shown_diff(palette, &item))
+                send(palette, .{ "cmd", "palette_menu_action", .{"close_diff"} })
+            else
+                show_diff(palette, &item),
             .alternate => open_file(palette, &item),
         },
         .hunk => switch (activate) {
@@ -751,6 +745,7 @@ fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
 const TerminalAction = enum { commit, amend, fetch, push };
 
 pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
+    if (try ctx.args.match(.{"close_diff"})) return close_diff(palette);
     if (try ctx.args.match(.{"cancel"})) {
         if (palette.value.shown_diff != null or palette.value.pending_diff != null)
             close_diff(palette)
