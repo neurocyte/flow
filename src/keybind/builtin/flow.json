@@ -110,7 +110,7 @@
             [["f7", "Build project (Zig)"], ["create_scratch_buffer", "*build*"], ["shell_execute_insert", "zig", "build"]],
             ["ctrl+f6", "open_version_info"],
             ["alt+shift+t", "set_session_tab_width"],
-            [["ctrl+k d", "Insert current date (iso-8601)"], ["shell_execute_insert", "date", "--iso-8601"]],
+            [["ctrl+k alt+d", "Insert current date (iso-8601)"], ["shell_execute_insert", "date", "--iso-8601"]],
             ["alt+=", "expand_centered_view"],
             ["alt+-", "shrink_centered_view"],
             [["ctrl+k D", "Insert current date with seconds (iso-8601)"], ["shell_execute_insert", "date", "--iso-8601=seconds"]]
