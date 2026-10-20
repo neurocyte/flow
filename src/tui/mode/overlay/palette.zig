@@ -800,6 +800,12 @@ pub fn Create(options: type) type {
                 .icon = "󰗨",
             };
 
+            pub fn palette_menu_action(self: *Self, _: Ctx) Result {
+                if (@hasDecl(options, "action"))
+                    try options.action(self, self.list_box.get_selected());
+            }
+            pub const palette_menu_action_meta: Meta = .{};
+
             pub fn palette_menu_complete(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "complete"))
                     options.complete(self, self.list_box.get_selected()) catch {};

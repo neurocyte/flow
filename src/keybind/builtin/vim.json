@@ -468,6 +468,15 @@
             ["<C-w>", "overlay_delete_word_left"]
         ]
     },
+    "overlay/vcs_status": {
+        "syntax": "vim",
+        "inherit": "overlay/palette",
+        "press": [
+            ["j", "palette_menu_down"],
+            ["k", "palette_menu_up"],
+            ["u", "palette_menu_action"]
+        ]
+    },
     "mini/file_browser": {
         "syntax": "vim",
         "press": [

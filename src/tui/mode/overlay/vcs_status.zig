@@ -15,6 +15,7 @@ pub const description = "vcs status";
 pub const icon = "󰈞  ";
 pub const placement = .top_center;
 pub const no_query = true;
+pub const keybind_mode = "overlay/vcs_status";
 pub const preserve_entry_order = true;
 
 pub const Kind = enum { header, empty, file };
@@ -30,6 +31,7 @@ const empty_label = "  (no files)";
 pub const Entry = struct {
     label: []const u8,
     path: []const u8 = "",
+    orig_path: []const u8 = "",
     file_icon: []const u8 = "",
     file_color: u24 = 0,
     kind: Kind,
@@ -69,6 +71,8 @@ const File = struct {
 pub const ValueType = struct {
     files: std.ArrayList(File) = .empty,
     pending_open: ?[]const u8 = null,
+    pending_target: ?Target = null,
+    pending_target_done: bool = false,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -83,6 +87,7 @@ pub fn clear_entries(palette: *Type) void {
     for (palette.entries.items) |entry| if (entry.kind == .file) {
         palette.allocator.free(entry.label);
         palette.allocator.free(entry.path);
+        palette.allocator.free(entry.orig_path);
         palette.allocator.free(entry.file_icon);
     };
     palette.entries.clearRetainingCapacity();
@@ -99,6 +104,13 @@ pub fn deinit(palette: *Type) void {
     clear_files(palette);
     palette.value.files.deinit(palette.allocator);
     if (palette.value.pending_open) |path| palette.allocator.free(path);
+    clear_pending_target(palette);
+}
+
+fn clear_pending_target(palette: *Type) void {
+    if (palette.value.pending_target) |t| palette.allocator.free(t.path);
+    palette.value.pending_target = null;
+    palette.value.pending_target_done = false;
 }
 
 pub fn update_count_hint(palette: *Type) void {
@@ -120,6 +132,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     var y: []const u8 = undefined;
     var orig_path: []const u8 = undefined;
     var line: usize = undefined;
+    var exit_code: i64 = undefined;
 
     if (try cbor.match(m.buf, .{
         "PRJ",
@@ -138,6 +151,11 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         open_pending(palette, file_path, line);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.null_ })) {
         open_pending(palette, file_path, null);
+    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_update_index_done", tp.extract(&exit_code) })) {
+        if (exit_code == 0)
+            palette.value.pending_target_done = true
+        else
+            clear_pending_target(palette);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_status_files_done" })) {
         try update_entries(palette);
         clear_files(palette);
@@ -207,7 +225,13 @@ fn update_entries(palette: *Type) !void {
             (try palette.entries.addOne(allocator)).* = .{ .label = empty_label, .kind = .empty, .section = section.section };
     }
 
-    const select_idx = if (target) |*t| find_target(palette, t) else first_file(palette);
+    const select_idx = if (palette.value.pending_target) |*t|
+        find_target(palette, t)
+    else if (target) |*t|
+        find_target(palette, t)
+    else
+        first_file(palette);
+    if (palette.value.pending_target_done) clear_pending_target(palette);
     palette.initial_selected = select_idx + 1;
     try palette.start_query(0);
 }
@@ -234,11 +258,14 @@ fn append_entry(palette: *Type, file: *const File, section: Section, status: u8)
     errdefer allocator.free(display);
     const path = try allocator.dupe(u8, file.path);
     errdefer allocator.free(path);
+    const orig_path = try allocator.dupe(u8, file.orig_path);
+    errdefer allocator.free(orig_path);
     const file_icon = try allocator.dupe(u8, file.file_icon);
     errdefer allocator.free(file_icon);
     (try palette.entries.addOne(allocator)).* = .{
         .label = display,
         .path = path,
+        .orig_path = orig_path,
         .file_icon = file_icon,
         .file_color = file.file_color,
         .kind = .file,
@@ -378,4 +405,52 @@ fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
     else
         tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
     result catch |e| palette.logger.err(module_name, e);
+}
+
+pub fn action(palette: *Type, _: ?*Type.ButtonType) !void {
+    const idx = selected_index(palette) orelse return;
+    const entries = palette.entries.items;
+    const entry = &entries[idx];
+    if (entry.kind == .empty) return;
+
+    var paths: std.ArrayList([]const u8) = .empty;
+    defer paths.deinit(palette.allocator);
+    for (entries, 0..) |*e, i| {
+        if (e.kind != .file or e.section != entry.section) continue;
+        if (entry.kind == .file and i != idx) continue;
+        try paths.append(palette.allocator, e.path);
+        if (entry.section == .staged and e.orig_path.len > 0)
+            try paths.append(palette.allocator, e.orig_path);
+    }
+    if (paths.items.len == 0) return;
+
+    if (entry.kind == .file) try set_pending_target(palette, idx);
+    const update: project_manager.VcsIndexUpdate = switch (entry.section) {
+        .staged => .unstage,
+        .unstaged, .untracked => .stage,
+    };
+    try project_manager.request_vcs_update_index(update, paths.items);
+}
+
+fn set_pending_target(palette: *Type, idx: usize) !void {
+    const entries = palette.entries.items;
+    const section = entries[idx].section;
+    const target_idx = blk: {
+        var i = idx + 1;
+        while (i < entries.len and entries[i].section == section) : (i += 1)
+            if (entries[i].kind == .file) break :blk i;
+        i = idx;
+        while (i > 0 and entries[i - 1].section == section) : (i -= 1)
+            if (entries[i - 1].kind == .file) break :blk i - 1;
+        while (i > 0 and entries[i].kind != .header) i -= 1;
+        break :blk i;
+    };
+    const target = &entries[target_idx];
+    clear_pending_target(palette);
+    palette.value.pending_target = .{
+        .kind = target.kind,
+        .section = target.section,
+        .path = try palette.allocator.dupe(u8, target.path),
+        .index = target_idx,
+    };
 }

@@ -456,6 +456,14 @@
             ["right_control", "palette_menu_activate_quick"]
         ]
     },
+    "overlay/vcs_status": {
+        "inherit": "overlay/palette",
+        "press": [
+            ["j", "palette_menu_down"],
+            ["k", "palette_menu_up"],
+            ["u", "palette_menu_action"]
+        ]
+    },
     "overlay/dropdown-noninvasive": {
         "inherit": "normal",
         "press": [

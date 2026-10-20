@@ -537,6 +537,14 @@
             ["ctrl+w", "overlay_delete_word_left"]
         ]
     },
+    "overlay/vcs_status": {
+        "inherit": "overlay/palette",
+        "press": [
+            ["j", "palette_menu_down"],
+            ["k", "palette_menu_up"],
+            ["u", "palette_menu_action"]
+        ]
+    },
     "mini/file_browser": {
         "press": [
             ["ctrl+w", "mini_mode_delete_to_previous_path_segment"]
