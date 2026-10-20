@@ -208,11 +208,11 @@ pub fn request_vcs_first_change(file_path: []const u8, staged: bool) (ProjectMan
 
 pub const VcsDiffMode = Project.VcsDiffMode;
 
-pub fn request_vcs_diff(file_path: []const u8, mode: VcsDiffMode) (ProjectManagerError || ProjectError)!void {
+pub fn request_vcs_diff(file_path: []const u8, mode: VcsDiffMode, context_lines: usize) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "request_vcs_diff", project, file_path, mode });
+    return send(.{ "request_vcs_diff", project, file_path, mode, context_lines });
 }
 
 pub const VcsIndexUpdate = Project.VcsIndexUpdate;
@@ -572,6 +572,7 @@ const Process = struct {
         var staged: bool = undefined;
         var index_update: VcsIndexUpdate = undefined;
         var diff_mode: VcsDiffMode = undefined;
+        var context_lines: usize = undefined;
         var paths_cbor: []const u8 = undefined;
         var patch: []const u8 = undefined;
         var query: []const u8 = undefined;
@@ -700,8 +701,8 @@ const Process = struct {
             self.request_vcs_update_index(from, project_directory, index_update, paths_cbor) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_apply_patch", tp.extract(&project_directory), tp.extract(&index_update), tp.extract(&patch) })) {
             self.request_vcs_apply_patch(from, project_directory, index_update, patch) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "request_vcs_diff", tp.extract(&project_directory), tp.extract(&path), tp.extract(&diff_mode) })) {
-            self.request_vcs_diff(from, project_directory, path, diff_mode) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_diff", tp.extract(&project_directory), tp.extract(&path), tp.extract(&diff_mode), tp.extract(&context_lines) })) {
+            self.request_vcs_diff(from, project_directory, path, diff_mode, context_lines) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_first_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&staged) })) {
             self.request_vcs_first_change(from, project_directory, path, staged) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_id", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -1174,9 +1175,9 @@ const Process = struct {
         try project.request_vcs_apply_patch(update, patch);
     }
 
-    fn request_vcs_diff(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, mode: VcsDiffMode) (ProjectError || Project.RequestError)!void {
+    fn request_vcs_diff(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, mode: VcsDiffMode, context_lines: usize) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        try project.request_vcs_diff(file_path, mode);
+        try project.request_vcs_diff(file_path, mode, context_lines);
     }
 
     fn request_vcs_first_change(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, staged: bool) (ProjectError || Project.RequestError)!void {

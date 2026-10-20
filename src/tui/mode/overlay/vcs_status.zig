@@ -83,6 +83,8 @@ pub const ValueType = struct {
     pending_target: ?Target = null,
     pending_target_done: bool = false,
     restore_target: ?Target = null,
+    initial_path: ?[]const u8 = null,
+    context_lines: usize = 3,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -117,7 +119,11 @@ const Diff = struct {
 
 pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
     tui.message_filters().add(MessageFilter.bind(palette, receive_project_manager)) catch {};
-    if (ctx.args.buf.len != 0) try restore(palette, ctx);
+    if (ctx.args.buf.len != 0)
+        try restore(palette, ctx)
+    else if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
+        palette.value.initial_path = try palette.allocator.dupe(u8, file_path);
+    };
     try project_manager.request_vcs_status_files();
     project_manager.request_vcs_status() catch {};
     return 6;
@@ -167,6 +173,8 @@ pub fn deinit(palette: *Type) void {
 fn clear_restore_target(palette: *Type) void {
     if (palette.value.restore_target) |t| palette.allocator.free(t.path);
     palette.value.restore_target = null;
+    if (palette.value.initial_path) |path| palette.allocator.free(path);
+    palette.value.initial_path = null;
 }
 
 fn save(palette: *Type) void {
@@ -335,6 +343,8 @@ fn update_entries(palette: *Type) !void {
         find_target(palette, t)
     else if (palette.value.restore_target) |*t|
         find_target(palette, t)
+    else if (palette.value.initial_path) |path|
+        find_file(palette, path) orelse first_file(palette)
     else
         first_file(palette);
     if (palette.value.pending_target_done) clear_pending_target(palette);
@@ -357,6 +367,12 @@ fn find_target(palette: *Type, target: *const Target) usize {
     var idx = @min(target.index, entries.len - 1);
     while (idx > 0 and entries[idx].kind == .empty) idx -= 1;
     return idx;
+}
+
+fn find_file(palette: *Type, path: []const u8) ?usize {
+    for (palette.entries.items, 0..) |*entry, i|
+        if (entry.kind == .file and std.mem.eql(u8, entry.path, path)) return i;
+    return null;
 }
 
 fn first_file(palette: *Type) usize {
@@ -596,10 +612,25 @@ fn show_diff(palette: *Type, item: *const Item) void {
     palette.value.diff_stale = false;
     if (palette.value.pending_diff) |*diff| if (diff.eql(item.path, mode)) return;
     if (!stale) if (palette.value.shown_diff) |*diff| if (diff.eql(item.path, mode)) return;
-    const path = palette.allocator.dupe(u8, item.path) catch |e| return palette.logger.err(module_name, e);
+    request_diff(palette, item.path, mode);
+}
+
+fn request_diff(palette: *Type, file_path: []const u8, mode: project_manager.VcsDiffMode) void {
+    const path = palette.allocator.dupe(u8, file_path) catch |e| return palette.logger.err(module_name, e);
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     palette.value.pending_diff = .{ .path = path, .mode = mode };
-    project_manager.request_vcs_diff(path, mode) catch |e| palette.logger.err(module_name, e);
+    project_manager.request_vcs_diff(path, mode, palette.value.context_lines) catch |e| palette.logger.err(module_name, e);
+}
+
+const ContextChange = enum { more_context, less_context };
+
+fn change_context(palette: *Type, change: ContextChange) void {
+    palette.value.context_lines = switch (change) {
+        .more_context => palette.value.context_lines + 1,
+        .less_context => palette.value.context_lines -| 1,
+    };
+    const diff = palette.value.shown_diff orelse return;
+    request_diff(palette, diff.path, diff.mode);
 }
 
 fn show_pending_diff(palette: *Type, file_path: []const u8, mode: project_manager.VcsDiffMode, output: []const u8) void {
@@ -730,6 +761,9 @@ pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void 
     var terminal_action: TerminalAction = undefined;
     if (try ctx.args.match(.{tp.extract(&terminal_action)}))
         return run_in_terminal(terminal_action);
+    var context_change: ContextChange = undefined;
+    if (try ctx.args.match(.{tp.extract(&context_change)}))
+        return change_context(palette, context_change);
 
     const idx = selected_index(palette) orelse return;
     const entries = palette.entries.items;
