@@ -281,6 +281,26 @@ pub fn update_index(context_: usize, update: IndexUpdate, file_paths: []const []
     try git_err(context_, @as([]const []const u8, args.items), noop, log_err, exit_result(tag));
 }
 
+pub const DiffMode = enum { unstaged, staged, untracked };
+
+pub fn diff(context_: usize, mode: DiffMode, file_path: []const u8) Error!void {
+    const tag = @src().fn_name;
+    var pathspec: std.Io.Writer.Allocating = .init(allocator);
+    defer pathspec.deinit();
+    try pathspec.writer.print(":(top,literal){s}", .{file_path});
+    if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec.written(), '\\', '/');
+    const handler = struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            parent.send(.{ module_name, context, tag, output }) catch {};
+        }
+    }.result;
+    switch (mode) {
+        .unstaged => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "--", pathspec.written() }, handler, log_err, exit_null(tag)),
+        .staged => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "--cached", "--", pathspec.written() }, handler, log_err, exit_null(tag)),
+        .untracked => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "--no-index", "--", "/dev/null", file_path }, handler, log_err, exit_null(tag)),
+    }
+}
+
 /// Returns the first new line of a hunk header: @@ -a[,b] +c[,d] @@
 fn parse_hunk_line(line: []const u8) ?usize {
     if (!std.mem.startsWith(u8, line, "@@ -")) return null;

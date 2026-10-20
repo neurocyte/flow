@@ -2072,6 +2072,36 @@ pub const VcsFirstChangeRequest = struct {
     }
 };
 
+pub const VcsDiffMode = git.DiffMode;
+
+pub fn request_vcs_diff(self: *Self, file_path: []const u8, mode: VcsDiffMode) error{OutOfMemory}!void {
+    const request = try self.allocator.create(VcsDiffRequest);
+    request.* = .{
+        .allocator = self.allocator,
+        .project = @intFromPtr(self),
+        .file_path = try self.allocator.dupe(u8, file_path),
+        .mode = mode,
+    };
+    git.diff(@intFromPtr(request), mode, file_path) catch |e| {
+        self.logger_git.print_err("diff", "failed: {t}", .{e});
+        request.deinit();
+    };
+}
+
+pub const VcsDiffRequest = struct {
+    allocator: std.mem.Allocator,
+    project: usize,
+    file_path: []const u8,
+    mode: VcsDiffMode,
+    output: std.ArrayList(u8) = .empty,
+
+    pub fn deinit(self: *@This()) void {
+        self.output.deinit(self.allocator);
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+};
+
 pub const VcsIndexUpdate = enum { stage, unstage };
 
 pub fn request_vcs_update_index(self: *Self, update: VcsIndexUpdate, file_paths: []const []const u8) error{OutOfMemory}!void {
@@ -2104,6 +2134,7 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     var blame_output: []const u8 = undefined;
     var line: usize = undefined;
     var exit_code: i64 = undefined;
+    var diff_output: []const u8 = undefined;
 
     if (try m.match(.{ tp.any, tp.extract(&context), "rev_parse", tp.extract(&vcs_id) })) {
         const request: *VcsIdRequest = @ptrFromInt(context);
@@ -2142,6 +2173,13 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
         parent.send(.{ "PRJ", "vcs_update_index_done", exit_code }) catch {};
         self.status_reply = true;
         self.refresh_vcs_status();
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "diff", tp.extract(&diff_output) })) {
+        const request: *VcsDiffRequest = @ptrFromInt(context);
+        try request.output.appendSlice(request.allocator, diff_output);
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "diff", tp.null_ })) {
+        const request: *VcsDiffRequest = @ptrFromInt(context);
+        defer request.deinit();
+        parent.send(.{ "PRJ", "vcs_diff", request.file_path, request.mode, request.output.items }) catch {};
     } else if (try m.match(.{ tp.any, tp.extract(&context), "first_change", tp.extract(&line) })) {
         const request: *VcsFirstChangeRequest = @ptrFromInt(context);
         if (request.line == null) request.line = line;
