@@ -141,6 +141,7 @@ const LastPalette = struct {
 
 pub const PaletteType = enum {
     open_recent,
+    vcs_status,
 };
 
 pub const ClipboardEntry = struct {
@@ -2122,6 +2123,7 @@ const cmds = struct {
         };
         switch (palette.type_) {
             .open_recent => return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent.zig").Type, palette.ctx),
+            .vcs_status => return self.enter_overlay_mode_with_args(@import("mode/overlay/vcs_status.zig").Type, palette.ctx),
         }
     }
     pub const last_palette_meta: Meta = .{ .description = "Open last used palette" };

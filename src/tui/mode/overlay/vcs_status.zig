@@ -73,14 +73,36 @@ const File = struct {
 pub const ValueType = struct {
     files: std.ArrayList(File) = .empty,
     pending_open: ?[]const u8 = null,
-    pending_diff: ?[]const u8 = null,
+    pending_diff: ?Diff = null,
+    shown_diff: ?Diff = null,
+    shown_diff_hash: u64 = 0,
+    diff_stale: bool = false,
     pending_target: ?Target = null,
     pending_target_done: bool = false,
+    restore_target: ?Target = null,
 };
 pub const defaultValue: ValueType = .{};
 
-pub fn load_entries(palette: *Type) !usize {
+const Diff = struct {
+    path: []const u8,
+    mode: project_manager.VcsDiffMode,
+
+    fn eql(self: *const Diff, path: []const u8, mode: project_manager.VcsDiffMode) bool {
+        return self.mode == mode and std.mem.eql(u8, self.path, path);
+    }
+
+    fn buffer_name(self: *const Diff, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
+        const cmd = switch (self.mode) {
+            .staged => "git diff --cached",
+            .unstaged, .untracked => "git diff",
+        };
+        return std.fmt.allocPrint(allocator, "*{s} {s}*", .{ cmd, self.path });
+    }
+};
+
+pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
     tui.message_filters().add(MessageFilter.bind(palette, receive_project_manager)) catch {};
+    if (ctx.args.buf.len != 0) try restore(palette, ctx);
     try project_manager.request_vcs_status_files();
     project_manager.request_vcs_status() catch {};
     return 6;
@@ -102,13 +124,47 @@ fn clear_files(palette: *Type) void {
 }
 
 pub fn deinit(palette: *Type) void {
+    save(palette);
     tui.message_filters().remove_ptr(palette);
     clear_entries(palette);
     clear_files(palette);
     palette.value.files.deinit(palette.allocator);
     if (palette.value.pending_open) |path| palette.allocator.free(path);
-    if (palette.value.pending_diff) |path| palette.allocator.free(path);
+    if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
+    if (palette.value.shown_diff) |diff| palette.allocator.free(diff.path);
     clear_pending_target(palette);
+    clear_restore_target(palette);
+}
+
+fn clear_restore_target(palette: *Type) void {
+    if (palette.value.restore_target) |t| palette.allocator.free(t.path);
+    palette.value.restore_target = null;
+}
+
+fn save(palette: *Type) void {
+    var data: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer data.deinit();
+    const writer = &data.writer;
+    if (selected_index(palette)) |idx| {
+        const entry = &palette.entries.items[idx];
+        cbor.writeValue(writer, .{ entry.kind, entry.section, entry.path, idx }) catch return;
+    }
+    tui.set_last_palette(.vcs_status, .init(.{ .buf = data.written() }));
+}
+
+fn restore(palette: *Type, ctx: command.Context) !void {
+    var kind: Kind = undefined;
+    var section: Section = undefined;
+    var path: []const u8 = undefined;
+    var index: usize = undefined;
+    if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&section), tp.extract(&path), tp.extract(&index) })) return;
+    clear_restore_target(palette);
+    palette.value.restore_target = .{
+        .kind = kind,
+        .section = section,
+        .path = try palette.allocator.dupe(u8, path),
+        .index = index,
+    };
 }
 
 fn clear_pending_target(palette: *Type) void {
@@ -237,9 +293,13 @@ fn update_entries(palette: *Type) !void {
         find_target(palette, t)
     else if (target) |*t|
         find_target(palette, t)
+    else if (palette.value.restore_target) |*t|
+        find_target(palette, t)
     else
         first_file(palette);
     if (palette.value.pending_target_done) clear_pending_target(palette);
+    clear_restore_target(palette);
+    palette.value.diff_stale = true;
     palette.initial_selected = select_idx + 1;
     try palette.start_query(0);
 }
@@ -394,31 +454,53 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     }
 }
 
+pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
+    if (palette.value.shown_diff == null) return;
+    const button = button_ orelse return;
+    const item = Item.decode(button) orelse return;
+    if (item.kind != .file) return;
+    show_diff(palette, &item);
+}
+
 fn show_diff(palette: *Type, item: *const Item) void {
     const mode: project_manager.VcsDiffMode = switch (item.section) {
         .staged => .staged,
         .unstaged => .unstaged,
         .untracked => .untracked,
     };
+    const stale = palette.value.diff_stale;
+    palette.value.diff_stale = false;
+    if (palette.value.pending_diff) |*diff| if (diff.eql(item.path, mode)) return;
+    if (!stale) if (palette.value.shown_diff) |*diff| if (diff.eql(item.path, mode)) return;
     const path = palette.allocator.dupe(u8, item.path) catch |e| return palette.logger.err(module_name, e);
-    if (palette.value.pending_diff) |p| palette.allocator.free(p);
-    palette.value.pending_diff = path;
+    if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
+    palette.value.pending_diff = .{ .path = path, .mode = mode };
     project_manager.request_vcs_diff(path, mode) catch |e| palette.logger.err(module_name, e);
 }
 
 fn show_pending_diff(palette: *Type, file_path: []const u8, mode: project_manager.VcsDiffMode, output: []const u8) void {
     const pending = palette.value.pending_diff orelse return;
-    if (!std.mem.eql(u8, pending, file_path)) return;
-    var buffer_name: std.Io.Writer.Allocating = .init(palette.allocator);
-    defer buffer_name.deinit();
-    const cmd = switch (mode) {
-        .staged => "git diff --cached",
-        .unstaged, .untracked => "git diff",
-    };
-    buffer_name.writer.print("*{s} {s}*", .{ cmd, file_path }) catch |e| return palette.logger.err(module_name, e);
-    send(palette, .{ "cmd", "exit_overlay_mode" });
-    send(palette, .{ "cmd", "delete_buffer", .{buffer_name.written()} });
-    send(palette, .{ "cmd", "create_scratch_buffer", .{ buffer_name.written(), output, "diff" } });
+    if (!pending.eql(file_path, mode)) return;
+    palette.value.pending_diff = null;
+    const allocator = palette.allocator;
+    const hash = std.hash.Wyhash.hash(0, output);
+
+    const previous = palette.value.shown_diff;
+    palette.value.shown_diff = pending;
+    defer if (previous) |diff| allocator.free(diff.path);
+    if (previous) |*diff| if (diff.eql(file_path, mode) and palette.value.shown_diff_hash == hash) return;
+    palette.value.shown_diff_hash = hash;
+
+    const buffer_name = pending.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
+    defer allocator.free(buffer_name);
+    if (previous) |*diff| {
+        const previous_name = diff.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
+        defer allocator.free(previous_name);
+        if (!std.mem.eql(u8, previous_name, buffer_name))
+            send(palette, .{ "cmd", "delete_buffer", .{previous_name} });
+    }
+    send(palette, .{ "cmd", "delete_buffer", .{buffer_name} });
+    send(palette, .{ "cmd", "create_scratch_buffer", .{ buffer_name, output, "diff" } });
 }
 
 fn send(palette: *Type, m: anytype) void {
