@@ -224,6 +224,13 @@ pub fn request_vcs_update_index(update: VcsIndexUpdate, file_paths: []const []co
     return send(.{ "request_vcs_update_index", project, update, file_paths });
 }
 
+pub fn request_vcs_apply_patch(update: VcsIndexUpdate, patch: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_apply_patch", project, update, patch });
+}
+
 pub const VcsFileState = Project.VcsFileState;
 
 pub fn request_vcs_file_state(id: usize, file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -566,6 +573,7 @@ const Process = struct {
         var index_update: VcsIndexUpdate = undefined;
         var diff_mode: VcsDiffMode = undefined;
         var paths_cbor: []const u8 = undefined;
+        var patch: []const u8 = undefined;
         var query: []const u8 = undefined;
         var file_type: []const u8 = undefined;
         var language_server: []const u8 = undefined;
@@ -632,7 +640,9 @@ const Process = struct {
             const request: *Project.VcsFileStateRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
                 project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-file-state", e);
-        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "update_index", tp.more })) {
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "update_index", tp.more }) or
+            try cbor.match(m.buf, .{ "git", tp.extract(&context), "apply_patch", tp.more }))
+        {
             const request: *Project.VcsIndexUpdateRequest = @ptrFromInt(context);
             if (self.project_from_ref(request.project)) |project|
                 project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-update-index", e);
@@ -688,6 +698,8 @@ const Process = struct {
             self.request_vcs_status(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_update_index", tp.extract(&project_directory), tp.extract(&index_update), tp.extract_cbor(&paths_cbor) })) {
             self.request_vcs_update_index(from, project_directory, index_update, paths_cbor) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_apply_patch", tp.extract(&project_directory), tp.extract(&index_update), tp.extract(&patch) })) {
+            self.request_vcs_apply_patch(from, project_directory, index_update, patch) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_diff", tp.extract(&project_directory), tp.extract(&path), tp.extract(&diff_mode) })) {
             self.request_vcs_diff(from, project_directory, path, diff_mode) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_first_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&staged) })) {
@@ -1155,6 +1167,11 @@ const Process = struct {
             try paths.append(self.allocator, path);
         }
         try project.request_vcs_update_index(update, paths.items);
+    }
+
+    fn request_vcs_apply_patch(self: *Process, _: tp.pid_ref, project_directory: []const u8, update: VcsIndexUpdate, patch: []const u8) (ProjectError || Project.RequestError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.request_vcs_apply_patch(update, patch);
     }
 
     fn request_vcs_diff(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, mode: VcsDiffMode) (ProjectError || Project.RequestError)!void {

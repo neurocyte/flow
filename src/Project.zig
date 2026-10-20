@@ -2118,6 +2118,19 @@ pub fn request_vcs_update_index(self: *Self, update: VcsIndexUpdate, file_paths:
     };
 }
 
+pub fn request_vcs_apply_patch(self: *Self, update: VcsIndexUpdate, patch: []const u8) error{OutOfMemory}!void {
+    const request = try self.allocator.create(VcsIndexUpdateRequest);
+    request.* = .{ .allocator = self.allocator, .project = @intFromPtr(self) };
+    const git_update: git.IndexUpdate = switch (update) {
+        .stage => .stage,
+        .unstage => .unstage,
+    };
+    git.apply_patch(@intFromPtr(request), git_update, patch) catch |e| {
+        self.logger_git.print_err("apply", "failed: {t}", .{e});
+        request.deinit();
+    };
+}
+
 pub const VcsIndexUpdateRequest = struct {
     allocator: std.mem.Allocator,
     project: usize,
@@ -2167,7 +2180,9 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     } else if (try m.match(.{ tp.any, tp.extract(&context), "file_status", tp.null_ })) {
         const request: *VcsFileStateRequest = @ptrFromInt(context);
         request.done(parent);
-    } else if (try m.match(.{ tp.any, tp.extract(&context), "update_index", tp.extract(&exit_code) })) {
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "update_index", tp.extract(&exit_code) }) or
+        try m.match(.{ tp.any, tp.extract(&context), "apply_patch", tp.extract(&exit_code) }))
+    {
         const request: *VcsIndexUpdateRequest = @ptrFromInt(context);
         request.deinit();
         parent.send(.{ "PRJ", "vcs_update_index_done", exit_code }) catch {};

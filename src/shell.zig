@@ -54,9 +54,9 @@ pub fn execute(allocator: std.mem.Allocator, argv: tp.message, handlers: Handler
     pid.deinit();
 }
 
-pub fn execute_pipe(allocator: std.mem.Allocator, argv: tp.message, output_handler: ?OutputHandler, exit_handler: ?ExitHandler) Error!Self {
+pub fn execute_pipe(allocator: std.mem.Allocator, argv: tp.message, handlers: Handlers) Error!Self {
     const stdin_behavior = .pipe;
-    return .{ .pid = try Process.create(allocator, argv, stdin_behavior, output_handler, exit_handler), .stdin_behavior = stdin_behavior };
+    return .{ .pid = try Process.create(allocator, argv, stdin_behavior, handlers), .stdin_behavior = stdin_behavior };
 }
 
 pub fn child_env(allocator: std.mem.Allocator) error{OutOfMemory}!?std.process.Environ.Map {

@@ -302,6 +302,15 @@ pub fn diff(context_: usize, mode: DiffMode, file_path: []const u8) Error!void {
 }
 
 /// Returns the first new line of a hunk header: @@ -a[,b] +c[,d] @@
+pub fn apply_patch(context_: usize, update: IndexUpdate, patch: []const u8) Error!void {
+    const tag = @src().fn_name;
+    const args: []const []const u8 = switch (update) {
+        .stage => &.{ "apply", "--cached", "-" },
+        .unstage, .unstage_initial => &.{ "apply", "--cached", "--reverse", "-" },
+    };
+    try git_input(context_, args, patch, noop, log_err, exit_result(tag));
+}
+
 fn parse_hunk_line(line: []const u8) ?usize {
     if (!std.mem.startsWith(u8, line, "@@ -")) return null;
     var it = std.mem.splitScalar(u8, line, ' ');
@@ -356,6 +365,17 @@ fn git_err(
     err: OutputHandler,
     exit: ExitHandler,
 ) Error!void {
+    return git_input(context, cmd, null, out, err, exit);
+}
+
+fn git_input(
+    context: usize,
+    cmd: anytype,
+    input: ?[]const u8,
+    out: OutputHandler,
+    err: OutputHandler,
+    exit: ExitHandler,
+) Error!void {
     const cbor = @import("cbor");
     const git_binary = get_git() orelse return error.GitNotFound;
 
@@ -363,36 +383,39 @@ fn git_err(
     defer buf.deinit();
 
     const writer = &buf.writer;
+    const handlers: shell.Handlers = .{
+        .context = context,
+        .out = to_shell_output_handler(out),
+        .err = to_shell_output_handler(err),
+        .exit = exit,
+        .log_execute = log_execute,
+    };
     switch (@typeInfo(@TypeOf(cmd))) {
         .@"struct" => |info| if (info.is_tuple) {
             try cbor.writeArrayHeader(writer, info.field_names.len + 1);
             try cbor.writeValue(writer, git_binary);
             inline for (info.field_names) |name|
                 try cbor.writeValue(writer, @field(cmd, name));
-            return shell.execute(allocator, .{ .buf = buf.written() }, .{
-                .context = context,
-                .out = to_shell_output_handler(out),
-                .err = to_shell_output_handler(err),
-                .exit = exit,
-                .log_execute = log_execute,
-            }) catch error.GitCallFailed;
+            return execute(.{ .buf = buf.written() }, input, handlers);
         },
         .pointer => {
             const args: []const []const u8 = cmd;
             try cbor.writeArrayHeader(writer, args.len + 1);
             try cbor.writeValue(writer, git_binary);
             for (args) |arg| try cbor.writeValue(writer, arg);
-            return shell.execute(allocator, .{ .buf = buf.written() }, .{
-                .context = context,
-                .out = to_shell_output_handler(out),
-                .err = to_shell_output_handler(err),
-                .exit = exit,
-                .log_execute = log_execute,
-            }) catch error.GitCallFailed;
+            return execute(.{ .buf = buf.written() }, input, handlers);
         },
         else => {},
     }
     @compileError("git command should be a tuple: " ++ @typeName(@TypeOf(cmd)));
+}
+
+fn execute(argv: tp.message, input: ?[]const u8, handlers: shell.Handlers) Error!void {
+    const bytes = input orelse
+        return shell.execute(allocator, argv, handlers) catch error.GitCallFailed;
+    var sp = shell.execute_pipe(allocator, argv, handlers) catch return error.GitCallFailed;
+    defer sp.deinit();
+    sp.input(bytes) catch return error.GitCallFailed;
 }
 
 fn exit_null(comptime tag: []const u8) shell.ExitHandler {
