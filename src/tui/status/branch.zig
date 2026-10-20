@@ -76,35 +76,17 @@ fn refresh_vcs_status(self: *Self) void {
     if (self.status.branch) |_| project_manager.request_vcs_status() catch {};
 }
 
-pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "E", tp.more }))
-        return self.process_event(m);
+pub fn receive(_: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "PRJ", "open" }))
         project_manager.request_vcs_status() catch {};
-    return false;
-}
-
-fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ tp.any, "dirty", tp.more }) or
-        try m.match(.{ tp.any, "save", tp.more }) or
-        try m.match(.{ tp.any, "open", tp.more }) or
-        try m.match(.{ tp.any, "close" }))
-        self.refresh_vcs_status();
     return false;
 }
 
 fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     return if (try match(m.buf, .{ "vcs_status", tp.more }))
         self.process_vcs_status(m)
-    else if (try match(m.buf, .{"focus_in"}))
-        self.process_focus_in()
     else
         false;
-}
-
-fn process_focus_in(self: *Self) MessageFilter.Error!bool {
-    self.refresh_vcs_status();
-    return false;
 }
 
 fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
@@ -119,6 +101,8 @@ fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
     if (status.ahead) |ahead| self.status.ahead = try self.allocator.dupe(u8, ahead);
     if (status.behind) |behind| self.status.behind = try self.allocator.dupe(u8, behind);
     if (status.stash) |stash| self.status.stash = try self.allocator.dupe(u8, stash);
+    self.status.changed = status.changed;
+    self.status.untracked = status.untracked;
 
     return true;
 }

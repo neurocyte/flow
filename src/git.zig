@@ -281,6 +281,17 @@ pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!
     }.result, exit_null(tag));
 }
 
+pub fn git_dirs(context_: usize) Error!void {
+    const tag = @src().fn_name;
+    try git(context_, .{ "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir" }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            var it = std.mem.splitScalar(u8, output, '\n');
+            while (it.next()) |value| if (value.len > 0)
+                parent.send(.{ module_name, context, tag, value }) catch {};
+        }
+    }.result, exit_null(tag));
+}
+
 pub fn cat_file(context_: usize, object: []const u8) Error!void {
     const tag = @src().fn_name;
     try git(context_, .{ "cat-file", "-p", object }, struct {

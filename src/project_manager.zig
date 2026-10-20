@@ -581,6 +581,13 @@ const Process = struct {
             self.handle_file_watch_rename(from_path, path, object_type);
         } else if (try cbor.match(m.buf, .{ "FW", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) })) {
             self.handle_file_watch_event(path, event_type, object_type);
+        } else if (try cbor.match(m.buf, .{ "VW", "rename", tp.extract(&from_path), tp.extract(&path), tp.any })) {
+            self.handle_vcs_watch_event(from_path);
+            self.handle_vcs_watch_event(path);
+        } else if (try cbor.match(m.buf, .{ "VW", "change", tp.extract(&path), tp.any, tp.any })) {
+            self.handle_vcs_watch_event(path);
+        } else if (try cbor.match(m.buf, .{ "vcs_changed_timeout", tp.extract(&project_directory) })) {
+            if (self.projects.get(project_directory)) |project| project.vcs_changed_timeout();
         } else if (try cbor.match(m.buf, .{ "FS", "stat", tp.any, tp.extract(&path), tp.extract(&mtime_high), tp.extract(&mtime_low) })) {
             self.handle_file_store_mtime(path, mtime_high, mtime_low);
         } else if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.more })) {
@@ -810,9 +817,17 @@ const Process = struct {
         match.project.set_fs_mtime(match.rel_path, mtime);
     }
 
+    fn handle_vcs_watch_event(self: *Process, abs_path: []const u8) void {
+        var it = self.projects.valueIterator();
+        while (it.next()) |project| if (project.*.owns_vcs_path(abs_path))
+            project.*.vcs_changed();
+    }
+
     fn handle_file_watch_rename(self: *Process, abs_from: []const u8, abs_to: []const u8, object_type: file_watcher.ObjectType) void {
         const src = self.project_for_path(abs_from);
         const dst = self.project_for_path(abs_to);
+        if (src) |s| s.project.vcs_changed();
+        if (dst) |d| d.project.vcs_changed();
 
         if (object_type == .dir) {
             if (src) |s| s.project.ignore_subtree_removed(s.rel_path);
@@ -859,6 +874,7 @@ const Process = struct {
             self.parent.send(.{ "FW", "change", abs_path, event_type, object_type }) catch {};
             return;
         };
+        match.project.vcs_changed();
 
         if (object_type == .dir) {
             if (event_type == .deleted) {
@@ -892,7 +908,10 @@ const Process = struct {
     }
 
     fn open(self: *Process, project_directory: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {
+        var it = self.projects.valueIterator();
+        while (it.next()) |project| project.*.active = false;
         if (self.projects.get(project_directory)) |project| {
+            project.active = true;
             project.last_used = @as(i128, root.get_now().toNanoseconds());
             self.logger.print("switched to: {s}", .{project_directory});
         } else {
@@ -911,6 +930,7 @@ const Process = struct {
                 project.file_store = file_store.clone();
             } else |e| self.logger.err("file_store", e);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
+            project.active = true;
             project.query_git();
         }
     }

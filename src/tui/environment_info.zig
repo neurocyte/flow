@@ -177,6 +177,7 @@ fn write_runtime(allocator: std.mem.Allocator, writer: *std.Io.Writer) std.Io.Wr
     try writer.print("theme: {s} ({t})\n", .{ tui.theme().name, tui.active_color_scheme() });
     try writer.print("input-mode: {s}\n", .{conf.input_mode});
     try writer.print("file-watcher: {s}{s}\n", .{ file_watcher.backend_name, if (conf.enable_file_watcher) "" else " (disabled)" });
+    try writer.print("vcs-watcher: {s}\n", .{if (conf.enable_vcs_watcher) "enabled" else "disabled"});
     try tui.rdr().write_runtime_info(writer);
 }
 

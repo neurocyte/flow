@@ -128,6 +128,7 @@ follow_directory_symlinks: bool = false,
 log_ignored_links: bool = false,
 maximum_symlink_depth: usize = 3,
 enable_file_watcher: bool = true,
+enable_vcs_watcher: bool = true,
 
 desktop_theme_file: []const u8 = &.{},
 
