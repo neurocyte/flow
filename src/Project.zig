@@ -721,7 +721,7 @@ fn strip_non_search_chars(self: *const Self, s: []const u8) error{OutOfMemory}![
 }
 
 pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) RequestError!void {
-    defer from.send(.{ "PRJ", "vcs_status_files_done" }) catch {};
+    defer from.send(.{ "PRJ", "vcs_status_files_done", self.workspace orelse "" }) catch {};
     for (self.vcs_status_files.items) |*file| {
         resolve_meta(file);
         from.send(.{ "PRJ", "vcs_status_files", file.path, file.type, file.icon, file.color, &[_]u8{file.x}, &[_]u8{file.y}, file.orig_path }) catch |e| {
@@ -1148,7 +1148,7 @@ pub fn request_vcs_status(self: *Self, from: tp.pid_ref) RequestError!void {
 }
 
 fn refresh_vcs_status(self: *Self) void {
-    if (self.state.status == .running or !self.active) {
+    if (self.state.status == .running) {
         self.status_dirty = true;
         return;
     }
@@ -1156,7 +1156,7 @@ fn refresh_vcs_status(self: *Self) void {
     self.status_next.reset(self.allocator);
     VcsStatusFile.free_all(self.allocator, &self.vcs_status_files_next);
     self.state.status = .running;
-    git.status(@intFromPtr(self)) catch {
+    git.status(@intFromPtr(self), self.vcs_dir()) catch {
         self.state.status = .failed;
     };
 }
@@ -1784,12 +1784,12 @@ pub const GetLineOfFileError = LSPClient.GetLineOfFileError;
 
 pub fn query_git(self: *Self) void {
     self.state.workspace_path = .running;
-    git.workspace_path(@intFromPtr(self)) catch {
+    git.workspace_path(@intFromPtr(self), self.name) catch {
         self.state.workspace_path = .failed;
         self.start_walker();
     };
     self.state.current_branch = .running;
-    git.current_branch(@intFromPtr(self)) catch {
+    git.current_branch(@intFromPtr(self), self.name) catch {
         self.state.current_branch = .failed;
     };
 }
@@ -1880,12 +1880,12 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         self.workspace = convert_path(try self.allocator.dupe(u8, value));
         self.state.workspace_path = .done;
         self.state.workspace_files = .running;
-        git.workspace_files(@intFromPtr(self)) catch {
+        git.workspace_files(@intFromPtr(self), self.name) catch {
             self.state.workspace_files = .failed;
         };
         self.refresh_vcs_status();
         if (self.git_dir == null and tp.env.get().is("enable_vcs_watcher"))
-            git.git_dirs(@intFromPtr(self)) catch {};
+            git.git_dirs(@intFromPtr(self), self.vcs_dir()) catch {};
     } else if (try m.match(.{ tp.any, tp.any, "git_dirs", tp.extract(&value) })) {
         const dir = convert_path(try self.allocator.dupe(u8, value));
         if (self.git_dir == null) {
@@ -1987,9 +1987,9 @@ fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryEr
 
 fn add_vcs_status_file(self: *Self, xy: []const u8, sub: []const u8, path: []const u8, orig_path: []const u8) OutOfMemoryError!void {
     if (xy.len != 2 or (sub.len > 0 and sub[0] == 'S')) return; // submodules are not listed
-    const path_ = convert_path(try self.allocator.dupe(u8, path));
+    const path_ = try self.vcs_abs_path(path);
     errdefer self.allocator.free(path_);
-    const orig_path_ = if (orig_path.len > 0) convert_path(try self.allocator.dupe(u8, orig_path)) else "";
+    const orig_path_ = if (orig_path.len > 0) try self.vcs_abs_path(orig_path) else "";
     errdefer self.allocator.free(orig_path_);
     (try self.vcs_status_files_next.addOne(self.allocator)).* = .{
         .path = path_,
@@ -1999,6 +1999,24 @@ fn add_vcs_status_file(self: *Self, xy: []const u8, sub: []const u8, path: []con
     };
 }
 
+/// git runs in the repository root, or in the project if it is not in a repository
+fn vcs_dir(self: *const Self) []const u8 {
+    return self.workspace orelse self.name;
+}
+
+/// editor paths are relative to the project
+fn abs_path(self: *const Self, file_path: []const u8) error{OutOfMemory}![]const u8 {
+    if (std.fs.path.isAbsolute(file_path)) return self.allocator.dupe(u8, file_path);
+    return std.fs.path.join(self.allocator, &.{ self.name, file_path });
+}
+
+/// git status paths are relative to the repository root
+fn vcs_abs_path(self: *const Self, path: []const u8) error{OutOfMemory}![]const u8 {
+    const rel = convert_path(try self.allocator.dupe(u8, path));
+    defer self.allocator.free(rel);
+    return std.fs.path.join(self.allocator, &.{ self.vcs_dir(), rel });
+}
+
 pub fn request_vcs_id(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
     const request = try self.allocator.create(VcsIdRequest);
     request.* = .{
@@ -2006,7 +2024,9 @@ pub fn request_vcs_id(self: *Self, file_path: []const u8) error{OutOfMemory}!voi
         .project = @intFromPtr(self),
         .file_path = try self.allocator.dupe(u8, file_path),
     };
-    git.rev_parse(@intFromPtr(request), "HEAD", file_path) catch |e|
+    const path = try self.abs_path(file_path);
+    defer self.allocator.free(path);
+    git.rev_parse(@intFromPtr(request), self.vcs_dir(), "HEAD", path) catch |e|
         self.logger_git.print_err("rev-parse", "failed: {t}", .{e});
 }
 
@@ -2030,7 +2050,7 @@ pub fn request_vcs_content(self: *Self, file_path: []const u8, vcs_id: []const u
         .file_path = try self.allocator.dupe(u8, file_path),
         .vcs_id = try self.allocator.dupe(u8, vcs_id),
     };
-    git.cat_file(@intFromPtr(request), vcs_id) catch |e|
+    git.cat_file(@intFromPtr(request), self.vcs_dir(), vcs_id) catch |e|
         self.logger_git.print_err("cat-file", "failed: {t}", .{e});
 }
 
@@ -2054,7 +2074,7 @@ pub fn request_vcs_first_change(self: *Self, file_path: []const u8, staged: bool
         .project = @intFromPtr(self),
         .file_path = try self.allocator.dupe(u8, file_path),
     };
-    git.first_change(@intFromPtr(request), staged, file_path) catch |e| {
+    git.first_change(@intFromPtr(request), self.vcs_dir(), staged, file_path) catch |e| {
         self.logger_git.print_err("diff", "failed: {t}", .{e});
         request.deinit();
     };
@@ -2082,7 +2102,7 @@ pub fn request_vcs_diff(self: *Self, file_path: []const u8, orig_path: []const u
         .file_path = try self.allocator.dupe(u8, file_path),
         .mode = mode,
     };
-    git.diff(@intFromPtr(request), mode, file_path, orig_path, context_lines) catch |e| {
+    git.diff(@intFromPtr(request), self.vcs_dir(), mode, file_path, orig_path, context_lines) catch |e| {
         self.logger_git.print_err("diff", "failed: {t}", .{e});
         request.deinit();
     };
@@ -2113,7 +2133,7 @@ pub fn request_vcs_update_index(self: *Self, update: VcsIndexUpdate, file_paths:
         .unstage => if (initial) .unstage_initial else .unstage,
         .revert => .revert,
     };
-    git.update_index(@intFromPtr(request), git_update, file_paths) catch |e| {
+    git.update_index(@intFromPtr(request), self.vcs_dir(), git_update, file_paths) catch |e| {
         self.logger_git.print_err("update-index", "failed: {t}", .{e});
         request.deinit();
     };
@@ -2127,7 +2147,7 @@ pub fn request_vcs_apply_patch(self: *Self, update: VcsIndexUpdate, patch: []con
         .unstage => .unstage,
         .revert => .revert,
     };
-    git.apply_patch(@intFromPtr(request), git_update, patch) catch |e| {
+    git.apply_patch(@intFromPtr(request), self.vcs_dir(), git_update, patch) catch |e| {
         self.logger_git.print_err("apply", "failed: {t}", .{e});
         request.deinit();
     };
@@ -2172,7 +2192,7 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     } else if (try m.match(.{ tp.any, tp.extract(&context), "ls_tree", tp.null_ })) {
         const request: *VcsFileStateRequest = @ptrFromInt(context);
         if (request.state == .unversioned) return request.done(parent);
-        git.file_status(context, request.file_path) catch {
+        git.file_status(context, self.vcs_dir(), request.file_path) catch {
             request.state = .modified;
             request.done(parent);
         };
@@ -2222,9 +2242,9 @@ pub fn request_vcs_file_state(self: *Self, from: tp.pid_ref, id: usize, file_pat
         .allocator = self.allocator,
         .project = @intFromPtr(self),
         .id = id,
-        .file_path = try self.allocator.dupe(u8, file_path),
+        .file_path = try self.abs_path(file_path),
     };
-    git.ls_tree(@intFromPtr(request), "HEAD", file_path) catch request.done(from);
+    git.ls_tree(@intFromPtr(request), self.vcs_dir(), "HEAD", request.file_path) catch request.done(from);
 }
 
 pub const VcsFileStateRequest = struct {
@@ -2248,7 +2268,9 @@ pub fn request_vcs_blame(self: *Self, file_path: []const u8) error{OutOfMemory}!
         .project = @intFromPtr(self),
         .file_path = try self.allocator.dupe(u8, file_path),
     };
-    git.blame(@intFromPtr(request), file_path) catch |e|
+    const path = try self.abs_path(file_path);
+    defer self.allocator.free(path);
+    git.blame(@intFromPtr(request), path) catch |e|
         self.logger_git.print_err("blame", "failed: {t}", .{e});
 }
 

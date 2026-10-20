@@ -9,9 +9,9 @@ pub const Error = error{ OutOfMemory, GitNotFound, GitCallFailed, WriteFailed };
 
 const log_execute = false;
 
-pub fn workspace_path(context_: usize) Error!void {
+pub fn workspace_path(context_: usize, dir: []const u8) Error!void {
     const fn_name = @src().fn_name;
-    try git(context_, .{ "rev-parse", "--show-toplevel" }, struct {
+    try git(context_, dir, .{ "rev-parse", "--show-toplevel" }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
@@ -20,9 +20,9 @@ pub fn workspace_path(context_: usize) Error!void {
     }.result, exit_null_on_error(fn_name));
 }
 
-pub fn current_branch(context_: usize) Error!void {
+pub fn current_branch(context_: usize, dir: []const u8) Error!void {
     const fn_name = @src().fn_name;
-    try git(context_, .{ "rev-parse", "--abbrev-ref", "HEAD" }, struct {
+    try git(context_, dir, .{ "rev-parse", "--abbrev-ref", "HEAD" }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0) {
@@ -33,24 +33,27 @@ pub fn current_branch(context_: usize) Error!void {
     }.result, exit_null_on_error(fn_name));
 }
 
-pub fn workspace_files(context: usize) Error!void {
-    return if (is_file(".gitmodules"))
+pub fn workspace_files(context: usize, dir: []const u8) Error!void {
+    return if (is_file(dir, ".gitmodules"))
         git_chunk_output(
             context,
+            dir,
             @src().fn_name,
             .{ "ls-files", "--cached", "--exclude-standard", "--recurse-submodules" },
         )
     else
         git_chunk_output(
             context,
+            dir,
             @src().fn_name,
             .{ "ls-files", "--cached", "--others", "--exclude-standard" },
         );
 }
 
-pub fn workspace_ignored_files(context: usize) Error!void {
+pub fn workspace_ignored_files(context: usize, dir: []const u8) Error!void {
     return git_line_output(
         context,
+        dir,
         @src().fn_name,
         .{ "ls-files", "--cached", "--others", "--exclude-standard", "--ignored" },
     );
@@ -65,9 +68,9 @@ const StatusRecordType = enum {
     @"!", // ignored file
 };
 
-pub fn status(context_: usize) Error!void {
+pub fn status(context_: usize, dir: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git_err(context_, .{
+    try git_err(context_, dir, .{
         "--no-optional-locks",
         "status",
         "--porcelain=v2",
@@ -177,15 +180,18 @@ pub fn status(context_: usize) Error!void {
     }.result, log_err, exit_null(tag));
 }
 
-pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!void {
+pub fn rev_parse(context_: usize, dir: []const u8, rev: []const u8, file_path: []const u8) Error!void {
     const tag = @src().fn_name;
     var arg: std.Io.Writer.Allocating = .init(allocator);
     defer arg.deinit();
     if (file_path.len == 0)
         try arg.writer.print("{s}", .{rev})
-    else
-        try arg.writer.print("{s}:{s}", .{ rev, file_path });
-    try git(context_, .{ "rev-parse", arg.written() }, struct {
+    else {
+        // <rev>:<path> takes a path relative to the repository root
+        try arg.writer.print("{s}:{s}", .{ rev, relative_to(dir, file_path) });
+        if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, arg.written(), '\\', '/');
+    }
+    try git(context_, dir, .{ "rev-parse", arg.written() }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
@@ -194,9 +200,9 @@ pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!
     }.result, exit_null(tag));
 }
 
-pub fn git_dirs(context_: usize) Error!void {
+pub fn git_dirs(context_: usize, dir: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git(context_, .{ "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir" }, struct {
+    try git(context_, dir, .{ "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir" }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
@@ -205,18 +211,18 @@ pub fn git_dirs(context_: usize) Error!void {
     }.result, exit_null(tag));
 }
 
-pub fn cat_file(context_: usize, object: []const u8) Error!void {
+pub fn cat_file(context_: usize, dir: []const u8, object: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git(context_, .{ "cat-file", "-p", object }, struct {
+    try git(context_, dir, .{ "cat-file", "-p", object }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             parent.send(.{ module_name, context, tag, output }) catch {};
         }
     }.result, exit_null(tag));
 }
 
-pub fn ls_tree(context_: usize, rev: []const u8, file_path: []const u8) Error!void {
+pub fn ls_tree(context_: usize, dir: []const u8, rev: []const u8, file_path: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git(context_, .{ "ls-tree", "--name-only", rev, "--", file_path }, struct {
+    try git(context_, dir, .{ "ls-tree", "--name-only", rev, "--", file_path }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
@@ -225,9 +231,9 @@ pub fn ls_tree(context_: usize, rev: []const u8, file_path: []const u8) Error!vo
     }.result, exit_null(tag));
 }
 
-pub fn file_status(context_: usize, file_path: []const u8) Error!void {
+pub fn file_status(context_: usize, dir: []const u8, file_path: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git(context_, .{ "status", "--porcelain", "--ignored", "--untracked-files=normal", "--", file_path }, struct {
+    try git(context_, dir, .{ "status", "--porcelain", "--ignored", "--untracked-files=normal", "--", file_path }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
@@ -236,12 +242,10 @@ pub fn file_status(context_: usize, file_path: []const u8) Error!void {
     }.result, exit_null(tag));
 }
 
-pub fn first_change(context_: usize, staged: bool, file_path: []const u8) Error!void {
+pub fn first_change(context_: usize, dir: []const u8, staged: bool, file_path: []const u8) Error!void {
     const tag = @src().fn_name;
-    var pathspec: std.Io.Writer.Allocating = .init(allocator);
-    defer pathspec.deinit();
-    try pathspec.writer.print(":(top,literal){s}", .{file_path});
-    if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec.written(), '\\', '/');
+    const pathspec = try literal_pathspec(file_path);
+    defer allocator.free(pathspec);
     const handler = struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
@@ -250,14 +254,14 @@ pub fn first_change(context_: usize, staged: bool, file_path: []const u8) Error!
         }
     }.result;
     if (staged)
-        try git(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--cached", "--", pathspec.written() }, handler, exit_null(tag))
+        try git(context_, dir, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--cached", "--", pathspec }, handler, exit_null(tag))
     else
-        try git(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--", pathspec.written() }, handler, exit_null(tag));
+        try git(context_, dir, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--", pathspec }, handler, exit_null(tag));
 }
 
 pub const IndexUpdate = enum { stage, unstage, unstage_initial, revert };
 
-pub fn update_index(context_: usize, update: IndexUpdate, file_paths: []const []const u8) Error!void {
+pub fn update_index(context_: usize, dir: []const u8, update: IndexUpdate, file_paths: []const []const u8) Error!void {
     const tag = @src().fn_name;
     const cmd: []const []const u8 = switch (update) {
         .stage => &.{ "add", "--" },
@@ -272,29 +276,24 @@ pub fn update_index(context_: usize, update: IndexUpdate, file_paths: []const []
     }
     try args.appendSlice(allocator, cmd);
     for (file_paths) |file_path| {
-        const pathspec = try std.fmt.allocPrint(allocator, ":(top,literal){s}", .{file_path});
-        if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec, '\\', '/');
+        const pathspec = try literal_pathspec(file_path);
         args.append(allocator, pathspec) catch |e| {
             allocator.free(pathspec);
             return e;
         };
     }
-    try git_err(context_, @as([]const []const u8, args.items), noop, log_err, exit_result(tag));
+    try git_err(context_, dir, @as([]const []const u8, args.items), noop, log_err, exit_result(tag));
 }
 
 pub const DiffMode = enum { unstaged, staged, untracked };
 
-pub fn diff(context_: usize, mode: DiffMode, file_path: []const u8, orig_path: []const u8, context_lines: usize) Error!void {
+pub fn diff(context_: usize, dir: []const u8, mode: DiffMode, file_path: []const u8, orig_path: []const u8, context_lines: usize) Error!void {
     const tag = @src().fn_name;
-    var pathspec: std.Io.Writer.Allocating = .init(allocator);
-    defer pathspec.deinit();
-    try pathspec.writer.print(":(top,literal){s}", .{file_path});
-    if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec.written(), '\\', '/');
+    const pathspec = try literal_pathspec(file_path);
+    defer allocator.free(pathspec);
     // a rename needs both paths, or git shows the new path as a new file
-    var orig_pathspec: std.Io.Writer.Allocating = .init(allocator);
-    defer orig_pathspec.deinit();
-    try orig_pathspec.writer.print(":(top,literal){s}", .{orig_path});
-    if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, orig_pathspec.written(), '\\', '/');
+    const orig_pathspec = try literal_pathspec(orig_path);
+    defer allocator.free(orig_pathspec);
     var unified_buf: [32]u8 = undefined;
     const unified = std.fmt.bufPrint(&unified_buf, "--unified={d}", .{context_lines}) catch unreachable;
     const handler = struct {
@@ -303,24 +302,24 @@ pub fn diff(context_: usize, mode: DiffMode, file_path: []const u8, orig_path: [
         }
     }.result;
     switch (mode) {
-        .unstaged => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--", pathspec.written() }, handler, log_err, exit_null(tag)),
+        .unstaged => try git_err(context_, dir, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--", pathspec }, handler, log_err, exit_null(tag)),
         .staged => if (orig_path.len > 0)
-            try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--cached", "--find-renames", "--", pathspec.written(), orig_pathspec.written() }, handler, log_err, exit_null(tag))
+            try git_err(context_, dir, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--cached", "--find-renames", "--", pathspec, orig_pathspec }, handler, log_err, exit_null(tag))
         else
-            try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--cached", "--", pathspec.written() }, handler, log_err, exit_null(tag)),
-        .untracked => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--no-index", "--", "/dev/null", file_path }, handler, log_err, exit_null(tag)),
+            try git_err(context_, dir, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--cached", "--", pathspec }, handler, log_err, exit_null(tag)),
+        .untracked => try git_err(context_, dir, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--no-index", "--", "/dev/null", relative_to(dir, file_path) }, handler, log_err, exit_null(tag)),
     }
 }
 
 /// Returns the first new line of a hunk header: @@ -a[,b] +c[,d] @@
-pub fn apply_patch(context_: usize, update: IndexUpdate, patch: []const u8) Error!void {
+pub fn apply_patch(context_: usize, dir: []const u8, update: IndexUpdate, patch: []const u8) Error!void {
     const tag = @src().fn_name;
     const args: []const []const u8 = switch (update) {
         .stage => &.{ "apply", "--cached", "--unidiff-zero", "-" },
         .unstage, .unstage_initial => &.{ "apply", "--cached", "--unidiff-zero", "--reverse", "-" },
         .revert => &.{ "apply", "--unidiff-zero", "--reverse", "-" },
     };
-    try git_input(context_, args, patch, noop, log_err, exit_result(tag));
+    try git_input(context_, dir, args, patch, noop, log_err, exit_result(tag));
 }
 
 fn parse_hunk_line(line: []const u8) ?usize {
@@ -336,15 +335,15 @@ fn parse_hunk_line(line: []const u8) ?usize {
     return if (count == 0) start + 1 else @max(start, 1);
 }
 
-pub fn check_ignore(context_: usize, file_path: []const u8) Error!void {
+pub fn check_ignore(context_: usize, dir: []const u8, file_path: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git(context_, .{ "check-ignore", "-q", file_path }, struct {
+    try git(context_, dir, .{ "check-ignore", "-q", file_path }, struct {
         fn result(_: usize, _: tp.pid_ref, _: []const u8) void {}
     }.result, exit_result(tag));
 }
 
-fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
-    try git_err(context_, cmd, struct {
+fn git_line_output(context_: usize, dir: []const u8, comptime tag: []const u8, cmd: anytype) Error!void {
+    try git_err(context_, dir, cmd, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
@@ -353,8 +352,8 @@ fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Erro
     }.result, log_err, exit_null(tag));
 }
 
-fn git_chunk_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
-    try git_err(context_, cmd, struct {
+fn git_chunk_output(context_: usize, dir: []const u8, comptime tag: []const u8, cmd: anytype) Error!void {
+    try git_err(context_, dir, cmd, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             parent.send(.{ module_name, context, tag, output }) catch {};
         }
@@ -363,25 +362,29 @@ fn git_chunk_output(context_: usize, comptime tag: []const u8, cmd: anytype) Err
 
 fn git(
     context: usize,
+    dir: []const u8,
     cmd: anytype,
     out: OutputHandler,
     exit: ExitHandler,
 ) Error!void {
-    return git_err(context, cmd, out, noop, exit);
+    return git_err(context, dir, cmd, out, noop, exit);
 }
 
 fn git_err(
     context: usize,
+    dir: []const u8,
     cmd: anytype,
     out: OutputHandler,
     err: OutputHandler,
     exit: ExitHandler,
 ) Error!void {
-    return git_input(context, cmd, null, out, err, exit);
+    return git_input(context, dir, cmd, null, out, err, exit);
 }
 
+/// runs git in dir, so no command depends on the process working directory
 fn git_input(
     context: usize,
+    dir: []const u8,
     cmd: anytype,
     input: ?[]const u8,
     out: OutputHandler,
@@ -404,16 +407,20 @@ fn git_input(
     };
     switch (@typeInfo(@TypeOf(cmd))) {
         .@"struct" => |info| if (info.is_tuple) {
-            try cbor.writeArrayHeader(writer, info.field_names.len + 1);
+            try cbor.writeArrayHeader(writer, info.field_names.len + 3);
             try cbor.writeValue(writer, git_binary);
+            try cbor.writeValue(writer, "-C");
+            try cbor.writeValue(writer, dir);
             inline for (info.field_names) |name|
                 try cbor.writeValue(writer, @field(cmd, name));
             return execute(.{ .buf = buf.written() }, input, handlers);
         },
         .pointer => {
             const args: []const []const u8 = cmd;
-            try cbor.writeArrayHeader(writer, args.len + 1);
+            try cbor.writeArrayHeader(writer, args.len + 3);
             try cbor.writeValue(writer, git_binary);
+            try cbor.writeValue(writer, "-C");
+            try cbor.writeValue(writer, dir);
             for (args) |arg| try cbor.writeValue(writer, arg);
             return execute(.{ .buf = buf.written() }, input, handlers);
         },
@@ -466,6 +473,18 @@ fn to_shell_output_handler(handler: anytype) shell.OutputHandler {
     }.out;
 }
 
+fn literal_pathspec(file_path: []const u8) error{OutOfMemory}![]u8 {
+    const pathspec = try std.fmt.allocPrint(allocator, ":(literal){s}", .{file_path});
+    if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec, '\\', '/');
+    return pathspec;
+}
+
+fn relative_to(dir: []const u8, file_path: []const u8) []const u8 {
+    if (file_path.len <= dir.len or !std.mem.startsWith(u8, file_path, dir)) return file_path;
+    if (!std.fs.path.isSep(file_path[dir.len])) return file_path;
+    return file_path[dir.len + 1 ..];
+}
+
 fn log_err(_: usize, _: tp.pid_ref, output: []const u8) void {
     var it = std.mem.splitScalar(u8, output, '\n');
     while (it.next()) |line| if (line.len > 0)
@@ -495,23 +514,12 @@ pub fn blame(context_: usize, file_path: []const u8) !void {
     const tag = @src().fn_name;
     const dir_path = std.fs.path.dirname(file_path) orelse ".";
     const basename = std.fs.path.basename(file_path);
-
-    var arg: std.Io.Writer.Allocating = .init(allocator);
-    var arg2: std.Io.Writer.Allocating = .init(allocator);
-    defer arg.deinit();
-    defer arg2.deinit();
-
-    try arg.writer.print("{s}", .{basename});
-    try arg2.writer.print("{s}", .{dir_path});
-
-    try git(context_, .{
-        "-C",
-        arg2.written(),
+    try git(context_, dir_path, .{
         "blame",
         "--incremental",
         "HEAD",
         "--",
-        arg.written(),
+        basename,
     }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             parent.send(.{ module_name, context, tag, output }) catch {};
@@ -519,12 +527,11 @@ pub fn blame(context_: usize, file_path: []const u8) !void {
     }.result, exit_null(tag));
 }
 
-fn is_file(rel_path: []const u8) bool {
+fn is_file(dir: []const u8, rel_path: []const u8) bool {
     const io = root.get_io();
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const len = std.Io.Dir.cwd().realPathFile(io, rel_path, &path_buf) catch return false;
-    const abs_path = path_buf[0..len];
-    const file = std.Io.Dir.openFileAbsolute(io, abs_path, .{}) catch return false;
+    const path = std.fmt.bufPrint(&path_buf, "{s}{c}{s}", .{ dir, std.fs.path.sep, rel_path }) catch return false;
+    const file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch return false;
     defer file.close(io);
     return true;
 }

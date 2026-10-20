@@ -87,6 +87,7 @@ pub const ValueType = struct {
     initial_path: ?[]const u8 = null,
     goto_hunk: ?GotoHunk = null,
     context_lines: usize = 3,
+    root: []const u8 = "",
 };
 
 const GotoHunk = struct {
@@ -126,10 +127,11 @@ const Diff = struct {
             .staged => "git diff --cached",
             .unstaged, .untracked => "git diff",
         };
-        return std.fmt.allocPrint(allocator, "*{s} {s}*", .{ cmd, self.path });
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        return std.fmt.allocPrint(allocator, "*{s} {s}*", .{ cmd, project_manager.abbreviate_home(&path_buf, self.path) });
     }
 
-    /// the reverse of buffer_name; an untracked diff reads as unstaged
+    /// the reverse of buffer_name; an untracked diff reads as unstaged, and the path may start with ~
     fn from_buffer_name(buffer_name_: []const u8) ?Diff {
         if (buffer_name_.len < 2 or buffer_name_[0] != '*' or buffer_name_[buffer_name_.len - 1] != '*') return null;
         const inner = buffer_name_[1 .. buffer_name_.len - 1];
@@ -141,19 +143,36 @@ const Diff = struct {
     }
 };
 
+/// git paths are absolute, editor paths are relative to the project, and diff buffer names abbreviate the home directory
+fn abs_path(allocator: std.mem.Allocator, file_path: []const u8) error{OutOfMemory}![]const u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(allocator);
+    const path = project_manager.expand_home(allocator, &buf, file_path);
+    if (std.fs.path.isAbsolute(path)) return allocator.dupe(u8, path);
+    return std.fs.path.join(allocator, &.{ tp.env.get().str("project"), path });
+}
+
+/// the path of a file relative to the repository root
+fn display_path(palette: *Type, path: []const u8) []const u8 {
+    const repo_root = palette.value.root;
+    if (repo_root.len == 0 or path.len <= repo_root.len or !std.mem.startsWith(u8, path, repo_root)) return path;
+    if (!std.fs.path.isSep(path[repo_root.len])) return path;
+    return path[repo_root.len + 1 ..];
+}
+
 pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
     tui.message_filters().add(MessageFilter.bind(palette, receive_project_manager)) catch {};
     if (ctx.args.buf.len != 0)
         try restore(palette, ctx)
     else if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
         if (Diff.from_buffer_name(file_path)) |diff| {
-            palette.value.initial_path = try palette.allocator.dupe(u8, diff.path);
+            palette.value.initial_path = try abs_path(palette.allocator, diff.path);
             palette.value.goto_hunk = .{
-                .path = try palette.allocator.dupe(u8, diff.path),
+                .path = try abs_path(palette.allocator, diff.path),
                 .section = if (diff.mode == .staged) .staged else null,
                 .location = .{ .diff_line = editor.get_primary().cursor.row + 1 },
             };
-        } else palette.value.initial_path = try palette.allocator.dupe(u8, file_path);
+        } else palette.value.initial_path = try abs_path(palette.allocator, file_path);
     };
     try project_manager.request_vcs_status_files();
     project_manager.request_vcs_status() catch {};
@@ -197,6 +216,7 @@ pub fn deinit(palette: *Type) void {
     if (palette.value.pending_open) |path| palette.allocator.free(path);
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     if (palette.value.shown_diff) |diff| palette.allocator.free(diff.path);
+    palette.allocator.free(palette.value.root);
     clear_goto_hunk(palette);
     clear_pending_target(palette);
     clear_restore_target(palette);
@@ -236,8 +256,8 @@ fn restore(palette: *Type, ctx: command.Context) !void {
     if (try ctx.args.match(.{ tp.extract(&path), tp.extract(&line) })) {
         clear_restore_target(palette);
         clear_goto_hunk(palette);
-        palette.value.initial_path = try palette.allocator.dupe(u8, path);
-        palette.value.goto_hunk = .{ .path = try palette.allocator.dupe(u8, path), .location = .{ .file_line = line } };
+        palette.value.initial_path = try abs_path(palette.allocator, path);
+        palette.value.goto_hunk = .{ .path = try abs_path(palette.allocator, path), .location = .{ .file_line = line } };
         return;
     }
     var context_lines: usize = undefined;
@@ -381,6 +401,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     var exit_code: i64 = undefined;
     var diff_mode: project_manager.VcsDiffMode = undefined;
     var diff_output: []const u8 = undefined;
+    var repo_root: []const u8 = undefined;
 
     if (try cbor.match(m.buf, .{
         "PRJ",
@@ -406,7 +427,12 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
             palette.value.pending_target_done = true
         else
             clear_pending_target(palette);
-    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_status_files_done" })) {
+    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_status_files_done", tp.extract(&repo_root) })) {
+        if (!std.mem.eql(u8, palette.value.root, repo_root)) {
+            const root_ = try palette.allocator.dupe(u8, repo_root);
+            palette.allocator.free(palette.value.root);
+            palette.value.root = root_;
+        }
         clear_files(palette, &palette.value.files);
         std.mem.swap(std.ArrayList(File), &palette.value.files, &palette.value.files_next);
         palette.value.diff_stale = true;
@@ -532,7 +558,7 @@ fn first_file(palette: *Type) usize {
 
 fn append_entry(palette: *Type, file: *const File, section: Section, status: u8) !void {
     const allocator = palette.allocator;
-    const display = try allocator.dupe(u8, file.path);
+    const display = try allocator.dupe(u8, display_path(palette, file.path));
     errdefer allocator.free(display);
     const path = try allocator.dupe(u8, file.path);
     errdefer allocator.free(path);
@@ -1010,11 +1036,11 @@ fn revert(palette: *Type) !void {
     };
     var message_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
     const message = switch (kind) {
-        .file => std.fmt.bufPrint(&message_buf, "Revert all unstaged changes?\n{s}", .{entry.path}),
-        .hunk => std.fmt.bufPrint(&message_buf, "Revert this hunk?\n{s}", .{entry.path}),
+        .file => std.fmt.bufPrint(&message_buf, "Revert all unstaged changes?\n{s}", .{display_path(palette, entry.path)}),
+        .hunk => std.fmt.bufPrint(&message_buf, "Revert this hunk?\n{s}", .{display_path(palette, entry.path)}),
         .untracked => std.fmt.bufPrint(&message_buf, "Delete untracked {s}?\n{s}", .{
             if (std.mem.endsWith(u8, entry.path, "/")) "directory" else "file",
-            entry.path,
+            display_path(palette, entry.path),
         }),
     } catch entry.path;
 
