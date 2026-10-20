@@ -2140,6 +2140,10 @@ const cmds = struct {
     pub const last_palette_meta: Meta = .{ .description = "Open last used palette" };
 
     pub fn show_vcs_status(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var line: usize = undefined;
+        if (try ctx.args.match(.{ tp.extract(&file_path), tp.extract(&line) }))
+            return self.enter_overlay_mode_with_args(@import("mode/overlay/vcs_status.zig").Type, ctx);
         return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig").Type, ctx);
     }
     pub const show_vcs_status_meta: Meta = .{ .description = "Show git status" };

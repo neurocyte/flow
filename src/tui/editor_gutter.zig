@@ -41,6 +41,7 @@ width: usize,
 editor: *ed.Editor,
 editor_widget: ?Widget = null,
 indicator_hover: bool = false,
+change_hover: ?Diff = null,
 differ: diff.AsyncDiffer,
 
 const Self = @This();
@@ -104,11 +105,11 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var hover: bool = false;
 
     if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.any })) {
-        self.set_indicator_hover(self.is_code_action_indicator(coord));
+        self.set_hover(self.is_code_action_indicator(coord), self.change_at(coord));
         return false;
     }
     if (try m.match(.{ "H", tp.extract(&hover) })) {
-        if (!hover) self.set_indicator_hover(false);
+        if (!hover) self.set_hover(false, null);
         return false;
     }
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
@@ -370,10 +371,11 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Diff, pos: usize, li
 }
 
 inline fn render_diff(self: *Self, sym: Diff, pos: usize, linenum: usize, theme: *const Widget.Theme) void {
+    const hover = is_same_change(self.change_hover, sym);
     const char = switch (sym.kind) {
-        .insert => "┃",
-        .modify => "┃",
-        .delete => "▔",
+        .insert => if (hover) "▐" else "┃",
+        .modify => if (hover) "▐" else "┃",
+        .delete => if (hover) "▀" else "▔",
     };
 
     const end = diff_symbol_end(sym);
@@ -455,6 +457,7 @@ fn editor_row(self: *Self, coord: MouseEvent.Coord) i32 {
 fn primary_click(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
     self.focus_editor();
     if (self.is_code_action_indicator(coord)) return true;
+    if (self.change_at(coord)) |_| return true;
     var line = self.view_top + 1;
     line += @intCast(self.editor_row(coord));
     if (line > self.lines) line = self.lines;
@@ -490,17 +493,41 @@ fn is_code_action_indicator(self: *const Self, coord: MouseEvent.Coord) bool {
     return cell.col == 0 and cell.row == y;
 }
 
-fn set_indicator_hover(self: *Self, hover: bool) void {
-    if (self.indicator_hover == hover) return;
-    self.indicator_hover = hover;
-    tui.rdr().request_mouse_cursor_pointer(hover);
+/// the change whose diff symbol is under the mouse
+fn change_at(self: *const Self, coord: MouseEvent.Coord) ?Diff {
+    if (!tui.config().gutter_diffs) return null;
+    const cell = coord.to_cell(self.plane.mouse_geometry());
+    if (cell.row < 0 or cell.col < 0 or cell.col != @as(i32, self.plane.dim_x()) - 1) return null;
+    const row = self.view_top + @as(usize, @intCast(cell.row));
+    for (self.editor.changes.items) |change|
+        if (change.line <= row and row < diff_symbol_end(change)) return change;
+    return null;
+}
+
+fn is_same_change(a_: ?Diff, b: Diff) bool {
+    const a = a_ orelse return false;
+    return a.kind == b.kind and a.line == b.line and a.lines == b.lines;
+}
+
+fn set_hover(self: *Self, indicator: bool, change: ?Diff) void {
+    const same_change = if (change) |c| is_same_change(self.change_hover, c) else self.change_hover == null;
+    if (self.indicator_hover == indicator and same_change) return;
+    self.indicator_hover = indicator;
+    self.change_hover = change;
+    tui.rdr().request_mouse_cursor_pointer(indicator or change != null);
     tui.need_render(@src());
 }
 
-// the menu opens on release, a release on an open menu would close it again
+// the menu and the vcs status overlay open on release, a release on an open menu would close it again
 fn primary_release(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
-    if (!self.is_code_action_indicator(coord)) return false;
-    try command.executeName("code_action", .empty());
+    if (self.is_code_action_indicator(coord)) {
+        try command.executeName("code_action", .empty());
+        return true;
+    }
+    const change = self.change_at(coord) orelse return false;
+    const file_path = self.editor.file_path orelse return false;
+    self.set_hover(false, null);
+    try command.executeName("show_vcs_status", command.fmt(.{ file_path, change.line + 1 }));
     return true;
 }
 
