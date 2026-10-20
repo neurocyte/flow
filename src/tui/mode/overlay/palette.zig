@@ -76,6 +76,8 @@ pub fn Create(options: type) type {
         const has_activate_query = @hasDecl(options, "activate_query");
         const has_skip_entry = @hasDecl(options, "skip_entry");
         const has_insert = @hasDecl(options, "insert");
+        const has_is_selectable = @hasDecl(options, "is_selectable");
+        const no_query = @hasDecl(options, "no_query") and options.no_query;
 
         pub const ListBoxType = ListBox.Options(*Self).ListBoxType;
         pub const ButtonType = ListBoxType.ButtonType;
@@ -124,6 +126,7 @@ pub fn Create(options: type) type {
                     .label = options.label,
                     .padding = 2,
                     .icon = if (@hasDecl(options, "icon")) options.icon else null,
+                    .on_render = if (no_query) on_render_inputbox_no_query else InputBox.Options(*Self).on_render_default,
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = .empty,
@@ -216,6 +219,23 @@ pub fn Create(options: type) type {
                     tui.render_match_cell(&button.plane, 0, index + 2, theme) catch break;
                 } else break;
             }
+            return false;
+        }
+
+        fn on_render_inputbox_no_query(_: *Self, inputbox: *InputBox.State(*Self), theme: *const Widget.Theme) bool {
+            const plane = &inputbox.plane;
+            plane.set_base_style(theme.editor_widget);
+            plane.erase();
+            plane.home();
+            plane.set_style(theme.input);
+            plane.fill(" ");
+            if (inputbox.hint.items.len > 0) {
+                plane.set_style(theme.input_placeholder);
+                _ = plane.print_aligned_right(0, "{s} ", .{inputbox.hint.items}) catch {};
+                plane.set_style(theme.input);
+            }
+            plane.cursor_move_yx(0, inputbox.opts.padding);
+            _ = plane.print("{s}{s} ", .{ inputbox.mini_editor.prefix.items, inputbox.label.items }) catch {};
             return false;
         }
 
@@ -520,30 +540,35 @@ pub fn Create(options: type) type {
         }
 
         fn delete_word(self: *Self) !void {
+            if (no_query) return;
             try self.inputbox.mini_editor.buffer.delete_word_left();
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn delete_code_point(self: *Self) !void {
+            if (no_query) return;
             try self.inputbox.mini_editor.buffer.delete_backward();
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn insert_code_point(self: *Self, c: u32) !void {
+            if (no_query) return;
             try self.inputbox.mini_editor.buffer.insert_code_point(@intCast(c));
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn insert_bytes(self: *Self, bytes: []const u8) !void {
+            if (no_query) return;
             try self.inputbox.mini_editor.buffer.insert(bytes);
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn paste_bytes(self: *Self, bytes: []const u8) !void {
+            if (no_query) return;
             try self.inputbox.mini_editor.buffer.paste(bytes);
             self.view_pos = 0;
             return self.start_query(0);
@@ -583,6 +608,72 @@ pub fn Create(options: type) type {
                 self.start_query(idx - self.view_pos - 1) catch {};
         }
 
+        const Direction = enum { up, down };
+
+        fn selected_is_selectable(self: *Self) bool {
+            if (!has_is_selectable) return true;
+            const selected = self.list_box.selected orelse return true;
+            const pos = selected + self.list_box.header_count;
+            if (pos >= self.list_box.list.widgets.items.len) return true;
+            const button = self.list_box.list.widgets.items[pos].widget.dynamic_cast(ButtonType) orelse return true;
+            return options.is_selectable(button);
+        }
+
+        fn selection_pos(self: *Self) usize {
+            return self.view_pos + (self.list_box.selected orelse 0);
+        }
+
+        fn menu_move(self: *Self, direction: Direction) !bool {
+            const pos = self.selection_pos();
+            switch (direction) {
+                .down => try self.menu_down(),
+                .up => try self.menu_up(),
+            }
+            return self.selection_pos() != pos;
+        }
+
+        fn skip_unselectable(self: *Self, direction: Direction) !void {
+            if (!has_is_selectable) return;
+            while (!self.selected_is_selectable())
+                if (!try self.menu_move(direction)) break;
+            const reverse: Direction = switch (direction) {
+                .down => .up,
+                .up => .down,
+            };
+            while (!self.selected_is_selectable())
+                if (!try self.menu_move(reverse)) break;
+        }
+
+        fn menu_down(self: *Self) !void {
+            if (!async_query) if (self.list_box.selected) |selected| {
+                if (selected == self.view_rows - 1 and
+                    self.view_pos + self.view_rows < self.total_items)
+                {
+                    self.view_pos += 1;
+                    try self.start_query(0);
+                    self.list_box.select_last();
+                    self.selection_updated();
+                    return;
+                }
+            };
+            self.list_box.select_down();
+            self.selection_updated();
+        }
+
+        fn menu_up(self: *Self) !void {
+            if (!async_query) if (self.list_box.selected) |selected| {
+                if (selected == 0 and self.view_pos > 0) {
+                    self.view_pos -= 1;
+                    try self.start_query(0);
+                    self.list_box.select_first();
+                    self.selection_updated();
+                    return;
+                }
+            };
+            self.list_box.select_up();
+            self.selection_updated();
+        }
+
         const cmds = struct {
             pub const Target = Self;
             const Ctx = command.Context;
@@ -613,34 +704,14 @@ pub fn Create(options: type) type {
             pub const palette_if_match_meta: Meta = .{};
 
             pub fn palette_menu_down(self: *Self, _: Ctx) Result {
-                if (!async_query) if (self.list_box.selected) |selected| {
-                    if (selected == self.view_rows - 1 and
-                        self.view_pos + self.view_rows < self.total_items)
-                    {
-                        self.view_pos += 1;
-                        try self.start_query(0);
-                        self.list_box.select_last();
-                        self.selection_updated();
-                        return;
-                    }
-                };
-                self.list_box.select_down();
-                self.selection_updated();
+                try self.menu_down();
+                try self.skip_unselectable(.down);
             }
             pub const palette_menu_down_meta: Meta = .{};
 
             pub fn palette_menu_up(self: *Self, _: Ctx) Result {
-                if (!async_query) if (self.list_box.selected) |selected| {
-                    if (selected == 0 and self.view_pos > 0) {
-                        self.view_pos -= 1;
-                        try self.start_query(0);
-                        self.list_box.select_first();
-                        self.selection_updated();
-                        return;
-                    }
-                };
-                self.list_box.select_up();
-                self.selection_updated();
+                try self.menu_up();
+                try self.skip_unselectable(.up);
             }
             pub const palette_menu_up_meta: Meta = .{};
 
@@ -665,6 +736,7 @@ pub fn Create(options: type) type {
                 }
                 self.list_box.select_last();
                 self.selection_updated();
+                try self.skip_unselectable(.down);
             }
             pub const palette_menu_pagedown_meta: Meta = .{};
 
@@ -678,6 +750,7 @@ pub fn Create(options: type) type {
                 }
                 self.list_box.select_first();
                 self.selection_updated();
+                try self.skip_unselectable(.up);
             }
             pub const palette_menu_pageup_meta: Meta = .{};
 
@@ -690,6 +763,7 @@ pub fn Create(options: type) type {
                 }
                 self.list_box.select_last();
                 self.selection_updated();
+                try self.skip_unselectable(.up);
             }
             pub const palette_menu_bottom_meta: Meta = .{};
 
@@ -700,6 +774,7 @@ pub fn Create(options: type) type {
                 }
                 self.list_box.select_first();
                 self.selection_updated();
+                try self.skip_unselectable(.down);
             }
             pub const palette_menu_top_meta: Meta = .{};
 
