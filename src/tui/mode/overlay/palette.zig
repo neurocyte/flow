@@ -26,6 +26,7 @@ pub const Placement = enum {
     top_center,
     top_left,
     top_right,
+    bottom_right,
     center,
     primary_cursor,
     panel,
@@ -35,6 +36,7 @@ pub const Placement = enum {
             .top_center => .top_center,
             .top_left => .top_left,
             .top_right => .top_right,
+            .bottom_right => .bottom_right,
             .center => .center,
         };
     }
@@ -138,6 +140,8 @@ pub fn Create(options: type) type {
                 }),
                 .placement = if (@hasDecl(options, "placement"))
                     options.placement
+                else if (@hasDecl(options, "placement_config"))
+                    Placement.from_config(@field(tui.config(), options.placement_config))
                 else
                     Placement.from_config(tui.config().palette_placement),
             };
@@ -255,6 +259,7 @@ pub fn Create(options: type) type {
                 .top_center => self.prepare_resize_top_center(screen, w),
                 .top_left => self.prepare_resize_top_left(screen, w),
                 .top_right => self.prepare_resize_top_right(screen, w, padding),
+                .bottom_right => self.prepare_resize_bottom_right(screen, w, padding),
                 .center => self.prepare_resize_center(screen, w),
                 .primary_cursor => self.prepare_resize_primary_cursor(screen, w, padding),
                 .panel => self.prepare_resize_panel(screen, w, padding),
@@ -296,6 +301,41 @@ pub fn Create(options: type) type {
                 return self.prepare_resize_at_x(screen, w, @min(x, right_edge));
             };
             return self.prepare_resize_at_x(screen, w, x);
+        }
+
+        fn prepare_resize_bottom_right(self: *Self, screen: Widget.Box, w: usize, padding: Widget.Style.Margin) Widget.Box {
+            const mv = tui.mainview() orelse return self.prepare_resize_top_right(screen, w, padding);
+            const area = mv.editor_area_frame(); // absolute pixel extent of the editor area
+            const root = tui.plane();
+            const cw: i32 = root.cell_x();
+            const ch: i32 = root.cell_y();
+
+            const pad_l: i32 = @intCast(padding.left);
+            const pad_r: i32 = @intCast(padding.right);
+            const pad_t: i32 = @intCast(padding.top);
+            const pad_b: i32 = @intCast(padding.bottom);
+            const area_rows: usize = @intCast(@max(0, @divFloor(area.h, ch) - pad_t - pad_b));
+            const avail_rows = @min(area_rows, get_view_rows(screen));
+            self.view_rows = avail_rows -| self.list_box.header_count;
+            const content_rows: usize = if (async_query)
+                avail_rows
+            else
+                @min(self.items + self.list_box.header_count, avail_rows);
+
+            const content_w_px: i32 = @as(i32, @intCast(w)) * cw;
+            const content_h_px: i32 = @as(i32, @intCast(content_rows)) * ch;
+            const frame_w: i32 = content_w_px + (pad_l + pad_r) * cw;
+            const frame_h: i32 = content_h_px + (pad_t + pad_b) * ch;
+            return .{
+                .w = w,
+                .h = content_rows,
+                .frame = .{
+                    .x = @max(area.x, area.x + area.w - frame_w),
+                    .y = @max(area.y, area.y + area.h - frame_h),
+                    .w = frame_w,
+                    .h = frame_h,
+                },
+            };
         }
 
         fn prepare_resize_panel(self: *Self, screen: Widget.Box, w: usize, padding: Widget.Style.Margin) Widget.Box {

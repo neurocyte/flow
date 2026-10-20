@@ -109,6 +109,7 @@ info_box_style: WidgetStyle = .bar_left_spacious,
 info_box_width_limit: usize = 80,
 
 palette_placement: PalettePlacement = .top_center,
+vcs_status_placement: PalettePlacement = .bottom_right,
 palette_opacity: f32 = 0.75,
 
 show_menu: ShowMenu = .left,
@@ -341,6 +342,7 @@ pub const PalettePlacement = enum {
     top_center,
     top_left,
     top_right,
+    bottom_right,
     center,
 };
 

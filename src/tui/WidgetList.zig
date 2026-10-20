@@ -296,6 +296,24 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
 
     const cw = self.plane.cell_x();
     const ch = self.plane.cell_y();
+    const frame = self.trailing_frame(client_box, trailing_count);
+    target.x = @divFloor(frame.x, cw);
+    target.xoffset = @intCast(@mod(frame.x, cw));
+    target.y = @divFloor(frame.y, ch);
+    target.yoffset = @intCast(@mod(frame.y, ch));
+    return target;
+}
+
+pub fn trailing_frame_px(self: *Self) ?Layer.Frame {
+    const trailing_count = self.count_trailing_statics();
+    if (trailing_count == 0) return null;
+    const client_box = self.deco_box.to_client_box(tui.get_widget_style(self.widget_type).padding);
+    return self.trailing_frame(&client_box, trailing_count);
+}
+
+fn trailing_frame(self: *Self, client_box: *const Widget.Box, trailing_count: usize) Layer.Frame {
+    const cw = self.plane.cell_x();
+    const ch = self.plane.cell_y();
 
     var base_x: i32 = 0;
     var base_y: i32 = 0;
@@ -317,16 +335,10 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
             .{ .x = base_x + loc_a * cw, .y = base_y + loc_b * ch, .w = trailing_cells * cw, .h = size_b * ch },
         },
     };
-    const frame = if (trailing_cells >= size_a) content else switch (self.direction) {
+    return if (trailing_cells >= size_a) content else switch (self.direction) {
         .vertical => content.align_bottom(list_frame),
         .horizontal => content.align_right(list_frame),
     };
-
-    target.x = @divFloor(frame.x, cw);
-    target.xoffset = @intCast(@mod(frame.x, cw));
-    target.y = @divFloor(frame.y, ch);
-    target.yoffset = @intCast(@mod(frame.y, ch));
-    return target;
 }
 
 fn sum_trailing_cells(self: *const Self, trailing_count: usize) usize {

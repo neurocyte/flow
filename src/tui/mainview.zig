@@ -363,6 +363,14 @@ pub fn box(self: *const Self) Box {
     return Box.from(self.plane);
 }
 
+pub fn editor_area_frame(self: *const Self) Layer.Frame {
+    const views = self.views_widget.plane.frame();
+    const panes = self.panes_widget.plane.frame();
+    const bar_offset: i32 = if (self.bottom_bar) |bar| if (bar.dynamic_cast(tui.WidgetLayerBox)) |layer| layer.offset_px_y else 0 else 0;
+    const bottom = if (self.widgets.trailing_frame_px()) |trailing| trailing.y + bar_offset else panes.y + panes.h;
+    return .{ .x = views.x, .y = panes.y, .w = views.w, .h = bottom - panes.y };
+}
+
 pub fn active_panel_plane(self: *const Self) ?Plane {
     return self.bottom_area.active_plane();
 }
