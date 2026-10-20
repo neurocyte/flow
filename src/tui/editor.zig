@@ -1829,14 +1829,18 @@ pub const Editor = struct {
                 var sel = ctx.pos_cache.from_pos(range, ctx.root, ctx.self.metrics);
 
                 if (idx > 0) return;
+
+                ctx.clamp_to_view(&sel.begin);
+                ctx.clamp_to_view(&sel.end);
+
+                if (range.start_point.column == 0) if (diff_line_style(ctx.theme, scope)) |line_style|
+                    try ctx.render_line_bg(sel, line_style);
+
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
 
                 // nvim style ranking
                 const rank: i64 = (@as(i64, priority) << 32) | @as(i64, pattern_index);
-
-                ctx.clamp_to_view(&sel.begin);
-                ctx.clamp_to_view(&sel.end);
 
                 for (sel.begin.row..sel.end.row + 1) |row| {
                     const begin_col = if (row == sel.begin.row) sel.begin.col else ctx.self.view.col;
@@ -1851,6 +1855,24 @@ pub const Editor = struct {
                         if (rank < ctx.rank[i]) continue;
                         ctx.rank[i] = rank;
                         try ctx.render_cell(y, x_, style);
+                    }
+                }
+            }
+            fn diff_line_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Style {
+                if (std.mem.eql(u8, scope, "diff.plus")) return theme_.diff_editor_inserted_line;
+                if (std.mem.eql(u8, scope, "diff.minus")) return theme_.diff_editor_removed_line;
+                return null;
+            }
+            fn render_line_bg(ctx: *@This(), sel: Selection, style: Widget.Theme.Style) !void {
+                for (sel.begin.row..sel.end.row + 1) |row| {
+                    const y = row - ctx.self.view.row;
+                    if (y >= ctx.self.view.rows) continue;
+                    for (0..ctx.self.view.cols) |x| {
+                        ctx.self.plane.cursor_move_yx(@intCast(y), @intCast(x));
+                        var cell = ctx.self.plane.cell_init();
+                        _ = ctx.self.plane.at_cursor_cell(&cell) catch return;
+                        cell.set_style_bg(style);
+                        _ = ctx.self.plane.putc(&cell) catch {};
                     }
                 }
             }
