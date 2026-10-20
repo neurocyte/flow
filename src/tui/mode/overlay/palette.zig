@@ -130,7 +130,7 @@ pub fn Create(options: type) type {
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = .empty,
-                .mode = try keybind.mode("overlay/palette", allocator, .{
+                .mode = try keybind.mode(if (@hasDecl(options, "keybind_mode")) options.keybind_mode else "overlay/palette", allocator, .{
                     .insert_command = "overlay_insert_bytes",
                 }),
                 .placement = if (@hasDecl(options, "placement"))
