@@ -710,7 +710,14 @@ fn request_diff(palette: *Type, file_path: []const u8, mode: project_manager.Vcs
     const path = palette.allocator.dupe(u8, file_path) catch |e| return palette.logger.err(module_name, e);
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     palette.value.pending_diff = .{ .path = path, .mode = mode };
-    project_manager.request_vcs_diff(path, mode, palette.value.context_lines) catch |e| palette.logger.err(module_name, e);
+    project_manager.request_vcs_diff(path, orig_path_of(palette, path, mode), mode, palette.value.context_lines) catch |e| palette.logger.err(module_name, e);
+}
+
+fn orig_path_of(palette: *Type, path: []const u8, mode: project_manager.VcsDiffMode) []const u8 {
+    if (mode != .staged) return "";
+    for (palette.value.files.items) |*file|
+        if (std.mem.eql(u8, file.path, path)) return file.orig_path;
+    return "";
 }
 
 const ContextChange = enum { more_context, less_context };
@@ -758,6 +765,8 @@ fn update_hunks(palette: *Type, mode: project_manager.VcsDiffMode, output: []con
 
 fn parse_hunks(palette: *Type, output: []const u8) !void {
     var header: []const u8 = output;
+    var plain_header: ?[]const u8 = null;
+    defer if (plain_header) |h| palette.allocator.free(h);
     var hunk_start: ?usize = null;
     var hunk_line: usize = 0;
     var line_no: usize = 1;
@@ -767,14 +776,30 @@ fn parse_hunks(palette: *Type, output: []const u8) !void {
         if (std.mem.startsWith(u8, output[pos..end], "@@ ")) {
             if (hunk_start) |start|
                 try add_hunk(palette, header, output[start..pos], hunk_line)
-            else
+            else {
                 header = output[0..pos];
+                plain_header = try rename_free_header(palette.allocator, header);
+                if (plain_header) |h| header = h;
+            }
             hunk_start = pos;
             hunk_line = line_no;
         }
         pos = end;
     }
     if (hunk_start) |start| try add_hunk(palette, header, output[start..], hunk_line);
+}
+
+// a hunk of a rename gets a plain header for the new path, so applying it does not revert the rename
+fn rename_free_header(allocator: std.mem.Allocator, header: []const u8) !?[]const u8 {
+    if (std.mem.indexOf(u8, header, "\nrename from ") == null) return null;
+    var lines = std.mem.splitScalar(u8, header, '\n');
+    const new_path = while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "+++ ")) break line[4..];
+    } else return null;
+    const quote = if (std.mem.startsWith(u8, new_path, "\"")) "\"" else "";
+    if (new_path.len < quote.len + 2) return null;
+    const new_name = new_path[quote.len + 2 ..];
+    return try std.fmt.allocPrint(allocator, "diff --git {s}a/{s} {s}b/{s}\n--- {s}a/{s}\n+++ {s}b/{s}\n", .{ quote, new_name, quote, new_name, quote, new_name, quote, new_name });
 }
 
 fn add_hunk(palette: *Type, header: []const u8, text: []const u8, line: usize) !void {

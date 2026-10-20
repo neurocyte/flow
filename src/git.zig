@@ -284,12 +284,17 @@ pub fn update_index(context_: usize, update: IndexUpdate, file_paths: []const []
 
 pub const DiffMode = enum { unstaged, staged, untracked };
 
-pub fn diff(context_: usize, mode: DiffMode, file_path: []const u8, context_lines: usize) Error!void {
+pub fn diff(context_: usize, mode: DiffMode, file_path: []const u8, orig_path: []const u8, context_lines: usize) Error!void {
     const tag = @src().fn_name;
     var pathspec: std.Io.Writer.Allocating = .init(allocator);
     defer pathspec.deinit();
     try pathspec.writer.print(":(top,literal){s}", .{file_path});
     if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec.written(), '\\', '/');
+    // a rename needs both paths, or git shows the new path as a new file
+    var orig_pathspec: std.Io.Writer.Allocating = .init(allocator);
+    defer orig_pathspec.deinit();
+    try orig_pathspec.writer.print(":(top,literal){s}", .{orig_path});
+    if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, orig_pathspec.written(), '\\', '/');
     var unified_buf: [32]u8 = undefined;
     const unified = std.fmt.bufPrint(&unified_buf, "--unified={d}", .{context_lines}) catch unreachable;
     const handler = struct {
@@ -299,7 +304,10 @@ pub fn diff(context_: usize, mode: DiffMode, file_path: []const u8, context_line
     }.result;
     switch (mode) {
         .unstaged => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--", pathspec.written() }, handler, log_err, exit_null(tag)),
-        .staged => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--cached", "--", pathspec.written() }, handler, log_err, exit_null(tag)),
+        .staged => if (orig_path.len > 0)
+            try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--cached", "--find-renames", "--", pathspec.written(), orig_pathspec.written() }, handler, log_err, exit_null(tag))
+        else
+            try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--cached", "--", pathspec.written() }, handler, log_err, exit_null(tag)),
         .untracked => try git_err(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", unified, "--no-index", "--", "/dev/null", file_path }, handler, log_err, exit_null(tag)),
     }
 }

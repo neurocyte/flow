@@ -2074,7 +2074,7 @@ pub const VcsFirstChangeRequest = struct {
 
 pub const VcsDiffMode = git.DiffMode;
 
-pub fn request_vcs_diff(self: *Self, file_path: []const u8, mode: VcsDiffMode, context_lines: usize) error{OutOfMemory}!void {
+pub fn request_vcs_diff(self: *Self, file_path: []const u8, orig_path: []const u8, mode: VcsDiffMode, context_lines: usize) error{OutOfMemory}!void {
     const request = try self.allocator.create(VcsDiffRequest);
     request.* = .{
         .allocator = self.allocator,
@@ -2082,7 +2082,7 @@ pub fn request_vcs_diff(self: *Self, file_path: []const u8, mode: VcsDiffMode, c
         .file_path = try self.allocator.dupe(u8, file_path),
         .mode = mode,
     };
-    git.diff(@intFromPtr(request), mode, file_path, context_lines) catch |e| {
+    git.diff(@intFromPtr(request), mode, file_path, orig_path, context_lines) catch |e| {
         self.logger_git.print_err("diff", "failed: {t}", .{e});
         request.deinit();
     };
