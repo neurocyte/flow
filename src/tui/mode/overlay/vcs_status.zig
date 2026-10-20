@@ -578,10 +578,6 @@ fn close_diff(palette: *Type) void {
     send(palette, .{ "cmd", "close_buffer", .{buffer_name} });
 }
 
-pub fn cancel(palette: *Type, ctx: command.Context) !void {
-    if (try ctx.args.match(.{"close_diff"})) close_diff(palette);
-}
-
 fn show_hunk(palette: *Type, item: *const Item) void {
     show_diff(palette, item);
     const hunk = hunk_for(palette, item.path, item.section, item.hunk) orelse return;
@@ -724,6 +720,13 @@ fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
 const TerminalAction = enum { commit, fetch, push };
 
 pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
+    if (try ctx.args.match(.{"cancel"})) {
+        if (palette.value.shown_diff != null or palette.value.pending_diff != null)
+            close_diff(palette)
+        else
+            send(palette, .{ "cmd", "palette_menu_cancel" });
+        return;
+    }
     var terminal_action: TerminalAction = undefined;
     if (try ctx.args.match(.{tp.extract(&terminal_action)}))
         return run_in_terminal(terminal_action);
