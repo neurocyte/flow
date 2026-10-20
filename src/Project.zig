@@ -24,13 +24,13 @@ const convert_path = LSPClient.convert_path;
 allocator: std.mem.Allocator,
 name: []const u8,
 files: std.ArrayListUnmanaged(File) = .empty,
-new_or_modified_files: std.ArrayListUnmanaged(FileVcsStatus) = .empty,
+vcs_status_files: std.ArrayListUnmanaged(VcsStatusFile) = .empty,
+vcs_status_files_next: std.ArrayListUnmanaged(VcsStatusFile) = .empty,
 pending: std.ArrayListUnmanaged(File) = .empty,
 file_index: std.StringHashMapUnmanaged(u32) = .empty,
 files_dirty: bool = false,
 file_store: ?tp.pid = null,
 longest_file_path: usize = 0,
-longest_new_or_modified_file_path: usize = 0,
 open_time: i64,
 language_servers: std.StringHashMap(*LSPClient),
 diagnostics: std.StringHashMapUnmanaged([]const u8) = .empty,
@@ -68,7 +68,6 @@ state: struct {
     current_branch: State = .none,
     workspace_files: State = .none,
     status: State = .none,
-    vcs_new_or_modified_files: State = .none,
 } = .{},
 
 status: VcsStatus = .{},
@@ -84,9 +83,7 @@ const OutOfMemoryError = error{OutOfMemory};
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 pub const RequestError = error{
     InvalidMostRecentFileRequest,
-    InvalidNewOrModifiedFilesRequest,
-    InvalidQueryNewOrModifiedFilesRequest,
-    InvalidRequestNewOrModifiedFilesRequest,
+    InvalidRequestVcsStatusFilesRequest,
     InvalidRecentFilesRequest,
     InvalidQueryRecentFilesRequest,
     InvalidGetMruPositionRequest,
@@ -109,13 +106,31 @@ const File = struct {
     meta_resolved: bool = false,
 };
 
-const FileVcsStatus = struct {
+const VcsStatusFile = struct {
     path: []const u8,
+    orig_path: []const u8 = "",
     type: []const u8 = "",
     icon: []const u8 = "",
     color: u24 = 0,
-    vcs_status: u8,
+    x: u8,
+    y: u8,
     meta_resolved: bool = false,
+
+    fn eql(a: []const VcsStatusFile, b: []const VcsStatusFile) bool {
+        if (a.len != b.len) return false;
+        for (a, b) |a_, b_| if (a_.x != b_.x or a_.y != b_.y or
+            !std.mem.eql(u8, a_.path, b_.path) or
+            !std.mem.eql(u8, a_.orig_path, b_.orig_path)) return false;
+        return true;
+    }
+
+    fn free_all(allocator: std.mem.Allocator, files: *std.ArrayListUnmanaged(VcsStatusFile)) void {
+        for (files.items) |file| {
+            allocator.free(file.path);
+            allocator.free(file.orig_path);
+        }
+        files.clearRetainingCapacity();
+    }
 };
 
 pub const FilePos = struct {
@@ -220,8 +235,10 @@ pub fn deinit(self: *Self) void {
     }
     self.lsp_settings.deinit(self.allocator);
     self.lsp_status_subscribers.deinit(self.allocator);
-    for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
-    self.new_or_modified_files.deinit(self.allocator);
+    VcsStatusFile.free_all(self.allocator, &self.vcs_status_files);
+    self.vcs_status_files.deinit(self.allocator);
+    VcsStatusFile.free_all(self.allocator, &self.vcs_status_files_next);
+    self.vcs_status_files_next.deinit(self.allocator);
     for (self.files.items) |file| self.allocator.free(file.path);
     self.files.deinit(self.allocator);
     self.pending.deinit(self.allocator);
@@ -693,27 +710,6 @@ pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) RequestEr
     }
 }
 
-fn simple_query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
-    var i: usize = 0;
-    for (self.new_or_modified_files.items) |*file| {
-        if (file.path.len < query.len) continue;
-        if (std.mem.indexOf(u8, file.path, query)) |idx| {
-            var matches = try self.allocator.alloc(usize, query.len);
-            defer self.allocator.free(matches);
-            var n: usize = 0;
-            while (n < query.len) : (n += 1) matches[n] = idx + n;
-            resolve_meta(file);
-            from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status, matches }) catch |e| {
-                std.log.err("send new_or_modified_files failed: {t}", .{e});
-                return error.InvalidNewOrModifiedFilesRequest;
-            };
-            i += 1;
-            if (i >= max) return i;
-        }
-    }
-    return i;
-}
-
 fn strip_non_search_chars(self: *const Self, s: []const u8) error{OutOfMemory}![]const u8 {
     var stripped: std.ArrayList(u8) = try .initCapacity(self.allocator, s.len);
     for (s) |c| switch (c) {
@@ -723,67 +719,14 @@ fn strip_non_search_chars(self: *const Self, s: []const u8) error{OutOfMemory}![
     return try stripped.toOwnedSlice(self.allocator);
 }
 
-pub fn query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, query_: []const u8) RequestError!usize {
-    const query = try self.strip_non_search_chars(query_);
-    defer self.allocator.free(query);
-    defer from.send(.{ "PRJ", "new_or_modified_files_done", self.longest_new_or_modified_file_path, query_ }) catch {};
-    if (query.len < 3)
-        return self.simple_query_new_or_modified_files(from, max, query);
-
-    var searcher = try fuzzig.Ascii.init(
-        self.allocator,
-        4096, // haystack max size
-        4096, // needle max size
-        .{ .case_sensitive = false },
-    );
-    defer searcher.deinit();
-
-    const Match = struct {
-        index: usize,
-        score: i32,
-        matches: []const usize,
-    };
-    var matches: std.ArrayList(Match) = .empty;
-
-    for (self.new_or_modified_files.items, 0..) |file, index| {
-        const match = searcher.scoreMatches(file.path, query);
-        if (match.score) |score| {
-            (try matches.addOne(self.allocator)).* = .{
-                .index = index,
-                .score = score,
-                .matches = try self.allocator.dupe(usize, match.matches),
-            };
-        }
-    }
-    if (matches.items.len == 0) return 0;
-
-    const less_fn = struct {
-        fn less_fn(_: void, lhs: Match, rhs: Match) bool {
-            return lhs.score > rhs.score;
-        }
-    }.less_fn;
-    std.mem.sort(Match, matches.items, {}, less_fn);
-
-    for (matches.items[0..@min(max, matches.items.len)]) |match| {
-        const file = &self.new_or_modified_files.items[match.index];
+pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) RequestError!void {
+    defer from.send(.{ "PRJ", "vcs_status_files_done" }) catch {};
+    for (self.vcs_status_files.items) |*file| {
         resolve_meta(file);
-        from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status, match.matches }) catch |e| {
-            std.log.err("send new_or_modified_files failed: {t}", .{e});
-            return error.InvalidQueryNewOrModifiedFilesRequest;
+        from.send(.{ "PRJ", "vcs_status_files", file.path, file.type, file.icon, file.color, &[_]u8{file.x}, &[_]u8{file.y}, file.orig_path }) catch |e| {
+            std.log.err("send vcs_status_files failed: {t}", .{e});
+            return error.InvalidRequestVcsStatusFilesRequest;
         };
-    }
-    return @min(max, matches.items.len);
-}
-
-pub fn request_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize) RequestError!void {
-    defer from.send(.{ "PRJ", "new_or_modified_files_done", self.longest_new_or_modified_file_path, "" }) catch {};
-    for (self.new_or_modified_files.items, 0..) |*file, i| {
-        resolve_meta(file);
-        from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status }) catch |e| {
-            std.log.err("send navigate failed: {t}", .{e});
-            return error.InvalidRequestNewOrModifiedFilesRequest;
-        };
-        if (i >= max) return;
     }
 }
 
@@ -1210,16 +1153,10 @@ fn refresh_vcs_status(self: *Self) void {
     }
     self.status_dirty = false;
     self.status_next.reset(self.allocator);
+    VcsStatusFile.free_all(self.allocator, &self.vcs_status_files_next);
     self.state.status = .running;
     git.status(@intFromPtr(self)) catch {
         self.state.status = .failed;
-    };
-    if (self.state.vcs_new_or_modified_files == .running) return;
-    for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
-    self.new_or_modified_files.clearRetainingCapacity();
-    self.state.vcs_new_or_modified_files = .running;
-    git.new_or_modified_files(@intFromPtr(self)) catch {
-        self.state.vcs_new_or_modified_files = .failed;
     };
 }
 
@@ -1931,7 +1868,6 @@ pub fn ignore_subtree_removed(self: *Self, rel_path: []const u8) void {
 pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || error{Exit})!void {
     var value: []const u8 = undefined;
     var path: []const u8 = undefined;
-    var vcs_status: u8 = undefined;
     if (try m.match(.{ tp.any, tp.any, "status", tp.more })) {
         return self.process_status(parent, m);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
@@ -1976,15 +1912,6 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.null_ })) {
         self.state.workspace_files = .done;
         try self.loaded(parent);
-    } else if (try m.match(.{ tp.any, tp.any, "new_or_modified_files", tp.null_ })) {
-        self.state.vcs_new_or_modified_files = .done;
-        try self.loaded(parent);
-    } else if (try m.match(.{ tp.any, tp.any, "new_or_modified_files", tp.extract(&vcs_status), tp.extract(&path) })) {
-        self.longest_new_or_modified_file_path = @max(self.longest_new_or_modified_file_path, path.len);
-        (try self.new_or_modified_files.addOne(self.allocator)).* = .{
-            .path = convert_path(try self.allocator.dupe(u8, path)),
-            .vcs_status = vcs_status,
-        };
     } else {
         self.logger_git.err("git", tp.unexpected(m));
     }
@@ -1998,6 +1925,10 @@ fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryEr
     var value: []const u8 = undefined;
     var ahead: []const u8 = undefined;
     var behind: []const u8 = undefined;
+    var xy: []const u8 = undefined;
+    var sub: []const u8 = undefined;
+    var path: []const u8 = undefined;
+    var orig_path: []const u8 = undefined;
 
     const next = &self.status_next;
     if (try m.match(.{ any, any, "status", "#", "branch.oid", extract(&value) })) {
@@ -2018,32 +1949,53 @@ fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryEr
     } else if (try m.match(.{ any, any, "status", "#", "stash", extract(&value) })) {
         if (next.stash) |p| self.allocator.free(p);
         next.stash = try self.allocator.dupe(u8, value);
-    } else if (try m.match(.{ any, any, "status", "1", tp.more })) {
+    } else if (try m.match(.{ any, any, "status", "1", extract(&xy), extract(&sub), any, any, any, any, any, extract(&path) })) {
         // ordinary file: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
         next.changed += 1;
-    } else if (try m.match(.{ any, any, "status", "2", tp.more })) {
+        try self.add_vcs_status_file(xy, sub, path, "");
+    } else if (try m.match(.{ any, any, "status", "2", extract(&xy), extract(&sub), any, any, any, any, any, any, extract(&path), extract(&orig_path) })) {
         // rename or copy: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>
         next.changed += 1;
-    } else if (try m.match(.{ any, any, "status", "u", tp.more })) {
+        try self.add_vcs_status_file(xy, sub, path, orig_path);
+    } else if (try m.match(.{ any, any, "status", "u", extract(&xy), extract(&sub), any, any, any, any, any, any, any, extract(&path) })) {
         // unmerged file: <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
         next.changed += 1;
-    } else if (try m.match(.{ any, any, "status", "?", tp.more })) {
+        try self.add_vcs_status_file(xy, sub, path, "");
+    } else if (try m.match(.{ any, any, "status", "?", extract(&path) })) {
         // untracked file: <path>
         next.untracked += 1;
+        try self.add_vcs_status_file("??", "N...", path, "");
     } else if (try m.match(.{ any, any, "status", "!", tp.more })) {
         // ignored file: <path>
     } else if (try m.match(.{ any, any, "status", null_ })) {
         self.state.status = .done;
         try self.loaded(parent);
-        const changed = !self.status.eql(next);
+        const changed = !self.status.eql(next) or
+            !VcsStatusFile.eql(self.vcs_status_files.items, self.vcs_status_files_next.items);
         std.mem.swap(VcsStatus, &self.status, next);
         next.reset(self.allocator);
+        std.mem.swap(std.ArrayListUnmanaged(VcsStatusFile), &self.vcs_status_files, &self.vcs_status_files_next);
+        VcsStatusFile.free_all(self.allocator, &self.vcs_status_files_next);
         if (self.active and (changed or self.status_reply))
             parent.send(.{ "vcs_status", self.status }) catch {};
         self.status_reply = false;
         self.update_vcs_ref_watches();
         if (self.status_dirty) self.refresh_vcs_status();
     }
+}
+
+fn add_vcs_status_file(self: *Self, xy: []const u8, sub: []const u8, path: []const u8, orig_path: []const u8) OutOfMemoryError!void {
+    if (xy.len != 2 or (sub.len > 0 and sub[0] == 'S')) return; // submodules are not listed
+    const path_ = convert_path(try self.allocator.dupe(u8, path));
+    errdefer self.allocator.free(path_);
+    const orig_path_ = if (orig_path.len > 0) convert_path(try self.allocator.dupe(u8, orig_path)) else "";
+    errdefer self.allocator.free(orig_path_);
+    (try self.vcs_status_files_next.addOne(self.allocator)).* = .{
+        .path = path_,
+        .orig_path = orig_path_,
+        .x = xy[0],
+        .y = xy[1],
+    };
 }
 
 pub fn request_vcs_id(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
