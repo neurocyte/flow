@@ -1,5 +1,4 @@
 const std = @import("std");
-const cbor = @import("cbor");
 const command = @import("command");
 const project_manager = @import("project_manager");
 
@@ -34,14 +33,5 @@ fn rename(self: *Type) !void {
     defer buf.deinit(self.allocator);
     const to_path = project_manager.expand_home(self.allocator, &buf, self.file_path());
     if (to_path.len == 0 or std.mem.eql(u8, to_path, from_path)) return;
-    var edit: std.Io.Writer.Allocating = .init(self.allocator);
-    defer edit.deinit();
-    try cbor.writeValue(&edit.writer, .{.{.{
-        project_manager.FileOperation.rename,
-        from_path,
-        to_path,
-        project_manager.FileConflict.fail,
-        project_manager.FileScope.file,
-    }}});
-    try command.executeName("apply_workspace_edit", .init(.{ .buf = edit.written() }));
+    try tui.apply_single_file_operation(self.allocator, .{ .kind = .rename, .path = from_path, .to_path = to_path, .conflict = .fail }, .{});
 }

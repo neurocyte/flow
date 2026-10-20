@@ -1295,20 +1295,11 @@ const cmds = struct {
     }
     pub const save_file_as_meta: Meta = .{ .arguments = &.{.string} };
 
-    pub fn delete_file(self: *Self, ctx: Ctx) Result {
+    pub fn delete_file(self: *Self, _: Ctx) Result {
         const editor = self.get_active_editor() orelse return tp.exit("no file");
         const buffer = editor.buffer orelse return tp.exit("no file");
         if (buffer.is_ephemeral()) return tp.exit("not a file");
-        var edit: std.Io.Writer.Allocating = .init(self.allocator);
-        defer edit.deinit();
-        try cbor.writeValue(&edit.writer, .{.{.{
-            project_manager.FileOperation.delete,
-            buffer.get_file_path(),
-            "",
-            project_manager.FileConflict.overwrite,
-            project_manager.FileScope.file,
-        }}});
-        try command.executeName("apply_workspace_edit", .{ .args = .{ .buf = edit.written() }, .io = ctx.io, .now = ctx.now });
+        try apply_single_file_operation(self.allocator, .{ .kind = .delete, .path = buffer.get_file_path(), .conflict = .overwrite }, .{});
     }
     pub const delete_file_meta: Meta = .{ .description = "Delete file" };
 
@@ -3696,13 +3687,28 @@ fn apply_text_edits_to_buffer(self: *Self, buffer: *Buffer, text_edits: []const 
     buffer_lsp.sync(buffer) catch {};
 }
 
-const FileOperation = struct {
+pub const FileOperation = struct {
     kind: project_manager.FileOperation,
     path: []const u8,
-    to_path: []const u8,
+    to_path: []const u8 = "",
     conflict: project_manager.FileConflict,
-    scope: project_manager.FileScope,
+    scope: project_manager.FileScope = .file,
 };
+
+pub const FileOperationOptions = struct {
+    confirmed: bool = false,
+};
+
+pub fn apply_single_file_operation(allocator: std.mem.Allocator, op: FileOperation, options: FileOperationOptions) command.Result {
+    var args: std.Io.Writer.Allocating = .init(allocator);
+    defer args.deinit();
+    const edit = .{.{ op.kind, op.path, op.to_path, op.conflict, op.scope }};
+    if (options.confirmed)
+        try cbor.writeValue(&args.writer, .{ edit, null, WorkspaceEditStep.confirmed })
+    else
+        try cbor.writeValue(&args.writer, .{edit});
+    try command.executeName("apply_workspace_edit", .init(.{ .buf = args.written() }));
+}
 
 fn open_buffer_for_file(self: *Self, file_path: []const u8) ?*Buffer {
     const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return null;
@@ -3855,25 +3861,28 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
 const FileOperationRequest = struct {
     op: enum { probe, rename, delete, vcs_file, vcs_dir },
     path: []const u8,
-    edit: []const u8,
+    files: usize,
+    bytes: []const u8,
     reply: []const u8,
 
     fn init(allocator: std.mem.Allocator, path: []const u8, resume_: WorkspaceEditResume) !FileOperationRequest {
-        var edit: std.Io.Writer.Allocating = .init(allocator);
-        defer edit.deinit();
-        try cbor.writeArrayHeader(&edit.writer, resume_.files);
-        try edit.writer.writeAll(resume_.bytes);
         const path_ = try allocator.dupe(u8, path);
         errdefer allocator.free(path_);
+        const bytes = try allocator.dupe(u8, resume_.bytes);
+        errdefer allocator.free(bytes);
         const reply = try allocator.dupe(u8, resume_.reply);
         errdefer allocator.free(reply);
-        return .{ .op = .probe, .path = path_, .edit = try edit.toOwnedSlice(), .reply = reply };
+        return .{ .op = .probe, .path = path_, .files = resume_.files, .bytes = bytes, .reply = reply };
     }
 
     fn deinit(self: FileOperationRequest, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
-        allocator.free(self.edit);
+        allocator.free(self.bytes);
         allocator.free(self.reply);
+    }
+
+    fn resume_edit(self: FileOperationRequest) WorkspaceEditResume {
+        return .{ .files = self.files, .bytes = self.bytes, .reply = self.reply };
     }
 
     fn step(self: FileOperationRequest, result: FileStore.FileOpResult) WorkspaceEditStep {
@@ -3915,11 +3924,7 @@ fn resume_file_operation(self: *Self, id: usize, step: WorkspaceEditStep) error{
     defer kv.value.deinit(self.allocator);
     var buf: std.Io.Writer.Allocating = .init(self.allocator);
     defer buf.deinit();
-    cbor.writeValue(&buf.writer, .{ "cmd", "apply_workspace_edit", .{
-        cbor.Raw{ .bytes = kv.value.edit },
-        if (kv.value.reply.len > 0) cbor.Raw{ .bytes = kv.value.reply } else null,
-        step,
-    } }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    kv.value.resume_edit().write(&buf.writer, step) catch |e| return tp.exit_error(e, @errorReturnTrace());
     try tp.self_pid().send_raw(.{ .buf = buf.written() });
 }
 

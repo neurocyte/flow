@@ -2158,19 +2158,12 @@ const cmds = struct {
             .hunk => try project_manager.request_vcs_apply_patch(.revert, arg),
             .untracked => {
                 const directory = std.mem.endsWith(u8, arg, "/");
-                var edit: std.Io.Writer.Allocating = .init(self.allocator);
-                defer edit.deinit();
-                try cbor.writeValue(&edit.writer, .{.{
-                    project_manager.FileOperation.delete,
-                    if (directory) arg[0 .. arg.len - 1] else arg,
-                    "",
-                    project_manager.FileConflict.overwrite,
-                    if (directory) project_manager.FileScope.recursive else project_manager.FileScope.file,
-                }});
-                var args: std.Io.Writer.Allocating = .init(self.allocator);
-                defer args.deinit();
-                try cbor.writeValue(&args.writer, .{ cbor.Raw{ .bytes = edit.written() }, null, "confirmed" });
-                try command.executeName("apply_workspace_edit", .{ .args = .{ .buf = args.written() }, .io = ctx.io, .now = ctx.now });
+                try MainView.apply_single_file_operation(self.allocator, .{
+                    .kind = .delete,
+                    .path = if (directory) arg[0 .. arg.len - 1] else arg,
+                    .conflict = .overwrite,
+                    .scope = if (directory) .recursive else .file,
+                }, .{ .confirmed = true });
             },
         }
         return cmds.last_palette(self, .empty_from(ctx));
@@ -2775,6 +2768,8 @@ pub fn open_overlay_create(mode: type, ctx: command.Context, args: anytype) comm
 pub const Confirm = @import("mode/overlay/confirm.zig");
 
 pub const VcsRevert = enum { file, hunk, untracked };
+
+pub const apply_single_file_operation = MainView.apply_single_file_operation;
 
 pub fn open_confirm(options: Confirm.Options) command.Result {
     return open_overlay_create(Confirm, .empty(), .{options});
