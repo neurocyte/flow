@@ -2071,6 +2071,13 @@ const cmds = struct {
             self.delayed_init_input_mode = new_mode;
             return;
         }
+        if (self.mini_mode_ == null) if (self.input_mode_outer_) |*outer| {
+            // keep the overlay open and replace the mode below it
+            outer.deinit();
+            self.input_mode_outer_ = new_mode;
+            if (self.input_mode_outer_) |*m| m.run_init();
+            return;
+        };
         return self.enter_input_mode(new_mode, .empty_from(ctx));
     }
     pub const enter_mode_meta: Meta = .{ .arguments = &.{.string} };
@@ -2087,14 +2094,6 @@ const cmds = struct {
     pub const switch_mode_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn enter_mode_default(self: *Self, _: Ctx) Result {
-        if (self.input_mode_outer_) |*outer| if (self.delayed_init_done) {
-            // keep the overlay open and reset the mode below it
-            const new_mode = try self.get_input_mode(keybind.default_mode);
-            outer.deinit();
-            self.input_mode_outer_ = new_mode;
-            if (self.input_mode_outer_) |*m| m.run_init();
-            return;
-        };
         return enter_mode(self, .fmt(.{keybind.default_mode}));
     }
     pub const enter_mode_default_meta: Meta = .{};

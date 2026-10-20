@@ -117,7 +117,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     info.handle_resize(.{ .frame = tui.window_frame() });
 
     command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
-    const keybind_mode = tui.get_keybind_mode() orelse @panic("no active keybind mode");
+    const keybind_mode = if (tui.input_mode_outer()) |mode| mode.* else tui.get_keybind_mode() orelse @panic("no active keybind mode");
     const home_style, const home_style_bufs = root.read_config(style, allocator);
 
     const w = Widget.to(self);
