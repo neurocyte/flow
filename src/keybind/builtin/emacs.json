@@ -104,16 +104,6 @@
             ["ctrl+f", "mini_editor_move_right"]
         ]
     },
-    "overlay/vcs_status": {
-        "inherit": "overlay/palette",
-        "press": [
-            ["u", "palette_menu_action"],
-            ["C", "palette_menu_action", "commit"],
-            ["F", "palette_menu_action", "fetch"],
-            ["P", "palette_menu_action", "push"],
-            ["q", "palette_menu_cancel"]
-        ]
-    },
     "mini/file_browser": {
         "press": [
             ["ctrl+w", "mini_mode_delete_to_previous_path_segment"]
