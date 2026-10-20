@@ -157,6 +157,16 @@ const cmds_ = struct {
     }
     pub const @"bc!_meta": Meta = .{ .description = "bc! (Close buffer/tab, ignoring changes)" };
 
+    pub fn wbc(_: *void, _: Ctx) Result {
+        try cmd("save_file", .fmt(.{ "then", .{ "delete_buffer", .{} } }));
+    }
+    pub const wbc_meta: Meta = .{ .description = "wbc (write/save file and close buffer/tab)" };
+
+    pub fn @"wbc!"(_: *void, _: Ctx) Result {
+        try cmd("force_save_file", .fmt(.{ "then", .{ "delete_buffer", .{} } }));
+    }
+    pub const @"wbc!_meta": Meta = .{ .description = "wbc! (write/save file, overwriting external changes, and close buffer/tab)" };
+
     pub fn @"bco!"(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
         if (tui.get_buffer_manager()) |bm| {
