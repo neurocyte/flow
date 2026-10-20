@@ -195,6 +195,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         .absolute => self.render_linear(theme),
         .none => self.render_none(theme),
     }
+    self.render_diff_line_backgrounds(theme);
     if (self.symbols) {
         self.render_diagnostics(theme);
         self.render_code_action_indicator(theme);
@@ -313,6 +314,26 @@ pub fn render_multiples_of_n(self: *Self, theme: *const Widget.Theme, n: u32) vo
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
         pos += 1;
         linenum += 1;
+    }
+}
+
+fn render_diff_line_backgrounds(self: *Self, theme: *const Widget.Theme) void {
+    if (theme.diff_editor_gutter_inserted_line.bg == null and theme.diff_editor_gutter_removed_line.bg == null) return;
+    const lines = self.allocator.alloc(?ed.DiffLine, self.view_rows) catch return;
+    defer self.allocator.free(lines);
+    self.editor.get_diff_lines(self.view_top, lines);
+    for (lines, 0..) |line, pos| {
+        const line_style = switch (line orelse continue) {
+            .inserted => theme.diff_editor_gutter_inserted_line,
+            .removed => theme.diff_editor_gutter_removed_line,
+        };
+        for (0..self.get_width()) |i| {
+            self.plane.cursor_move_yx(@intCast(pos), @intCast(i));
+            var cell = self.plane.cell_init();
+            _ = self.plane.at_cursor_cell(&cell) catch return;
+            cell.set_style_bg(line_style);
+            _ = self.plane.putc(&cell) catch {};
+        }
     }
 }
 

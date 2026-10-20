@@ -73,6 +73,15 @@ pub const whitespace = struct {
 
 pub const PosType = enum { column, byte };
 
+pub const DiffLine = enum { inserted, removed };
+
+fn diff_line_kind(range: syntax.Range, scope: []const u8) ?DiffLine {
+    if (range.start_point.column != 0) return null;
+    if (std.mem.eql(u8, scope, "diff.plus")) return .inserted;
+    if (std.mem.eql(u8, scope, "diff.minus")) return .removed;
+    return null;
+}
+
 pub const Match = struct {
     begin: Cursor = Cursor{},
     end: Cursor = Cursor{},
@@ -1833,8 +1842,10 @@ pub const Editor = struct {
                 ctx.clamp_to_view(&sel.begin);
                 ctx.clamp_to_view(&sel.end);
 
-                if (range.start_point.column == 0) if (diff_line_style(ctx.theme, scope)) |line_style|
-                    try ctx.render_line_bg(sel, line_style);
+                if (diff_line_kind(range, scope)) |kind| try ctx.render_line_bg(sel, switch (kind) {
+                    .inserted => ctx.theme.diff_editor_inserted_line,
+                    .removed => ctx.theme.diff_editor_removed_line,
+                });
 
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
@@ -1857,11 +1868,6 @@ pub const Editor = struct {
                         try ctx.render_cell(y, x_, style);
                     }
                 }
-            }
-            fn diff_line_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Style {
-                if (std.mem.eql(u8, scope, "diff.plus")) return theme_.diff_editor_inserted_line;
-                if (std.mem.eql(u8, scope, "diff.minus")) return theme_.diff_editor_removed_line;
-                return null;
             }
             fn render_line_bg(ctx: *@This(), sel: Selection, style: Widget.Theme.Style) !void {
                 for (sel.begin.row..sel.end.row + 1) |row| {
@@ -2073,6 +2079,31 @@ pub const Editor = struct {
             cache.put(id, sty) catch {};
             break :ret sty;
         };
+    }
+
+    pub fn get_diff_lines(self: *Self, first_row: usize, lines: []?DiffLine) void {
+        @memset(lines, null);
+        const syn = self.syntax orelse return;
+        const Ctx = struct {
+            first_row: usize,
+            lines: []?DiffLine,
+            fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, _: u32, idx: usize, _: i32, _: u32, _: *const syntax.Node) error{Stop}!void {
+                if (idx > 0) return;
+                const kind = diff_line_kind(range, scope) orelse return;
+                for (range.start_point.row..range.end_point.row + 1) |row| {
+                    if (row < ctx.first_row or row - ctx.first_row >= ctx.lines.len) continue;
+                    ctx.lines[row - ctx.first_row] = kind;
+                }
+            }
+        };
+        var ctx: Ctx = .{ .first_row = first_row, .lines = lines };
+        const range: syntax.Range = .{
+            .start_point = .{ .row = @intCast(first_row), .column = 0 },
+            .end_point = .{ .row = @intCast(first_row + lines.len), .column = 0 },
+            .start_byte = 0,
+            .end_byte = 0,
+        };
+        syn.render(&ctx, Ctx.cb, syntax_validator.Validator(*Ctx), range, tui.config().syntax_injection_depth) catch {};
     }
 
     pub fn style_lookup(self: *Self, theme_: ?*const Widget.Theme, scope: []const u8, id: u32) ?Widget.Theme.Token {
