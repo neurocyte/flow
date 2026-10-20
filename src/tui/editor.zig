@@ -1443,7 +1443,10 @@ pub const Editor = struct {
             self.plane.home();
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.metrics) catch {};
         }
-        self.render_syntax(theme, cache, root) catch {};
+        switch (self.render_syntax(theme, cache, root) catch .plain) {
+            .with_diffs => self.render_diff_words(theme, root) catch {},
+            else => {},
+        }
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         const pc_row_diag = if (tui.config().inline_diagnostics)
             self.render_diagnostics(theme, pc_row, hl_row, ctx_.cell_map)
@@ -1823,10 +1826,12 @@ pub const Editor = struct {
         return .{ bytes, colcount };
     }
 
-    fn render_syntax(self: *Self, theme: *const Widget.Theme, cache: *StyleCache, root: Buffer.Root) !void {
+    const RenderStyle = enum { plain, with_diffs };
+
+    fn render_syntax(self: *Self, theme: *const Widget.Theme, cache: *StyleCache, root: Buffer.Root) !RenderStyle {
         const frame = tracy.initZone(@src(), .{ .name = "editor render syntax" });
         defer frame.deinit();
-        const syn = self.syntax orelse return;
+        const syn = self.syntax orelse return .plain;
         const Ctx = struct {
             self: *Self,
             theme: *const Widget.Theme,
@@ -1834,6 +1839,7 @@ pub const Editor = struct {
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
             rank: []i64,
+            diff_lines: bool = false,
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, priority: i32, pattern_index: u32, _: *const syntax.Node) error{Stop}!void {
                 var sel = ctx.pos_cache.from_pos(range, ctx.root, ctx.self.metrics);
 
@@ -1842,10 +1848,13 @@ pub const Editor = struct {
                 ctx.clamp_to_view(&sel.begin);
                 ctx.clamp_to_view(&sel.end);
 
-                if (diff_line_kind(range, scope)) |kind| try ctx.render_line_bg(sel, switch (kind) {
-                    .inserted => ctx.theme.diff_editor_inserted_line,
-                    .removed => ctx.theme.diff_editor_removed_line,
-                });
+                if (diff_line_kind(range, scope)) |kind| {
+                    ctx.diff_lines = true;
+                    try ctx.render_line_bg(sel, switch (kind) {
+                        .inserted => ctx.theme.diff_editor_inserted_line,
+                        .removed => ctx.theme.diff_editor_removed_line,
+                    });
+                }
 
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
@@ -1922,7 +1931,74 @@ pub const Editor = struct {
             .start_byte = 0,
             .end_byte = 0,
         };
-        return syn.render(&ctx, Ctx.cb, syntax_validator.Validator(*Ctx), range, tui.config().syntax_injection_depth);
+        try syn.render(&ctx, Ctx.cb, syntax_validator.Validator(*Ctx), range, tui.config().syntax_injection_depth);
+        return if (ctx.diff_lines) .with_diffs else .plain;
+    }
+
+    const diff_words_scan_rows = 64;
+
+    fn render_diff_words(self: *Self, theme: *const Widget.Theme, root: Buffer.Root) !void {
+        const first_row = self.view.row -| diff_words_scan_rows;
+        const end_row = @min(self.view.row + self.view.rows + diff_words_scan_rows, root.lines());
+        if (end_row <= first_row) return;
+        const lines = try self.allocator.alloc(?DiffLine, end_row - first_row);
+        defer self.allocator.free(lines);
+        self.get_diff_lines(first_row, lines);
+
+        var idx: usize = 0;
+        while (idx < lines.len) {
+            if (lines[idx] != .removed) {
+                idx += 1;
+                continue;
+            }
+            const removed = idx;
+            while (idx < lines.len and lines[idx] == .removed) idx += 1;
+            const inserted = idx;
+            while (idx < lines.len and lines[idx] == .inserted) idx += 1;
+            // a run cut off by the scanned rows can not be paired reliably
+            if (removed == 0 and first_row > 0) continue;
+            if (idx == lines.len and end_row < root.lines()) continue;
+            for (0..@min(inserted - removed, idx - inserted)) |i|
+                try self.render_diff_word_pair(theme, root, first_row + removed + i, first_row + inserted + i);
+        }
+    }
+
+    fn render_diff_word_pair(self: *Self, theme: *const Widget.Theme, root: Buffer.Root, src_row: usize, dst_row: usize) !void {
+        if (!self.is_row_visible(src_row) and !self.is_row_visible(dst_row)) return;
+        var src: std.Io.Writer.Allocating = .init(self.allocator);
+        defer src.deinit();
+        try root.get_line(src_row, &src.writer, self.metrics);
+        var dst: std.Io.Writer.Allocating = .init(self.allocator);
+        defer dst.deinit();
+        try root.get_line(dst_row, &dst.writer, self.metrics);
+        if (src.written().len == 0 or dst.written().len == 0) return;
+
+        // skip the leading '-' and '+'
+        const changes = try EditSet.word_changes(self.allocator, src.written()[1..], dst.written()[1..]);
+        defer changes.deinit(self.allocator);
+        for (changes.src) |range| self.render_text_bg(root, src_row, range.begin + 1, range.end + 1, theme.diff_editor_removed_text);
+        for (changes.dst) |range| self.render_text_bg(root, dst_row, range.begin + 1, range.end + 1, theme.diff_editor_inserted_text);
+    }
+
+    fn is_row_visible(self: *const Self, row: usize) bool {
+        return self.view.row <= row and row < self.view.row + self.view.rows;
+    }
+
+    fn render_text_bg(self: *Self, root: Buffer.Root, row: usize, begin: usize, end: usize, style: Widget.Theme.Style) void {
+        if (!self.is_row_visible(row)) return;
+        const begin_col = root.pos_to_width(row, begin, self.metrics) catch return;
+        const end_col = root.pos_to_width(row, end, self.metrics) catch return;
+        const y = row - self.view.row;
+        for (begin_col..end_col) |col| {
+            if (col < self.view.col) continue;
+            const x = col - self.view.col;
+            if (x >= self.view.cols) break;
+            self.plane.cursor_move_yx(@intCast(y), @intCast(x));
+            var cell = self.plane.cell_init();
+            _ = self.plane.at_cursor_cell(&cell) catch return;
+            cell.set_style_bg(style);
+            _ = self.plane.putc(&cell) catch {};
+        }
     }
 
     fn render_whitespace_map(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
