@@ -25,6 +25,7 @@ const menu: Menu = .{ .items = &.{
     .separator,
     .{ .command = .{ .command = "goto_next_change" } },
     .{ .command = .{ .command = "goto_prev_change" } },
+    .{ .command = .{ .command = "show_vcs_change" } },
     .separator,
     .{ .command = .{ .command = "toggle_gutter_diffs", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_inline_vcs_blame", .on_activate = .keep_open } },

@@ -218,6 +218,7 @@ pub const go: Menu = .{ .label = "Go", .items = &.{
     .{ .command = .{ .command = "goto_prev_match" } },
     .{ .command = .{ .command = "goto_next_change" } },
     .{ .command = .{ .command = "goto_prev_change" } },
+    .{ .command = .{ .command = "show_vcs_change" } },
     .{ .command = .{ .command = "goto_next_diagnostic" } },
     .{ .command = .{ .command = "goto_prev_diagnostic" } },
     .{ .command = .{ .command = "goto_next_file_or_diagnostic" } },

@@ -128,6 +128,7 @@
             ["ctrl+p", "goto_prev_match"],
             ["alt+f5", "goto_next_change"],
             ["shift+alt+f5", "goto_prev_change"],
+            ["ctrl+k d", "show_vcs_change"],
             ["ctrl+b", "move_to_char", "move_or_select_to_char_left"],
             ["ctrl+t", "move_to_char", "move_or_select_to_char_right"],
             ["ctrl+x", "cut"],

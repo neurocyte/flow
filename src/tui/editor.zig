@@ -7699,6 +7699,24 @@ pub const Editor = struct {
     }
     pub const goto_prev_change_meta: Meta = .{ .description = "Go to previous change" };
 
+    pub fn get_change_at(self: *const Self, row: usize) ?Diff {
+        for (self.changes.items) |change| {
+            const end = change.line + if (change.kind == .delete) 1 else @max(change.lines, 1);
+            if (change.line <= row and row < end) return change;
+        }
+        return null;
+    }
+
+    pub fn show_vcs_change(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const change = self.get_change_at(self.get_primary().cursor.row) orelse {
+            std.log.info("no change at cursor", .{});
+            return;
+        };
+        try command.executeName("show_vcs_status", command.fmt(.{ file_path, change.line + 1 }));
+    }
+    pub const show_vcs_change_meta: Meta = .{ .description = "Show change at cursor" };
+
     pub fn goto_line(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         var line: usize = 0;

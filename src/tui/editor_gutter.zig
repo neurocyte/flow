@@ -498,10 +498,7 @@ fn change_at(self: *const Self, coord: MouseEvent.Coord) ?Diff {
     if (!tui.config().gutter_diffs) return null;
     const cell = coord.to_cell(self.plane.mouse_geometry());
     if (cell.row < 0 or cell.col < 0 or cell.col != @as(i32, self.plane.dim_x()) - 1) return null;
-    const row = self.view_top + @as(usize, @intCast(cell.row));
-    for (self.editor.changes.items) |change|
-        if (change.line <= row and row < diff_symbol_end(change)) return change;
-    return null;
+    return self.editor.get_change_at(self.view_top + @as(usize, @intCast(cell.row)));
 }
 
 fn is_same_change(a_: ?Diff, b: Diff) bool {

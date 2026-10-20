@@ -20,6 +20,8 @@ pub const cursor: Menu = .{ .label = "Language", .items = &.{
     .separator,
     .{ .command = .{ .command = "toggle_comment" } },
     .{ .command = .{ .command = "format" } },
+    .separator,
+    .{ .command = .{ .command = "show_vcs_change" } },
 } };
 
 pub const selection: Menu = .{ .label = "Language", .items = &.{
@@ -37,4 +39,6 @@ pub const selection: Menu = .{ .label = "Language", .items = &.{
     .separator,
     .{ .command = .{ .command = "add_cursor_all_matches" } },
     .{ .command = .{ .command = "send_selection_to_terminal" } },
+    .separator,
+    .{ .command = .{ .command = "show_vcs_change" } },
 } };
