@@ -467,6 +467,10 @@
             ["F", "palette_menu_action", "fetch"],
             ["P", "palette_menu_action", "push"],
             ["q", "palette_menu_cancel"]
+        ],
+        "release": [
+            ["left_control", "unbind"],
+            ["right_control", "unbind"]
         ]
     },
     "overlay/dropdown-noninvasive": {
