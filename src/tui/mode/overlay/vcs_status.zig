@@ -748,7 +748,7 @@ fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
     result catch |e| palette.logger.err(module_name, e);
 }
 
-const TerminalAction = enum { commit, fetch, push };
+const TerminalAction = enum { commit, amend, fetch, push };
 
 pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
     if (try ctx.args.match(.{"cancel"})) {
@@ -836,6 +836,7 @@ fn run_in_terminal(terminal_action: TerminalAction) !void {
     const config = tui.config();
     const cmd = switch (terminal_action) {
         .commit => config.vcs_commit_command,
+        .amend => config.vcs_amend_command,
         .fetch => config.vcs_fetch_command,
         .push => config.vcs_push_command,
     };

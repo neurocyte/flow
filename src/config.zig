@@ -130,6 +130,7 @@ maximum_symlink_depth: usize = 3,
 enable_file_watcher: bool = true,
 enable_vcs_watcher: bool = true,
 vcs_commit_command: []const u8 = "git commit",
+vcs_amend_command: []const u8 = "git commit --amend",
 vcs_fetch_command: []const u8 = "git fetch",
 vcs_push_command: []const u8 = "git push",
 
