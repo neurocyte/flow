@@ -255,6 +255,32 @@ pub fn first_change(context_: usize, staged: bool, file_path: []const u8) Error!
         try git(context_, .{ "--no-optional-locks", "diff", "--no-color", "--no-ext-diff", "-U0", "--", pathspec.written() }, handler, exit_null(tag));
 }
 
+pub const IndexUpdate = enum { stage, unstage, unstage_initial };
+
+pub fn update_index(context_: usize, update: IndexUpdate, file_paths: []const []const u8) Error!void {
+    const tag = @src().fn_name;
+    const cmd: []const []const u8 = switch (update) {
+        .stage => &.{ "add", "--" },
+        .unstage => &.{ "restore", "--staged", "--" },
+        .unstage_initial => &.{ "rm", "--cached", "-q", "--" },
+    };
+    var args: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (args.items[cmd.len..]) |arg| allocator.free(arg);
+        args.deinit(allocator);
+    }
+    try args.appendSlice(allocator, cmd);
+    for (file_paths) |file_path| {
+        const pathspec = try std.fmt.allocPrint(allocator, ":(top,literal){s}", .{file_path});
+        if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, pathspec, '\\', '/');
+        args.append(allocator, pathspec) catch |e| {
+            allocator.free(pathspec);
+            return e;
+        };
+    }
+    try git_err(context_, @as([]const []const u8, args.items), noop, log_err, exit_result(tag));
+}
+
 /// Returns the first new line of a hunk header: @@ -a[,b] +c[,d] @@
 fn parse_hunk_line(line: []const u8) ?usize {
     if (!std.mem.startsWith(u8, line, "@@ -")) return null;
@@ -323,6 +349,19 @@ fn git_err(
             try cbor.writeValue(writer, git_binary);
             inline for (info.field_names) |name|
                 try cbor.writeValue(writer, @field(cmd, name));
+            return shell.execute(allocator, .{ .buf = buf.written() }, .{
+                .context = context,
+                .out = to_shell_output_handler(out),
+                .err = to_shell_output_handler(err),
+                .exit = exit,
+                .log_execute = log_execute,
+            }) catch error.GitCallFailed;
+        },
+        .pointer => {
+            const args: []const []const u8 = cmd;
+            try cbor.writeArrayHeader(writer, args.len + 1);
+            try cbor.writeValue(writer, git_binary);
+            for (args) |arg| try cbor.writeValue(writer, arg);
             return shell.execute(allocator, .{ .buf = buf.written() }, .{
                 .context = context,
                 .out = to_shell_output_handler(out),
