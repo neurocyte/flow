@@ -40,10 +40,11 @@ pub const Instance = struct {
     tag: [:0]const u8,
     filtered: bool = false,
     recursive: bool = true,
+    quiet_missing: bool = false,
 
     pub const project_tree: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
     pub const file_store: Instance = .{ .name = "file_store_watcher", .tag = "FSW", .recursive = false };
-    pub const vcs_metadata: Instance = .{ .name = "vcs_metadata_watcher", .tag = "VW", .recursive = false };
+    pub const vcs_metadata: Instance = .{ .name = "vcs_metadata_watcher", .tag = "VW", .recursive = false, .quiet_missing = true };
 
     pub fn watch(self: Instance, path: []const u8) Error!void {
         return self.send(.{ "watch", path });
@@ -220,13 +221,15 @@ const Process = struct {
             self.add_dir(path);
             self.nw.?.watch(path) catch |e| switch (e) {
                 error.WatchLimitReached => std.log.err(
-                    "file_watcher watch: {s} -> watch limit reached after {d} watches{s}",
-                    .{ path, self.nw.?.watch_count(), limit_hint },
+                    "{s} watch: {s} -> watch limit reached after {d} watches{s}",
+                    .{ self.instance.name, path, self.nw.?.watch_count(), limit_hint },
                 ),
-                else => std.log.err("file_watcher watch: {s} -> {}", .{ path, e }),
+                error.NoEntry => if (!self.instance.quiet_missing)
+                    std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
+                else => std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
             };
         } else if (try cbor.match(m.buf, .{ "unwatch", tp.extract(&path) })) {
-            self.nw.?.unwatch(path) catch |e| std.log.err("file_watcher unwatch: {s} -> {}", .{ path, e });
+            self.nw.?.unwatch(path) catch |e| std.log.err("{s} unwatch: {s} -> {}", .{ self.instance.name, path, e });
             self.remove_root(path);
             self.remove_dir(path);
         } else if (try cbor.match(m.buf, .{ "ignore_changed", tp.extract(&path), tp.extract(&dir) })) {
