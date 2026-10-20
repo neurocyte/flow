@@ -20,7 +20,7 @@ pub const no_query = true;
 pub const keybind_mode = "overlay/vcs_status";
 pub const preserve_entry_order = true;
 
-pub const Kind = enum { header, empty, file };
+pub const Kind = enum { header, empty, file, hunk };
 pub const Section = enum { staged, unstaged, untracked };
 
 const sections = [_]struct { section: Section, label: []const u8 }{
@@ -39,6 +39,7 @@ pub const Entry = struct {
     kind: Kind,
     section: Section,
     status: u8 = ' ',
+    hunk: usize = 0,
 };
 
 const File = struct {
@@ -72,6 +73,8 @@ const File = struct {
 
 pub const ValueType = struct {
     files: std.ArrayList(File) = .empty,
+    files_next: std.ArrayList(File) = .empty,
+    hunks: std.ArrayList(Hunk) = .empty,
     pending_open: ?[]const u8 = null,
     pending_diff: ?Diff = null,
     shown_diff: ?Diff = null,
@@ -82,6 +85,18 @@ pub const ValueType = struct {
     restore_target: ?Target = null,
 };
 pub const defaultValue: ValueType = .{};
+
+const Hunk = struct {
+    label: []const u8,
+    line: usize,
+    new_line: usize,
+    patch: []const u8,
+
+    fn deinit(self: *const Hunk, allocator: std.mem.Allocator) void {
+        allocator.free(self.label);
+        allocator.free(self.patch);
+    }
+};
 
 const Diff = struct {
     path: []const u8,
@@ -109,26 +124,39 @@ pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
 }
 
 pub fn clear_entries(palette: *Type) void {
-    for (palette.entries.items) |entry| if (entry.kind == .file) {
-        palette.allocator.free(entry.label);
-        palette.allocator.free(entry.path);
-        palette.allocator.free(entry.orig_path);
-        palette.allocator.free(entry.file_icon);
+    for (palette.entries.items) |entry| switch (entry.kind) {
+        .file => {
+            palette.allocator.free(entry.label);
+            palette.allocator.free(entry.path);
+            palette.allocator.free(entry.orig_path);
+            palette.allocator.free(entry.file_icon);
+        },
+        .hunk => palette.allocator.free(entry.path),
+        .header, .empty => {},
     };
     palette.entries.clearRetainingCapacity();
 }
 
-fn clear_files(palette: *Type) void {
-    for (palette.value.files.items) |*file| file.deinit(palette.allocator);
-    palette.value.files.clearRetainingCapacity();
+fn clear_files(palette: *Type, files: *std.ArrayList(File)) void {
+    for (files.items) |*file| file.deinit(palette.allocator);
+    files.clearRetainingCapacity();
+}
+
+fn clear_hunks(palette: *Type) void {
+    for (palette.value.hunks.items) |*hunk| hunk.deinit(palette.allocator);
+    palette.value.hunks.clearRetainingCapacity();
 }
 
 pub fn deinit(palette: *Type) void {
     save(palette);
     tui.message_filters().remove_ptr(palette);
     clear_entries(palette);
-    clear_files(palette);
+    clear_files(palette, &palette.value.files);
+    clear_files(palette, &palette.value.files_next);
+    clear_hunks(palette);
     palette.value.files.deinit(palette.allocator);
+    palette.value.files_next.deinit(palette.allocator);
+    palette.value.hunks.deinit(palette.allocator);
     if (palette.value.pending_open) |path| palette.allocator.free(path);
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     if (palette.value.shown_diff) |diff| palette.allocator.free(diff.path);
@@ -147,7 +175,8 @@ fn save(palette: *Type) void {
     const writer = &data.writer;
     if (selected_index(palette)) |idx| {
         const entry = &palette.entries.items[idx];
-        cbor.writeValue(writer, .{ entry.kind, entry.section, entry.path, idx }) catch return;
+        const kind: Kind = if (entry.kind == .hunk) .file else entry.kind;
+        cbor.writeValue(writer, .{ kind, entry.section, entry.path, idx }) catch return;
     }
     tui.set_last_palette(.vcs_status, .init(.{ .buf = data.written() }));
 }
@@ -221,8 +250,10 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         else
             clear_pending_target(palette);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_status_files_done" })) {
+        clear_files(palette, &palette.value.files);
+        std.mem.swap(std.ArrayList(File), &palette.value.files, &palette.value.files_next);
+        palette.value.diff_stale = true;
         try update_entries(palette);
-        clear_files(palette);
         tui.need_render(@src());
     } else return false;
     return true;
@@ -236,7 +267,7 @@ fn append_file(palette: *Type, path: []const u8, orig_path: []const u8, file_ico
     errdefer allocator.free(orig_path_);
     const file_icon_ = try allocator.dupe(u8, file_icon);
     errdefer allocator.free(file_icon_);
-    (try palette.value.files.addOne(allocator)).* = .{
+    (try palette.value.files_next.addOne(allocator)).* = .{
         .path = path_,
         .orig_path = orig_path_,
         .file_icon = file_icon_,
@@ -251,9 +282,16 @@ const Target = struct {
     section: Section,
     path: []const u8,
     index: usize,
+    hunk: usize = 0,
 
     fn matches(self: *const Target, entry: *const Entry) bool {
-        return self.kind == entry.kind and self.section == entry.section and std.mem.eql(u8, self.path, entry.path);
+        return self.kind == entry.kind and self.section == entry.section and self.hunk == entry.hunk and
+            std.mem.eql(u8, self.path, entry.path);
+    }
+
+    fn matches_file(self: *const Target, entry: *const Entry) bool {
+        return (entry.kind == .file or entry.kind == .hunk) and self.section == entry.section and
+            std.mem.eql(u8, self.path, entry.path);
     }
 };
 
@@ -272,6 +310,7 @@ fn update_entries(palette: *Type) !void {
             .section = entry.section,
             .path = try allocator.dupe(u8, entry.path),
             .index = idx,
+            .hunk = entry.hunk,
         };
     }
     defer if (target) |t| allocator.free(t.path);
@@ -283,6 +322,7 @@ fn update_entries(palette: *Type) !void {
         for (palette.value.files.items) |*file| {
             const status = file.status(section.section) orelse continue;
             try append_entry(palette, file, section.section, status);
+            try append_hunk_entries(palette, file.path, section.section);
             count += 1;
         }
         if (count == 0)
@@ -299,7 +339,6 @@ fn update_entries(palette: *Type) !void {
         first_file(palette);
     if (palette.value.pending_target_done) clear_pending_target(palette);
     clear_restore_target(palette);
-    palette.value.diff_stale = true;
     palette.initial_selected = select_idx + 1;
     try palette.start_query(0);
 }
@@ -307,6 +346,14 @@ fn update_entries(palette: *Type) !void {
 fn find_target(palette: *Type, target: *const Target) usize {
     const entries = palette.entries.items;
     for (entries, 0..) |*entry, i| if (target.matches(entry)) return i;
+    if (target.kind == .hunk) {
+        var last: ?usize = null;
+        for (entries, 0..) |*entry, i| if (target.matches_file(entry)) {
+            last = i;
+        };
+        if (last) |i| return i;
+        for (entries, 0..) |*entry, i| if (entry.kind == .header and entry.section == target.section) return i;
+    }
     var idx = @min(target.index, entries.len - 1);
     while (idx > 0 and entries[idx].kind == .empty) idx -= 1;
     return idx;
@@ -342,6 +389,36 @@ fn append_entry(palette: *Type, file: *const File, section: Section, status: u8)
     };
 }
 
+fn append_hunk_entries(palette: *Type, path: []const u8, section: Section) !void {
+    const diff = palette.value.shown_diff orelse return;
+    if (diff.mode != section_diff_mode(section) or !std.mem.eql(u8, diff.path, path)) return;
+    for (palette.value.hunks.items, 0..) |*hunk, i| {
+        const path_ = try palette.allocator.dupe(u8, path);
+        errdefer palette.allocator.free(path_);
+        (try palette.entries.addOne(palette.allocator)).* = .{
+            .label = hunk.label,
+            .path = path_,
+            .kind = .hunk,
+            .section = section,
+            .hunk = i,
+        };
+    }
+}
+
+fn hunk_for(palette: *Type, path: []const u8, section: Section, index: usize) ?*const Hunk {
+    const diff = palette.value.shown_diff orelse return null;
+    if (diff.mode != section_diff_mode(section) or !std.mem.eql(u8, diff.path, path)) return null;
+    return if (index < palette.value.hunks.items.len) &palette.value.hunks.items[index] else null;
+}
+
+fn section_diff_mode(section: Section) project_manager.VcsDiffMode {
+    return switch (section) {
+        .staged => .staged,
+        .unstaged => .unstaged,
+        .untracked => .untracked,
+    };
+}
+
 pub fn add_list_box_entry(palette: *Type, entry: *Entry, _: ?[]const usize) !void {
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
@@ -358,6 +435,7 @@ pub fn add_list_box_entry(palette: *Type, entry: *Entry, _: ?[]const usize) !voi
     try cbor.writeValue(writer, entry.file_icon);
     try cbor.writeValue(writer, entry.file_color);
     try cbor.writeValue(writer, indicator);
+    try cbor.writeValue(writer, entry.hunk);
     try palette.list_box.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
@@ -371,6 +449,7 @@ const Item = struct {
     file_icon: []const u8,
     file_color: u24,
     indicator: []const u8,
+    hunk: usize,
 
     fn decode(button: *Type.ButtonType) ?Item {
         var item: Item = undefined;
@@ -383,6 +462,7 @@ const Item = struct {
         if (!(cbor.matchString(&iter, &item.file_icon) catch false)) return null;
         if (!(cbor.matchValue(&iter, tp.extract(&item.file_color)) catch false)) return null;
         if (!(cbor.matchString(&iter, &item.indicator) catch false)) return null;
+        if (!(cbor.matchValue(&iter, tp.extract(&item.hunk)) catch false)) return null;
         return item;
     }
 };
@@ -438,6 +518,13 @@ pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widg
             plane.set_style(style_hint);
             _ = plane.print_aligned_right(0, "{s} ", .{item.indicator}) catch {};
         },
+        .hunk => {
+            const end = if (std.mem.indexOfPos(u8, item.label, 2, "@@")) |pos| pos + 2 else item.label.len;
+            plane.set_style(style_hint);
+            _ = plane.print("    {s}", .{item.label[0..end]}) catch {};
+            plane.set_style(style_label);
+            _ = plane.print("{s}", .{item.label[end..]}) catch {};
+        },
     }
     return false;
 }
@@ -447,10 +534,16 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
     const activate = palette.activate;
     palette.activate = .normal;
     const item = Item.decode(button) orelse return;
-    if (item.kind != .file) return;
-    switch (activate) {
-        .normal => show_diff(palette, &item),
-        .alternate => open_file(palette, &item),
+    switch (item.kind) {
+        .file => switch (activate) {
+            .normal => show_diff(palette, &item),
+            .alternate => open_file(palette, &item),
+        },
+        .hunk => switch (activate) {
+            .normal => show_hunk(palette, &item),
+            .alternate => open_hunk(palette, &item),
+        },
+        .header, .empty => {},
     }
 }
 
@@ -458,16 +551,27 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     if (palette.value.shown_diff == null) return;
     const button = button_ orelse return;
     const item = Item.decode(button) orelse return;
-    if (item.kind != .file) return;
-    show_diff(palette, &item);
+    switch (item.kind) {
+        .file => show_diff(palette, &item),
+        .hunk => show_hunk(palette, &item),
+        .header, .empty => {},
+    }
+}
+
+fn show_hunk(palette: *Type, item: *const Item) void {
+    show_diff(palette, item);
+    const hunk = hunk_for(palette, item.path, item.section, item.hunk) orelse return;
+    send(palette, .{ "cmd", "goto_line", .{hunk.line} });
+    send(palette, .{ "cmd", "scroll_view_top" });
+}
+
+fn open_hunk(palette: *Type, item: *const Item) void {
+    const hunk = hunk_for(palette, item.path, item.section, item.hunk) orelse return;
+    navigate(palette, item.path, hunk.new_line);
 }
 
 fn show_diff(palette: *Type, item: *const Item) void {
-    const mode: project_manager.VcsDiffMode = switch (item.section) {
-        .staged => .staged,
-        .unstaged => .unstaged,
-        .untracked => .untracked,
-    };
+    const mode = section_diff_mode(item.section);
     const stale = palette.value.diff_stale;
     palette.value.diff_stale = false;
     if (palette.value.pending_diff) |*diff| if (diff.eql(item.path, mode)) return;
@@ -490,6 +594,7 @@ fn show_pending_diff(palette: *Type, file_path: []const u8, mode: project_manage
     defer if (previous) |diff| allocator.free(diff.path);
     if (previous) |*diff| if (diff.eql(file_path, mode) and palette.value.shown_diff_hash == hash) return;
     palette.value.shown_diff_hash = hash;
+    defer update_hunks(palette, mode, output);
 
     const buffer_name = pending.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
     defer allocator.free(buffer_name);
@@ -500,6 +605,62 @@ fn show_pending_diff(palette: *Type, file_path: []const u8, mode: project_manage
         if (!std.mem.eql(u8, previous_name, buffer_name))
             send(palette, .{ "cmd", "close_buffer", .{previous_name} });
     }
+}
+
+fn update_hunks(palette: *Type, mode: project_manager.VcsDiffMode, output: []const u8) void {
+    clear_hunks(palette);
+    if (mode != .untracked) parse_hunks(palette, output) catch |e| palette.logger.err(module_name, e);
+    update_entries(palette) catch |e| palette.logger.err(module_name, e);
+}
+
+fn parse_hunks(palette: *Type, output: []const u8) !void {
+    var header: []const u8 = output;
+    var hunk_start: ?usize = null;
+    var hunk_line: usize = 0;
+    var line_no: usize = 1;
+    var pos: usize = 0;
+    while (pos < output.len) : (line_no += 1) {
+        const end = if (std.mem.indexOfScalarPos(u8, output, pos, '\n')) |nl| nl + 1 else output.len;
+        if (std.mem.startsWith(u8, output[pos..end], "@@ ")) {
+            if (hunk_start) |start|
+                try add_hunk(palette, header, output[start..pos], hunk_line)
+            else
+                header = output[0..pos];
+            hunk_start = pos;
+            hunk_line = line_no;
+        }
+        pos = end;
+    }
+    if (hunk_start) |start| try add_hunk(palette, header, output[start..], hunk_line);
+}
+
+fn add_hunk(palette: *Type, header: []const u8, text: []const u8, line: usize) !void {
+    const allocator = palette.allocator;
+    const first_line = text[0 .. std.mem.indexOfScalar(u8, text, '\n') orelse text.len];
+    const hunk_label = try allocator.dupe(u8, std.mem.trimEnd(u8, first_line, "\r"));
+    errdefer allocator.free(hunk_label);
+    const patch = try std.mem.concat(allocator, u8, &.{ header, text });
+    errdefer allocator.free(patch);
+    (try palette.value.hunks.addOne(allocator)).* = .{
+        .label = hunk_label,
+        .line = line,
+        .new_line = first_changed_line(text),
+        .patch = patch,
+    };
+}
+
+fn first_changed_line(text: []const u8) usize {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    const hunk_header = lines.first();
+    const start = (std.mem.indexOf(u8, hunk_header, " +") orelse return 1) + 2;
+    var end = start;
+    while (end < hunk_header.len and std.ascii.isDigit(hunk_header[end])) end += 1;
+    var line = std.fmt.parseInt(usize, hunk_header[start..end], 10) catch return 1;
+    while (lines.next()) |l| {
+        if (!std.mem.startsWith(u8, l, " ")) break;
+        line += 1;
+    }
+    return @max(1, line);
 }
 
 fn send(palette: *Type, m: anytype) void {
@@ -547,6 +708,7 @@ pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void 
     const entries = palette.entries.items;
     const entry = &entries[idx];
     if (entry.kind == .empty) return;
+    if (entry.kind == .hunk) return apply_hunk(palette, idx);
 
     var paths: std.ArrayList([]const u8) = .empty;
     defer paths.deinit(palette.allocator);
@@ -565,6 +727,25 @@ pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void 
         .unstaged, .untracked => .stage,
     };
     try project_manager.request_vcs_update_index(update, paths.items);
+}
+
+fn apply_hunk(palette: *Type, idx: usize) !void {
+    const entry = &palette.entries.items[idx];
+    const hunk = hunk_for(palette, entry.path, entry.section, entry.hunk) orelse return;
+    const update: project_manager.VcsIndexUpdate = switch (entry.section) {
+        .staged => .unstage,
+        .unstaged => .stage,
+        .untracked => return,
+    };
+    clear_pending_target(palette);
+    palette.value.pending_target = .{
+        .kind = entry.kind,
+        .section = entry.section,
+        .path = try palette.allocator.dupe(u8, entry.path),
+        .index = idx,
+        .hunk = entry.hunk,
+    };
+    try project_manager.request_vcs_apply_patch(update, hunk.patch);
 }
 
 fn set_pending_target(palette: *Type, idx: usize) !void {
