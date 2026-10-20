@@ -465,7 +465,8 @@
             ["u", "palette_menu_action"],
             ["C", "palette_menu_action", "commit"],
             ["F", "palette_menu_action", "fetch"],
-            ["P", "palette_menu_action", "push"]
+            ["P", "palette_menu_action", "push"],
+            ["q", "palette_menu_cancel"]
         ]
     },
     "overlay/dropdown-noninvasive": {
