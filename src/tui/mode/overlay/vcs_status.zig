@@ -92,7 +92,12 @@ pub const ValueType = struct {
 const GotoHunk = struct {
     path: []const u8,
     section: ?Section = null,
-    line: ?usize,
+    location: ?Location,
+
+    const Location = union(enum) {
+        file_line: usize,
+        diff_line: usize,
+    };
 };
 pub const defaultValue: ValueType = .{};
 
@@ -123,6 +128,17 @@ const Diff = struct {
         };
         return std.fmt.allocPrint(allocator, "*{s} {s}*", .{ cmd, self.path });
     }
+
+    /// the reverse of buffer_name; an untracked diff reads as unstaged
+    fn from_buffer_name(buffer_name_: []const u8) ?Diff {
+        if (buffer_name_.len < 2 or buffer_name_[0] != '*' or buffer_name_[buffer_name_.len - 1] != '*') return null;
+        const inner = buffer_name_[1 .. buffer_name_.len - 1];
+        const staged = "git diff --cached ";
+        const unstaged = "git diff ";
+        if (std.mem.startsWith(u8, inner, staged)) return .{ .path = inner[staged.len..], .mode = .staged };
+        if (std.mem.startsWith(u8, inner, unstaged)) return .{ .path = inner[unstaged.len..], .mode = .unstaged };
+        return null;
+    }
 };
 
 pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
@@ -130,7 +146,14 @@ pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
     if (ctx.args.buf.len != 0)
         try restore(palette, ctx)
     else if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
-        palette.value.initial_path = try palette.allocator.dupe(u8, file_path);
+        if (Diff.from_buffer_name(file_path)) |diff| {
+            palette.value.initial_path = try palette.allocator.dupe(u8, diff.path);
+            palette.value.goto_hunk = .{
+                .path = try palette.allocator.dupe(u8, diff.path),
+                .section = if (diff.mode == .staged) .staged else null,
+                .location = .{ .diff_line = editor.get_primary().cursor.row + 1 },
+            };
+        } else palette.value.initial_path = try palette.allocator.dupe(u8, file_path);
     };
     try project_manager.request_vcs_status_files();
     project_manager.request_vcs_status() catch {};
@@ -214,7 +237,7 @@ fn restore(palette: *Type, ctx: command.Context) !void {
         clear_restore_target(palette);
         clear_goto_hunk(palette);
         palette.value.initial_path = try palette.allocator.dupe(u8, path);
-        palette.value.goto_hunk = .{ .path = try palette.allocator.dupe(u8, path), .line = line };
+        palette.value.goto_hunk = .{ .path = try palette.allocator.dupe(u8, path), .location = .{ .file_line = line } };
         return;
     }
     var context_lines: usize = undefined;
@@ -239,7 +262,11 @@ fn restore(palette: *Type, ctx: command.Context) !void {
     palette.value.context_lines = context_lines;
     if (diff_open) {
         clear_goto_hunk(palette);
-        palette.value.goto_hunk = .{ .path = try palette.allocator.dupe(u8, path), .section = section, .line = hunk_line };
+        palette.value.goto_hunk = .{
+            .path = try palette.allocator.dupe(u8, path),
+            .section = section,
+            .location = if (hunk_line) |l| .{ .file_line = l } else null,
+        };
     }
 }
 
@@ -260,6 +287,7 @@ fn goto_section(palette: *Type, path: []const u8) ?Section {
     for (palette.value.files.items) |*file| if (std.mem.eql(u8, file.path, path)) {
         if (file.status(.unstaged)) |_| return .unstaged;
         if (file.status(.staged)) |_| return .staged;
+        if (file.status(.untracked)) |_| return .untracked;
     };
     return null;
 }
@@ -269,17 +297,11 @@ fn select_goto_hunk(palette: *Type, mode: project_manager.VcsDiffMode) !void {
     const diff = palette.value.shown_diff orelse return;
     if (!diff.eql(goto.path, mode)) return;
     defer clear_goto_hunk(palette);
-    const line = goto.line orelse return;
-    var best: ?usize = null;
-    var best_distance: usize = std.math.maxInt(usize);
-    for (palette.value.hunks.items, 0..) |*hunk, i| {
-        const distance = hunk_distance(hunk.label, line);
-        if (distance < best_distance) {
-            best = i;
-            best_distance = distance;
-        }
-    }
-    const idx = best orelse return;
+    const location = goto.location orelse return;
+    const idx = switch (location) {
+        .file_line => |line| nearest_hunk(palette, line),
+        .diff_line => |line| hunk_at_diff_line(palette, line),
+    } orelse return;
     clear_pending_target(palette);
     palette.value.pending_target = .{
         .kind = .hunk,
@@ -294,6 +316,27 @@ fn select_goto_hunk(palette: *Type, mode: project_manager.VcsDiffMode) !void {
 }
 
 /// the number of lines between a line and the new side of a hunk, 0 if the hunk contains it
+fn nearest_hunk(palette: *Type, line: usize) ?usize {
+    var best: ?usize = null;
+    var best_distance: usize = std.math.maxInt(usize);
+    for (palette.value.hunks.items, 0..) |*hunk, i| {
+        const distance = hunk_distance(hunk.label, line);
+        if (distance < best_distance) {
+            best = i;
+            best_distance = distance;
+        }
+    }
+    return best;
+}
+
+fn hunk_at_diff_line(palette: *Type, line: usize) ?usize {
+    var found: ?usize = if (palette.value.hunks.items.len > 0) 0 else null;
+    for (palette.value.hunks.items, 0..) |*hunk, i| if (hunk.line <= line) {
+        found = i;
+    };
+    return found;
+}
+
 fn hunk_distance(hunk_header: []const u8, line: usize) usize {
     const start_pos = (std.mem.indexOf(u8, hunk_header, " +") orelse return std.math.maxInt(usize)) + 2;
     var pos = start_pos;
