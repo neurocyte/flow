@@ -472,6 +472,8 @@
             ["e", "palette_menu_activate_alternate"],
             ["=", "palette_menu_action", "more_context"],
             ["-", "palette_menu_action", "less_context"],
+            ["]", "palette_menu_action", "more_context"],
+            ["[", "palette_menu_action", "less_context"],
             ["page_up", "move_scroll_page_up"],
             ["page_down", "move_scroll_page_down"],
             ["ctrl+u", "move_scroll_half_page_up"],
