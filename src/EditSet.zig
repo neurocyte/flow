@@ -774,6 +774,103 @@ pub fn line_marks(allocator: std.mem.Allocator, blocks: []const LineBlock) error
     return marks.toOwnedSlice(allocator);
 }
 
+pub const WordChanges = struct {
+    src: []ByteRange,
+    dst: []ByteRange,
+
+    pub fn deinit(self: WordChanges, allocator: std.mem.Allocator) void {
+        allocator.free(self.src);
+        allocator.free(self.dst);
+    }
+};
+
+/// a pair of lines up to this size, both together, gets a word diff
+const max_word_diff_bytes = 4 * 1024;
+
+/// The words that differ between two lines, as byte ranges in each line.
+/// Touching changed words are merged into one range.
+pub fn word_changes(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) error{OutOfMemory}!WordChanges {
+    var arena_: std.heap.ArenaAllocator = .init(allocator);
+    defer arena_.deinit();
+    const arena = arena_.allocator();
+
+    var src_ranges: std.ArrayList(ByteRange) = .empty;
+    defer src_ranges.deinit(allocator);
+    var dst_ranges: std.ArrayList(ByteRange) = .empty;
+    defer dst_ranges.deinit(allocator);
+
+    if (src.len + dst.len <= max_word_diff_bytes) {
+        const context: WordContext = .{
+            .src = src,
+            .dst = dst,
+            .src_words = try split_words(arena, src),
+            .dst_words = try split_words(arena, dst),
+        };
+        var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
+        const scratch = try arena.alloc(u32, 4 * (context.src_words.len + context.dst_words.len) + 2);
+        try dizzy.Differ(WordContext).diff(arena, &dizzy_edits, @intCast(context.src_words.len), @intCast(context.dst_words.len), scratch, context);
+        for (dizzy_edits.items) |dizzy_edit| {
+            const range = dizzy_edit.range;
+            switch (dizzy_edit.kind) {
+                .equal => {},
+                .delete => try add_word_range(allocator, &src_ranges, context.src_words[range.start..range.end]),
+                .insert => try add_word_range(allocator, &dst_ranges, context.dst_words[range.start..range.end]),
+            }
+        }
+    }
+
+    const src_owned = try src_ranges.toOwnedSlice(allocator);
+    errdefer allocator.free(src_owned);
+    return .{ .src = src_owned, .dst = try dst_ranges.toOwnedSlice(allocator) };
+}
+
+const WordContext = struct {
+    src: []const u8,
+    dst: []const u8,
+    src_words: []const ByteRange,
+    dst_words: []const ByteRange,
+
+    pub fn eql(self: WordContext, src_index: u32, dst_index: u32) bool {
+        const a = self.src_words[src_index];
+        const b = self.dst_words[dst_index];
+        return std.mem.eql(u8, self.src[a.begin..a.end], self.dst[b.begin..b.end]);
+    }
+};
+
+const WordClass = enum { word, space, other };
+
+fn word_class(c: u8) WordClass {
+    return switch (c) {
+        'a'...'z', 'A'...'Z', '0'...'9', '_', 0x80...0xff => .word,
+        ' ', '\t' => .space,
+        else => .other,
+    };
+}
+
+/// words are runs of word characters or of spaces, any other byte is a word of its own
+fn split_words(arena: std.mem.Allocator, text: []const u8) error{OutOfMemory}![]ByteRange {
+    var words: std.ArrayList(ByteRange) = .empty;
+    var pos: usize = 0;
+    while (pos < text.len) {
+        const class = word_class(text[pos]);
+        var end = pos + 1;
+        if (class != .other) while (end < text.len and word_class(text[end]) == class) : (end += 1) {};
+        (try words.addOne(arena)).* = .{ .begin = pos, .end = end };
+        pos = end;
+    }
+    return words.items;
+}
+
+fn add_word_range(allocator: std.mem.Allocator, ranges: *std.ArrayList(ByteRange), words: []const ByteRange) error{OutOfMemory}!void {
+    if (words.len == 0) return;
+    const range: ByteRange = .{ .begin = words[0].begin, .end = words[words.len - 1].end };
+    if (ranges.items.len > 0 and ranges.items[ranges.items.len - 1].end == range.begin) {
+        ranges.items[ranges.items.len - 1].end = range.end;
+        return;
+    }
+    (try ranges.addOne(allocator)).* = range;
+}
+
 fn diff_block(arena: std.mem.Allocator, hunks: *std.ArrayList(Hunk), src: []const u8, dst: []const u8, block: Hunk) error{OutOfMemory}!void {
     const old = src[block.src_begin..block.src_end];
     const new = dst[block.dst_begin..block.dst_end];
@@ -1406,4 +1503,31 @@ test "diff_strings: random strings round trip" {
         var iter: Iterator = try .init(.{ .bytes = edit_set.written() });
         while (try iter.next()) |edit| try testing.expect(std.unicode.utf8ValidateSlice(edit.text));
     }
+}
+
+fn expect_word_changes(src: []const u8, dst: []const u8, expected_src: []const ByteRange, expected_dst: []const ByteRange) !void {
+    const changes = try word_changes(testing.allocator, src, dst);
+    defer changes.deinit(testing.allocator);
+    try testing.expectEqualSlices(ByteRange, expected_src, changes.src);
+    try testing.expectEqualSlices(ByteRange, expected_dst, changes.dst);
+}
+
+test "word_changes: a changed word" {
+    try expect_word_changes("const a = 1;", "const b = 1;", &.{.{ .begin = 6, .end = 7 }}, &.{.{ .begin = 6, .end = 7 }});
+}
+
+test "word_changes: touching words merge" {
+    try expect_word_changes("foo(a)", "foo(a, b)", &.{}, &.{.{ .begin = 5, .end = 8 }});
+}
+
+test "word_changes: equal lines have no changes" {
+    try expect_word_changes("same line", "same line", &.{}, &.{});
+}
+
+test "word_changes: multibyte characters stay inside their word" {
+    try expect_word_changes("naïve x", "naive x", &.{.{ .begin = 0, .end = 6 }}, &.{.{ .begin = 0, .end = 5 }});
+}
+
+test "word_changes: separate changes stay separate" {
+    try expect_word_changes("a b c", "x b y", &.{ .{ .begin = 0, .end = 1 }, .{ .begin = 4, .end = 5 } }, &.{ .{ .begin = 0, .end = 1 }, .{ .begin = 4, .end = 5 } });
 }
