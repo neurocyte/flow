@@ -2061,6 +2061,7 @@ pub const VcsIdRequest = struct {
     allocator: std.mem.Allocator,
     project: usize,
     file_path: []const u8,
+    found: bool = false,
 
     pub fn deinit(self: *@This()) void {
         self.allocator.free(self.file_path);
@@ -2103,10 +2104,12 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
 
     if (try m.match(.{ tp.any, tp.extract(&context), "rev_parse", tp.extract(&vcs_id) })) {
         const request: *VcsIdRequest = @ptrFromInt(context);
+        request.found = true;
         parent.send(.{ "PRJ", "vcs_id", request.file_path, vcs_id }) catch {};
     } else if (try m.match(.{ tp.any, tp.extract(&context), "rev_parse", tp.null_ })) {
         const request: *VcsIdRequest = @ptrFromInt(context);
         defer request.deinit();
+        if (!request.found) parent.send(.{ "PRJ", "vcs_id", request.file_path, null }) catch {};
     } else if (try m.match(.{ tp.any, tp.extract(&context), "cat_file", tp.extract(&vcs_content) })) {
         const request: *VcsContentRequest = @ptrFromInt(context);
         parent.send(.{ "PRJ", "vcs_content", request.file_path, request.vcs_id, vcs_content }) catch {};

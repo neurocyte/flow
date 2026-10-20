@@ -1431,6 +1431,13 @@ pub fn set_vcs_id(self: *Self, vcs_id: []const u8) error{OutOfMemory}!bool {
     return true;
 }
 
+pub fn clear_vcs_id(self: *Self) void {
+    if (self.vcs_id) |old_id| self.external_allocator.free(old_id);
+    self.vcs_id = null;
+    self.clear_vcs_content();
+    self.clear_vcs_blame();
+}
+
 pub fn get_vcs_id(self: *const Self) ?[]const u8 {
     return self.vcs_id;
 }

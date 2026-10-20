@@ -3542,6 +3542,12 @@ pub fn vcs_id_update(self: *Self, m: tp.message) void {
             project_manager.request_vcs_content(file_path, vcs_id) catch {};
             project_manager.request_vcs_blame(file_path) catch {};
         }
+    } else if (m.match(.{ "PRJ", "vcs_id", tp.extract(&file_path), tp.null_ }) catch return) {
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        if (buffer.get_vcs_id() == null) return;
+        buffer.clear_vcs_id();
+        if (self.get_editor_for_buffer(buffer)) |editor|
+            editor.vcs_content_update() catch {};
     }
 }
 
