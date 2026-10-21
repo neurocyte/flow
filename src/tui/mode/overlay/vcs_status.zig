@@ -22,7 +22,7 @@ pub const no_query = true;
 pub const keybind_mode = "overlay/vcs_status";
 pub const preserve_entry_order = true;
 
-pub const Kind = enum { header, empty, file, hunk };
+pub const Kind = enum { header, empty, file, repo, hunk };
 pub const Section = enum { staged, unstaged, untracked };
 
 const sections = [_]struct { section: Section, label: []const u8 }{
@@ -51,6 +51,7 @@ const File = struct {
     file_color: u24,
     x: u8,
     y: u8,
+    kind: project_manager.VcsFileKind,
 
     fn deinit(self: *const File, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
@@ -90,6 +91,7 @@ pub const ValueType = struct {
     context_lines: usize = 3,
     root: []const u8 = "",
     repo_path: ?[]const u8 = null,
+    reset_selection: bool = false,
 };
 
 const GotoHunk = struct {
@@ -219,7 +221,7 @@ fn set_title(palette: *Type) !void {
 
 pub fn clear_entries(palette: *Type) void {
     for (palette.entries.items) |entry| switch (entry.kind) {
-        .file => {
+        .file, .repo => {
             palette.allocator.free(entry.label);
             palette.allocator.free(entry.path);
             palette.allocator.free(entry.orig_path);
@@ -447,6 +449,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     var exit_code: i64 = undefined;
     var diff_mode: project_manager.VcsDiffMode = undefined;
     var diff_output: []const u8 = undefined;
+    var file_kind: project_manager.VcsFileKind = undefined;
 
     if (try cbor.match(m.buf, .{ "PRJ", "vcs_repo", tp.extract(&file_path), tp.extract(&repo_root) })) {
         try set_repo(palette, file_path, repo_root);
@@ -465,9 +468,10 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         tp.extract(&x),
         tp.extract(&y),
         tp.extract(&orig_path),
+        tp.extract(&file_kind),
     })) {
         if (x.len != 1 or y.len != 1 or !std.mem.eql(u8, repo_root, palette.value.root)) return true;
-        try append_file(palette, file_path, orig_path, file_icon, file_color, x[0], y[0]);
+        try append_file(palette, file_path, orig_path, file_icon, file_color, x[0], y[0], file_kind);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_diff", tp.extract(&file_path), tp.extract(&diff_mode), tp.extract(&diff_output) })) {
         show_pending_diff(palette, file_path, diff_mode, diff_output);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.extract(&line) })) {
@@ -485,13 +489,14 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         std.mem.swap(std.ArrayList(File), &palette.value.files, &palette.value.files_next);
         palette.value.diff_stale = true;
         try update_entries(palette);
+        if (palette.value.files.items.len > 0) palette.value.reset_selection = false;
         request_goto_diff(palette);
         tui.need_render(@src());
     } else return false;
     return true;
 }
 
-fn append_file(palette: *Type, path: []const u8, orig_path: []const u8, file_icon: []const u8, file_color: u24, x: u8, y: u8) !void {
+fn append_file(palette: *Type, path: []const u8, orig_path: []const u8, file_icon: []const u8, file_color: u24, x: u8, y: u8, kind: project_manager.VcsFileKind) !void {
     const allocator = palette.allocator;
     const path_ = try allocator.dupe(u8, path);
     errdefer allocator.free(path_);
@@ -506,6 +511,7 @@ fn append_file(palette: *Type, path: []const u8, orig_path: []const u8, file_ico
         .file_color = file_color,
         .x = x,
         .y = y,
+        .kind = kind,
     };
 }
 
@@ -522,7 +528,7 @@ const Target = struct {
     }
 
     fn matches_file(self: *const Target, entry: *const Entry) bool {
-        return (entry.kind == .file or entry.kind == .hunk) and self.section == entry.section and
+        return (entry.kind == .file or entry.kind == .repo or entry.kind == .hunk) and self.section == entry.section and
             std.mem.eql(u8, self.path, entry.path);
     }
 };
@@ -535,7 +541,7 @@ fn selected_index(palette: *Type) ?usize {
 fn update_entries(palette: *Type) !void {
     const allocator = palette.allocator;
     var target: ?Target = null;
-    if (selected_index(palette)) |idx| {
+    if (!palette.value.reset_selection) if (selected_index(palette)) |idx| {
         const entry = &palette.entries.items[idx];
         target = .{
             .kind = entry.kind,
@@ -544,7 +550,7 @@ fn update_entries(palette: *Type) !void {
             .index = idx,
             .hunk = entry.hunk,
         };
-    }
+    };
     defer if (target) |t| allocator.free(t.path);
 
     clear_entries(palette);
@@ -595,12 +601,12 @@ fn find_target(palette: *Type, target: *const Target) usize {
 
 fn find_file(palette: *Type, path: []const u8) ?usize {
     for (palette.entries.items, 0..) |*entry, i|
-        if (entry.kind == .file and std.mem.eql(u8, entry.path, path)) return i;
+        if ((entry.kind == .file or entry.kind == .repo) and std.mem.eql(u8, entry.path, path)) return i;
     return null;
 }
 
 fn first_file(palette: *Type) usize {
-    for (palette.entries.items, 0..) |*entry, i| if (entry.kind == .file) return i;
+    for (palette.entries.items, 0..) |*entry, i| if (entry.kind == .file or entry.kind == .repo) return i;
     return 0;
 }
 
@@ -620,9 +626,9 @@ fn append_entry(palette: *Type, file: *const File, section: Section, status: u8)
         .orig_path = orig_path,
         .file_icon = file_icon,
         .file_color = file.file_color,
-        .kind = .file,
+        .kind = if (file.kind == .file) .file else .repo,
         .section = section,
-        .status = status,
+        .status = if (file.kind == .submodule) 'S' else status,
     };
 }
 
@@ -747,7 +753,7 @@ pub fn on_render_list_box(_: *Type, button: *Type.ButtonType, theme: *const Widg
             plane.set_style(theme.input_placeholder);
             _ = plane.print("{s}", .{item.label}) catch {};
         },
-        .file => {
+        .file, .repo => {
             _ = tui.render_file_icon(plane, item.file_icon, item.file_color);
             plane.set_style(style_label);
             _ = plane.print("{s} ", .{item.label}) catch {};
@@ -779,6 +785,8 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
                 show_diff(palette, &item),
             .alternate => open_file(palette, &item),
         },
+        // switching rebuilds the list and would free this button while it is still in use
+        .repo => send(palette, .{ "cmd", "palette_menu_action", .{ "switch_repo", item.path } }),
         .hunk => switch (activate) {
             .normal => show_hunk(palette, &item),
             .alternate => open_hunk(palette, &item),
@@ -803,7 +811,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     switch (item.kind) {
         .file => show_diff(palette, &item),
         .hunk => show_hunk(palette, &item),
-        .header, .empty => {},
+        .header, .empty, .repo => {},
     }
 }
 
@@ -1011,6 +1019,8 @@ const TerminalAction = enum { commit, amend, fetch, push };
 pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
     if (try ctx.args.match(.{"close_diff"})) return close_diff(palette);
     if (try ctx.args.match(.{"revert"})) return revert(palette);
+    var repo_path: []const u8 = undefined;
+    if (try ctx.args.match(.{ "switch_repo", tp.extract(&repo_path) })) return switch_repo(palette, repo_path);
     if (try ctx.args.match(.{"cancel"})) {
         if (palette.value.shown_diff != null or palette.value.pending_diff != null)
             close_diff(palette)
@@ -1030,19 +1040,24 @@ pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void 
     const entry = &entries[idx];
     if (entry.kind == .empty) return;
     if (entry.kind == .hunk) return apply_hunk(palette, idx);
+    if (entry.kind == .repo and entry.section == .untracked) {
+        palette.logger.print("{s} is a nested repository, press enter to open it", .{display_path(palette, entry.path)});
+        return;
+    }
 
     var paths: std.ArrayList([]const u8) = .empty;
     defer paths.deinit(palette.allocator);
     for (entries, 0..) |*e, i| {
-        if (e.kind != .file or e.section != entry.section) continue;
-        if (entry.kind == .file and i != idx) continue;
+        const stageable = e.kind == .file or (e.kind == .repo and e.section != .untracked);
+        if (!stageable or e.section != entry.section) continue;
+        if (entry.kind != .header and i != idx) continue;
         try paths.append(palette.allocator, e.path);
         if (entry.section == .staged and e.orig_path.len > 0)
             try paths.append(palette.allocator, e.orig_path);
     }
     if (paths.items.len == 0) return;
 
-    if (entry.kind == .file) try set_pending_target(palette, idx);
+    if (entry.kind != .header) try set_pending_target(palette, idx);
     const update: project_manager.VcsIndexUpdate = switch (entry.section) {
         .staged => .unstage,
         .unstaged, .untracked => .stage,
@@ -1073,6 +1088,10 @@ fn revert(palette: *Type) !void {
     const idx = selected_index(palette) orelse return;
     const entry = &palette.entries.items[idx];
     if (entry.kind == .header or entry.kind == .empty) return;
+    if (entry.kind == .repo) {
+        palette.logger.print("{s} is a repository, open it with enter to revert its changes", .{display_path(palette, entry.path)});
+        return;
+    }
     if (entry.section == .staged) {
         palette.logger.print("staged changes can not be reverted, unstage them first", .{});
         return;
@@ -1080,7 +1099,7 @@ fn revert(palette: *Type) !void {
     const kind: tui.VcsRevert, const arg: []const u8, const choice_label: []const u8 = switch (entry.kind) {
         .file => if (entry.section == .untracked) .{ .untracked, entry.path, "Delete" } else .{ .file, entry.path, "Revert" },
         .hunk => .{ .hunk, (hunk_for(palette, entry.path, entry.section, entry.hunk) orelse return).patch, "Revert" },
-        .header, .empty => return,
+        .header, .empty, .repo => return,
     };
     var message_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
     const message = switch (kind) {
@@ -1116,10 +1135,10 @@ fn set_pending_target(palette: *Type, idx: usize) !void {
     const target_idx = blk: {
         var i = idx + 1;
         while (i < entries.len and entries[i].section == section) : (i += 1)
-            if (entries[i].kind == .file) break :blk i;
+            if (entries[i].kind == .file or entries[i].kind == .repo) break :blk i;
         i = idx;
         while (i > 0 and entries[i - 1].section == section) : (i -= 1)
-            if (entries[i - 1].kind == .file) break :blk i - 1;
+            if (entries[i - 1].kind == .file or entries[i - 1].kind == .repo) break :blk i - 1;
         while (i > 0 and entries[i].kind != .header) i -= 1;
         break :blk i;
     };
@@ -1131,6 +1150,23 @@ fn set_pending_target(palette: *Type, idx: usize) !void {
         .path = try palette.allocator.dupe(u8, target.path),
         .index = target_idx,
     };
+}
+
+fn switch_repo(palette: *Type, path: []const u8) !void {
+    close_diff(palette);
+    clear_goto_hunk(palette);
+    clear_pending_target(palette);
+    clear_restore_target(palette);
+    clear_files(palette, &palette.value.files);
+    clear_files(palette, &palette.value.files_next);
+    const repo_path = try palette.allocator.dupe(u8, path);
+    if (palette.value.repo_path) |p| palette.allocator.free(p);
+    palette.value.repo_path = repo_path;
+    palette.value.reset_selection = true;
+    palette.allocator.free(palette.value.root);
+    palette.value.root = "";
+    try update_entries(palette);
+    try project_manager.request_vcs_repo(repo_path, false);
 }
 
 fn run_in_terminal(palette: *Type, terminal_action: TerminalAction) !void {

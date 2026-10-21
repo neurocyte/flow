@@ -228,6 +228,7 @@ pub fn request_vcs_apply_patch(repo_root: []const u8, update: VcsIndexUpdate, pa
 }
 
 pub const VcsFileState = Project.VcsFileState;
+pub const VcsFileKind = Repo.FileKind;
 
 pub fn request_vcs_file_state(id: usize, file_path: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");

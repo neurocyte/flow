@@ -2,7 +2,8 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
-const is_directory = @import("soft_root").root.is_directory;
+const soft_root = @import("soft_root").root;
+const is_directory = soft_root.is_directory;
 const git = @import("git");
 const VcsStatus = @import("VcsStatus");
 const file_watcher = @import("file_watcher");
@@ -37,6 +38,8 @@ const Self = @This();
 const OutOfMemoryError = error{OutOfMemory};
 pub const State = enum { none, running, done, failed };
 
+pub const FileKind = enum { file, submodule, nested_repo };
+
 const VcsStatusFile = struct {
     path: []const u8,
     orig_path: []const u8 = "",
@@ -45,11 +48,12 @@ const VcsStatusFile = struct {
     color: u24 = 0,
     x: u8,
     y: u8,
+    kind: FileKind,
     meta_resolved: bool = false,
 
     fn eql(a: []const VcsStatusFile, b: []const VcsStatusFile) bool {
         if (a.len != b.len) return false;
-        for (a, b) |a_, b_| if (a_.x != b_.x or a_.y != b_.y or
+        for (a, b) |a_, b_| if (a_.x != b_.x or a_.y != b_.y or a_.kind != b_.kind or
             !std.mem.eql(u8, a_.path, b_.path) or
             !std.mem.eql(u8, a_.orig_path, b_.orig_path)) return false;
         return true;
@@ -111,7 +115,7 @@ pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) error{InvalidRequ
     defer from.send(.{ "PRJ", "vcs_status_files_done", self.root }) catch {};
     for (self.vcs_status_files.items) |*file| {
         resolve_meta(file);
-        from.send(.{ "PRJ", "vcs_status_files", self.root, file.path, file.type, file.icon, file.color, &[_]u8{file.x}, &[_]u8{file.y}, file.orig_path }) catch |e| {
+        from.send(.{ "PRJ", "vcs_status_files", self.root, file.path, file.type, file.icon, file.color, &[_]u8{file.x}, &[_]u8{file.y}, file.orig_path, file.kind }) catch |e| {
             std.log.err("send vcs_status_files failed: {t}", .{e});
             return error.InvalidRequestVcsStatusFilesRequest;
         };
@@ -330,9 +334,15 @@ pub fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemo
 }
 
 fn add_vcs_status_file(self: *Self, xy: []const u8, sub: []const u8, path: []const u8, orig_path: []const u8) OutOfMemoryError!void {
-    if (xy.len != 2 or (sub.len > 0 and sub[0] == 'S')) return; // submodules are not listed
+    if (xy.len != 2) return;
     const path_ = try self.abs_path(path);
     errdefer self.allocator.free(path_);
+    const kind: FileKind = if (sub.len > 0 and sub[0] == 'S')
+        .submodule
+    else if (std.mem.eql(u8, xy, "??") and is_repo_dir(path_))
+        .nested_repo
+    else
+        .file;
     const orig_path_ = if (orig_path.len > 0) try self.abs_path(orig_path) else "";
     errdefer self.allocator.free(orig_path_);
     (try self.vcs_status_files_next.addOne(self.allocator)).* = .{
@@ -340,7 +350,16 @@ fn add_vcs_status_file(self: *Self, xy: []const u8, sub: []const u8, path: []con
         .orig_path = orig_path_,
         .x = xy[0],
         .y = xy[1],
+        .kind = kind,
     };
+}
+
+/// git lists an untracked directory with a trailing separator
+fn is_repo_dir(path: []const u8) bool {
+    if (path.len == 0 or !std.fs.path.isSep(path[path.len - 1])) return false;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const git_path = std.fmt.bufPrint(&buf, "{s}.git", .{path}) catch return false;
+    return is_directory(git_path) or soft_root.is_file(git_path);
 }
 
 /// git status paths are relative to the repository root
