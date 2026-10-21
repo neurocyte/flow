@@ -536,6 +536,19 @@ const Process = struct {
             id: usize = 0,
         };
 
+        fn init(allocator: std.mem.Allocator, from: tp.pid_ref, project_directory: []const u8, args: Args) error{OutOfMemory}!FileRequest {
+            const abs_path = try resolve_file_path(allocator, project_directory, args.path);
+            errdefer allocator.free(abs_path);
+            const path = try allocator.dupe(u8, args.path);
+            errdefer allocator.free(path);
+            const vcs_id = try allocator.dupe(u8, args.vcs_id);
+            return .{
+                .args = .{ .kind = args.kind, .path = path, .vcs_id = vcs_id, .id = args.id },
+                .to = from.clone(),
+                .abs_path = abs_path,
+            };
+        }
+
         fn deinit(self: *FileRequest, allocator: std.mem.Allocator) void {
             self.to.deinit();
             allocator.free(self.abs_path);
@@ -1021,7 +1034,10 @@ const Process = struct {
         try discovery.waiters.append(self.allocator, waiter);
         try self.repo_discoveries.append(self.allocator, discovery);
         errdefer _ = self.repo_discoveries.pop();
-        try git.discover(@intFromPtr(discovery), dir);
+        return git.discover(@intFromPtr(discovery), dir) catch |e| switch (e) {
+            error.GitNotFound => self.repo_discovery_done(discovery, -1),
+            else => e,
+        };
     }
 
     /// the nearest directory that exists, with symlinks resolved
@@ -1436,13 +1452,8 @@ const Process = struct {
 
     fn request_file_in_repo(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: FileRequest.Args) (ProjectError || git.Error || error{FileNotFound})!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        const abs_path = try resolve_file_path(self.allocator, project.name, args.path);
-        errdefer self.allocator.free(abs_path);
-        const path = try self.allocator.dupe(u8, args.path);
-        errdefer self.allocator.free(path);
-        const vcs_id = try self.allocator.dupe(u8, args.vcs_id);
-        const request: FileRequest = .{ .args = .{ .kind = args.kind, .path = path, .vcs_id = vcs_id, .id = args.id }, .to = from.clone(), .abs_path = abs_path };
-        return self.discover_repo(abs_path, .{ .file = request });
+        const request = try FileRequest.init(self.allocator, from, project.name, args);
+        return self.discover_repo(request.abs_path, .{ .file = request });
     }
 
     /// absolute, with symlinks in the directory resolved, as git reports paths
