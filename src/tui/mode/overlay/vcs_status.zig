@@ -132,17 +132,18 @@ const Diff = struct {
             .unstaged, .untracked => "git diff",
         };
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-        return std.fmt.allocPrint(allocator, "*{s} {s}*", .{ cmd, project_manager.abbreviate_home(&path_buf, self.path) });
+        const path = project_manager.normalize_file_path(self.path, &path_buf);
+        var home_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const display = if (std.fs.path.isAbsolute(path)) project_manager.abbreviate_home(&home_buf, path) else path;
+        return std.fmt.allocPrint(allocator, "*{s} {s}*", .{ cmd, display });
     }
 
-    /// the reverse of buffer_name; an untracked diff reads as unstaged, and the path may start with ~
     fn from_buffer_name(buffer_name_: []const u8) ?Diff {
         const diff = vcs_repo.DiffBuffer.parse(buffer_name_) orelse return null;
         return .{ .path = diff.path, .mode = if (diff.staged) .staged else .unstaged };
     }
 };
 
-/// git paths are absolute, editor paths are relative to the project, and diff buffer names abbreviate the home directory
 fn abs_path(allocator: std.mem.Allocator, file_path: []const u8) error{OutOfMemory}![]const u8 {
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
