@@ -984,7 +984,7 @@ const Process = struct {
     }
 
     fn repo_path_changed(self: *Process, abs_path: []const u8) void {
-        if (self.repo_for_path(abs_path)) |repo| repo.vcs_changed();
+        if (self.repo_for_path(abs_path)) |repo| repo.path_changed(abs_path);
     }
 
     fn is_watched_by_project(self: *Process, dir: []const u8) bool {

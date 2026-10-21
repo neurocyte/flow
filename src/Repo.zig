@@ -7,6 +7,7 @@ const is_directory = soft_root.is_directory;
 const git = @import("git");
 const VcsStatus = @import("VcsStatus");
 const file_watcher = @import("file_watcher");
+const gitignore = @import("gitignore");
 
 const Project = @import("Project.zig");
 const LSPClient = @import("LSPClient.zig");
@@ -163,6 +164,16 @@ pub fn vcs_changed(self: *Self) void {
     if (!tp.env.get().is("enable_vcs_watcher")) return;
     if (self.status_timer != null) return;
     self.status_timer = tp.timeout.init_ms(vcs_changed_delay_ms, tp.message.fmt(.{ "vcs_changed_timeout", self.root })) catch return;
+}
+
+pub fn path_changed(self: *Self, path: []const u8) void {
+    self.vcs_changed();
+    const watcher = self.worktree_watcher orelse return;
+    if (!std.mem.eql(u8, std.fs.path.basename(path), gitignore.per_directory_file_name)) return;
+    if (path.len <= self.root.len) return;
+    const rel_path = path[self.root.len + 1 ..];
+    watcher.ignore_changed(self.root, std.fs.path.dirname(rel_path) orelse "") catch |e|
+        std.log.err("worktree_watcher.ignore_changed: {s} -> {}", .{ self.root, e });
 }
 
 pub fn vcs_changed_timeout(self: *Self) void {
