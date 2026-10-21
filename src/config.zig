@@ -109,7 +109,7 @@ info_box_style: WidgetStyle = .bar_left_spacious,
 info_box_width_limit: usize = 80,
 
 palette_placement: PalettePlacement = .top_center,
-vcs_status_placement: PalettePlacement = .bottom_right,
+vcs_status_placement: PalettePlacement = .top_right,
 palette_opacity: f32 = 0.75,
 
 show_menu: ShowMenu = .left,
