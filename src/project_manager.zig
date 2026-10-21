@@ -204,6 +204,10 @@ pub fn request_language_servers(allocator: std.mem.Allocator) (ProjectManagerErr
     return (try get()).pid.call(root.get_io(), allocator, request_timeout, .{"request_language_servers"});
 }
 
+pub fn request_repositories(allocator: std.mem.Allocator) (ProjectManagerError || CallError)!tp.message {
+    return (try get()).pid.call(root.get_io(), allocator, request_timeout, .{"request_repositories"});
+}
+
 pub fn request_tasks(allocator: std.mem.Allocator) (ProjectError || CallError)!tp.message {
     const io = root.get_io();
     const project = tp.env.get().str("project");
@@ -824,6 +828,8 @@ const Process = struct {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_path_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&path) })) {
             self.request_path_files(from, project_directory, max, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{"request_repositories"})) {
+            self.request_repositories(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{"request_language_servers"})) {
             self.request_language_servers(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_tasks", tp.extract(&project_directory) })) {
@@ -1405,6 +1411,15 @@ const Process = struct {
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
         try request_path_files_async(self.allocator, from, project, max, expand_home(self.allocator, &buf, path));
+    }
+
+    fn request_repositories(self: *Process, from: tp.pid_ref) (std.Io.Writer.Error || error{Exit})!void {
+        var message: std.Io.Writer.Allocating = .init(self.allocator);
+        defer message.deinit();
+        try cbor.writeArrayHeader(&message.writer, self.repos.count());
+        var i = self.repos.valueIterator();
+        while (i.next()) |repo| try repo.*.write_info(&message.writer);
+        try from.send_raw(.{ .buf = message.written() });
     }
 
     fn request_language_servers(self: *Process, from: tp.pid_ref) (std.Io.Writer.Error || error{Exit})!void {

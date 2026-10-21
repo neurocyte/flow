@@ -41,6 +41,7 @@ pub fn write(allocator: std.mem.Allocator, writer: *std.Io.Writer) std.Io.Writer
     try write_runtime(allocator, writer);
     try write_configuration(allocator, writer);
     try write_language_servers(allocator, writer);
+    try write_repositories(allocator, writer);
     try writer.writeAll("\nconfig files:\n\n");
     try root.write_loaded_files_to_writer(writer);
     try write_environment(writer);
@@ -107,6 +108,41 @@ fn write_language_servers(allocator: std.mem.Allocator, writer: *std.Io.Writer) 
             try writer.print("[{s}{s}{s}] ", .{ name, if (name.len > 0 and version.len > 0) " " else "", version });
         try writer.print("({s})\n", .{project});
     }
+}
+
+fn write_repositories(allocator: std.mem.Allocator, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    try writer.writeAll("\nrepositories:\n\n");
+    const rsp = project_manager.request_repositories(allocator) catch |e|
+        return writer.print("({t})\n", .{e});
+    defer allocator.free(rsp.buf);
+    var iter = rsp.buf;
+    var count = cbor.decodeArrayHeader(&iter) catch return;
+    if (count == 0) return writer.writeAll("(none)\n");
+    var inactive: usize = 0;
+    while (count > 0) : (count -= 1) {
+        var repo_root: []const u8 = undefined;
+        var holds: usize = 0;
+        var active: bool = false;
+        var watches_git: bool = false;
+        var watches_worktree: bool = false;
+        if (!(cbor.matchValue(&iter, .{
+            cbor.extract(&repo_root),
+            cbor.extract(&holds),
+            cbor.extract(&active),
+            cbor.extract(&watches_git),
+            cbor.extract(&watches_worktree),
+        }) catch return)) return;
+        if (!active) {
+            inactive += 1;
+            continue;
+        }
+        try writer.print("{s} (holds: {d}", .{ repo_root, holds });
+        if (holds == 0) try writer.writeAll(", idle");
+        if (watches_git) try writer.writeAll(", watching .git");
+        if (watches_worktree) try writer.writeAll(", watching the worktree");
+        try writer.writeAll(")\n");
+    }
+    if (inactive > 0) try writer.print("({d} inactive)\n", .{inactive});
 }
 
 fn write_configuration(allocator: std.mem.Allocator, writer: *std.Io.Writer) std.Io.Writer.Error!void {
