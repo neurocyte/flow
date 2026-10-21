@@ -1720,24 +1720,6 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     }
 }
 
-/// editor paths are relative to the project
-fn abs_path(self: *const Self, file_path: []const u8) error{OutOfMemory}![]const u8 {
-    if (std.fs.path.isAbsolute(file_path)) return self.allocator.dupe(u8, file_path);
-    return std.fs.path.join(self.allocator, &.{ self.name, file_path });
-}
-
-pub fn request_vcs_id(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
-    const repo = self.repo orelse return self.parent.send(.{ "PRJ", "vcs_id", file_path, null }) catch {};
-    const path = try self.abs_path(file_path);
-    defer self.allocator.free(path);
-    return repo.request_vcs_id(path, file_path);
-}
-
-pub fn request_vcs_content(self: *Self, file_path: []const u8, vcs_id: []const u8) error{OutOfMemory}!void {
-    const repo = self.repo orelse return self.parent.send(.{ "PRJ", "vcs_content", file_path, vcs_id, null }) catch {};
-    return repo.request_vcs_content(file_path, vcs_id);
-}
-
 pub fn process_git_response(_: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || GitError || error{Exit})!void {
     var context: usize = undefined;
     var blame_output: []const u8 = undefined;
@@ -1756,11 +1738,10 @@ pub const VcsDiffMode = Repo.VcsDiffMode;
 pub const VcsIndexUpdate = Repo.VcsIndexUpdate;
 pub const VcsFileState = Repo.VcsFileState;
 
-pub fn request_vcs_file_state(self: *Self, from: tp.pid_ref, id: usize, file_path: []const u8) error{OutOfMemory}!void {
-    const repo = self.repo orelse return from.send(.{ "PRJ", "vcs_file_state", id, VcsFileState.unversioned }) catch {};
-    const path = try self.abs_path(file_path);
-    defer self.allocator.free(path);
-    return repo.request_vcs_file_state(from, id, path);
+/// editor paths are relative to the project
+fn abs_path(self: *const Self, file_path: []const u8) error{OutOfMemory}![]const u8 {
+    if (std.fs.path.isAbsolute(file_path)) return self.allocator.dupe(u8, file_path);
+    return std.fs.path.join(self.allocator, &.{ self.name, file_path });
 }
 
 pub fn request_vcs_blame(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
