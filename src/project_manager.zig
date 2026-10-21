@@ -813,7 +813,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "vcs_file_close", tp.extract(&path) })) {
             self.vcs_file_close(path) catch |e| self.logger.err("vcs_file_close", e);
         } else if (try cbor.match(m.buf, .{ "hold_vcs_repo", tp.extract(&repo_root) })) {
-            if (self.repos.get(repo_root)) |repo| repo.hold(!self.is_watched_by_project(repo.root));
+            if (self.repos.get(repo_root)) |repo| repo.hold(self.should_watch_worktree(repo.root));
         } else if (try cbor.match(m.buf, .{ "release_vcs_repo", tp.extract(&repo_root) })) {
             if (self.repos.get(repo_root)) |repo| repo.release();
         } else if (try cbor.match(m.buf, .{ "request_vcs_repo", tp.extract(&project_directory), tp.extract(&path), tp.extract(&refresh) })) {
@@ -1029,6 +1029,11 @@ const Process = struct {
         if (self.repo_for_path(abs_path)) |repo| repo.path_changed(abs_path);
     }
 
+    fn should_watch_worktree(self: *Process, repo_root: []const u8) bool {
+        if (self.is_non_indexed(repo_root) and !self.watch_non_indexed) return false;
+        return !self.is_watched_by_project(repo_root);
+    }
+
     fn is_watched_by_project(self: *Process, dir: []const u8) bool {
         var it = self.projects.valueIterator();
         while (it.next()) |project| if (project.*.watcher != null and is_in_dir(dir, project.*.name)) return true;
@@ -1118,7 +1123,7 @@ const Process = struct {
             .file => |*request| self.run_file_request(request, repo),
             .hold => |path| if (repo) |r| if (self.open_files.getPtr(path)) |held| if (held.* == null) {
                 held.* = r;
-                r.hold(!self.is_watched_by_project(r.root));
+                r.hold(self.should_watch_worktree(r.root));
             },
             .reply => |reply| if (repo) |r| {
                 reply.to.send(.{ "PRJ", "vcs_repo", reply.path, r.root }) catch {};
