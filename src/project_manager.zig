@@ -1051,10 +1051,8 @@ const Process = struct {
     }
 
     fn repo_discovery_done(self: *Process, discovery: *RepoDiscovery, exit_code: i64) void {
-        for (self.repo_discoveries.items, 0..) |d, i| if (d == discovery) {
-            _ = self.repo_discoveries.swapRemove(i);
-            break;
-        } else return;
+        const idx = std.mem.indexOfScalar(*RepoDiscovery, self.repo_discoveries.items, discovery) orelse return;
+        _ = self.repo_discoveries.swapRemove(idx);
         defer discovery.deinit(self.allocator);
         const lines = discovery.lines.items;
         const repo: ?*Repo = if (exit_code == 0 and lines.len >= 3) self.open_repo(.{
