@@ -398,12 +398,6 @@ fn deinit(self: *Self) void {
     self.on_ui_ready.deinit();
     self.file_probe.deinit();
     self.deinit_stdio_capture();
-    var render_blocks = self.render_blocks.valueIterator();
-    while (render_blocks.next()) |t| {
-        t.cancel() catch {};
-        t.deinit();
-    }
-    self.render_blocks.deinit(self.allocator);
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -440,6 +434,12 @@ fn deinit(self: *Self) void {
     self.idle_actions_.deinit(self.allocator);
     self.commands.deinit();
     if (self.mainview_) |*mv| mv.deinit(self.allocator);
+    var render_blocks = self.render_blocks.valueIterator();
+    while (render_blocks.next()) |t| {
+        t.cancel() catch {};
+        t.deinit();
+    }
+    self.render_blocks.deinit(self.allocator);
     self.message_filters_.deinit();
     self.input_listeners_.deinit();
     if (self.frame_clock_running)
