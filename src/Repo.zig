@@ -34,6 +34,10 @@ status_reply: bool = false,
 status_dirty: bool = false,
 status_timer: ?tp.timeout = null,
 
+/// projects, open files and vcs_status views that use the repository
+holds: usize = 0,
+idle_timer: ?tp.timeout = null,
+
 const Self = @This();
 
 const OutOfMemoryError = error{OutOfMemory};
@@ -99,6 +103,7 @@ pub fn deinit(self: *Self) void {
     if (self.worktree_watcher) |*watcher| watcher.deinit();
     for (self.vcs_ref_watches) |p| if (p) |p_| self.allocator.free(p_);
     if (self.status_timer) |*t| t.deinit();
+    if (self.idle_timer) |*t| t.deinit();
     self.status.reset(self.allocator);
     self.status_next.reset(self.allocator);
     VcsStatusFile.free_all(self.allocator, &self.vcs_status_files);
@@ -162,6 +167,7 @@ const vcs_changed_delay_ms = 100;
 
 pub fn vcs_changed(self: *Self) void {
     if (!tp.env.get().is("enable_vcs_watcher")) return;
+    if (!self.is_active()) return self.mark_stale();
     if (self.status_timer != null) return;
     self.status_timer = tp.timeout.init_ms(vcs_changed_delay_ms, tp.message.fmt(.{ "vcs_changed_timeout", self.root })) catch return;
 }
@@ -174,6 +180,52 @@ pub fn path_changed(self: *Self, path: []const u8) void {
     const rel_path = path[self.root.len + 1 ..];
     watcher.ignore_changed(self.root, std.fs.path.dirname(rel_path) orelse "") catch |e|
         std.log.err("worktree_watcher.ignore_changed: {s} -> {}", .{ self.root, e });
+}
+
+fn mark_stale(self: *Self) void {
+    if (self.state == .done) self.state = .none;
+}
+
+fn is_active(self: *const Self) bool {
+    return self.holds > 0 or self.idle_timer != null;
+}
+
+const idle_delay_ms = 30 * std.time.ms_per_s;
+
+pub fn hold(self: *Self, watch_worktree: bool) void {
+    const was_active = self.is_active();
+    self.holds += 1;
+    if (self.idle_timer) |*t| t.deinit();
+    self.idle_timer = null;
+    self.start_vcs_watcher();
+    if (watch_worktree) self.start_worktree_watcher();
+    if (!was_active) self.refresh_vcs_status();
+}
+
+pub fn release(self: *Self) void {
+    self.holds -|= 1;
+    if (self.holds > 0 or self.idle_timer != null) return;
+    self.idle_timer = tp.timeout.init_ms(idle_delay_ms, tp.message.fmt(.{ "vcs_repo_idle", self.root })) catch return self.deactivate();
+}
+
+pub fn idle_timeout(self: *Self) void {
+    if (self.idle_timer) |*t| t.deinit();
+    self.idle_timer = null;
+    if (self.holds == 0) self.deactivate();
+}
+
+fn deactivate(self: *Self) void {
+    if (self.vcs_watcher) |*watcher| watcher.deinit();
+    self.vcs_watcher = null;
+    if (self.worktree_watcher) |*watcher| watcher.deinit();
+    self.worktree_watcher = null;
+    for (&self.vcs_ref_watches) |*p| if (p.*) |p_| {
+        self.allocator.free(p_);
+        p.* = null;
+    };
+    if (self.status_timer) |*t| t.deinit();
+    self.status_timer = null;
+    self.mark_stale();
 }
 
 pub fn vcs_changed_timeout(self: *Self) void {
@@ -191,7 +243,7 @@ fn is_in_dir(path: []const u8, dir: []const u8) bool {
     return path.len == dir.len or std.fs.path.isSep(path[dir.len]);
 }
 
-pub fn start_vcs_watcher(self: *Self) void {
+fn start_vcs_watcher(self: *Self) void {
     if (!tp.env.get().is("enable_vcs_watcher")) return;
     if (self.vcs_watcher != null) return;
     self.vcs_watcher = file_watcher.Owned.init(.vcs_metadata) catch |e| {
@@ -209,7 +261,7 @@ pub fn start_vcs_watcher(self: *Self) void {
 }
 
 /// watches the files of the repository, for a repository that no project watcher covers
-pub fn start_worktree_watcher(self: *Self) void {
+fn start_worktree_watcher(self: *Self) void {
     if (!tp.env.get().is("enable_file_watcher")) return;
     if (self.worktree_watcher != null) return;
     self.worktree_watcher = file_watcher.Owned.init(.repo_worktree) catch |e| {

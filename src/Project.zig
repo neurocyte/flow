@@ -1691,7 +1691,6 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     var path: []const u8 = undefined;
     if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
         self.state.workspace_path = .done;
-        self.repo = null;
         self.start_walker();
         try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.extract(&value) })) {

@@ -154,6 +154,22 @@ pub fn request_vcs_repo(path: []const u8, refresh: bool) (ProjectManagerError ||
     return send(.{ "request_vcs_repo", project, path, refresh });
 }
 
+pub fn vcs_file_open(abs_path: []const u8) ProjectManagerError!void {
+    return send(.{ "vcs_file_open", abs_path });
+}
+
+pub fn vcs_file_close(abs_path: []const u8) ProjectManagerError!void {
+    return send(.{ "vcs_file_close", abs_path });
+}
+
+pub fn hold_vcs_repo(repo_root: []const u8) ProjectManagerError!void {
+    return send(.{ "hold_vcs_repo", repo_root });
+}
+
+pub fn release_vcs_repo(repo_root: []const u8) ProjectManagerError!void {
+    return send(.{ "release_vcs_repo", repo_root });
+}
+
 pub fn request_vcs_status_files(repo_root: []const u8) ProjectManagerError!void {
     return send(.{ "request_vcs_status_files", repo_root });
 }
@@ -499,6 +515,8 @@ const Process = struct {
     repos: std.StringHashMapUnmanaged(*Repo) = .empty,
     repo_dirs: std.StringHashMapUnmanaged(?*Repo) = .empty,
     repo_discoveries: std.ArrayListUnmanaged(*RepoDiscovery) = .empty,
+    /// open files by absolute path, and the repository they hold once discovered
+    open_files: std.StringHashMapUnmanaged(?*Repo) = .empty,
     non_indexed: []const []const u8,
     watch_non_indexed: bool,
     file_store: ?tp.pid = null,
@@ -561,12 +579,15 @@ const Process = struct {
     const RepoWaiter = union(enum) {
         project: usize,
         file: FileRequest,
-        reply: struct { to: tp.pid, path: []const u8, watch: bool },
+        /// the absolute path of an open file
+        hold: []const u8,
+        reply: struct { to: tp.pid, path: []const u8 },
 
         fn deinit(self: *RepoWaiter, allocator: std.mem.Allocator) void {
             switch (self.*) {
                 .project => {},
                 .file => |*request| request.deinit(allocator),
+                .hold => |path| allocator.free(path),
                 .reply => |*reply| {
                     reply.to.deinit();
                     allocator.free(reply.path);
@@ -607,6 +628,9 @@ const Process = struct {
         self.projects.deinit(self.allocator);
         for (self.repo_discoveries.items) |discovery| discovery.deinit(self.allocator);
         self.repo_discoveries.deinit(self.allocator);
+        var i_files = self.open_files.keyIterator();
+        while (i_files.next()) |path| self.allocator.free(path.*);
+        self.open_files.deinit(self.allocator);
         var i_dirs = self.repo_dirs.keyIterator();
         while (i_dirs.next()) |dir| self.allocator.free(dir.*);
         self.repo_dirs.deinit(self.allocator);
@@ -703,6 +727,8 @@ const Process = struct {
             self.repo_path_changed(path);
         } else if (try cbor.match(m.buf, .{ "RW", "change", tp.extract(&path), tp.any, tp.any })) {
             self.repo_path_changed(path);
+        } else if (try cbor.match(m.buf, .{ "vcs_repo_idle", tp.extract(&path) })) {
+            if (self.repos.get(path)) |repo| repo.idle_timeout();
         } else if (try cbor.match(m.buf, .{ "vcs_changed_timeout", tp.extract(&path) })) {
             if (self.repos.get(path)) |repo| repo.vcs_changed_timeout();
         } else if (try cbor.match(m.buf, .{ "FS", "stat", tp.any, tp.extract(&path), tp.extract(&mtime_high), tp.extract(&mtime_low) })) {
@@ -756,7 +782,9 @@ const Process = struct {
             const project: *Project = @ptrFromInt(context);
             project.process_git(self.parent.ref(), m) catch {};
             if (try cbor.match(m.buf, .{ "git", tp.any, "workspace_path", tp.string }))
-                self.discover_project_repo(project);
+                self.discover_project_repo(project)
+            else if (try cbor.match(m.buf, .{ "git", tp.any, "workspace_path", tp.null_ }))
+                self.link_repo(context, null);
         } else if (try cbor.match(m.buf, .{ "update_mru", tp.extract(&project_directory), tp.extract(&source_location) })) {
             self.update_mru(project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
@@ -776,6 +804,14 @@ const Process = struct {
             self.request_n_most_recent_file(from, project_directory, n) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
             self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "vcs_file_open", tp.extract(&path) })) {
+            self.vcs_file_open(path) catch |e| self.logger.err("vcs_file_open", e);
+        } else if (try cbor.match(m.buf, .{ "vcs_file_close", tp.extract(&path) })) {
+            self.vcs_file_close(path) catch |e| self.logger.err("vcs_file_close", e);
+        } else if (try cbor.match(m.buf, .{ "hold_vcs_repo", tp.extract(&repo_root) })) {
+            if (self.repos.get(repo_root)) |repo| repo.hold(!self.is_watched_by_project(repo.root));
+        } else if (try cbor.match(m.buf, .{ "release_vcs_repo", tp.extract(&repo_root) })) {
+            if (self.repos.get(repo_root)) |repo| repo.release();
         } else if (try cbor.match(m.buf, .{ "request_vcs_repo", tp.extract(&project_directory), tp.extract(&path), tp.extract(&refresh) })) {
             self.request_vcs_repo(from, project_directory, path, refresh) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_status_files", tp.extract(&repo_root) })) {
@@ -1074,8 +1110,11 @@ const Process = struct {
         switch (waiter.*) {
             .project => |project_ref| self.link_repo(project_ref, repo),
             .file => |*request| self.run_file_request(request, repo),
+            .hold => |path| if (repo) |r| if (self.open_files.getPtr(path)) |held| if (held.* == null) {
+                held.* = r;
+                r.hold(!self.is_watched_by_project(r.root));
+            },
             .reply => |reply| if (repo) |r| {
-                if (reply.watch and !self.is_watched_by_project(r.root)) r.start_worktree_watcher();
                 reply.to.send(.{ "PRJ", "vcs_repo", reply.path, r.root }) catch {};
             } else {
                 reply.to.send(.{ "PRJ", "vcs_repo", reply.path, null }) catch {};
@@ -1099,6 +1138,10 @@ const Process = struct {
 
     fn link_repo(self: *Process, project_ref: usize, repo: ?*Repo) void {
         const project = self.project_from_ref(project_ref) orelse return;
+        if (project.repo != repo) {
+            if (repo) |r| r.hold(false); // the project watcher covers the project
+            if (project.repo) |old| old.release();
+        }
         project.set_repo(self.parent.ref(), repo) catch |e| self.logger.err("set_repo", e);
     }
 
@@ -1109,7 +1152,6 @@ const Process = struct {
         repo.* = try Repo.init(self.allocator, discovery);
         errdefer repo.deinit();
         try self.repos.put(self.allocator, repo.root, repo);
-        repo.start_vcs_watcher();
         return repo;
     }
 
@@ -1255,6 +1297,7 @@ const Process = struct {
     fn close(self: *Process, project_directory: []const u8) error{}!void {
         if (self.projects.fetchRemove(project_directory)) |kv| {
             self.allocator.free(kv.key);
+            if (kv.value.repo) |repo| repo.release();
             self.persist_project(kv.value) catch {};
             kv.value.deinit();
             self.allocator.destroy(kv.value);
@@ -1425,6 +1468,25 @@ const Process = struct {
         try repo.request_vcs_first_change(file_path, staged);
     }
 
+    fn vcs_file_open(self: *Process, file_path: []const u8) (git.Error || error{FileNotFound})!void {
+        const abs_path = try resolve_file_path(self.allocator, "", file_path);
+        const gop = self.open_files.getOrPut(self.allocator, abs_path) catch |e| {
+            self.allocator.free(abs_path);
+            return e;
+        };
+        if (gop.found_existing) return self.allocator.free(abs_path);
+        gop.value_ptr.* = null;
+        try self.discover_repo(abs_path, .{ .hold = try self.allocator.dupe(u8, abs_path) });
+    }
+
+    fn vcs_file_close(self: *Process, file_path: []const u8) error{OutOfMemory}!void {
+        const abs_path = try resolve_file_path(self.allocator, "", file_path);
+        defer self.allocator.free(abs_path);
+        const kv = self.open_files.fetchRemove(abs_path) orelse return;
+        self.allocator.free(kv.key);
+        if (kv.value) |repo| repo.release();
+    }
+
     fn request_vcs_repo(self: *Process, from: tp.pid_ref, project_directory: []const u8, path: []const u8, refresh: bool) (ProjectError || git.Error || error{FileNotFound})!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         const abs_path = if (std.fs.path.isAbsolute(path))
@@ -1438,7 +1500,7 @@ const Process = struct {
             self.uncache_repo_dir(dir);
         }
         const reply_path = try self.allocator.dupe(u8, path);
-        try self.discover_repo(abs_path, .{ .reply = .{ .to = from.clone(), .path = reply_path, .watch = path.len > 0 } });
+        try self.discover_repo(abs_path, .{ .reply = .{ .to = from.clone(), .path = reply_path } });
     }
 
     /// runs a per-file request in the repository of the file, or sends the reply for a file outside any repository
@@ -1481,10 +1543,7 @@ const Process = struct {
         const repo = repo_ orelse return self.reply_file_request(request.to.ref(), request.args);
         const args = request.args;
         const result = switch (args.kind) {
-            .vcs_id => blk: {
-                if (!self.is_watched_by_project(repo.root)) repo.start_worktree_watcher();
-                break :blk repo.request_vcs_id(request.abs_path, args.path);
-            },
+            .vcs_id => repo.request_vcs_id(request.abs_path, args.path),
             .vcs_content => repo.request_vcs_content(args.path, args.vcs_id),
             .vcs_file_state => repo.request_vcs_file_state(request.to.ref(), args.id, request.abs_path),
         };

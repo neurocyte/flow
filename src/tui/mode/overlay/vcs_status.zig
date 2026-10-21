@@ -198,9 +198,8 @@ fn set_repo(palette: *Type, path: []const u8, repo_root: ?[]const u8) !void {
     if (!std.mem.eql(u8, repo_path, path)) return;
     palette.allocator.free(repo_path);
     palette.value.repo_path = null;
-    const root_ = try palette.allocator.dupe(u8, repo_root orelse "");
-    palette.allocator.free(palette.value.root);
-    palette.value.root = root_;
+    try set_root(palette, repo_root orelse "");
+    const root_ = palette.value.root;
     try set_title(palette);
     if (root_.len == 0) {
         try update_entries(palette);
@@ -208,6 +207,14 @@ fn set_repo(palette: *Type, path: []const u8, repo_root: ?[]const u8) !void {
         return;
     }
     try request_status(palette);
+}
+
+fn set_root(palette: *Type, repo_root: []const u8) error{OutOfMemory}!void {
+    const root_ = try palette.allocator.dupe(u8, repo_root);
+    if (palette.value.root.len > 0) project_manager.release_vcs_repo(palette.value.root) catch {};
+    palette.allocator.free(palette.value.root);
+    palette.value.root = root_;
+    if (root_.len > 0) project_manager.hold_vcs_repo(root_) catch {};
 }
 
 fn set_title(palette: *Type) !void {
@@ -257,7 +264,7 @@ pub fn deinit(palette: *Type) void {
     if (palette.value.pending_open) |path| palette.allocator.free(path);
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     if (palette.value.shown_diff) |diff| palette.allocator.free(diff.path);
-    palette.allocator.free(palette.value.root);
+    set_root(palette, "") catch {};
     if (palette.value.repo_path) |path| palette.allocator.free(path);
     clear_goto_hunk(palette);
     clear_pending_target(palette);
@@ -316,9 +323,7 @@ fn restore(palette: *Type, ctx: command.Context) !void {
         tp.extract(&hunk_line),
         tp.extract(&repo_root),
     })) return;
-    const root_ = try palette.allocator.dupe(u8, repo_root);
-    palette.allocator.free(palette.value.root);
-    palette.value.root = root_;
+    try set_root(palette, repo_root);
     clear_restore_target(palette);
     palette.value.restore_target = .{
         .kind = kind,
@@ -1164,8 +1169,7 @@ fn switch_repo(palette: *Type, path: []const u8) !void {
     if (palette.value.repo_path) |p| palette.allocator.free(p);
     palette.value.repo_path = repo_path;
     palette.value.reset_selection = true;
-    palette.allocator.free(palette.value.root);
-    palette.value.root = "";
+    try set_root(palette, "");
     try update_entries(palette);
     try project_manager.request_vcs_repo(repo_path, false);
 }

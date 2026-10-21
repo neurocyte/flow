@@ -115,6 +115,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .project_view_states = .init(allocator),
     };
     self.set_edit_set_applier();
+    self.set_shown_hook();
     project_manager.request_file_store() catch |e| std.log.err("request_file_store: {}", .{e});
     self.startup_render_block = tui.block_render(startup_render_block_timeout_ms, "startup");
     errdefer self.unblock_startup_render();
@@ -792,6 +793,7 @@ const cmds = struct {
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
             self.set_edit_set_applier();
+            self.set_shown_hook();
             if (file_store) |store| self.buffer_manager.set_file_store(store);
             tui.clear_probe_cache();
         }
@@ -3722,6 +3724,18 @@ fn set_edit_set_applier(self: *Self) void {
             return self_.apply_text_edits_to_buffer(buffer, edit_set, now);
         }
     }.apply };
+}
+
+fn set_shown_hook(self: *Self) void {
+    self.buffer_manager.set_shown_hook(.{ .ctx = self, .shown = struct {
+        fn shown(_: *anyopaque, abs_path: []const u8) void {
+            project_manager.vcs_file_open(abs_path) catch {};
+        }
+    }.shown, .hidden = struct {
+        fn hidden(_: *anyopaque, abs_path: []const u8) void {
+            project_manager.vcs_file_close(abs_path) catch {};
+        }
+    }.hidden });
 }
 
 fn apply_text_edits_to_buffer(self: *Self, buffer: *Buffer, text_edits: []const u8, now: std.Io.Timestamp) !void {

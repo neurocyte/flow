@@ -18,6 +18,14 @@ saves: std.AutoHashMapUnmanaged(usize, PendingSave) = .empty,
 save_groups: std.AutoHashMapUnmanaged(usize, SaveGroup) = .empty,
 loads: std.AutoHashMapUnmanaged(usize, PendingLoad) = .empty,
 listeners: std.AutoHashMapUnmanaged(*Buffer, std.ArrayList(Listener)) = .empty,
+shown: std.AutoHashMapUnmanaged(*Buffer, []const u8) = .empty,
+shown_hook: ?ShownHook = null,
+
+pub const ShownHook = struct {
+    ctx: *anyopaque,
+    shown: *const fn (ctx: *anyopaque, abs_path: []const u8) void,
+    hidden: *const fn (ctx: *anyopaque, abs_path: []const u8) void,
+};
 
 pub const Track = enum { none, full };
 
@@ -126,12 +134,14 @@ pub fn init(allocator: std.mem.Allocator) Self {
 pub fn deinit(self: *Self) void {
     var i = self.buffers.iterator();
     while (i.next()) |p| {
+        self.unshow_buffer(p.value_ptr.*);
         self.unwatch_buffer(p.value_ptr.*);
         self.allocator.free(p.key_ptr.*);
         p.value_ptr.*.deinit();
     }
     self.buffers.deinit(self.allocator);
     self.watched.deinit(self.allocator);
+    self.shown.deinit(self.allocator);
     var listeners = self.listeners.valueIterator();
     while (listeners.next()) |list| list.deinit(self.allocator);
     self.listeners.deinit(self.allocator);
@@ -189,6 +199,7 @@ pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
     const buffer = self.buffer_from_ref(buffer_.to_ref()) orelse return; // check buffer is valid
     self.notify(buffer, "deleted", .{});
     self.remove_listeners(buffer);
+    self.unshow_buffer(buffer);
     self.unwatch_buffer(buffer);
     if (self.buffers.fetchRemove(buffer.get_file_path())) |kv| {
         self.allocator.free(kv.key);
@@ -201,6 +212,7 @@ pub fn open_file(self: *Self, file_path: []const u8, now: std.Io.Timestamp) erro
     buffer.update_last_used_time(now);
     if (buffer.hidden) self.notify(buffer, "shown", .{});
     buffer.hidden = false;
+    self.update_shown(buffer);
     return buffer;
 }
 
@@ -367,6 +379,7 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
     const applier = self.edit_set_applier orelse return error.LoadFailed;
     const buffer = self.buffer_from_ref(reload_of.buffer) orelse return;
     if (reload_of.reason == .open) buffer.hidden = false;
+    self.update_shown(buffer);
     if (buffer.root != reload_of.root)
         return log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path});
     if (!EditSet.is_empty(.{ .bytes = edit_set }))
@@ -395,6 +408,7 @@ fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*
             return null;
         };
         if (reload_of.reason == .open) buffer.hidden = false;
+        self.update_shown(buffer);
         if (buffer.root != reload_of.root) {
             log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path});
             self.allocator.free(bytes);
@@ -410,6 +424,7 @@ fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*
     if (self.get_buffer(pending.file_path)) |buffer| {
         try buffer.load_from_owned_bytes_and_update(pending.file_path, bytes, exists, now);
         buffer.hidden = false;
+        self.update_shown(buffer);
         return buffer;
     }
     var buffer = try Buffer.create(self.allocator, now);
@@ -417,6 +432,7 @@ fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*
     try buffer.load_from_owned_bytes_and_update(pending.file_path, bytes, exists, now);
     try self.add_buffer(buffer);
     self.watch_buffer(buffer);
+    self.update_shown(buffer);
     return buffer;
 }
 
@@ -441,6 +457,7 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8, now
     buffer.update_last_used_time(now);
     buffer.hidden = false;
     if (buffer.ephemeral == .no) buffer.ephemeral = .generated;
+    self.update_shown(buffer);
     return buffer;
 }
 
@@ -451,6 +468,7 @@ pub fn mark_user_created(_: *Self, buffer: *Buffer) void {
 pub fn mark_not_ephemeral(self: *Self, buffer: *Buffer) void {
     buffer.mark_not_ephemeral();
     self.watch_buffer(buffer);
+    self.update_shown(buffer);
 }
 
 pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOfMemory, WriteFailed }!void {
@@ -475,6 +493,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
         try buffer.extract_state(iter, now);
         try self.add_buffer(buffer);
         self.watch_buffer(buffer);
+        self.update_shown(buffer);
         tp.trace(tp.channel.debug, .{ "buffer", "extract", buffer.get_file_path(), buffer.file_type_name });
     }
 }
@@ -490,10 +509,12 @@ pub fn rename_buffer(self: *Self, buffer: *Buffer, file_path: []const u8) error{
     try self.buffers.ensureUnusedCapacity(self.allocator, 1);
     const kv = self.buffers.fetchRemove(buffer.get_file_path()) orelse return error.BufferNotFound;
     defer self.allocator.free(kv.key);
+    self.unshow_buffer(buffer);
     self.unwatch_buffer(buffer);
     buffer.set_file_path(file_path);
     self.buffers.putAssumeCapacity(new_key, buffer);
     self.watch_buffer(buffer);
+    self.update_shown(buffer);
     self.notify(buffer, "renamed", .{kv.key});
 }
 
@@ -506,6 +527,7 @@ pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
     buffer.hidden = true;
     buffer.set_last_view(null);
+    self.update_shown(buffer);
     self.notify(buffer, "hidden", .{});
     tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.get_file_path(), "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
     if (buffer.is_ephemeral())
@@ -893,6 +915,26 @@ fn unwatch_buffer(self: *Self, buffer: *Buffer) void {
     const kv = self.watched.fetchRemove(buffer) orelse return;
     defer self.allocator.free(kv.value);
     if (self.file_store) |*file_store| file_store.unwatch(kv.value) catch {};
+}
+
+pub fn set_shown_hook(self: *Self, hook: ShownHook) void {
+    self.shown_hook = hook;
+    var i = self.shown.valueIterator();
+    while (i.next()) |abs_path| hook.shown(hook.ctx, abs_path.*);
+}
+
+fn update_shown(self: *Self, buffer: *Buffer) void {
+    if (buffer.hidden or buffer.is_ephemeral()) return self.unshow_buffer(buffer);
+    if (self.shown.contains(buffer)) return;
+    const abs_path = (self.resolve_abs_path(buffer) catch return) orelse return;
+    self.shown.put(self.allocator, buffer, abs_path) catch return self.allocator.free(abs_path);
+    if (self.shown_hook) |hook| hook.shown(hook.ctx, abs_path);
+}
+
+fn unshow_buffer(self: *Self, buffer: *Buffer) void {
+    const kv = self.shown.fetchRemove(buffer) orelse return;
+    defer self.allocator.free(kv.value);
+    if (self.shown_hook) |hook| hook.hidden(hook.ctx, kv.value);
 }
 
 fn unwatch_all(self: *Self) void {
