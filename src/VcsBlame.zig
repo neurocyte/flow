@@ -47,7 +47,6 @@ pub const Error = error{
     InvalidBlameCommitLine,
     InvalidBlameCommitLines,
     InvalidBlameHeaderName,
-    InvalidBlameHeaderValue,
     InvalidBlameLineNo,
     InvalidBlameLines,
     InvalidAuthorTime,
@@ -72,6 +71,7 @@ pub fn parse(self: *@This(), allocator: std.mem.Allocator) Error!void {
 
     var it = std.mem.splitScalar(u8, self.content.items, '\n');
     while (it.next()) |line| {
+        if (line.len == 0) continue;
         top: switch (state) {
             .root => {
                 commit = .{};
@@ -91,7 +91,7 @@ pub fn parse(self: *@This(), allocator: std.mem.Allocator) Error!void {
             .headers => {
                 var arg = std.mem.splitScalar(u8, line, ' ');
                 const name = arg.next() orelse return error.InvalidBlameHeaderName;
-                if (name.len == line.len) return error.InvalidBlameHeaderValue;
+                if (name.len == line.len) continue;
                 const value = line[name.len + 1 ..];
                 if (std.meta.stringToEnum(headers, name)) |header| switch (header) {
                     .author => {
