@@ -1423,7 +1423,7 @@ const Process = struct {
         defer message.deinit();
         try cbor.writeArrayHeader(&message.writer, self.repos.count());
         var i = self.repos.valueIterator();
-        while (i.next()) |repo| try repo.*.write_info(&message.writer);
+        while (i.next()) |repo| try repo.*.write_info(&message.writer, self.is_watched_by_project(repo.*.root));
         try from.send_raw(.{ .buf = message.written() });
     }
 

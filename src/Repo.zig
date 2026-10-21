@@ -228,9 +228,9 @@ fn deactivate(self: *Self) void {
     self.mark_stale();
 }
 
-/// [root, holds, active, watches .git, watches the worktree]
-pub fn write_info(self: *const Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-    try cbor.writeValue(writer, .{ self.root, self.holds, self.is_active(), self.vcs_watcher != null, self.worktree_watcher != null });
+/// [root, holds, active, watches .git, watches the worktree, a project watches the worktree]
+pub fn write_info(self: *const Self, writer: *std.Io.Writer, watched_by_project: bool) std.Io.Writer.Error!void {
+    try cbor.writeValue(writer, .{ self.root, self.holds, self.is_active(), self.vcs_watcher != null, self.worktree_watcher != null, watched_by_project });
 }
 
 pub fn vcs_changed_timeout(self: *Self) void {
