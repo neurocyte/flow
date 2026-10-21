@@ -247,7 +247,7 @@ fn run_client_test(scenario: ClientTest.Scenario) !void {
     var ctx = try tp.context.init(allocator, .{});
     defer ctx.deinit();
 
-    var path_buf: [64]u8 = undefined;
+    var path_buf: [104]u8 = undefined;
     const path = try std.fmt.bufPrintSentinel(&path_buf, "/tmp/flow_rc_client_test_{d}_{t}.sock", .{ std.c.getpid(), scenario }, 0);
 
     var status_buf: [128]u8 = undefined;
