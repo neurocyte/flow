@@ -110,26 +110,26 @@ const @"style.config" = struct {
     selected_right_bg: colors = .inactive_bg,
 
     unfocused_active_fg: colors = .unfocused_active_fg,
-    unfocused_active_bg: colors = .active_bg,
+    unfocused_active_bg: colors = .unfocused_active_bg,
     unfocused_active_left: []const u8 = "🭅",
-    unfocused_active_left_fg: colors = .active_bg,
+    unfocused_active_left_fg: colors = .unfocused_active_bg,
     unfocused_active_left_fg_transparent: bool = true,
-    unfocused_active_left_bg: colors = .inactive_bg,
+    unfocused_active_left_bg: colors = .unfocused_inactive_bg,
     unfocused_active_right: []const u8 = "🭐",
-    unfocused_active_right_fg: colors = .active_bg,
+    unfocused_active_right_fg: colors = .unfocused_active_bg,
     unfocused_active_right_fg_transparent: bool = true,
-    unfocused_active_right_bg: colors = .inactive_bg,
+    unfocused_active_right_bg: colors = .unfocused_inactive_bg,
 
-    unfocused_inactive_fg: colors = .inactive_fg,
-    unfocused_inactive_bg: colors = .inactive_bg,
+    unfocused_inactive_fg: colors = .unfocused_inactive_fg,
+    unfocused_inactive_bg: colors = .unfocused_inactive_bg,
     unfocused_inactive_left: []const u8 = " ",
-    unfocused_inactive_left_fg: colors = .inactive_fg,
+    unfocused_inactive_left_fg: colors = .unfocused_inactive_fg,
     unfocused_inactive_left_fg_transparent: bool = true,
-    unfocused_inactive_left_bg: colors = .inactive_bg,
+    unfocused_inactive_left_bg: colors = .unfocused_inactive_bg,
     unfocused_inactive_right: []const u8 = " ",
-    unfocused_inactive_right_fg: colors = .inactive_fg,
+    unfocused_inactive_right_fg: colors = .unfocused_inactive_fg,
     unfocused_inactive_right_fg_transparent: bool = true,
-    unfocused_inactive_right_bg: colors = .inactive_bg,
+    unfocused_inactive_right_bg: colors = .unfocused_inactive_bg,
 
     file_type_icon: bool = true,
 
@@ -478,7 +478,7 @@ pub const TabBar = struct {
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                     if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer| {
                         try btn.update_label(Tab.name_from_buffer(buffer));
-                        btn.opts.ctx.view = buffer.get_last_view() orelse 0;
+                        btn.opts.ctx.view = view;
                     }
                 }
             }
