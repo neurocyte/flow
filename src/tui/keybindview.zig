@@ -124,6 +124,8 @@ fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!
         cbor.toJsonWriter(cmds, writer, .{}) catch return true;
         if (source_mode.len == 0)
             writer.writeAll(" (global)") catch return true
+        else if (source_file.len == 0)
+            writer.print(" ({s})", .{source_mode}) catch return true
         else
             writer.print(" ({s} {s}:{d})", .{ source_mode, source_file, source_line }) catch return true;
 

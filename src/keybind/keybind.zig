@@ -706,11 +706,12 @@ const GlobalBinding = struct {
         }
         globals_allocator.free(self.binding.commands);
         globals_allocator.free(self.binding.description);
+        globals_allocator.free(self.binding.source_info.mode);
         globals_allocator.destroy(self);
     }
 };
 
-pub fn add_global_binding(keys: []const u8, command_name: []const u8, args: []const u8, description: []const u8) GlobalBindError!GlobalId {
+pub fn add_global_binding(keys: []const u8, command_name: []const u8, args: []const u8, description: []const u8, source: []const u8) GlobalBindError!GlobalId {
     const allocator = globals_allocator;
     const key_events = parse_flow.parse_key_events(allocator, keys) catch |e| {
         if (!builtin.is_test)
@@ -728,13 +729,20 @@ pub fn add_global_binding(keys: []const u8, command_name: []const u8, args: []co
     binding_commands[0] = .{ .command = command_, .args = try allocator.dupe(u8, args) };
     const description_ = try allocator.dupe(u8, description);
     errdefer allocator.free(description_);
+    const source_ = try allocator.dupe(u8, source);
+    errdefer allocator.free(source_);
 
     const id = globals.next_global_id;
     const global = try allocator.create(GlobalBinding);
     errdefer allocator.destroy(global);
     global.* = .{
         .id = id,
-        .binding = .{ .key_events = key_events, .commands = binding_commands, .description = description_ },
+        .binding = .{
+            .key_events = key_events,
+            .commands = binding_commands,
+            .description = description_,
+            .source_info = .{ .mode = source_ },
+        },
     };
     try globals.global_bindings.append(allocator, global);
     globals.next_global_id += 1;
@@ -1668,7 +1676,7 @@ test "global keybind fires when the mode has no match" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "", "");
 
     try std.testing.expectEqualStrings("cmd_mode", (try feed(&bs, "ctrl+a")).?);
     try std.testing.expectEqualStrings("cmd_global", (try feed(&bs, "ctrl+alt+a ctrl+alt+g")).?);
@@ -1682,7 +1690,7 @@ test "mode keybind wins over a global on the same keys" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "", "");
 
     try std.testing.expectEqualStrings("cmd_mode", (try feed(&bs, "ctrl+alt+a ctrl+alt+g")).?);
 }
@@ -1695,7 +1703,7 @@ test "a live mode prefix defers the global until the mode chord dies" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "", "");
 
     try std.testing.expectEqualStrings("cmd_mode", (try feed(&bs, "ctrl+alt+a ctrl+alt+x")).?);
     try std.testing.expectEqualStrings("cmd_global", (try feed(&bs, "ctrl+alt+a ctrl+alt+g")).?);
@@ -1709,7 +1717,7 @@ test "a global prefix keeps the sequence open" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "", "");
 
     // the mode cannot match ctrl+alt+a, but the global still can: the
     // sequence must survive for the second key to complete it
@@ -1726,7 +1734,7 @@ test "an unmatched key still terminates the sequence" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_global", "", "", "");
 
     try expectEqual(@as(?[]const u8, null), try feed(&bs, "ctrl+b"));
     try expectEqual(@as(usize, 0), globals.current_sequence.items.len);
@@ -1740,8 +1748,8 @@ test "remove_global_binding only removes its own id" {
     );
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    const one = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_one", "", "");
-    _ = try add_global_binding("ctrl+alt+a ctrl+alt+h", "cmd_two", "", "");
+    const one = try add_global_binding("ctrl+alt+a ctrl+alt+g", "cmd_one", "", "", "");
+    _ = try add_global_binding("ctrl+alt+a ctrl+alt+h", "cmd_two", "", "", "");
 
     remove_global_binding(one);
     remove_global_binding(one); // removing twice is a no-op
@@ -1754,9 +1762,9 @@ test "remove_global_binding only removes its own id" {
 test "a global may not start on a text producing key" {
     defer reset_global_bindings_for_test();
     reset_global_bindings_for_test();
-    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("g g", "cmd_global", "", ""));
-    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("shift+g", "cmd_global", "", ""));
-    try std.testing.expectError(error.InvalidKeybind, add_global_binding("ctrl+nonsense", "cmd_global", "", ""));
+    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("g g", "cmd_global", "", "", ""));
+    try std.testing.expectError(error.ShadowsInsertMode, add_global_binding("shift+g", "cmd_global", "", "", ""));
+    try std.testing.expectError(error.InvalidKeybind, add_global_binding("ctrl+nonsense", "cmd_global", "", "", ""));
     try expectEqual(@as(usize, 0), globals.global_bindings.items.len);
 }
 
@@ -1779,12 +1787,13 @@ test "keybind definition with a description" {
     try std.testing.expectEqualStrings("", plain.description);
 
     // a global binding carries its own description
-    const id = try add_global_binding("ctrl+alt+a ctrl+alt+g", "terminal_new", "", "Tig (all)");
+    const id = try add_global_binding("ctrl+alt+a ctrl+alt+g", "terminal_new", "", "Tig (all)", "profile/Tig (all)");
     defer remove_global_binding(id);
     const bindings = try with_global_bindings(std.testing.allocator, &.{}, null, .all);
     defer std.testing.allocator.free(bindings);
     try std.testing.expectEqual(@as(usize, 1), bindings.len);
     try std.testing.expectEqualStrings("Tig (all)", bindings[0].description);
+    try std.testing.expectEqualStrings("profile/Tig (all)", bindings[0].source_info.mode);
 }
 
 fn find_binding(bs: *const BindingSet, key_string: []const u8) !Binding {

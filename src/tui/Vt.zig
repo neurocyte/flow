@@ -706,7 +706,9 @@ pub fn register_profile_keybindings() void {
     for (profiles) |profile| {
         if (profile.keybind.len == 0) continue;
         const args = command.fmtbuf(&buf, .{profile.name}) catch continue;
-        const id = keybind.add_global_binding(profile.keybind, "terminal_new", args.args.buf, profile.name) catch |e| {
+        var source_buf: [256]u8 = undefined;
+        const source = std.fmt.bufPrint(&source_buf, "profile/{s}", .{profile.name}) catch "profile";
+        const id = keybind.add_global_binding(profile.keybind, "terminal_new", args.args.buf, profile.name, source) catch |e| {
             std.log.warn("terminal: profile '{s}' keybind '{s}': {t}", .{ profile.name, profile.keybind, e });
             continue;
         };

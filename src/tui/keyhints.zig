@@ -29,7 +29,7 @@ pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Al
             var prefix_buf: [256]u8 = undefined;
             var prefix: std.Io.Writer = .fixed(&prefix_buf);
             prefix.print("{f}", .{keybind.current_key_event_sequence_fmt()}) catch {};
-            const rows = build_rows(arena.allocator(), key_events, prefix.buffered().len) catch return;
+            const rows = build_rows(arena.allocator(), key_events, prefix.buffered().len, .hidden) catch return;
             return render(title.buffered(), prefix.buffered(), rows, theme);
         }
     }
@@ -40,7 +40,7 @@ pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Al
         .global => keybind.current_global_bindings(allocator, select_mode) catch return,
     };
     defer allocator.free(bindings);
-    const rows = build_rows(arena.allocator(), bindings, 0) catch return;
+    const rows = build_rows(arena.allocator(), bindings, 0, if (filter == .all) .shown else .hidden) catch return;
     return render(switch (filter) {
         .mode => mode_title(&title_buf, mode.bindings.config_section),
         .global => "global",
@@ -52,13 +52,17 @@ const Row = struct {
     keys: std.ArrayList([]const u8) = .empty,
     text: []const u8 = "",
     description: []const u8,
+    source_modes: std.ArrayList([]const u8) = .empty,
+    sources: []const u8 = "",
 };
+
+const Sources = enum { hidden, shown };
 
 const max_listed_keys = 7;
 const sided_modifiers = [_][]const u8{ "shft", "ctrl", "alt", "super", "hyper", "meta" };
 
 /// one row per description, with the keys of all bindings that share it
-fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, prefix_len: usize) error{ OutOfMemory, WriteFailed }![]Row {
+fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, prefix_len: usize, sources: Sources) error{ OutOfMemory, WriteFailed }![]Row {
     var rows: std.ArrayList(Row) = .empty;
     for (bindings) |*binding| {
         const description = get_description(binding);
@@ -71,10 +75,16 @@ fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, p
         };
         const text = try std.fmt.allocPrint(allocator, "{f}", .{keybind.key_event_sequence_fmt(binding.key_events)});
         try row.keys.append(allocator, std.mem.trimStart(u8, text[@min(prefix_len, text.len)..], " "));
+        if (sources == .shown) {
+            const source_mode = if (binding.source_info.mode.len > 0) binding.source_info.mode else "global";
+            if (index_of_string(row.source_modes.items, source_mode) == null)
+                try row.source_modes.append(allocator, source_mode);
+        }
     }
     for (rows.items) |*row| {
         try merge_sided_modifiers(allocator, &row.keys);
         row.text = try format_keys(allocator, row.keys.items);
+        row.sources = try std.mem.join(allocator, ", ", row.source_modes.items);
     }
     return rows.items;
 }
@@ -86,14 +96,14 @@ fn merge_sided_modifiers(allocator: std.mem.Allocator, keys: *std.ArrayList([]co
         var right_buf: [8]u8 = undefined;
         const left = std.fmt.bufPrint(&left_buf, "l{s}", .{modifier}) catch unreachable;
         const right = std.fmt.bufPrint(&right_buf, "r{s}", .{modifier}) catch unreachable;
-        const left_idx = index_of_key(keys.items, left) orelse continue;
-        const right_idx = index_of_key(keys.items, right) orelse continue;
+        const left_idx = index_of_string(keys.items, left) orelse continue;
+        const right_idx = index_of_string(keys.items, right) orelse continue;
         keys.items[@min(left_idx, right_idx)] = try allocator.dupe(u8, modifier);
         _ = keys.orderedRemove(@max(left_idx, right_idx));
     }
 }
 
-fn index_of_key(keys: []const []const u8, key: []const u8) ?usize {
+fn index_of_string(keys: []const []const u8, key: []const u8) ?usize {
     for (keys, 0..) |k, i| if (std.mem.eql(u8, k, key)) return i;
     return null;
 }
@@ -152,11 +162,14 @@ fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *
 
     var max_prefix_len: usize = 0;
     var max_description_len: usize = 0;
+    var max_sources_len: usize = 0;
     for (rows) |row| {
         max_prefix_len = @max(max_prefix_len, tui.egc_chunk_width(row.text, 0, 1));
         max_description_len = @max(max_description_len, tui.egc_chunk_width(row.description, 0, 1));
+        max_sources_len = @max(max_sources_len, tui.egc_chunk_width(row.sources, 0, 1));
     }
-    const max_len = max_prefix_len + max_description_len + 2 + 2;
+    const sources_len = if (max_sources_len > 0) max_sources_len + 2 else 0;
+    const max_len = max_prefix_len + max_description_len + sources_len + 2 + 2;
     const widget_style = tui.get_widget_style(widget_type);
     const scr = tui.screen();
     const padding_h = widget_style.padding.top + widget_style.padding.bottom;
@@ -261,5 +274,14 @@ fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *
         if (y >= max_items) break;
         plane.cursor_move_yx(@intCast(y), @intCast(max_prefix_len + 3));
         _ = plane.print("{s}", .{row.description}) catch {};
+    }
+
+    if (max_sources_len == 0) return;
+    plane.set_style(if (tui.find_scope_style(theme, "comment")) |sty| sty.style else style_label);
+
+    for (rows[top..], 0..) |row, y| {
+        if (y >= max_items) break;
+        plane.cursor_move_yx(@intCast(y), @intCast(max_prefix_len + 3 + max_description_len + 2));
+        _ = plane.print("{s}", .{row.sources}) catch {};
     }
 }
