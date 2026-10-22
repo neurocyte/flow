@@ -450,6 +450,10 @@ pub fn get_panel_height(self: *Self) usize {
     return self.bottom_area.get_height();
 }
 
+pub fn panel_box(self: *const Self) ?Box {
+    return self.bottom_area.box();
+}
+
 pub fn is_panel_maximized(self: *const Self) bool {
     return self.bottom_area.is_maximized();
 }
@@ -547,8 +551,8 @@ fn focused_panel(self: *Self) ?Panel {
     return g.active();
 }
 
-pub fn focused_panel_hints(self: *Self) ?*const tui.KeybindHints {
-    return (self.focused_panel() orelse return null).hints();
+pub fn focused_panel_mode(self: *Self) ?*const keybind.Mode {
+    return (self.focused_panel() orelse return null).mode();
 }
 
 fn leave_maximized_panel(self: *Self) void {

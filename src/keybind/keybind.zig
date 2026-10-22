@@ -432,22 +432,17 @@ const Namespace = struct {
         try self.modes.put(allocator, mode_name, try BindingSet.load(allocator, self.name, mode_name, mode_value, fallback_mode, self));
 
         if (!std.mem.eql(u8, mode_name, default_mode)) return;
-        for (self.modes.get(default_mode).?.press.items) |b| {
-            if (b.commands.len != 1) continue;
-            if (std.mem.eql(u8, b.commands[0].command, "toggle_keybind_hints")) {
-                var content: std.Io.Writer.Allocating = .init(allocator);
-                defer content.deinit();
-                const writer = &content.writer;
-                writer.print("press {f}", .{key_event_sequence_fmt(b.key_events)}) catch break;
-                self.toggle_hints_text = try content.toOwnedSlice();
-            } else if (std.mem.eql(u8, b.commands[0].command, "scroll_keybind_hints")) {
-                var content: std.Io.Writer.Allocating = .init(allocator);
-                defer content.deinit();
-                const writer = &content.writer;
-                writer.print("press {f}", .{key_event_sequence_fmt(b.key_events)}) catch break;
-                self.scroll_hints_text = try content.toOwnedSlice();
-            }
+        const press = self.modes.get(default_mode).?.press.items;
+        if (try hint_text(allocator, press, "toggle_keybind_hints")) |text| self.toggle_hints_text = text;
+        if (try hint_text(allocator, press, "scroll_keybind_hints")) |text| self.scroll_hints_text = text;
+    }
+
+    fn hint_text(allocator: std.mem.Allocator, bindings: []const Binding, command_name: []const u8) error{OutOfMemory}!?[]const u8 {
+        for (bindings) |b| {
+            if (b.commands.len != 1 or !std.mem.eql(u8, b.commands[0].command, command_name)) continue;
+            return try std.fmt.allocPrint(allocator, "press {f}", .{key_event_sequence_fmt(b.key_events)});
         }
+        return null;
     }
 
     fn copy_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, fallback_mode: *const BindingSet) !void {
@@ -704,6 +699,10 @@ fn with_global_bindings(
     @memcpy(combined[bindings.len..], extra.items);
     allocator.free(bindings);
     return combined;
+}
+
+pub fn current_global_bindings(allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
+    return with_global_bindings(allocator, &.{}, null, select_mode);
 }
 
 fn produces_text(key_event: KeyEvent) bool {
@@ -1934,4 +1933,28 @@ test "source_info mode_name" {
     try std.testing.expectEqualStrings("mini/find", (SourceInfo{ .mode = "flow/mini/find" }).mode_name());
     try std.testing.expectEqualStrings("normal", (SourceInfo{ .mode = "flow/normal" }).mode_name());
     try std.testing.expectEqualStrings("", (SourceInfo{}).mode_name());
+}
+
+test "hints texts use the first binding of the command" {
+    reset_namespaces_for_test();
+    const namespace = try load_test_namespace("thints",
+        \\{ "settings": { "no_defaults": true },
+        \\  "normal": { "press": [
+        \\    ["alt+f1", "toggle_keybind_hints"],
+        \\    ["ctrl+?", "toggle_keybind_hints"],
+        \\    ["shift+f1", "scroll_keybind_hints"],
+        \\    ["ctrl+alt+?", "scroll_keybind_hints"]
+        \\  ]}
+        \\}
+    );
+    const normal = namespace.get_mode("normal").?;
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        try std.fmt.bufPrint(&buf, "press {f}", .{key_event_sequence_fmt(normal.press.items[0].key_events)}),
+        namespace.toggle_hints_text,
+    );
+    try std.testing.expectEqualStrings(
+        try std.fmt.bufPrint(&buf, "press {f}", .{key_event_sequence_fmt(normal.press.items[2].key_events)}),
+        namespace.scroll_hints_text,
+    );
 }

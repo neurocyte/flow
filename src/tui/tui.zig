@@ -115,7 +115,7 @@ clipboard_current_group_number: usize = 0,
 clipboard_forwards: std.ArrayListUnmanaged(ClipboardForward) = .empty,
 color_scheme: Widget.Theme.Type = .dark,
 color_scheme_locked: bool = false,
-hint_mode: HintMode = .prefix,
+hint_mode: HintMode = .none,
 last_palette: ?LastPalette = null,
 idle_actions_: std.ArrayList(IdleAction) = .empty,
 
@@ -132,7 +132,34 @@ dbus_client: if (build_options.gui and builtin.os.tag != .windows and builtin.os
 else
     void,
 
-const HintMode = enum { none, prefix, all };
+const HintMode = enum { none, all, mode, global };
+
+fn context_keyhints_filter(self: *const Self) @import("keyhints.zig").Filter {
+    if (self.mini_mode_ != null)
+        return if (self.config_.enable_minimode_keyhints) .mode else .prefix;
+    if (self.input_mode_outer_ != null)
+        return if (self.config_.enable_overlay_keyhints) .mode else .prefix;
+    if (focused_panel_mode() != null)
+        return if (self.config_.enable_panel_keyhints) .mode else .prefix;
+    return .prefix;
+}
+
+fn set_hint_mode(self: *Self, hint_mode: HintMode) HintMode {
+    const previous = self.hint_mode;
+    self.hint_mode = hint_mode;
+    @import("keyhints.zig").reset_scroll();
+    return previous;
+}
+
+fn hints_input_mode(self: *const Self) ?*const Mode {
+    if (self.mini_mode_ == null and self.input_mode_outer_ == null)
+        if (focused_panel_mode()) |mode| return mode;
+    return if (self.input_mode_) |*mode| mode else null;
+}
+
+fn focused_panel_mode() ?*const Mode {
+    return (mainview() orelse return null).focused_panel_mode();
+}
 
 const LastPalette = struct {
     type_: PaletteType,
@@ -975,14 +1002,14 @@ fn render(self: *Self) void {
         const theme_ = self.current_theme();
         const continue_mainview = if (self.mainview_) |mv| mv.render(theme_) else false;
 
-        switch (self.hint_mode) {
-            .prefix => if (self.config_.enable_prefix_keyhints)
-                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .all, self.current_theme())
-            else
-                @import("keyhints.zig").hide(),
-            .all => @import("keyhints.zig").render_current_input_mode(self.allocator, .all, self.current_theme()),
-            .none => @import("keyhints.zig").hide(),
-        }
+        const keyhints = @import("keyhints.zig");
+        const filter: keyhints.Filter = switch (self.hint_mode) {
+            .none => self.context_keyhints_filter(),
+            .all => .all,
+            .mode => .mode,
+            .global => .global,
+        };
+        keyhints.render_input_mode(self.hints_input_mode(), self.allocator, filter, self.config_.enable_prefix_keyhints, .all, theme_);
 
         break :ret continue_mainview;
     };
@@ -1945,12 +1972,30 @@ const cmds = struct {
     pub const toggle_code_action_indicator_mode_meta: Meta = .{ .description = "Toggle code action indicator" };
 
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
-        self.hint_mode = switch (self.hint_mode) {
-            .all => .prefix,
-            else => .all,
-        };
+        _ = self.set_hint_mode(switch (self.hint_mode) {
+            .none => .all,
+            .all => .mode,
+            .mode => .global,
+            .global => .none,
+        });
+        if (self.hint_mode == .global) {
+            const globals = try keybind.current_global_bindings(self.allocator, .all);
+            defer self.allocator.free(globals);
+            if (globals.len == 0) return self.logger.print("keybind hints global (no global keybinds)", .{});
+        }
+        self.logger.print("keybind hints {t}", .{self.hint_mode});
     }
     pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints" };
+
+    pub fn set_keybind_hints_mode(self: *Self, ctx: Ctx) Result {
+        var name: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&name)})) return error.InvalidSetKeybindHintsModeArgument;
+        const new_mode = std.meta.stringToEnum(HintMode, name) orelse
+            return error.InvalidSetKeybindHintsModeArgument;
+        const previous = self.set_hint_mode(new_mode);
+        if (ctx.reply) |reply| try reply.send(.{ "keybind_hints_mode", previous, new_mode });
+    }
+    pub const set_keybind_hints_mode_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn open_main_menu(_: *Self, _: Ctx) Result {
         if (mainview()) |mv| if (mv.menu_bar) |bar| if (bar.is_visible())
@@ -2777,7 +2822,7 @@ pub fn open_confirm(options: Confirm.Options) command.Result {
 }
 
 pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor, owner: ?MenuPopup.Owner) command.Result {
-    const hints = if (mainview()) |mv| mv.focused_panel_hints() else null;
+    const hints = if (focused_panel_mode()) |mode| mode.keybind_hints else null;
     return open_overlay_create(MenuPopup, .empty(), .{ menu, anchor, owner, hints });
 }
 

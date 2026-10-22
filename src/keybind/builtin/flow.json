@@ -772,6 +772,10 @@
         "on_match_failure": "nothing",
         "inherit_prefix": [["ctrl+alt+a", "project"]],
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
+            ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+shift+c", "terminal_copy_selection"],
             ["ctrl+shift+v", "system_paste"],
             ["alt+shift+v", "clipboard_history"],

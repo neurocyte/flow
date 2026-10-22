@@ -1,7 +1,7 @@
 const std = @import("std");
 const Widget = @import("Widget.zig");
 const Menu = @import("Menu.zig");
-const KeybindHints = @import("keybind").KeybindHints;
+const keybind = @import("keybind");
 
 pub const Indicator = enum { none, alt_screen, activity, bell, busy, exited, exited_error };
 pub const Visibility = enum { visible, hidden };
@@ -29,7 +29,7 @@ pub const VTable = struct {
     copy: ?*const fn (ctx: *anyopaque) void,
     clear: ?*const fn (ctx: *anyopaque) void,
     menu: *const Menu,
-    hints: *const fn (ctx: *anyopaque) ?*const KeybindHints,
+    mode: *const fn (ctx: *anyopaque) ?*const keybind.Mode,
 };
 
 pub fn to(pimpl: anytype) Self {
@@ -91,13 +91,13 @@ pub fn to(pimpl: anytype) Self {
                 }
             }.f else null,
             .menu = context_menu(child),
-            .hints = struct {
-                fn f(ctx: *anyopaque) ?*const KeybindHints {
+            .mode = struct {
+                fn f(ctx: *anyopaque) ?*const keybind.Mode {
                     const self = self_of(ctx);
                     return if (@typeInfo(@TypeOf(self.panel_input)) == .optional)
-                        if (self.panel_input) |*panel_input| panel_input.mode.keybind_hints else null
+                        if (self.panel_input) |*panel_input| &panel_input.mode else null
                     else
-                        self.panel_input.mode.keybind_hints;
+                        &self.panel_input.mode;
                 }
             }.f,
         },
@@ -154,8 +154,8 @@ pub fn menu(self: Self) *const Menu {
     return self.vtable.menu;
 }
 
-pub fn hints(self: Self) ?*const KeybindHints {
-    return self.vtable.hints(self.impl.ptr);
+pub fn mode(self: Self) ?*const keybind.Mode {
+    return self.vtable.mode(self.impl.ptr);
 }
 
 pub fn is(self: Self, comptime T: type) bool {

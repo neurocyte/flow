@@ -130,6 +130,11 @@ fn release_focus(self: *Self) void {
     };
 }
 
+pub fn box(self: *const Self) ?Widget.Box {
+    if (!self.attached) return null;
+    return Widget.Box.from(self.list.plane);
+}
+
 pub fn active_plane(self: *Self) ?@import("renderer").Plane {
     if (!self.attached) return null;
     if (self.focused_group()) |g| return g.list.plane;
