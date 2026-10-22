@@ -1693,7 +1693,7 @@ const cmds = struct {
             tv.toggle_focus();
         }
     }
-    pub const unfocus_terminal_meta: Meta = .{};
+    pub const unfocus_terminal_meta: Meta = .{ .description = "Unfocus terminal" };
 
     pub fn get_terminal_state(self: *Self, ctx: Ctx) Result {
         var id: u64 = 0;
