@@ -1554,6 +1554,8 @@ fn enter_overlay_mode(self: *Self, mode: type, ctx: command.Context) command.Res
 fn enter_overlay_mode_create(self: *Self, mode: type, ctx: command.Context, args: anytype) command.Result {
     self.keyboard_focus_outer = self.keyboard_focus;
     clear_keyboard_focus();
+    errdefer if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
+        widget.focus();
     command.executeName("disable_fast_scroll", ctx) catch {};
     command.executeName("disable_alt_scroll", ctx) catch {};
     command.executeName("disable_jump_mode", ctx) catch {};
@@ -1570,6 +1572,8 @@ fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) c
     const ctx_: command.Context = .empty_from(ctx);
     self.keyboard_focus_outer = self.keyboard_focus;
     clear_keyboard_focus();
+    errdefer if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
+        widget.focus();
     command.executeName("disable_fast_scroll", ctx_) catch {};
     command.executeName("disable_alt_scroll", ctx_) catch {};
     command.executeName("disable_jump_mode", ctx_) catch {};
@@ -2616,6 +2620,8 @@ const cmds = struct {
         const ctx_: command.Context = .empty_from(ctx);
         self.keyboard_focus_outer = self.keyboard_focus;
         clear_keyboard_focus();
+        errdefer if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
+            widget.focus();
         command.executeName("disable_fast_scroll", ctx_) catch {};
         command.executeName("disable_alt_scroll", ctx_) catch {};
         command.executeName("disable_jump_mode", ctx_) catch {};
