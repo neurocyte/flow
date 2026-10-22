@@ -138,10 +138,24 @@ fn context_keyhints_filter(self: *const Self) @import("keyhints.zig").Filter {
     if (self.mini_mode_ != null)
         return if (self.config_.enable_minimode_keyhints) .mode else .prefix;
     if (self.input_mode_outer_ != null)
-        return if (self.config_.enable_overlay_keyhints) .mode else .prefix;
+        return if (self.config_.enable_overlay_keyhints and !self.is_generic_overlay_mode()) .mode else .prefix;
     if (focused_panel_mode() != null)
         return if (self.config_.enable_panel_keyhints) .mode else .prefix;
     return .prefix;
+}
+
+const generic_overlay_modes = [_][]const u8{
+    "overlay/palette",
+    "overlay/dropdown",
+    "overlay/dropdown-noninvasive",
+    "overlay/confirm",
+    "overlay/menu",
+};
+
+fn is_generic_overlay_mode(self: *const Self) bool {
+    const mode = self.input_mode_ orelse return false;
+    for (generic_overlay_modes) |name| if (std.mem.eql(u8, mode.mode, name)) return true;
+    return false;
 }
 
 fn toggle_keyhints_option(self: *Self, comptime option: []const u8, name: []const u8) !void {
