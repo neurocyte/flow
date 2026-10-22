@@ -2211,32 +2211,22 @@ const cmds = struct {
             return self.enter_overlay_mode_with_args(@import("mode/overlay/file_tree_palette.zig").Type, .empty());
         const in_project = project.len > 0 and dir_path.len > project.len and
             std.mem.startsWith(u8, dir_path, project) and dir_path[project.len] == std.fs.path.sep;
-
-        var home_buf: [std.fs.max_path_bytes]u8 = undefined;
-        var text_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
-        const text = try std.fmt.bufPrint(&text_buf, "Open directory {s}", .{project_manager.abbreviate_home(&home_buf, dir_path)});
-        var project_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
-        var tree_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
-        var choices: [2]Confirm.Choice = undefined;
-        var n: usize = 0;
-        if (in_project) {
-            choices[n] = .{
-                .label = "Show in file tree",
-                .action = .{ .bytes = cbor.fmt(&tree_buf, .{ "cmd", "open_file_tree", .{dir_path[project.len + 1 ..]} }) },
-                .default = true,
-            };
-            n += 1;
-        }
-        choices[n] = .{
-            .label = "Open as project",
-            .action = .{ .bytes = cbor.fmt(&project_buf, .{ "cmd", "change_project", .{dir_path} }) },
-            .default = !in_project,
-        };
-        n += 1;
-        return open_confirm(.{ .message = text, .choices = choices[0..n] });
+        return confirm_open_directory(dir_path, if (in_project) dir_path[project.len + 1 ..] else null);
     }
     pub const open_directory_meta: Meta = .{
         .description = "Open directory as project or in the file tree",
+        .arguments = &.{.string},
+    };
+
+    pub fn confirm_open_project(_: *Self, ctx: Ctx) Result {
+        var dir_path: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&dir_path)}))
+            return error.InvalidConfirmOpenProjectArgument;
+        if (std.mem.eql(u8, dir_path, tp.env.get().str("project"))) return;
+        return confirm_open_directory(dir_path, null);
+    }
+    pub const confirm_open_project_meta: Meta = .{
+        .description = "Offer to open directory as project",
         .arguments = &.{.string},
     };
 
@@ -2906,6 +2896,31 @@ pub const apply_single_file_operation = MainView.apply_single_file_operation;
 
 pub fn open_confirm(options: Confirm.Options) command.Result {
     return open_overlay_create(Confirm, .empty(), .{options});
+}
+
+fn confirm_open_directory(dir_path: []const u8, tree_path: ?[]const u8) command.Result {
+    var home_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var text_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+    const text = try std.fmt.bufPrint(&text_buf, "Open directory {s}", .{project_manager.abbreviate_home(&home_buf, dir_path)});
+    var project_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+    var tree_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+    var choices: [2]Confirm.Choice = undefined;
+    var n: usize = 0;
+    if (tree_path) |path| {
+        choices[n] = .{
+            .label = "Show in file tree",
+            .action = .{ .bytes = cbor.fmt(&tree_buf, .{ "cmd", "open_file_tree", .{path} }) },
+            .default = true,
+        };
+        n += 1;
+    }
+    choices[n] = .{
+        .label = "Open as project",
+        .action = .{ .bytes = cbor.fmt(&project_buf, .{ "cmd", "change_project", .{dir_path} }) },
+        .default = tree_path == null,
+    };
+    n += 1;
+    return open_confirm(.{ .message = text, .choices = choices[0..n] });
 }
 
 pub fn open_menu(menu: *const Menu, anchor: MenuPopup.Anchor, owner: ?MenuPopup.Owner) command.Result {

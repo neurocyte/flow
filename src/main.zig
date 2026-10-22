@@ -423,8 +423,12 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     var have_project = false;
     var have_file = false;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     if (args.project) |project| {
-        try main_proc.send(.{ "cmd", "open_project_dir", .{project} });
+        if (connect != null)
+            try main_proc.send(.{ "request", "confirm_open_project", .{real_dir_path(project, &path_buf)} })
+        else
+            try main_proc.send(.{ "cmd", "open_project_dir", .{project} });
         have_project = true;
     }
     for (links.items) |link| switch (link) {
@@ -433,14 +437,10 @@ pub fn main(init: std.process.Init) anyerror!u8 {
                 std.debug.print("more than one project directory is not allowed\n", .{});
                 exit(1);
             }
-            if (connect != null) {
-                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                const len = std.Io.Dir.cwd().realPathFile(global_init.io, dir.path, &path_buf) catch |e| {
-                    std.debug.print("invalid directory '{s}': {t}\n", .{ dir.path, e });
-                    exit(1);
-                };
-                try main_proc.send(.{ "request", "open_directory", .{path_buf[0..len]} });
-            } else try main_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
+            if (connect != null)
+                try main_proc.send(.{ "request", "open_directory", .{real_dir_path(dir.path, &path_buf)} })
+            else
+                try main_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
             have_project = true;
         },
         else => {
@@ -1764,6 +1764,14 @@ fn restart_failed(ret: c_int) noreturn {
     , .{resolve_executable(std.mem.span(get_init().minimal.args.vector[0]))}) catch {};
     stderr_writer.flush() catch {};
     exit(234);
+}
+
+fn real_dir_path(path: []const u8, buf: []u8) []const u8 {
+    const len = std.Io.Dir.cwd().realPathFile(global_init.io, path, buf) catch |e| {
+        std.debug.print("invalid directory '{s}': {t}\n", .{ path, e });
+        exit(1);
+    };
+    return buf[0..len];
 }
 
 pub fn is_directory(rel_path: []const u8) bool {
