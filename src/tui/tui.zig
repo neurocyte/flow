@@ -2903,7 +2903,10 @@ pub const VcsRevert = enum { file, hunk, untracked };
 pub const apply_single_file_operation = MainView.apply_single_file_operation;
 
 pub fn open_confirm(options: Confirm.Options) command.Result {
-    return open_overlay_create(Confirm, .empty(), .{options});
+    return open_overlay_create(Confirm, .empty(), .{options}) catch |e| {
+        if (options.on_cancel) |msg| tp.self_pid().send_raw(.{ .buf = msg.bytes }) catch {};
+        return e;
+    };
 }
 
 fn confirm_open_directory(dir_path: []const u8, tree_path: ?[]const u8) command.Result {
