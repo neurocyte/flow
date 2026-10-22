@@ -139,12 +139,14 @@ pub fn Create(options: type) type {
                 .insert_command = "overlay_insert_bytes",
             });
             errdefer mode.deinit();
+            const logger = log.logger(@typeName(Self));
+            errdefer logger.deinit();
             self.* = .{
                 .allocator = allocator,
                 .modal = modal,
                 .list_box_layer = list_box_layer,
                 .list_box = list_box,
-                .logger = log.logger(@typeName(Self)),
+                .logger = logger,
                 .inputbox = inputbox,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = .empty,

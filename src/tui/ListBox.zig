@@ -137,7 +137,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn add_item(self: *Self, label: []const u8) !void {
-            try self.list.add(try Button.create(*Self, self.allocator, self.list.parent, .{
+            const button = try Button.create(*Self, self.allocator, self.list.parent, .{
                 .ctx = self,
                 .on_layout = self.opts.on_layout,
                 .label = label,
@@ -145,11 +145,15 @@ pub fn State(ctx_type: type) type {
                 .on_click4 = self.opts.on_click4,
                 .on_click5 = self.opts.on_click5,
                 .on_render = self.opts.on_render,
-            }));
+            });
+            self.list.add(button) catch |e| {
+                button.deinit(self.allocator);
+                return e;
+            };
         }
 
         pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: OptionsType.ButtonClickHandler) !void {
-            try self.list.add(try Button.create_widget(*Self, self.allocator, self.list.parent, .{
+            const button = try Button.create_widget(*Self, self.allocator, self.list.parent, .{
                 .ctx = self,
                 .on_layout = on_layout,
                 .label = label,
@@ -158,7 +162,11 @@ pub fn State(ctx_type: type) type {
                 .on_click4 = self.opts.on_click4,
                 .on_click5 = self.opts.on_click5,
                 .on_render = on_render,
-            }));
+            });
+            self.list.add(button) catch |e| {
+                button.deinit(self.allocator);
+                return e;
+            };
         }
 
         pub fn reset_items(self: *Self) void {

@@ -70,19 +70,27 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
     layer.alpha = tui.palette_opacity();
     layer.radius = 8;
     layer.shadow = .{};
+    const list_box = try ListBox.create(*Self, allocator, layer.inner_plane(), .{
+        .ctx = self,
+        .style = widget_type,
+        .on_render = on_render,
+    });
+    layer.set(list_box.container_widget);
+    const modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{ .ctx = self });
+    errdefer modal.deinit(allocator);
+    var mode = try keybind.mode("overlay/confirm", allocator, .{
+        .insert_command = "confirm_insert_bytes",
+    });
+    errdefer mode.deinit();
+    const logger = log.logger(module_name);
+    errdefer logger.deinit();
     self.* = .{
         .allocator = allocator,
-        .mode = try keybind.mode("overlay/confirm", allocator, .{
-            .insert_command = "confirm_insert_bytes",
-        }),
-        .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{ .ctx = self }),
+        .mode = mode,
+        .modal = modal,
         .layer = layer,
-        .list_box = try ListBox.create(*Self, allocator, layer.inner_plane(), .{
-            .ctx = self,
-            .style = widget_type,
-            .on_render = on_render,
-        }),
-        .logger = log.logger(module_name),
+        .list_box = list_box,
+        .logger = logger,
         .arena = undefined,
         .options = .{
             .message = try a.dupe(u8, options.message),
@@ -126,7 +134,7 @@ pub fn create(allocator: std.mem.Allocator, options: Options) !tui.Mode {
 
     layer.ctx = self;
     layer.prepare_resize = prepare_resize_layer;
-    layer.set(self.list_box.container_widget);
+    try mv.floating_views.widgets.ensureUnusedCapacity(mv.floating_views.allocator, 2);
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(layer.widget());
     layer.handle_resize(.{});
