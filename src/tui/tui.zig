@@ -1979,10 +1979,10 @@ const cmds = struct {
 
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
         _ = self.set_hint_mode(switch (self.hint_mode) {
-            .none => .all,
-            .all => .mode,
+            .none => .mode,
             .mode => .global,
-            .global => .none,
+            .global => .all,
+            .all => .none,
         });
         if (self.hint_mode == .global) {
             const globals = try keybind.current_global_bindings(self.allocator, .all);
@@ -1991,9 +1991,9 @@ const cmds = struct {
         }
         switch (self.hint_mode) {
             .none => self.logger.print("showing context specific key hints", .{}),
-            .all => self.logger.print("showing all key hints", .{}),
             .mode => self.logger.print("showing key hints for current mode", .{}),
             .global => self.logger.print("showing key hints for global keys", .{}),
+            .all => self.logger.print("showing all key hints", .{}),
         }
     }
     pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle key hints mode" };
