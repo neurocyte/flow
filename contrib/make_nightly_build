@@ -65,13 +65,7 @@ fi
 
 # get latest version tag
 
-if [ -z "$NO_FLOWCONTROL" ] || [ -n "$ALLOW_DIRTY" ]; then
-    last_nightly_version=$(tea api --login flow-control "repos/neurocyte/flow-nightly/releases/latest" | jq -r .tag_name)
-elif [ -z "$NO_GITHUB" ]; then
-    last_nightly_version=$(tea api --login codeberg "repos/neurocyte/flow-nightly/releases/latest" | jq -r .tag_name)
-elif [ -z "$NO_CODEBERG" ]; then
-    last_nightly_version=$(curl -s https://codeberg.org/api/v1/repos/neurocyte/flow-nightly/releases/latest | jq -r .tag_name)
-fi
+last_nightly_version=$(curl -fsSL https://flow-control.dev/version-latest-nightly | tr -d ' \t\r\n')
 [ -z "$last_nightly_version" ] && {
     echo "failed to fetch $title latest version"
     exit 1
