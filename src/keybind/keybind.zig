@@ -322,6 +322,7 @@ pub const LoadError = (error{ NotFound, NotAnObject, WriteFailed } || std.json.P
 ///A collection of modes that represent a switchable editor emulation
 const Namespace = struct {
     name: []const u8,
+    file_path: []const u8 = "",
     fallback: ?*const Namespace = null,
     no_defaults: bool = false,
     inherit_settings: bool = false,
@@ -338,22 +339,29 @@ const Namespace = struct {
     fn load(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
         if (root.read_keybind_namespace(allocator, namespace_name)) |json_string| {
             defer allocator.free(json_string);
+            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const file_path = root.get_keybind_namespace_file_name(namespace_name, &file_path_buf) catch namespace_name;
             var location: LoadFailure.Location = .{};
-            if (load_parsed(allocator, namespace_name, json_string, false, &location)) |namespace|
+            if (load_parsed(allocator, namespace_name, file_path, json_string, false, &location)) |namespace|
                 return namespace
             else |e|
                 add_load_failure(namespace_name, location, e);
         }
-        const json_string = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
-        return load_parsed(allocator, namespace_name, json_string, false, null);
+        return load_builtin_as(allocator, namespace_name, false);
     }
 
     fn load_builtin(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
-        const json_string = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
-        return load_parsed(allocator, namespace_name, json_string, true, null);
+        return load_builtin_as(allocator, namespace_name, true);
     }
 
-    fn load_parsed(allocator: std.mem.Allocator, namespace_name: []const u8, json_string: []const u8, is_builtin: bool, location: ?*LoadFailure.Location) LoadError!Namespace {
+    fn load_builtin_as(allocator: std.mem.Allocator, namespace_name: []const u8, is_builtin: bool) LoadError!Namespace {
+        const json_string = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
+        var file_path_buf: [256]u8 = undefined;
+        const file_path = std.fmt.bufPrint(&file_path_buf, "builtin/{s}.json", .{namespace_name}) catch namespace_name;
+        return load_parsed(allocator, namespace_name, file_path, json_string, is_builtin, null);
+    }
+
+    fn load_parsed(allocator: std.mem.Allocator, namespace_name: []const u8, file_path: []const u8, json_string: []const u8, is_builtin: bool, location: ?*LoadFailure.Location) LoadError!Namespace {
         var scanner: std.json.Scanner = .initCompleteInput(allocator, json_string);
         defer scanner.deinit();
         var diagnostics: std.json.Diagnostics = .{};
@@ -367,6 +375,7 @@ const Namespace = struct {
 
         var self: @This() = .{
             .name = try allocator.dupe(u8, namespace_name),
+            .file_path = try allocator.dupe(u8, file_path),
             .modes = .{},
         };
         errdefer allocator.free(self.name);
@@ -382,10 +391,14 @@ const Namespace = struct {
             else
                 try get_or_load_namespace(default_namespace);
 
+        var lines_arena: std.heap.ArenaAllocator = .init(allocator);
+        defer lines_arena.deinit();
+        const lines = binding_lines(lines_arena.allocator(), json_string) catch std.StringHashMapUnmanaged(ModeLines).empty;
+
         var modes = parsed.value.object.iterator();
         while (modes.next()) |mode_entry| {
             if (std.mem.eql(u8, mode_entry.key_ptr.*, "settings")) continue;
-            try self.load_mode(allocator, mode_entry.key_ptr.*, mode_entry.value_ptr.*);
+            try self.load_mode(allocator, mode_entry.key_ptr.*, mode_entry.value_ptr.*, lines.get(mode_entry.key_ptr.*) orelse .{});
         }
 
         if (self.fallback) |fallback| {
@@ -429,10 +442,10 @@ const Namespace = struct {
         };
     }
 
-    fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name_: []const u8, mode_value: std.json.Value) !void {
+    fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name_: []const u8, mode_value: std.json.Value, lines: ModeLines) !void {
         const mode_name = try allocator.dupe(u8, mode_name_);
         const fallback_mode = if (self.fallback) |fallback| fallback.get_mode(mode_name) orelse fallback.get_mode(default_mode) else null;
-        try self.modes.put(allocator, mode_name, try BindingSet.load(allocator, self.name, mode_name, mode_value, fallback_mode, self));
+        try self.modes.put(allocator, mode_name, try BindingSet.load(allocator, self.name, mode_name, mode_value, fallback_mode, self, lines));
 
         if (!std.mem.eql(u8, mode_name, default_mode)) return;
         const press = self.modes.get(default_mode).?.press.items;
@@ -534,8 +547,65 @@ const Command = struct {
     }
 };
 
+const ModeLines = struct {
+    press: []const usize = &.{},
+    release: []const usize = &.{},
+};
+
+fn binding_lines(allocator: std.mem.Allocator, json_string: []const u8) !std.StringHashMapUnmanaged(ModeLines) {
+    var scanner: std.json.Scanner = .initCompleteInput(allocator, json_string);
+    var diagnostics: std.json.Diagnostics = .{};
+    scanner.enableDiagnostics(&diagnostics);
+
+    const Level = struct { is_object: bool, key: []const u8 = "", expect_key: bool = true };
+    var stack: std.ArrayList(Level) = .empty;
+    var press: std.StringHashMapUnmanaged(std.ArrayList(usize)) = .empty;
+    var release: std.StringHashMapUnmanaged(std.ArrayList(usize)) = .empty;
+
+    while (true) {
+        const token = try scanner.nextAlloc(allocator, .alloc_if_needed);
+        const is_key = stack.items.len > 0 and stack.items[stack.items.len - 1].is_object and stack.items[stack.items.len - 1].expect_key;
+        switch (token) {
+            .end_of_document => break,
+            .object_begin, .array_begin => {
+                // a binding entry: top object -> mode object -> press/release array -> entry
+                if (token == .array_begin and stack.items.len == 3 and !stack.items[2].is_object) {
+                    const event = stack.items[1].key;
+                    const lists = if (std.mem.eql(u8, event, "press")) &press else if (std.mem.eql(u8, event, "release")) &release else null;
+                    if (lists) |l| {
+                        const list = try l.getOrPut(allocator, stack.items[0].key);
+                        if (!list.found_existing) list.value_ptr.* = .empty;
+                        try list.value_ptr.append(allocator, @intCast(diagnostics.getLine()));
+                    }
+                }
+                try stack.append(allocator, .{ .is_object = token == .object_begin });
+                continue;
+            },
+            .object_end, .array_end => _ = stack.pop(),
+            .string, .allocated_string => |key| if (is_key) {
+                stack.items[stack.items.len - 1].key = key;
+                stack.items[stack.items.len - 1].expect_key = false;
+                continue;
+            },
+            else => {},
+        }
+        // a value is complete, the next string in an object is a key
+        if (stack.items.len > 0 and stack.items[stack.items.len - 1].is_object)
+            stack.items[stack.items.len - 1].expect_key = true;
+    }
+
+    var result: std.StringHashMapUnmanaged(ModeLines) = .empty;
+    var press_it = press.iterator();
+    while (press_it.next()) |e| (try result.getOrPutValue(allocator, e.key_ptr.*, .{})).value_ptr.press = e.value_ptr.items;
+    var release_it = release.iterator();
+    while (release_it.next()) |e| (try result.getOrPutValue(allocator, e.key_ptr.*, .{})).value_ptr.release = e.value_ptr.items;
+    return result;
+}
+
 pub const SourceInfo = struct {
     mode: []const u8 = "",
+    file: []const u8 = "",
+    line: usize = 0,
 
     pub fn mode_name(self: SourceInfo) []const u8 {
         const sep = std.mem.indexOfScalar(u8, self.mode, '/') orelse return "";
@@ -734,7 +804,7 @@ const BindingSet = struct {
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore, nothing };
 
-    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, config_section: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace) (error{ OutOfMemory, WriteFailed } || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
+    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, config_section: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace, lines: ModeLines) (error{ OutOfMemory, WriteFailed } || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
         var self: @This() = .{ .name = undefined, .config_section = config_section, .selection_style = undefined };
 
         const JsonConfig = struct {
@@ -774,9 +844,12 @@ const BindingSet = struct {
         else if (inh) |f| {
             self.deinit_command = f.deinit_command;
         }
-        const source_info: SourceInfo = .{ .mode = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ namespace_name, config_section }) };
-        try self.load_event(allocator, &self.press, input.event.press, parsed.value.press, source_info);
-        try self.load_event(allocator, &self.release, input.event.release, parsed.value.release, source_info);
+        const source_info: SourceInfo = .{
+            .mode = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ namespace_name, config_section }),
+            .file = namespace.file_path,
+        };
+        try self.load_event(allocator, &self.press, input.event.press, parsed.value.press, source_info, lines.press);
+        try self.load_event(allocator, &self.release, input.event.release, parsed.value.release, source_info, lines.release);
         if (namespace.inherit_settings) {
             const intra: []const []const u8 = if (parsed.value.inherits) |s| s else if (parsed.value.inherit) |s| &.{s} else &.{};
             for (intra) |parent_name| if (namespace.get_mode(parent_name)) |sib| {
@@ -866,9 +939,9 @@ const BindingSet = struct {
         return self;
     }
 
-    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value, source_info: SourceInfo) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
+    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value, source_info: SourceInfo, lines: []const usize) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
         _ = event;
-        bindings: for (bindings) |entry| {
+        bindings: for (bindings, 0..) |entry, idx| {
             if (entry.len < 2) {
                 log.err("ERROR: invalid binding definition {any}", .{entry});
                 continue :bindings;
@@ -930,7 +1003,11 @@ const BindingSet = struct {
                 .key_events = key_events,
                 .commands = try cmds.toOwnedSlice(allocator),
                 .description = try allocator.dupe(u8, description),
-                .source_info = source_info,
+                .source_info = .{
+                    .mode = source_info.mode,
+                    .file = source_info.file,
+                    .line = if (idx < lines.len) lines[idx] else 0,
+                },
             });
         }
     }
@@ -1071,7 +1148,7 @@ const BindingSet = struct {
                     self.send_match_event(if (key_event.event != input.event.release)
                         globals.current_sequence.items
                     else
-                        &[_]KeyEvent{key_event}, binding.commands);
+                        &[_]KeyEvent{key_event}, binding);
 
                 if (key_event.event != input.event.release) {
                     globals.current_sequence.clearRetainingCapacity();
@@ -1193,7 +1270,7 @@ const BindingSet = struct {
         }
     }
 
-    fn send_match_event(self: *const @This(), key_events: []const KeyEvent, cmds: []Command) void {
+    fn send_match_event(self: *const @This(), key_events: []const KeyEvent, binding: *const Binding) void {
         var buf: [tp.max_message_size]u8 = undefined;
         var stream: std.Io.Writer = .fixed(&buf);
 
@@ -1201,17 +1278,20 @@ const BindingSet = struct {
         var key_event_str: std.Io.Writer = .fixed(&key_event_buf);
         key_event_str.print("{f}", .{key_event_sequence_long_fmt(key_events)}) catch return;
 
-        cbor.writeArrayHeader(&stream, 5) catch return;
+        cbor.writeArrayHeader(&stream, 8) catch return;
         cbor.writeValue(&stream, "K") catch return;
         cbor.writeValue(&stream, get_namespace()) catch return;
         cbor.writeValue(&stream, self.config_section) catch return;
         cbor.writeValue(&stream, key_event_str.buffered()) catch return;
-        cbor.writeArrayHeader(&stream, cmds.len) catch return;
-        for (cmds) |cmd| {
+        cbor.writeArrayHeader(&stream, binding.commands.len) catch return;
+        for (binding.commands) |cmd| {
             cbor.writeArrayHeader(&stream, 2) catch return;
             cbor.writeValue(&stream, cmd.command) catch return;
             stream.writeAll(cmd.args) catch return;
         }
+        cbor.writeValue(&stream, binding.source_info.mode) catch return;
+        cbor.writeValue(&stream, binding.source_info.file) catch return;
+        cbor.writeValue(&stream, binding.source_info.line) catch return;
         _ = tp.self_pid().send_raw(.{ .buf = stream.buffered() }) catch {};
     }
 
@@ -1527,7 +1607,7 @@ fn reset_namespaces_for_test() void {
 
 fn load_test_namespace(name: []const u8, json: []const u8) !*const Namespace {
     const allocator = globals_allocator;
-    const namespace = try Namespace.load_parsed(allocator, name, json, false, null);
+    const namespace = try Namespace.load_parsed(allocator, name, name, json, false, null);
     try globals.namespaces.put(allocator, try allocator.dupe(u8, name), namespace);
     return globals.namespaces.getPtr(name).?;
 }
@@ -1960,4 +2040,45 @@ test "hints texts use the first binding of the command" {
         try std.fmt.bufPrint(&buf, "press {f}", .{key_event_sequence_fmt(normal.press.items[2].key_events)}),
         namespace.scroll_hints_text,
     );
+}
+
+test "source_info file and line" {
+    reset_namespaces_for_test();
+    const namespace = try load_test_namespace("tlines",
+        \\{
+        \\  "settings": { "no_defaults": true },
+        \\  "base": {
+        \\    "press": [
+        \\      ["ctrl+b", "base_cmd"]
+        \\    ]
+        \\  },
+        \\  "normal": {
+        \\    "inherit": "base",
+        \\    "inherit_prefix": [["ctrl+x", "base"]],
+        \\    "press": [
+        \\      ["ctrl+a", "a_cmd"],
+        \\      [["ctrl+d", "described"], "d_cmd"],
+        \\
+        \\      ["ctrl+m", ["m_cmd"], ["m2_cmd", 1]]
+        \\    ],
+        \\    "release": [
+        \\      ["ctrl+r", "r_cmd"]
+        \\    ]
+        \\  }
+        \\}
+    );
+    const normal = namespace.get_mode("normal").?;
+    const expected = [_]struct { []const u8, []const u8, usize }{
+        .{ "ctrl+a", "tlines/normal", 12 },
+        .{ "ctrl+d", "tlines/normal", 13 },
+        .{ "ctrl+m", "tlines/normal", 15 },
+        .{ "ctrl+b", "tlines/base", 5 },
+    };
+    for (expected) |e| {
+        const binding = (try test_find_binding(normal, e[0])) orelse return error.TestBindingNotFound;
+        try std.testing.expectEqualStrings(e[1], binding.source_info.mode);
+        try std.testing.expectEqualStrings("tlines", binding.source_info.file);
+        try std.testing.expectEqual(e[2], binding.source_info.line);
+    }
+    try std.testing.expectEqual(@as(usize, 18), normal.release.items[0].source_info.line);
 }

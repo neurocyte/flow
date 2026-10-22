@@ -111,13 +111,21 @@ fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!
     var insert_cmd: []const u8 = undefined;
     var bytes: []const u8 = undefined;
 
-    if (m.match(.{ "K", tp.extract(&namespace), tp.extract(&section), tp.extract(&key_event), tp.extract_cbor(&cmds) }) catch false) {
+    var source_mode: []const u8 = undefined;
+    var source_file: []const u8 = undefined;
+    var source_line: usize = undefined;
+
+    if (m.match(.{ "K", tp.extract(&namespace), tp.extract(&section), tp.extract(&key_event), tp.extract_cbor(&cmds), tp.extract(&source_mode), tp.extract(&source_file), tp.extract(&source_line) }) catch false) {
         var result: Writer.Allocating = .init(self.allocator);
         defer result.deinit();
         const writer = &result.writer;
 
         writer.print("{s}:{s} {s} => ", .{ namespace, section, key_event }) catch return true;
         cbor.toJsonWriter(cmds, writer, .{}) catch return true;
+        if (source_mode.len == 0)
+            writer.writeAll(" (global)") catch return true
+        else
+            writer.print(" ({s} {s}:{d})", .{ source_mode, source_file, source_line }) catch return true;
 
         self.append(result.toOwnedSlice() catch return true);
         return true;
