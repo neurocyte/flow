@@ -1568,6 +1568,8 @@ fn enter_overlay_mode_create(self: *Self, mode: type, ctx: command.Context, args
 
 fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) command.Result {
     const ctx_: command.Context = .empty_from(ctx);
+    self.keyboard_focus_outer = self.keyboard_focus;
+    clear_keyboard_focus();
     command.executeName("disable_fast_scroll", ctx_) catch {};
     command.executeName("disable_alt_scroll", ctx_) catch {};
     command.executeName("disable_jump_mode", ctx_) catch {};
