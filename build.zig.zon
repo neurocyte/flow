@@ -92,8 +92,8 @@
             .hash = "regex-0.2.0-V8KKSc5OBAAEU6Uycs0NFSRtnVak__NqaocwJOr7BP5d",
         },
         .nightwatch = .{
-            .url = "git+https://github.com/neurocyte/nightwatch?ref=master#023e79f52bde36ac8fa4c967bd8333b14efb93cc",
-            .hash = "nightwatch-1.0.0-uXzeH1ALAwAr6LLM0H1Z0aBO_a5gpxQ1YsXpdlh3Xv6U",
+            .url = "git+https://github.com/neurocyte/nightwatch?ref=master#8a96456e58035128dc2944b1c689c8f778927469",
+            .hash = "nightwatch-1.0.0-uXzeH3sRAwAKA9P88WzhwSDZoDPdnHZLGaJcv_zvWxYu",
         },
         .translate_c = .{
             .url = "git+https://codeberg.org/ziglang/translate-c?ref=zig-0.17.x#02ff0c523fb92a38939b04d0145c4a9602a74d56",
