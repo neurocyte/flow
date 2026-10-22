@@ -127,7 +127,12 @@ const view: Menu = .{ .label = "View", .items = &.{
     .{ .submenu = &display },
     .{ .submenu = &window },
     .{ .command = .{ .command = "toggle_menu" } },
-    .{ .command = .{ .command = "toggle_keybind_hints" } },
+    .separator,
+    .{ .command = .{ .command = "toggle_keybind_hints", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_prefix_keyhints", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_minimode_keyhints", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_overlay_keyhints", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_panel_keyhints", .on_activate = .keep_open } },
 } };
 
 const splits: Menu = .{ .label = "Splits", .items = &.{

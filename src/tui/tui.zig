@@ -144,6 +144,12 @@ fn context_keyhints_filter(self: *const Self) @import("keyhints.zig").Filter {
     return .prefix;
 }
 
+fn toggle_keyhints_option(self: *Self, comptime option: []const u8, name: []const u8) !void {
+    @field(self.config_, option) = !@field(self.config_, option);
+    self.logger.print("{s} key hints {s}", .{ name, if (@field(self.config_, option)) "enabled" else "disabled" });
+    try save_config();
+}
+
 fn set_hint_mode(self: *Self, hint_mode: HintMode) HintMode {
     const previous = self.hint_mode;
     self.hint_mode = hint_mode;
@@ -1985,7 +1991,7 @@ const cmds = struct {
         }
         self.logger.print("keybind hints {t}", .{self.hint_mode});
     }
-    pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints" };
+    pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints mode" };
 
     pub fn set_keybind_hints_mode(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
@@ -2028,6 +2034,26 @@ const cmds = struct {
         @import("keyhints.zig").scroll();
     }
     pub const scroll_keybind_hints_meta: Meta = .{ .description = "Scroll keybind hints" };
+
+    pub fn toggle_prefix_keyhints(self: *Self, _: Ctx) Result {
+        try self.toggle_keyhints_option("enable_prefix_keyhints", "prefix");
+    }
+    pub const toggle_prefix_keyhints_meta: Meta = .{ .description = "Toggle key hints for key prefixes" };
+
+    pub fn toggle_minimode_keyhints(self: *Self, _: Ctx) Result {
+        try self.toggle_keyhints_option("enable_minimode_keyhints", "mini mode");
+    }
+    pub const toggle_minimode_keyhints_meta: Meta = .{ .description = "Toggle key hints in mini modes" };
+
+    pub fn toggle_overlay_keyhints(self: *Self, _: Ctx) Result {
+        try self.toggle_keyhints_option("enable_overlay_keyhints", "overlay");
+    }
+    pub const toggle_overlay_keyhints_meta: Meta = .{ .description = "Toggle key hints in overlays" };
+
+    pub fn toggle_panel_keyhints(self: *Self, _: Ctx) Result {
+        try self.toggle_keyhints_option("enable_panel_keyhints", "panel");
+    }
+    pub const toggle_panel_keyhints_meta: Meta = .{ .description = "Toggle key hints in panels" };
 
     pub fn toggle_auto_find(self: *Self, _: Ctx) Result {
         defer self.logger.print("auto find {s}", .{if (self.config_.enable_auto_find) "enabled" else "disabled"});
