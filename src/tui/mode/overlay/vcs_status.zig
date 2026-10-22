@@ -494,7 +494,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         clear_files(palette, &palette.value.files);
         std.mem.swap(std.ArrayList(File), &palette.value.files, &palette.value.files_next);
         palette.value.diff_stale = true;
-        try update_entries(palette);
+        if (shown_diff_gone(palette)) close_diff(palette) else try update_entries(palette);
         if (palette.value.files.items.len > 0) palette.value.reset_selection = false;
         request_goto_diff(palette);
         tui.need_render(@src());
@@ -825,6 +825,13 @@ fn is_shown_diff(palette: *Type, item: *const Item) bool {
     if (palette.value.pending_diff != null) return false;
     const diff = palette.value.shown_diff orelse return false;
     return diff.eql(item.path, section_diff_mode(item.section));
+}
+
+fn shown_diff_gone(palette: *Type) bool {
+    const diff = palette.value.shown_diff orelse return false;
+    for (palette.value.files.items) |*file| if (std.mem.eql(u8, file.path, diff.path))
+        return file.status(mode_section(diff.mode)) == null;
+    return true;
 }
 
 fn close_diff(palette: *Type) void {
