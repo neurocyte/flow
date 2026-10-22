@@ -598,6 +598,13 @@ fn find_target(palette: *Type, target: *const Target) usize {
             last = i;
         };
         if (last) |i| return i;
+        var before: ?usize = null;
+        for (entries, 0..) |*entry, i| {
+            if (entry.section != target.section or (entry.kind != .file and entry.kind != .repo)) continue;
+            if (std.mem.order(u8, entry.path, target.path) == .gt) return i;
+            before = i;
+        }
+        if (before) |i| return i;
         for (entries, 0..) |*entry, i| if (entry.kind == .header and entry.section == target.section) return i;
     }
     var idx = @min(target.index, entries.len - 1);
