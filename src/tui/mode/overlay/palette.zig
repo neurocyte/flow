@@ -105,39 +105,50 @@ pub fn Create(options: type) type {
             list_box_layer.corners = .bottom;
             list_box_layer.shadow = .{};
             errdefer list_box_layer.deinit(allocator);
+            const list_box = try ListBox.create(*Self, allocator, list_box_layer.inner_plane(), .{
+                .ctx = self,
+                .style = widget_type,
+                .on_render = if (@hasDecl(options, "on_render_list_box")) options.on_render_list_box else on_render_list_box,
+                .after_resize = after_resize_list_box,
+                .on_scroll = EventHandler.bind(self, Self.on_scroll),
+                .on_click4 = mouse_click_button4,
+                .on_click5 = mouse_click_button5,
+                .select_on_click = true,
+            });
+            list_box_layer.set(list_box.container_widget);
+            const inputbox_widget = try InputBox.create(*Self, allocator, list_box.list.parent, .{
+                .ctx = self,
+                .label = options.label,
+                .padding = 2,
+                .icon = if (@hasDecl(options, "icon")) options.icon else null,
+                .on_render = if (no_query) on_render_inputbox_no_query else InputBox.Options(*Self).on_render_default,
+            });
+            const inputbox = (list_box.add_header(inputbox_widget) catch |e| {
+                inputbox_widget.deinit(allocator);
+                return e;
+            }).dynamic_cast(InputBox.State(*Self)) orelse unreachable;
+            const modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{
+                .ctx = self,
+                .on_click = mouse_palette_menu_cancel,
+                .on_click4 = mouse_modal_scroll_up,
+                .on_click5 = mouse_modal_scroll_down,
+                .effect = if (@hasDecl(options, "modal_dim") and !options.modal_dim) .none else .dim,
+            });
+            errdefer modal.deinit(allocator);
+            var mode = try keybind.mode(if (@hasDecl(options, "keybind_mode")) options.keybind_mode else "overlay/palette", allocator, .{
+                .insert_command = "overlay_insert_bytes",
+            });
+            errdefer mode.deinit();
             self.* = .{
                 .allocator = allocator,
-                .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{
-                    .ctx = self,
-                    .on_click = mouse_palette_menu_cancel,
-                    .on_click4 = mouse_modal_scroll_up,
-                    .on_click5 = mouse_modal_scroll_down,
-                    .effect = if (@hasDecl(options, "modal_dim") and !options.modal_dim) .none else .dim,
-                }),
+                .modal = modal,
                 .list_box_layer = list_box_layer,
-                .list_box = try ListBox.create(*Self, allocator, list_box_layer.inner_plane(), .{
-                    .ctx = self,
-                    .style = widget_type,
-                    .on_render = if (@hasDecl(options, "on_render_list_box")) options.on_render_list_box else on_render_list_box,
-                    .after_resize = after_resize_list_box,
-                    .on_scroll = EventHandler.bind(self, Self.on_scroll),
-                    .on_click4 = mouse_click_button4,
-                    .on_click5 = mouse_click_button5,
-                    .select_on_click = true,
-                }),
+                .list_box = list_box,
                 .logger = log.logger(@typeName(Self)),
-                .inputbox = (try self.list_box.add_header(try InputBox.create(*Self, self.allocator, self.list_box.list.parent, .{
-                    .ctx = self,
-                    .label = options.label,
-                    .padding = 2,
-                    .icon = if (@hasDecl(options, "icon")) options.icon else null,
-                    .on_render = if (no_query) on_render_inputbox_no_query else InputBox.Options(*Self).on_render_default,
-                }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
+                .inputbox = inputbox,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = .empty,
-                .mode = try keybind.mode(if (@hasDecl(options, "keybind_mode")) options.keybind_mode else "overlay/palette", allocator, .{
-                    .insert_command = "overlay_insert_bytes",
-                }),
+                .mode = mode,
                 .placement = if (@hasDecl(options, "placement"))
                     options.placement
                 else if (@hasDecl(options, "placement_config"))
@@ -147,16 +158,18 @@ pub fn Create(options: type) type {
             };
             try self.commands.init(self);
             errdefer self.commands.deinit();
+            errdefer tui.message_filters().remove_ptr(self);
             self.mode.event_handler = EventHandler.to_owned(self);
             self.mode.name = options.name;
             self.list_box_layer.ctx = self;
             self.list_box_layer.prepare_resize = prepare_resize_layer;
-            self.list_box_layer.set(self.list_box.container_widget);
             if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+            errdefer self.entries.deinit(self.allocator);
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
                 try options.load_entries_with_args(self, ctx)
             else
                 try options.load_entries(self);
+            errdefer if (@hasDecl(options, "deinit")) options.deinit(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             if (@hasDecl(options, "initial_query")) blk: {
@@ -166,6 +179,7 @@ pub fn Create(options: type) type {
             }
             self.inputbox.mini_editor.on_change = .bind(self, on_input_change);
             try self.start_query(0);
+            try mv.floating_views.widgets.ensureUnusedCapacity(mv.floating_views.allocator, 2);
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.list_box_layer.widget());
             return self.mode;

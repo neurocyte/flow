@@ -67,16 +67,27 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
     const self = try allocator.create(State(ctx_type));
     errdefer allocator.destroy(self);
     const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, opts.style);
+    errdefer container.deinit(allocator);
+    const list = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic);
+    container.add(list.widget()) catch |e| {
+        list.deinit(allocator);
+        return e;
+    };
+    const scrollbar = if (tui.config().show_scrollbars) if (opts.on_scroll) |on_scroll| blk: {
+        const sb = try scrollbar_v.create(allocator, parent, null, on_scroll);
+        container.add(sb) catch |e| {
+            sb.deinit(allocator);
+            return e;
+        };
+        break :blk sb.dynamic_cast(scrollbar_v).?;
+    } else null else null;
     self.* = .{
         .allocator = allocator,
-        .list = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
+        .list = list,
         .container = container,
         .container_widget = container.widget(),
         .frame_widget = null,
-        .scrollbar = if (tui.config().show_scrollbars)
-            if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null
-        else
-            null,
+        .scrollbar = scrollbar,
         .opts = opts,
     };
     self.list.ctx = self;
@@ -85,8 +96,6 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
     container.on_deinit = State(ctx_type).free_from_container;
     container.prepare_resize = State(ctx_type).prepare_resize;
     container.after_resize = State(ctx_type).after_resize;
-    try container.add(self.list.widget());
-    if (self.scrollbar) |sb| try container.add(sb.widget());
     return self;
 }
 
@@ -122,8 +131,8 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn add_header(self: *Self, w_: Widget) !*Widget {
-            self.header_count += 1;
             try self.list.add(w_);
+            self.header_count += 1;
             return &self.list.widgets.items[self.list.widgets.items.len - 1].widget;
         }
 

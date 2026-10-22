@@ -1573,8 +1573,9 @@ fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) c
     command.executeName("disable_jump_mode", ctx_) catch {};
     if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, ctx_);
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, ctx_);
+    const new_mode = try mode.create_with_args(self.allocator, ctx);
     self.input_mode_outer_ = self.input_mode_;
-    self.input_mode_ = try mode.create_with_args(self.allocator, ctx);
+    self.input_mode_ = new_mode;
     if (self.input_mode_) |*m| m.run_init();
     refresh_hover(@src());
 }
