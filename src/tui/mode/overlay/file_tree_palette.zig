@@ -183,6 +183,12 @@ fn max_entry_overhead(palette: *Type) usize {
 fn follow_path(palette: *Type, pending_: ?*Node) !void {
     const pending = pending_ orelse return;
     const target = palette.value.follow_path orelse return;
+    if (std.mem.eql(u8, target, pending.path)) {
+        select_child(palette, pending);
+        palette.allocator.free(target);
+        palette.value.follow_path = null;
+        return;
+    }
     const children = pending.children orelse return;
 
     for (children.items) |*child| {
@@ -211,6 +217,10 @@ fn select_child(palette: *Type, child: *Node) void {
 }
 
 pub fn load_entries(palette: *Type) !usize {
+    return load_entries_with_args(palette, .empty());
+}
+
+pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
     palette.quick_activate_enabled = false;
     palette.entries.clearRetainingCapacity();
 
@@ -240,7 +250,10 @@ pub fn load_entries(palette: *Type) !usize {
             .color = 0,
         };
         palette.value.root_node = node;
-        if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
+        var dir_path: []const u8 = undefined;
+        if (ctx.args.match(.{tp.extract(&dir_path)}) catch false) {
+            palette.value.follow_path = try palette.allocator.dupe(u8, dir_path);
+        } else if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
             palette.value.follow_path = try palette.allocator.dupe(u8, file_path);
         };
         try request_node_children(palette, node);

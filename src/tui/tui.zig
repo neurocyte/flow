@@ -2194,9 +2194,50 @@ const cmds = struct {
     pub const open_command_palette_meta: Meta = .{ .description = "Command palette" };
 
     pub fn open_file_tree(self: *Self, ctx: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/file_tree_palette.zig").Type, ctx);
+        return self.enter_overlay_mode_with_args(@import("mode/overlay/file_tree_palette.zig").Type, ctx);
     }
-    pub const open_file_tree_meta: Meta = .{ .description = "Open file tree" };
+    pub const open_file_tree_meta: Meta = .{
+        .description = "Open file tree",
+        .arguments = &.{.string},
+    };
+
+    pub fn open_directory(self: *Self, ctx: Ctx) Result {
+        var dir_path: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&dir_path)}))
+            return error.InvalidOpenDirectoryArgument;
+        const project = tp.env.get().str("project");
+        if (std.mem.eql(u8, dir_path, project))
+            return self.enter_overlay_mode_with_args(@import("mode/overlay/file_tree_palette.zig").Type, .empty());
+        const in_project = project.len > 0 and dir_path.len > project.len and
+            std.mem.startsWith(u8, dir_path, project) and dir_path[project.len] == std.fs.path.sep;
+
+        var home_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var text_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+        const text = try std.fmt.bufPrint(&text_buf, "Open directory {s}", .{project_manager.abbreviate_home(&home_buf, dir_path)});
+        var project_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+        var tree_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+        var choices: [2]Confirm.Choice = undefined;
+        var n: usize = 0;
+        if (in_project) {
+            choices[n] = .{
+                .label = "Show in file tree",
+                .action = .{ .bytes = cbor.fmt(&tree_buf, .{ "cmd", "open_file_tree", .{dir_path[project.len + 1 ..]} }) },
+                .default = true,
+            };
+            n += 1;
+        }
+        choices[n] = .{
+            .label = "Open as project",
+            .action = .{ .bytes = cbor.fmt(&project_buf, .{ "cmd", "change_project", .{dir_path} }) },
+            .default = !in_project,
+        };
+        n += 1;
+        return open_confirm(.{ .message = text, .choices = choices[0..n] });
+    }
+    pub const open_directory_meta: Meta = .{
+        .description = "Open directory as project or in the file tree",
+        .arguments = &.{.string},
+    };
 
     pub fn insert_command_name(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type, ctx);

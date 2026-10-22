@@ -433,7 +433,14 @@ pub fn main(init: std.process.Init) anyerror!u8 {
                 std.debug.print("more than one project directory is not allowed\n", .{});
                 exit(1);
             }
-            try main_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
+            if (connect != null) {
+                var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const len = std.Io.Dir.cwd().realPathFile(global_init.io, dir.path, &path_buf) catch |e| {
+                    std.debug.print("invalid directory '{s}': {t}\n", .{ dir.path, e });
+                    exit(1);
+                };
+                try main_proc.send(.{ "request", "open_directory", .{path_buf[0..len]} });
+            } else try main_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
             have_project = true;
         },
         else => {
