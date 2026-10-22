@@ -180,8 +180,12 @@ pub const Mode = struct {
     }
 
     pub fn current_bindings(self: *const Mode, allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
-        const bindings = try self.bindings.get_bindings(allocator, select_mode);
+        const bindings = try self.bindings.get_bindings(allocator, select_mode, .all);
         return with_global_bindings(allocator, bindings, null, select_mode);
+    }
+
+    pub fn current_mode_bindings(self: *const Mode, allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
+        return self.bindings.get_bindings(allocator, select_mode, .mode);
     }
 
     pub fn current_key_event_sequence_bindings(self: *const Mode, allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
@@ -532,11 +536,21 @@ const Command = struct {
     }
 };
 
+pub const SourceInfo = struct {
+    mode: []const u8 = "",
+
+    pub fn mode_name(self: SourceInfo) []const u8 {
+        const sep = std.mem.indexOfScalar(u8, self.mode, '/') orelse return "";
+        return self.mode[sep + 1 ..];
+    }
+};
+
 //An association of an command with a triggering key chord
 pub const Binding = struct {
     key_events: []KeyEvent,
     commands: []Command,
     description: []const u8 = "",
+    source_info: SourceInfo = .{},
 
     fn len(self: Binding) usize {
         return self.key_events.items.len;
@@ -576,7 +590,7 @@ pub const Binding = struct {
         const key_events = try allocator.alloc(KeyEvent, prefix.len + self.key_events.len);
         @memcpy(key_events[0..prefix.len], prefix);
         @memcpy(key_events[prefix.len..], self.key_events);
-        return .{ .key_events = key_events, .commands = self.commands, .description = self.description };
+        return .{ .key_events = key_events, .commands = self.commands, .description = self.description, .source_info = self.source_info };
     }
 
     fn is_prefix_of(seq: []const KeyEvent, of: []const KeyEvent) bool {
@@ -758,8 +772,9 @@ const BindingSet = struct {
         else if (inh) |f| {
             self.deinit_command = f.deinit_command;
         }
-        try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
-        try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
+        const source_info: SourceInfo = .{ .mode = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ namespace_name, config_section }) };
+        try self.load_event(allocator, &self.press, input.event.press, parsed.value.press, source_info);
+        try self.load_event(allocator, &self.release, input.event.release, parsed.value.release, source_info);
         if (namespace.inherit_settings) {
             const intra: []const []const u8 = if (parsed.value.inherits) |s| s else if (parsed.value.inherit) |s| &.{s} else &.{};
             for (intra) |parent_name| if (namespace.get_mode(parent_name)) |sib| {
@@ -849,7 +864,7 @@ const BindingSet = struct {
         return self;
     }
 
-    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
+    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value, source_info: SourceInfo) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
         _ = event;
         bindings: for (bindings) |entry| {
             if (entry.len < 2) {
@@ -913,6 +928,7 @@ const BindingSet = struct {
                 .key_events = key_events,
                 .commands = try cmds.toOwnedSlice(allocator),
                 .description = try allocator.dupe(u8, description),
+                .source_info = source_info,
             });
         }
     }
@@ -1240,16 +1256,27 @@ const BindingSet = struct {
         self: *const @This(),
         allocator: std.mem.Allocator,
         select_mode: SelectMode,
+        source: BindingSource,
     ) error{OutOfMemory}![]const Binding {
         var matches: std.ArrayList(Binding) = .empty;
-        for (self.press.items) |*binding| if (select(select_mode, binding)) {
+        for (self.press.items) |*binding| if (select(select_mode, binding) and self.is_from(binding, source)) {
             (try matches.addOne(allocator)).* = binding.*;
         };
         return matches.toOwnedSlice(allocator);
     }
+
+    fn is_from(self: *const @This(), binding: *const Binding, source: BindingSource) bool {
+        return switch (source) {
+            .all => true,
+            .mode => std.mem.eql(u8, binding.source_info.mode_name(), self.config_section),
+        };
+    }
 };
 
 pub const SelectMode = enum { all, no_keypad };
+
+/// mode: only bindings defined in the mode itself or in a mode of the same name in a fallback namespace
+pub const BindingSource = enum { all, mode };
 
 fn select(select_mode: SelectMode, binding: *const Binding) bool {
     if (binding.commands.len == 1 and std.mem.eql(u8, binding.commands[0].command, "home_sheeran"))
@@ -1813,4 +1840,98 @@ test "unbind blocks a binding inherited from the builtin fallback" {
     try std.testing.expect((try test_command_for(home, "c")) == null);
     // the rest of the builtin mode still comes through
     try std.testing.expectEqualStrings("toggle_input_mode", (try test_command_for(home, "f4")).?);
+}
+
+const source_test_flow =
+    \\{
+    \\  "project": { "press": [["ctrl+p", "project_cmd"]] },
+    \\  "normal": { "inherit": "project", "press": [["ctrl+n", "normal_cmd"]] },
+    \\  "mini_editor": { "inherit": "project", "press": [["ctrl+e", "mini_editor_cmd"]] },
+    \\  "mini/find_in_files": { "inherit": "mini_editor", "press": [
+    \\    ["ctrl+f", "flow_find_cmd"],
+    \\    ["ctrl+g", "flow_shadowed_cmd"],
+    \\    ["ctrl+u", "flow_unbound_cmd"]
+    \\  ]},
+    \\  "mini/flow_only": { "inherit": "mini_editor", "press": [["ctrl+o", "flow_only_cmd"]] }
+    \\}
+;
+
+fn source_test_helix(comptime settings: []const u8) []const u8 {
+    return "{" ++ settings ++
+        \\  "normal": { "press": [["ctrl+h", "helix_normal_cmd"]] },
+        \\  "insert": { "press": [["ctrl+i", "insert_cmd"]], "inherit_breakout": [["ctrl+x", "normal"]] },
+        \\  "mini/find_in_files": { "press": [
+        \\    ["ctrl+j", "helix_find_cmd"],
+        \\    ["ctrl+g", "helix_shadow_cmd"],
+        \\    ["ctrl+u", "unbind"]
+        \\  ]},
+        \\  "mini/helix_only": { "press": [["ctrl+k", "helix_only_cmd"]] }
+        \\}
+    ;
+}
+
+fn test_find_binding(bs: *const BindingSet, key_string: []const u8) !?Binding {
+    const want = try parse_flow.parse_key_events(std.testing.allocator, key_string);
+    defer std.testing.allocator.free(want);
+    for (bs.press.items) |b| {
+        if (b.key_events.len != want.len) continue;
+        var matched = true;
+        for (b.key_events, want) |a, e| if (!Binding.keyevents_eql(a, e)) {
+            matched = false;
+            break;
+        };
+        if (matched) return b;
+    }
+    return null;
+}
+
+fn expect_source(bs: *const BindingSet, key_string: []const u8, expected: []const u8) !void {
+    const binding = (try test_find_binding(bs, key_string)) orelse return error.TestBindingNotFound;
+    try std.testing.expectEqualStrings(expected, binding.source_info.mode);
+}
+
+fn expect_mode_commands(bs: *const BindingSet, expected: []const []const u8) !void {
+    const allocator = std.testing.allocator;
+    const bindings = try bs.get_bindings(allocator, .all, .mode);
+    defer allocator.free(bindings);
+    var names: std.ArrayList([]const u8) = .empty;
+    defer names.deinit(allocator);
+    for (bindings) |b| try names.append(allocator, b.commands[0].command);
+    try std.testing.expectEqualDeep(expected, names.items);
+}
+
+fn test_source_info(comptime settings: []const u8) !void {
+    reset_namespaces_for_test();
+    _ = try load_test_namespace("flow", source_test_flow);
+    const helix = try load_test_namespace("helix", comptime source_test_helix(settings));
+
+    const find = helix.get_mode("mini/find_in_files").?;
+    try expect_source(find, "ctrl+j", "helix/mini/find_in_files");
+    try expect_source(find, "ctrl+f", "flow/mini/find_in_files");
+    try expect_source(find, "ctrl+e", "flow/mini_editor");
+    try expect_source(find, "ctrl+p", "flow/project");
+    try expect_mode_commands(find, &.{ "helix_find_cmd", "helix_shadow_cmd", "flow_find_cmd" });
+
+    try expect_mode_commands(helix.get_mode("mini/flow_only").?, &.{"flow_only_cmd"});
+    try expect_mode_commands(helix.get_mode("mini/helix_only").?, &.{"helix_only_cmd"});
+
+    const insert = helix.get_mode("insert").?;
+    try expect_source(insert, "ctrl+x ctrl+h", "helix/normal");
+    try expect_mode_commands(insert, &.{"insert_cmd"});
+}
+
+test "source_info and mode bindings with an implicit fallback namespace" {
+    try test_source_info("");
+}
+
+test "source_info and mode bindings with inherited settings" {
+    try test_source_info(
+        \\  "settings": { "inherit": "flow" },
+    );
+}
+
+test "source_info mode_name" {
+    try std.testing.expectEqualStrings("mini/find", (SourceInfo{ .mode = "flow/mini/find" }).mode_name());
+    try std.testing.expectEqualStrings("normal", (SourceInfo{ .mode = "flow/normal" }).mode_name());
+    try std.testing.expectEqualStrings("", (SourceInfo{}).mode_name());
 }
