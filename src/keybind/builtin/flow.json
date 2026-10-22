@@ -243,7 +243,6 @@
             ["shift+tab", "unindent"],
             ["f2", "rename_symbol"],
             ["f3", "goto_next_match"],
-            ["f15", "goto_prev_match"],
             ["shift+f11", "toggle_highlight_columns"],
             ["f12", "goto_definition"],
             ["ctrl+shift+o", "show_symbols"],
@@ -478,9 +477,9 @@
             ["page_down", "move_scroll_page_down"],
             ["ctrl+u", "move_scroll_half_page_up"],
             ["ctrl+d", "move_scroll_half_page_down"],
-            [["ctrl+w", "Close diff or status"], "palette_menu_action", "cancel"],
-            [["escape", "Close diff or status"], "palette_menu_action", "cancel"],
-            [["q", "Close diff or status"], "palette_menu_action", "cancel"]
+            [["ctrl+w", "Close"], "palette_menu_action", "cancel"],
+            [["escape", "Close"], "palette_menu_action", "cancel"],
+            [["q", "Close"], "palette_menu_action", "cancel"]
         ],
         "release": [
             ["left_control", "unbind"],
@@ -645,7 +644,6 @@
             ["up", "select_prev_file"],
             ["down", "select_next_file"],
             ["f3", "goto_next_match"],
-            ["f15", "goto_prev_match"],
             ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
             ["shift+enter", "mini_mode_select_alternate"],
@@ -676,7 +674,6 @@
             ["up", "mini_mode_history_prev"],
             ["down", "mini_mode_history_next"],
             ["f3", "goto_next_match"],
-            ["f15", "goto_prev_match"],
             ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
             ["backspace", "mini_mode_delete_backwards"]

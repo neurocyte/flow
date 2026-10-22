@@ -20,10 +20,18 @@ pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Al
     var title_buf: [256]u8 = undefined;
     var title: std.Io.Writer = .fixed(&title_buf);
     title.print("{s}/{s}", .{ keybind.get_namespace(), mode.bindings.config_section }) catch {};
+    var arena: std.heap.ArenaAllocator = .init(allocator);
+    defer arena.deinit();
     if (enable_prefix_keyhints) {
         const key_events = mode.current_key_event_sequence_bindings(allocator, select_mode) catch return;
         defer allocator.free(key_events);
-        if (key_events.len > 0) return render(title.buffered(), key_events, theme, .no_key_event_prefix);
+        if (key_events.len > 0) {
+            var prefix_buf: [256]u8 = undefined;
+            var prefix: std.Io.Writer = .fixed(&prefix_buf);
+            prefix.print("{f}", .{keybind.current_key_event_sequence_fmt()}) catch {};
+            const rows = build_rows(arena.allocator(), key_events, prefix.buffered().len) catch return;
+            return render(title.buffered(), prefix.buffered(), rows, theme);
+        }
     }
     const bindings = switch (filter) {
         .prefix => return hide(),
@@ -32,11 +40,77 @@ pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Al
         .global => keybind.current_global_bindings(allocator, select_mode) catch return,
     };
     defer allocator.free(bindings);
+    const rows = build_rows(arena.allocator(), bindings, 0) catch return;
     return render(switch (filter) {
         .mode => mode_title(&title_buf, mode.bindings.config_section),
         .global => "global",
         else => title.buffered(),
-    }, bindings, theme, .full);
+    }, "", rows, theme);
+}
+
+const Row = struct {
+    keys: std.ArrayList([]const u8) = .empty,
+    text: []const u8 = "",
+    description: []const u8,
+};
+
+const max_listed_keys = 7;
+const sided_modifiers = [_][]const u8{ "shft", "ctrl", "alt", "super", "hyper", "meta" };
+
+/// one row per description, with the keys of all bindings that share it
+fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, prefix_len: usize) error{ OutOfMemory, WriteFailed }![]Row {
+    var rows: std.ArrayList(Row) = .empty;
+    for (bindings) |*binding| {
+        const description = get_description(binding);
+        const row = for (rows.items) |*row| {
+            if (std.mem.eql(u8, row.description, description)) break row;
+        } else blk: {
+            const row = try rows.addOne(allocator);
+            row.* = .{ .description = description };
+            break :blk row;
+        };
+        const text = try std.fmt.allocPrint(allocator, "{f}", .{keybind.key_event_sequence_fmt(binding.key_events)});
+        try row.keys.append(allocator, std.mem.trimStart(u8, text[@min(prefix_len, text.len)..], " "));
+    }
+    for (rows.items) |*row| {
+        try merge_sided_modifiers(allocator, &row.keys);
+        row.text = try format_keys(allocator, row.keys.items);
+    }
+    return rows.items;
+}
+
+/// replace a left and a right modifier key with one unsided key (lctrl, rctrl -> ctrl)
+fn merge_sided_modifiers(allocator: std.mem.Allocator, keys: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+    for (sided_modifiers) |modifier| {
+        var left_buf: [8]u8 = undefined;
+        var right_buf: [8]u8 = undefined;
+        const left = std.fmt.bufPrint(&left_buf, "l{s}", .{modifier}) catch unreachable;
+        const right = std.fmt.bufPrint(&right_buf, "r{s}", .{modifier}) catch unreachable;
+        const left_idx = index_of_key(keys.items, left) orelse continue;
+        const right_idx = index_of_key(keys.items, right) orelse continue;
+        keys.items[@min(left_idx, right_idx)] = try allocator.dupe(u8, modifier);
+        _ = keys.orderedRemove(@max(left_idx, right_idx));
+    }
+}
+
+fn index_of_key(keys: []const []const u8, key: []const u8) ?usize {
+    for (keys, 0..) |k, i| if (std.mem.eql(u8, k, key)) return i;
+    return null;
+}
+
+fn format_keys(allocator: std.mem.Allocator, keys: []const []const u8) error{OutOfMemory}![]const u8 {
+    if (keys.len > max_listed_keys)
+        return std.fmt.allocPrint(allocator, "{s}, .. {s}", .{ keys[0], keys[keys.len - 1] });
+    return std.mem.join(allocator, ", ", keys);
+}
+
+fn get_description(binding: *const keybind.Binding) []const u8 {
+    if (binding.description.len > 0) return binding.description;
+    const id = binding.commands[0].command_id orelse
+        command.get_id(binding.commands[0].command) orelse
+        return binding.commands[0].command;
+    const description = command.get_description(id) orelse return "[n/a]";
+    return if (description.len > 0) description else binding.commands[0].command;
 }
 
 fn mode_title(buf: []u8, config_section: []const u8) []const u8 {
@@ -70,26 +144,18 @@ fn is_mouse_over(box: Widget.Box) bool {
     return box.is_abs_coord_inside(@intCast(cell.row), @intCast(cell.col));
 }
 
-const RenderMode = enum { full, no_key_event_prefix };
-
-fn render(title: []const u8, bindings: []const keybind.Binding, theme: *const Widget.Theme, render_mode: RenderMode) void {
+fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *const Widget.Theme) void {
     home_box = null;
     // return if something is already rendering to the top layer
     if (tui.have_top_layer()) return;
-    if (bindings.len == 0) return;
+    if (rows.len == 0) return;
 
-    var key_events_buf: [256]u8 = undefined;
-    const key_events = switch (render_mode) {
-        .no_key_event_prefix => blk: {
-            var writer = std.Io.Writer.fixed(&key_events_buf);
-            writer.print("{f}", .{keybind.current_key_event_sequence_fmt()}) catch {};
-            break :blk writer.buffered();
-        },
-        .full => &.{},
-    };
-
-    const max_prefix_len = get_max_prefix_len(bindings) - key_events.len;
-    const max_description_len = get_max_description_len(bindings);
+    var max_prefix_len: usize = 0;
+    var max_description_len: usize = 0;
+    for (rows) |row| {
+        max_prefix_len = @max(max_prefix_len, tui.egc_chunk_width(row.text, 0, 1));
+        max_description_len = @max(max_description_len, tui.egc_chunk_width(row.description, 0, 1));
+    }
     const max_len = max_prefix_len + max_description_len + 2 + 2;
     const widget_style = tui.get_widget_style(widget_type);
     const scr = tui.screen();
@@ -98,13 +164,13 @@ fn render(title: []const u8, bindings: []const keybind.Binding, theme: *const Wi
         const full: struct { usize, usize } = .{ scr.h -| 1, scr.h -| padding_h -| 3 };
         const panel = (tui.mainview() orelse break :blk full).panel_box() orelse break :blk full;
         const above = panel.y -| padding_h -| 2;
-        if (above < @min(bindings.len, min_rows_above_panel)) break :blk full;
+        if (above < @min(rows.len, min_rows_above_panel)) break :blk full;
         break :blk .{ panel.y, above };
     };
-    const max_items = @min(bindings.len, max_screen_height);
+    const max_items = @min(rows.len, max_screen_height);
     const page_size = max_screen_height;
     var top = show_page * page_size;
-    if (top >= bindings.len) {
+    if (top >= rows.len) {
         top = 0;
         show_page = 0;
     }
@@ -122,13 +188,13 @@ fn render(title: []const u8, bindings: []const keybind.Binding, theme: *const Wi
     var top_layer_ = tui.top_layer(deco_box, 0, 0, .overlay) orelse return;
     widget_style.render_decoration(deco_box, widget_type, &top_layer_, theme);
 
-    if (bindings.len > max_items) {
+    if (rows.len > max_items) {
         if (widget_style.padding.bottom > 0) {
             top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(max_len -| 13));
             _ = top_layer_.print("{s} {d}/{d} {s}", .{
                 widget_style.border.sib,
                 top,
-                bindings.len,
+                rows.len,
                 widget_style.border.sie,
             }) catch {};
             top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
@@ -183,62 +249,17 @@ fn render(title: []const u8, bindings: []const keybind.Binding, theme: *const Wi
     plane.home();
     plane.set_style(style_hint);
 
-    for (bindings[top..], 0..) |binding, y| {
+    for (rows[top..], 0..) |row, y| {
         if (y >= max_items) break;
-        var keybind_buf: [256]u8 = undefined;
-        const keybind_txt = blk: {
-            var writer = std.Io.Writer.fixed(&keybind_buf);
-            writer.print("{f}", .{keybind.key_event_sequence_fmt(binding.key_events)}) catch break :blk "";
-            break :blk writer.buffered();
-        };
-        plane.cursor_move_yx(@intCast(y), 0);
-        switch (render_mode) {
-            .no_key_event_prefix => _ = plane.print("{s}", .{keybind_txt[key_events.len..]}) catch {},
-            .full => _ = plane.print(" {s}", .{keybind_txt}) catch {},
-        }
+        plane.cursor_move_yx(@intCast(y), @intCast(1 + max_prefix_len - tui.egc_chunk_width(row.text, 0, 1)));
+        _ = plane.print("{s}\u{00A0}", .{row.text}) catch {};
     }
 
     plane.set_style(style_label);
 
-    for (bindings[top..], 0..) |binding, y| {
+    for (rows[top..], 0..) |row, y| {
         if (y >= max_items) break;
-        const padding = max_prefix_len + 3;
-
-        const description = blk: {
-            if (binding.description.len > 0) break :blk binding.description;
-            const id = binding.commands[0].command_id orelse
-                command.get_id(binding.commands[0].command) orelse
-                break :blk binding.commands[0].command;
-            break :blk command.get_description(id) orelse break :blk "[n/a]";
-        };
-
-        plane.cursor_move_yx(@intCast(y), @intCast(padding));
-        _ = plane.print("{s}", .{if (description.len > 0) description else binding.commands[0].command}) catch {};
+        plane.cursor_move_yx(@intCast(y), @intCast(max_prefix_len + 3));
+        _ = plane.print("{s}", .{row.description}) catch {};
     }
-}
-
-fn get_max_prefix_len(bindings: anytype) usize {
-    var max: usize = 0;
-    for (bindings) |binding| {
-        var keybind_buf: [256]u8 = undefined;
-        var writer = std.Io.Writer.fixed(&keybind_buf);
-        writer.print("{f}", .{keybind.key_event_sequence_fmt(binding.key_events)}) catch continue;
-        max = @max(max, writer.buffered().len);
-    }
-    return max;
-}
-
-fn get_max_description_len(bindings: anytype) usize {
-    var max: usize = 0;
-    for (bindings) |binding| {
-        if (binding.description.len > 0) {
-            max = @max(max, binding.description.len);
-            continue;
-        }
-        const id = binding.commands[0].command_id orelse command.get_id(binding.commands[0].command) orelse continue;
-        const description = command.get_description(id) orelse continue;
-        const text = if (description.len > 0) description else binding.commands[0].command;
-        max = @max(max, text.len);
-    }
-    return max;
 }
