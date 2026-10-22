@@ -162,10 +162,10 @@ fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *
     const padding_h = widget_style.padding.top + widget_style.padding.bottom;
     const bottom: usize, const max_screen_height: usize = blk: {
         const full: struct { usize, usize } = .{ scr.h -| 1, scr.h -| padding_h -| 3 };
-        const panel = (tui.mainview() orelse break :blk full).panel_box() orelse break :blk full;
-        const above = panel.y -| padding_h -| 2;
+        const panel_y = (tui.mainview() orelse break :blk full).panel_top_row() orelse break :blk full;
+        const above = panel_y -| padding_h -| 2;
         if (above < @min(rows.len, min_rows_above_panel)) break :blk full;
-        break :blk .{ panel.y, above };
+        break :blk .{ panel_y, above };
     };
     const max_items = @min(rows.len, max_screen_height);
     const page_size = max_screen_height;

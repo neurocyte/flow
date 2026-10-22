@@ -450,8 +450,10 @@ pub fn get_panel_height(self: *Self) usize {
     return self.bottom_area.get_height();
 }
 
-pub fn panel_box(self: *const Self) ?Box {
-    return self.bottom_area.box();
+pub fn panel_top_row(self: *const Self) ?usize {
+    if (!self.bottom_area.visible()) return null;
+    const area = self.editor_area_frame();
+    return @intCast(@divFloor(area.y + area.h, @max(1, self.plane.cell_y())) + 1);
 }
 
 pub fn is_panel_maximized(self: *const Self) bool {
