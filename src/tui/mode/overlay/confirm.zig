@@ -279,22 +279,22 @@ const cmds = struct {
     pub fn confirm_up(self: *Self, _: Ctx) Result {
         self.select_next(.up);
     }
-    pub const confirm_up_meta: Meta = .{};
+    pub const confirm_up_meta: Meta = .{ .description = "Previous option" };
 
     pub fn confirm_down(self: *Self, _: Ctx) Result {
         self.select_next(.down);
     }
-    pub const confirm_down_meta: Meta = .{};
+    pub const confirm_down_meta: Meta = .{ .description = "Next option" };
 
     pub fn confirm_activate(self: *Self, _: Ctx) Result {
         try self.activate(self.list_box.selected orelse return);
     }
-    pub const confirm_activate_meta: Meta = .{};
+    pub const confirm_activate_meta: Meta = .{ .description = "Select option" };
 
     pub fn confirm_cancel(_: *Self, _: Ctx) Result {
         try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
     }
-    pub const confirm_cancel_meta: Meta = .{};
+    pub const confirm_cancel_meta: Meta = .{ .description = "Cancel" };
 
     pub fn confirm_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;

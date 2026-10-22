@@ -44,7 +44,10 @@ const Commands = command.Collection(struct {
             return error.InvalidIntegerParameterDigit;
         integer_argument = if (integer_argument) |x| x * 10 + digit else digit;
     }
-    pub const add_integer_argument_digit_meta: Meta = .{ .arguments = &.{.integer} };
+    pub const add_integer_argument_digit_meta: Meta = .{
+        .description = "Add integer argument",
+        .arguments = &.{.integer},
+    };
 });
 
 pub fn init(mode_flag_: KeybindMode) !void {

@@ -776,13 +776,13 @@ pub fn Create(options: type) type {
                 try self.menu_down();
                 try self.skip_unselectable(.down);
             }
-            pub const palette_menu_down_meta: Meta = .{};
+            pub const palette_menu_down_meta: Meta = .{ .description = "Next item" };
 
             pub fn palette_menu_up(self: *Self, _: Ctx) Result {
                 try self.menu_up();
                 try self.skip_unselectable(.up);
             }
-            pub const palette_menu_up_meta: Meta = .{};
+            pub const palette_menu_up_meta: Meta = .{ .description = "Previous item" };
 
             pub fn palette_menu_right(self: *Self, ctx: Ctx) Result {
                 return palette_menu_down(self, ctx);
@@ -807,7 +807,7 @@ pub fn Create(options: type) type {
                 self.selection_updated();
                 try self.skip_unselectable(.down);
             }
-            pub const palette_menu_pagedown_meta: Meta = .{};
+            pub const palette_menu_pagedown_meta: Meta = .{ .description = "Next page" };
 
             pub fn palette_menu_pageup(self: *Self, _: Ctx) Result {
                 if (!async_query) {
@@ -821,7 +821,7 @@ pub fn Create(options: type) type {
                 self.selection_updated();
                 try self.skip_unselectable(.up);
             }
-            pub const palette_menu_pageup_meta: Meta = .{};
+            pub const palette_menu_pageup_meta: Meta = .{ .description = "Previous page" };
 
             pub fn palette_menu_bottom(self: *Self, _: Ctx) Result {
                 if (!async_query) {
@@ -834,7 +834,7 @@ pub fn Create(options: type) type {
                 self.selection_updated();
                 try self.skip_unselectable(.up);
             }
-            pub const palette_menu_bottom_meta: Meta = .{};
+            pub const palette_menu_bottom_meta: Meta = .{ .description = "Last item" };
 
             pub fn palette_menu_top(self: *Self, _: Ctx) Result {
                 if (!async_query) {
@@ -845,7 +845,7 @@ pub fn Create(options: type) type {
                 self.selection_updated();
                 try self.skip_unselectable(.down);
             }
-            pub const palette_menu_top_meta: Meta = .{};
+            pub const palette_menu_top_meta: Meta = .{ .description = "First item" };
 
             pub fn palette_menu_delete_item(self: *Self, ctx: Ctx) Result {
                 if (@hasDecl(options, "delete_item")) {
@@ -879,7 +879,7 @@ pub fn Create(options: type) type {
                 if (@hasDecl(options, "complete"))
                     options.complete(self, self.list_box.get_selected()) catch {};
             }
-            pub const palette_menu_complete_meta: Meta = .{};
+            pub const palette_menu_complete_meta: Meta = .{ .description = "Complete selected item" };
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
                 if (has_activate_query and self.items == 0 and self.inputbox.mini_editor.bytes().len > 0) {
@@ -889,13 +889,13 @@ pub fn Create(options: type) type {
                 }
                 self.list_box.activate_selected();
             }
-            pub const palette_menu_activate_meta: Meta = .{};
+            pub const palette_menu_activate_meta: Meta = .{ .description = "Select" };
 
             pub fn palette_menu_activate_alternate(self: *Self, ctx: Ctx) Result {
                 self.activate = .alternate;
                 return palette_menu_activate(self, ctx);
             }
-            pub const palette_menu_activate_alternate_meta: Meta = .{};
+            pub const palette_menu_activate_alternate_meta: Meta = .{ .description = "Select (alternate)" };
 
             pub fn palette_menu_insert(self: *Self, _: Ctx) Result {
                 const activate = self.activate;
@@ -905,13 +905,13 @@ pub fn Create(options: type) type {
                 if (has_insert and self.inputbox.mini_editor.bytes().len > 0)
                     return options.insert(activate, self.inputbox.mini_editor.bytes());
             }
-            pub const palette_menu_insert_meta: Meta = .{ .icon = "" };
+            pub const palette_menu_insert_meta: Meta = .{ .description = "Insert or edit item", .icon = "" };
 
             pub fn palette_menu_insert_alternate(self: *Self, ctx: Ctx) Result {
                 self.activate = .alternate;
                 return palette_menu_insert(self, ctx);
             }
-            pub const palette_menu_insert_alternate_meta: Meta = .{ .icon = "" };
+            pub const palette_menu_insert_alternate_meta: Meta = .{ .description = "Insert or edit item (alternate)", .icon = "" };
 
             pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
                 if (!self.quick_activate_enabled) return;
@@ -924,7 +924,7 @@ pub fn Create(options: type) type {
                 if (@hasDecl(options, "cancel")) try options.cancel(self, ctx);
                 try self.cmd("exit_overlay_mode", .empty_from(ctx));
             }
-            pub const palette_menu_cancel_meta: Meta = .{};
+            pub const palette_menu_cancel_meta: Meta = .{ .description = "Cancel" };
 
             pub fn overlay_delete_word_left(self: *Self, _: Ctx) Result {
                 self.delete_word() catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -959,7 +959,7 @@ pub fn Create(options: type) type {
                 tui.need_render(@src());
                 try tui.save_config();
             }
-            pub const overlay_next_widget_style_meta: Meta = .{};
+            pub const overlay_next_widget_style_meta: Meta = .{ .description = "Next palette style" };
 
             pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
                 var bytes: []const u8 = undefined;

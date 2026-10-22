@@ -557,8 +557,8 @@
             ["ctrl+g", "mini_mode_cancel"],
             ["ctrl+c", "mini_mode_cancel"],
             ["ctrl+l", "scroll_view_center_cycle"],
-            ["tab", "mini_mode_insert_bytes", "\t"],
-            ["enter", "mini_mode_insert_bytes", "\n"],
+            [["tab", "Insert tab char"], "mini_mode_insert_bytes", "\t"],
+            [["enter", "Insert new line char"], "mini_mode_insert_bytes", "\n"],
             ["escape", "mini_mode_cancel"],
             ["backspace", "mini_mode_cancel"]
         ]

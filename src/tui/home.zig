@@ -580,37 +580,37 @@ const cmds = struct {
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.down);
     }
-    pub const home_menu_down_meta: Meta = .{};
+    pub const home_menu_down_meta: Meta = .{ .description = "Next item" };
 
     pub fn home_menu_up(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.up);
     }
-    pub const home_menu_up_meta: Meta = .{};
+    pub const home_menu_up_meta: Meta = .{ .description = "Previous item" };
 
     pub fn home_menu_pagedown(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.page_down);
     }
-    pub const home_menu_pagedown_meta: Meta = .{};
+    pub const home_menu_pagedown_meta: Meta = .{ .description = "Next page" };
 
     pub fn home_menu_pageup(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.page_up);
     }
-    pub const home_menu_pageup_meta: Meta = .{};
+    pub const home_menu_pageup_meta: Meta = .{ .description = "Previous page" };
 
     pub fn home_menu_top(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.top);
     }
-    pub const home_menu_top_meta: Meta = .{};
+    pub const home_menu_top_meta: Meta = .{ .description = "First item" };
 
     pub fn home_menu_bottom(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.bottom);
     }
-    pub const home_menu_bottom_meta: Meta = .{};
+    pub const home_menu_bottom_meta: Meta = .{ .description = "Last item" };
 
     pub fn home_menu_activate(self: *Self, _: Ctx) Result {
         self.list_box.activate_selected();
     }
-    pub const home_menu_activate_meta: Meta = .{};
+    pub const home_menu_activate_meta: Meta = .{ .description = "Select" };
 
     pub fn home_next_widget_style(self: *Self, _: Ctx) Result {
         tui.set_next_style(widget_type);
@@ -621,7 +621,7 @@ const cmds = struct {
         tui.need_render(@src());
         try tui.save_config();
     }
-    pub const home_next_widget_style_meta: Meta = .{};
+    pub const home_next_widget_style_meta: Meta = .{ .description = "Next home menu style" };
 
     pub fn home_sheeran(self: *Self, _: Ctx) Result {
         self.fire = if (self.fire) |*fire| ret: {

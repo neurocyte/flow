@@ -409,7 +409,7 @@ pub fn Create(options: type) type {
                 self.list_box.select_down();
                 self.selection_updated();
             }
-            pub const palette_menu_down_meta: Meta = .{};
+            pub const palette_menu_down_meta: Meta = .{ .description = "Next item" };
 
             pub fn palette_menu_up(self: *Self, _: Ctx) Result {
                 if (self.list_box.selected) |selected| {
@@ -424,7 +424,7 @@ pub fn Create(options: type) type {
                 self.list_box.select_up();
                 self.selection_updated();
             }
-            pub const palette_menu_up_meta: Meta = .{};
+            pub const palette_menu_up_meta: Meta = .{ .description = "Previous item" };
 
             pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
                 if (self.total_items > self.view_rows) {
@@ -436,7 +436,7 @@ pub fn Create(options: type) type {
                 self.list_box.select_last();
                 self.selection_updated();
             }
-            pub const palette_menu_pagedown_meta: Meta = .{};
+            pub const palette_menu_pagedown_meta: Meta = .{ .description = "Next page" };
 
             pub fn palette_menu_pageup(self: *Self, _: Ctx) Result {
                 if (self.view_pos > self.view_rows)
@@ -447,7 +447,7 @@ pub fn Create(options: type) type {
                 self.list_box.select_first();
                 self.selection_updated();
             }
-            pub const palette_menu_pageup_meta: Meta = .{};
+            pub const palette_menu_pageup_meta: Meta = .{ .description = "Previous page" };
 
             pub fn palette_menu_bottom(self: *Self, _: Ctx) Result {
                 if (self.total_items > self.view_rows) {
@@ -457,7 +457,7 @@ pub fn Create(options: type) type {
                 self.list_box.select_last();
                 self.selection_updated();
             }
-            pub const palette_menu_bottom_meta: Meta = .{};
+            pub const palette_menu_bottom_meta: Meta = .{ .description = "Last item" };
 
             pub fn palette_menu_top(self: *Self, _: Ctx) Result {
                 self.view_pos = 0;
@@ -465,7 +465,7 @@ pub fn Create(options: type) type {
                 self.list_box.select_first();
                 self.selection_updated();
             }
-            pub const palette_menu_top_meta: Meta = .{};
+            pub const palette_menu_top_meta: Meta = .{ .description = "First item" };
 
             pub fn palette_menu_delete_item(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "delete_item")) {
@@ -493,18 +493,18 @@ pub fn Create(options: type) type {
                 if (@hasDecl(options, "complete"))
                     options.complete(self, self.list_box.get_selected()) catch {};
             }
-            pub const palette_menu_complete_meta: Meta = .{};
+            pub const palette_menu_complete_meta: Meta = .{ .description = "Complete selected item" };
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
                 self.list_box.activate_selected();
             }
-            pub const palette_menu_activate_meta: Meta = .{};
+            pub const palette_menu_activate_meta: Meta = .{ .description = "Select" };
 
             pub fn palette_menu_cancel(self: *Self, ctx: Ctx) Result {
                 if (@hasDecl(options, "cancel")) try options.cancel(self, ctx);
                 try self.cmd("exit_overlay_mode", ctx);
             }
-            pub const palette_menu_cancel_meta: Meta = .{};
+            pub const palette_menu_cancel_meta: Meta = .{ .description = "Cancel" };
 
             pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
                 tui.set_next_style(widget_type);
@@ -513,7 +513,7 @@ pub fn Create(options: type) type {
                 tui.need_render(@src());
                 try tui.save_config();
             }
-            pub const overlay_next_widget_style_meta: Meta = .{};
+            pub const overlay_next_widget_style_meta: Meta = .{ .description = "Next dropdown style" };
         };
     };
 }

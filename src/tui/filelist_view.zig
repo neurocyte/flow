@@ -431,60 +431,60 @@ const cmds = struct {
         self.select_next(.up);
         self.list_box.activate_selected();
     }
-    pub const goto_prev_file_meta: Meta = .{ .description = "Go to previous file in the file list" };
+    pub const goto_prev_file_meta: Meta = .{ .description = "Go to previous" };
 
     pub fn goto_next_file(self: *Self, _: Ctx) Result {
         self.select_next(.down);
         self.list_box.activate_selected();
     }
-    pub const goto_next_file_meta: Meta = .{ .description = "Go to next file in the file list" };
+    pub const goto_next_file_meta: Meta = .{ .description = "Go to next" };
 
     pub fn select_prev_file(self: *Self, _: Ctx) Result {
         self.select_next(.up);
     }
-    pub const select_prev_file_meta: Meta = .{ .description = "Select previous file in the file list" };
+    pub const select_prev_file_meta: Meta = .{ .description = "Select previous" };
 
     pub fn select_next_file(self: *Self, _: Ctx) Result {
         self.select_next(.down);
     }
-    pub const select_next_file_meta: Meta = .{ .description = "Select next file in the file list" };
+    pub const select_next_file_meta: Meta = .{ .description = "Select next" };
 
     pub fn select_prev_file_page(self: *Self, _: Ctx) Result {
         self.select_next(.page_up);
     }
-    pub const select_prev_file_page_meta: Meta = .{ .description = "Select previous page in the file list" };
+    pub const select_prev_file_page_meta: Meta = .{ .description = "Select previous page" };
 
     pub fn select_next_file_page(self: *Self, _: Ctx) Result {
         self.select_next(.page_down);
     }
-    pub const select_next_file_page_meta: Meta = .{ .description = "Select next page in the file list" };
+    pub const select_next_file_page_meta: Meta = .{ .description = "Select next page" };
 
     pub fn select_file_begin(self: *Self, _: Ctx) Result {
         self.select_next(.home);
     }
-    pub const select_file_begin_meta: Meta = .{ .description = "Select top of the file list" };
+    pub const select_file_begin_meta: Meta = .{ .description = "Select top" };
 
     pub fn select_file_end(self: *Self, _: Ctx) Result {
         self.select_next(.end);
     }
-    pub const select_file_end_meta: Meta = .{ .description = "Select end of the file list" };
+    pub const select_file_end_meta: Meta = .{ .description = "Select end" };
 
     pub fn goto_selected_file(self: *Self, _: Ctx) Result {
         if (self.list_box.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
         self.list_box.activate_selected();
     }
-    pub const goto_selected_file_meta: Meta = .{};
+    pub const goto_selected_file_meta: Meta = .{ .description = "Go to location" };
 
     pub fn goto_selected_file_alternate(self: *Self, _: Ctx) Result {
         if (self.list_box.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
         self.activate = .alternate;
         self.list_box.activate_selected();
     }
-    pub const goto_selected_file_alternate_meta: Meta = .{};
+    pub const goto_selected_file_alternate_meta: Meta = .{ .description = "Go to location in split" };
 
     pub fn unfocus_filelist(self: *Self, _: Ctx) Result {
         if (tui.mainview()) |mv| if (mv.is_panel_maximized()) return;
         self.unfocus();
     }
-    pub const unfocus_filelist_meta: Meta = .{ .description = "Return focus from the file list" };
+    pub const unfocus_filelist_meta: Meta = .{ .description = "Return focus" };
 };

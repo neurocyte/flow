@@ -1427,78 +1427,78 @@ const cmds = struct {
         else
             self.bottom_area.close_active();
     }
-    pub const panel_tab_close_meta: Meta = .{ .description = "Close panel tab", .arguments = &.{.integer} };
+    pub const panel_tab_close_meta: Meta = .{ .description = "Close tab", .arguments = &.{.integer} };
 
     pub fn panel_unfocus(self: *Self, _: Ctx) Result {
         if (self.bottom_area.is_maximized()) return;
         if (self.focused_panel()) |_| tui.clear_keyboard_focus();
     }
-    pub const panel_unfocus_meta: Meta = .{ .description = "Return focus from panel" };
+    pub const panel_unfocus_meta: Meta = .{ .description = "Return focus" };
 
     pub fn panel_scroll_up(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.line_up);
     }
-    pub const panel_scroll_up_meta: Meta = .{ .description = "Scroll panel up" };
+    pub const panel_scroll_up_meta: Meta = .{ .description = "Scroll up" };
 
     pub fn panel_scroll_down(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.line_down);
     }
-    pub const panel_scroll_down_meta: Meta = .{ .description = "Scroll panel down" };
+    pub const panel_scroll_down_meta: Meta = .{ .description = "Scroll down" };
 
     pub fn panel_scroll_page_up(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.page_up);
     }
-    pub const panel_scroll_page_up_meta: Meta = .{ .description = "Scroll panel up a page" };
+    pub const panel_scroll_page_up_meta: Meta = .{ .description = "Scroll up a page" };
 
     pub fn panel_scroll_page_down(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.page_down);
     }
-    pub const panel_scroll_page_down_meta: Meta = .{ .description = "Scroll panel down a page" };
+    pub const panel_scroll_page_down_meta: Meta = .{ .description = "Scroll down a page" };
 
     pub fn panel_scroll_top(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.top);
     }
-    pub const panel_scroll_top_meta: Meta = .{ .description = "Scroll panel to the top" };
+    pub const panel_scroll_top_meta: Meta = .{ .description = "Scroll to the top" };
 
     pub fn panel_scroll_bottom(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.bottom);
     }
-    pub const panel_scroll_bottom_meta: Meta = .{ .description = "Scroll panel to the bottom" };
+    pub const panel_scroll_bottom_meta: Meta = .{ .description = "Scroll to the bottom" };
 
     pub fn panel_copy(self: *Self, _: Ctx) Result {
         if (self.focused_panel()) |p| p.copy();
     }
-    pub const panel_copy_meta: Meta = .{ .description = "Copy panel content" };
+    pub const panel_copy_meta: Meta = .{ .description = "Copy all" };
 
     pub fn panel_clear(self: *Self, _: Ctx) Result {
         if (self.focused_panel()) |p| p.clear();
     }
-    pub const panel_clear_meta: Meta = .{ .description = "Clear panel content" };
+    pub const panel_clear_meta: Meta = .{ .description = "Clear" };
 
     pub fn panel_split(self: *Self, _: Ctx) Result {
         try self.bottom_area.split();
     }
-    pub const panel_split_meta: Meta = .{ .description = "Move panel to new group" };
+    pub const panel_split_meta: Meta = .{ .description = "Move to new group" };
 
     pub fn panel_move_tab_left(self: *Self, _: Ctx) Result {
         try self.bottom_area.move_active(.left);
     }
-    pub const panel_move_tab_left_meta: Meta = .{ .description = "Move panel left" };
+    pub const panel_move_tab_left_meta: Meta = .{ .description = "Move left" };
 
     pub fn panel_move_tab_right(self: *Self, _: Ctx) Result {
         try self.bottom_area.move_active(.right);
     }
-    pub const panel_move_tab_right_meta: Meta = .{ .description = "Move panel right" };
+    pub const panel_move_tab_right_meta: Meta = .{ .description = "Move right" };
 
     pub fn panel_focus_next_group(self: *Self, _: Ctx) Result {
         self.bottom_area.focus_group(.right);
     }
-    pub const panel_focus_next_group_meta: Meta = .{ .description = "Focus next panel group" };
+    pub const panel_focus_next_group_meta: Meta = .{ .description = "Focus next group" };
 
     pub fn panel_focus_prev_group(self: *Self, _: Ctx) Result {
         self.bottom_area.focus_group(.left);
     }
-    pub const panel_focus_prev_group_meta: Meta = .{ .description = "Focus previous panel group" };
+    pub const panel_focus_prev_group_meta: Meta = .{ .description = "Focus previous group" };
 
     pub fn restore_panel_layout(self: *Self, _: Ctx) Result {
         const state = self.panel_layout_state orelse return;
@@ -1770,7 +1770,7 @@ const cmds = struct {
         const fl = self.active_filelist() orelse return;
         self.close_filelist_by_id(fl.list_id);
     }
-    pub const filelist_close_meta: Meta = .{ .description = "Close file list", .arguments = &.{.integer} };
+    pub const filelist_close_meta: Meta = .{ .description = "Close", .arguments = &.{.integer} };
 
     pub fn jump_back(self: *Self, ctx: Ctx) Result {
         var same_file: bool = false;

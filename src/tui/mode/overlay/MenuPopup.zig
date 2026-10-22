@@ -489,22 +489,22 @@ const cmds = struct {
     pub fn menu_down(self: *Self, _: Ctx) Result {
         self.top().select_next(.down);
     }
-    pub const menu_down_meta: Meta = .{};
+    pub const menu_down_meta: Meta = .{ .description = "Next item" };
 
     pub fn menu_up(self: *Self, _: Ctx) Result {
         self.top().select_next(.up);
     }
-    pub const menu_up_meta: Meta = .{};
+    pub const menu_up_meta: Meta = .{ .description = "Previous item" };
 
     pub fn menu_first(self: *Self, _: Ctx) Result {
         self.top().select_first();
     }
-    pub const menu_first_meta: Meta = .{};
+    pub const menu_first_meta: Meta = .{ .description = "First item" };
 
     pub fn menu_last(self: *Self, _: Ctx) Result {
         self.top().select_last();
     }
-    pub const menu_last_meta: Meta = .{};
+    pub const menu_last_meta: Meta = .{ .description = "Last item" };
 
     pub fn menu_open_submenu(self: *Self, _: Ctx) Result {
         const level_idx = self.levels.items.len - 1;
@@ -514,7 +514,7 @@ const cmds = struct {
         else if (self.owner) |owner|
             owner.on_cycle(owner.ctx, .next);
     }
-    pub const menu_open_submenu_meta: Meta = .{};
+    pub const menu_open_submenu_meta: Meta = .{ .description = "Open submenu, or next menu" };
 
     pub fn menu_close_submenu(self: *Self, _: Ctx) Result {
         if (self.levels.items.len > 1)
@@ -522,13 +522,13 @@ const cmds = struct {
         else if (self.owner) |owner|
             owner.on_cycle(owner.ctx, .prev);
     }
-    pub const menu_close_submenu_meta: Meta = .{};
+    pub const menu_close_submenu_meta: Meta = .{ .description = "Close submenu, or previous menu" };
 
     pub fn menu_activate(self: *Self, _: Ctx) Result {
         const pos = self.top().list_box.selected orelse return;
         try self.activate(self.levels.items.len - 1, pos);
     }
-    pub const menu_activate_meta: Meta = .{};
+    pub const menu_activate_meta: Meta = .{ .description = "Select" };
 
     pub fn menu_activate_item(self: *Self, ctx: Ctx) Result {
         var level_idx: usize = 0;
@@ -545,7 +545,7 @@ const cmds = struct {
         else
             try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
     }
-    pub const menu_cancel_meta: Meta = .{};
+    pub const menu_cancel_meta: Meta = .{ .description = "Close submenu or menu" };
 
     pub fn menu_update(self: *Self, ctx: Ctx) Result {
         var from: usize = 0;

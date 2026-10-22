@@ -2585,7 +2585,7 @@ const cmds = struct {
         if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
             widget.focus();
     }
-    pub const exit_mini_mode_meta: Meta = .{};
+    pub const exit_mini_mode_meta: Meta = .{ .description = "Cancel" };
 
     pub fn open_keybind_config(self: *Self, _: Ctx) Result {
         var mode_parts = std.mem.splitScalar(u8, self.config_.input_mode, '/');
@@ -2715,42 +2715,42 @@ const cmds = struct {
         tp.self_pid().send(.{ "cmd", "hover" }) catch {};
         return;
     }
-    pub const panel_next_widget_style_meta: Meta = .{};
+    pub const panel_next_widget_style_meta: Meta = .{ .description = "Next panel style" };
 
     pub fn hint_window_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.hint_window);
         need_render(@src());
         try save_config();
     }
-    pub const hint_window_next_widget_style_meta: Meta = .{};
+    pub const hint_window_next_widget_style_meta: Meta = .{ .description = "Next hint window style" };
 
     pub fn dropdown_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.dropdown);
         need_render(@src());
         try save_config();
     }
-    pub const dropdown_next_widget_style_meta: Meta = .{};
+    pub const dropdown_next_widget_style_meta: Meta = .{ .description = "Next dropdown style" };
 
     pub fn menu_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.menu);
         need_render(@src());
         try save_config();
     }
-    pub const menu_next_widget_style_meta: Meta = .{};
+    pub const menu_next_widget_style_meta: Meta = .{ .description = "Next menu style" };
 
     pub fn dialog_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.dialog);
         need_render(@src());
         try save_config();
     }
-    pub const dialog_next_widget_style_meta: Meta = .{};
+    pub const dialog_next_widget_style_meta: Meta = .{ .description = "Next dialog style" };
 
     pub fn info_box_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.info_box);
         need_render(@src());
         try save_config();
     }
-    pub const info_box_next_widget_style_meta: Meta = .{};
+    pub const info_box_next_widget_style_meta: Meta = .{ .description = "Next info box style" };
 
     pub fn enable_fast_scroll(self: *Self, _: Ctx) Result {
         self.fast_scroll_ = true;
