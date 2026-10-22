@@ -52,17 +52,20 @@ const Row = struct {
     keys: std.ArrayList([]const u8) = .empty,
     text: []const u8 = "",
     description: []const u8,
+    first_command: []const u8 = "",
+    more_commands: bool = false,
+    command: []const u8 = "",
     source_modes: std.ArrayList([]const u8) = .empty,
     sources: []const u8 = "",
 };
 
-const Sources = enum { hidden, shown };
+const Details = enum { hidden, shown };
 
 const max_listed_keys = 7;
 const sided_modifiers = [_][]const u8{ "shft", "ctrl", "alt", "super", "hyper", "meta" };
 
 /// one row per description, with the keys of all bindings that share it
-fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, prefix_len: usize, sources: Sources) error{ OutOfMemory, WriteFailed }![]Row {
+fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, prefix_len: usize, details: Details) error{ OutOfMemory, WriteFailed }![]Row {
     var rows: std.ArrayList(Row) = .empty;
     for (bindings) |*binding| {
         const description = get_description(binding);
@@ -75,7 +78,14 @@ fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, p
         };
         const text = try std.fmt.allocPrint(allocator, "{f}", .{keybind.key_event_sequence_fmt(binding.key_events)});
         try row.keys.append(allocator, std.mem.trimStart(u8, text[@min(prefix_len, text.len)..], " "));
-        if (sources == .shown) {
+        if (details == .shown) {
+            const first = binding.commands[0].command;
+            // args is a cbor array, an empty one is a single byte
+            if (binding.commands.len > 1 or binding.commands[0].args.len > 1) row.more_commands = true;
+            if (row.first_command.len == 0)
+                row.first_command = first
+            else if (!std.mem.eql(u8, row.first_command, first))
+                row.more_commands = true;
             const source_mode = if (binding.source_info.mode.len > 0) binding.source_info.mode else "global";
             if (index_of_string(row.source_modes.items, source_mode) == null)
                 try row.source_modes.append(allocator, source_mode);
@@ -84,6 +94,7 @@ fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, p
     for (rows.items) |*row| {
         try merge_sided_modifiers(allocator, &row.keys);
         row.text = try format_keys(allocator, row.keys.items);
+        row.command = if (row.more_commands) try std.fmt.allocPrint(allocator, "{s}, …", .{row.first_command}) else row.first_command;
         row.sources = try std.mem.join(allocator, ", ", row.source_modes.items);
     }
     return rows.items;
@@ -162,14 +173,17 @@ fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *
 
     var max_prefix_len: usize = 0;
     var max_description_len: usize = 0;
+    var max_command_len: usize = 0;
     var max_sources_len: usize = 0;
     for (rows) |row| {
         max_prefix_len = @max(max_prefix_len, tui.egc_chunk_width(row.text, 0, 1));
         max_description_len = @max(max_description_len, tui.egc_chunk_width(row.description, 0, 1));
+        max_command_len = @max(max_command_len, tui.egc_chunk_width(row.command, 0, 1));
         max_sources_len = @max(max_sources_len, tui.egc_chunk_width(row.sources, 0, 1));
     }
+    const command_len = if (max_command_len > 0) max_command_len + 2 else 0;
     const sources_len = if (max_sources_len > 0) max_sources_len + 2 else 0;
-    const max_len = max_prefix_len + max_description_len + sources_len + 2 + 2;
+    const max_len = max_prefix_len + max_description_len + command_len + sources_len + 2 + 2;
     const widget_style = tui.get_widget_style(widget_type);
     const scr = tui.screen();
     const padding_h = widget_style.padding.top + widget_style.padding.bottom;
@@ -276,12 +290,15 @@ fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *
         _ = plane.print("{s}", .{row.description}) catch {};
     }
 
-    if (max_sources_len == 0) return;
+    if (command_len + sources_len == 0) return;
     plane.set_style(if (tui.find_scope_style(theme, "comment")) |sty| sty.style else style_label);
+    const command_col = max_prefix_len + 3 + max_description_len + 2;
 
     for (rows[top..], 0..) |row, y| {
         if (y >= max_items) break;
-        plane.cursor_move_yx(@intCast(y), @intCast(max_prefix_len + 3 + max_description_len + 2));
+        plane.cursor_move_yx(@intCast(y), @intCast(command_col));
+        _ = plane.print("{s}", .{row.command}) catch {};
+        plane.cursor_move_yx(@intCast(y), @intCast(command_col + command_len));
         _ = plane.print("{s}", .{row.sources}) catch {};
     }
 }
