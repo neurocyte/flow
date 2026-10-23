@@ -7299,10 +7299,10 @@ pub const Editor = struct {
         try self.close();
         if (buffer_) |buffer| {
             buffer_lsp.close(buffer);
-            if (buffer.file_state == .deleted_on_disk)
-                self.buffer_manager.delete_buffer(buffer)
-            else
-                self.buffer_manager.close_buffer(buffer);
+            if (buffer.file_state == .deleted_on_disk) {
+                project_manager.file_deleted(buffer.get_file_path()) catch {};
+                self.buffer_manager.delete_buffer(buffer);
+            } else self.buffer_manager.close_buffer(buffer);
         }
     }
     pub const close_file_without_saving_meta: Meta = .{ .description = "Close file without saving" };

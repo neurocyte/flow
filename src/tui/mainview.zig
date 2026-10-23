@@ -2801,7 +2801,7 @@ pub fn location_update(self: *Self, editor: *ed.Editor, m: tp.message) tp.result
         .column = 0,
     } };
     const file_path = editor.file_path orelse return;
-    const ephemeral = if (editor.buffer) |buffer| buffer.is_ephemeral() else false;
+    const ephemeral = if (editor.buffer) |buffer| buffer.is_ephemeral() else true;
 
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&loc.src.line), tp.extract(&loc.src.column) })) {
         if (loc.src.line == 0 and loc.src.column == 0) return;
@@ -3854,6 +3854,7 @@ fn discard_buffer(self: *Self, buffer: *Buffer) command.Result {
     if (self.get_editor_for_buffer(buffer)) |editor|
         try editor.close_editor();
     buffer_lsp.close(buffer);
+    if (buffer.file_state == .deleted_on_disk) project_manager.file_deleted(buffer.get_file_path()) catch {};
     self.buffer_manager.delete_buffer(buffer);
 }
 
