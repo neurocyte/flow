@@ -6,6 +6,7 @@ pub const menu: Menu = .{ .label = "Menu", .items = &.{
     .{ .submenu = &selection },
     .{ .submenu = &view },
     .{ .submenu = &go },
+    .{ .submenu = &vcs },
     .{ .submenu = &language },
     .{ .submenu = &terminal },
     .{ .submenu = &settings },
@@ -232,6 +233,22 @@ pub const go: Menu = .{ .label = "Go", .items = &.{
     .{ .command = .{ .command = "open_previous_file" } },
     .{ .command = .{ .command = "open_most_recent_file" } },
     .{ .command = .{ .command = "open_file_links" } },
+} };
+
+pub const vcs: Menu = .{ .label = "Git", .items = &.{
+    .{ .command = .{ .command = "show_vcs_status" } },
+    .separator,
+    .{ .command = .{ .command = "vcs_commit" } },
+    .{ .command = .{ .command = "vcs_amend" } },
+    .{ .command = .{ .command = "vcs_fetch" } },
+    .{ .command = .{ .command = "vcs_push" } },
+    .separator,
+    .{ .command = .{ .command = "goto_next_change" } },
+    .{ .command = .{ .command = "goto_prev_change" } },
+    .{ .command = .{ .command = "show_vcs_change" } },
+    .separator,
+    .{ .command = .{ .command = "toggle_gutter_diffs", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_inline_vcs_blame", .on_activate = .keep_open } },
 } };
 
 pub const language: Menu = .{ .label = "Language", .items = &.{

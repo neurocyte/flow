@@ -6,6 +6,7 @@ const log = @import("log");
 const project_manager = @import("project_manager");
 const file_watcher = @import("file_watcher");
 const root = @import("soft_root").root;
+const vcs_repo = @import("vcs_repo.zig");
 const tracy = @import("tracy");
 const builtin = @import("builtin");
 const file_link = @import("file_link");
@@ -117,6 +118,7 @@ color_scheme: Widget.Theme.Type = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .none,
 last_palette: ?LastPalette = null,
+vcs_terminal_request: ?VcsTerminalRequest = null,
 idle_actions_: std.ArrayList(IdleAction) = .empty,
 
 fast_scroll_: bool = false,
@@ -184,6 +186,11 @@ fn focused_panel_mode() ?*const Mode {
 const LastPalette = struct {
     type_: PaletteType,
     ctx: command.Context,
+};
+
+const VcsTerminalRequest = struct {
+    action: vcs_repo.TerminalAction,
+    path: []const u8,
 };
 
 pub const PaletteType = enum {
@@ -513,6 +520,10 @@ fn deinit(self: *Self) void {
         if (self.last_palette) |palette| {
             self.allocator.free(palette.ctx.args.buf);
             self.last_palette = null;
+        }
+        if (self.vcs_terminal_request) |request| {
+            self.allocator.free(request.path);
+            self.vcs_terminal_request = null;
         }
     }
 }
@@ -868,6 +879,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "PRJ", "lsp_restarted", tp.more }))
         return if (mainview()) |mv| mv.lsp_restarted(m);
+
+    if (try m.match(.{ "PRJ", "vcs_repo", tp.more }))
+        return self.vcs_terminal_repo(m);
 
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
@@ -1715,6 +1729,32 @@ fn toggle_idle_action(self: *Self, action: IdleAction) !bool {
     return enable;
 }
 
+/// run action the current file's repo dir
+fn request_vcs_terminal(self: *Self, action: vcs_repo.TerminalAction) !void {
+    const path = try vcs_repo.current_path(self.allocator);
+    errdefer self.allocator.free(path);
+    try project_manager.request_vcs_repo(path, false);
+    if (self.vcs_terminal_request) |request| self.allocator.free(request.path);
+    self.vcs_terminal_request = .{ .action = action, .path = path };
+}
+
+fn vcs_terminal_repo(self: *Self, m: tp.message) !void {
+    const request = self.vcs_terminal_request orelse return;
+    var path: []const u8 = undefined;
+    var repo_root: []const u8 = undefined;
+    const found = if (try m.match(.{ "PRJ", "vcs_repo", tp.extract(&path), tp.extract(&repo_root) }))
+        true
+    else if (try m.match(.{ "PRJ", "vcs_repo", tp.extract(&path), tp.null_ }))
+        false
+    else
+        return;
+    if (!std.mem.eql(u8, path, request.path)) return;
+    self.vcs_terminal_request = null;
+    defer self.allocator.free(request.path);
+    if (!found) return self.logger.print("not in a git repository", .{});
+    try vcs_repo.run_in_terminal(request.action, repo_root);
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
@@ -2275,6 +2315,26 @@ const cmds = struct {
         return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig").Type, ctx);
     }
     pub const show_vcs_status_meta: Meta = .{ .description = "Show git status" };
+
+    pub fn vcs_commit(self: *Self, _: Ctx) Result {
+        return self.request_vcs_terminal(.commit);
+    }
+    pub const vcs_commit_meta: Meta = .{ .description = "Git commit" };
+
+    pub fn vcs_amend(self: *Self, _: Ctx) Result {
+        return self.request_vcs_terminal(.amend);
+    }
+    pub const vcs_amend_meta: Meta = .{ .description = "Git commit --amend" };
+
+    pub fn vcs_fetch(self: *Self, _: Ctx) Result {
+        return self.request_vcs_terminal(.fetch);
+    }
+    pub const vcs_fetch_meta: Meta = .{ .description = "Git fetch" };
+
+    pub fn vcs_push(self: *Self, _: Ctx) Result {
+        return self.request_vcs_terminal(.push);
+    }
+    pub const vcs_push_meta: Meta = .{ .description = "Git push" };
 
     pub fn vcs_revert(self: *Self, ctx: Ctx) Result {
         var kind: VcsRevert = undefined;

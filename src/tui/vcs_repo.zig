@@ -36,6 +36,20 @@ pub fn current_path(allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 
     return allocator.dupe(u8, file_path);
 }
 
+pub const TerminalAction = enum { commit, amend, fetch, push };
+
+/// runs the configured command for the action in a terminal in the repository root
+pub fn run_in_terminal(action: TerminalAction, repo_root: []const u8) tp.result {
+    const config = tui.config();
+    const cmd = switch (action) {
+        .commit => config.vcs_commit_command,
+        .amend => config.vcs_amend_command,
+        .fetch => config.vcs_fetch_command,
+        .push => config.vcs_push_command,
+    };
+    try tp.self_pid().send(.{ "cmd", "open_terminal", .{ cmd, config.terminal_on_exit, repo_root } });
+}
+
 /// the repository root relative to the project, or with ~ for the home directory, whichever is shorter
 /// null if the repository root is the project
 pub fn display_root(allocator: std.mem.Allocator, repo_root: []const u8) error{OutOfMemory}!?[]const u8 {

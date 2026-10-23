@@ -10,7 +10,6 @@ const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
-const Menu = @import("../Menu.zig");
 const MenuButton = @import("../MenuButton.zig");
 const vcs_repo = @import("../vcs_repo.zig");
 
@@ -20,17 +19,6 @@ const behind_symbol = "⇣";
 const stash_symbol = "*";
 const changed_symbol = "+";
 const untracked_symbol = "?";
-
-const menu: Menu = .{ .items = &.{
-    .{ .command = .{ .command = "show_vcs_status" } },
-    .separator,
-    .{ .command = .{ .command = "goto_next_change" } },
-    .{ .command = .{ .command = "goto_prev_change" } },
-    .{ .command = .{ .command = "show_vcs_change" } },
-    .separator,
-    .{ .command = .{ .command = "toggle_gutter_diffs", .on_activate = .keep_open } },
-    .{ .command = .{ .command = "toggle_inline_vcs_blame", .on_activate = .keep_open } },
-} };
 
 allocator: std.mem.Allocator,
 status: VcsStatus = .{},
@@ -75,7 +63,7 @@ fn on_click(self: *Self, btn: *ButtonType, _: Widget.Pos) void {
     self.refresh_vcs_status();
     tui.sync_with_vcs() catch {};
     self.request_repo(true);
-    tui.open_menu(&menu, MenuButton.anchor(btn), null) catch |e|
+    tui.open_menu(&@import("../menu/Main.zig").vcs, MenuButton.anchor(btn), null) catch |e|
         std.log.err("branch menu: {t}", .{e});
 }
 

@@ -1034,8 +1034,6 @@ fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
     result catch |e| palette.logger.err(module_name, e);
 }
 
-const TerminalAction = enum { commit, amend, fetch, push };
-
 pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
     if (try ctx.args.match(.{"close_diff"})) return close_diff(palette);
     if (try ctx.args.match(.{"revert"})) return revert(palette);
@@ -1048,7 +1046,7 @@ pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void 
             send(palette, .{ "cmd", "palette_menu_cancel" });
         return;
     }
-    var terminal_action: TerminalAction = undefined;
+    var terminal_action: vcs_repo.TerminalAction = undefined;
     if (try ctx.args.match(.{tp.extract(&terminal_action)}))
         return run_in_terminal(palette, terminal_action);
     var context_change: ContextChange = undefined;
@@ -1188,15 +1186,8 @@ fn switch_repo(palette: *Type, path: []const u8) !void {
     try project_manager.request_vcs_repo(repo_path, false);
 }
 
-fn run_in_terminal(palette: *Type, terminal_action: TerminalAction) !void {
+fn run_in_terminal(palette: *Type, terminal_action: vcs_repo.TerminalAction) !void {
     close_diff(palette);
-    const config = tui.config();
-    const cmd = switch (terminal_action) {
-        .commit => config.vcs_commit_command,
-        .amend => config.vcs_amend_command,
-        .fetch => config.vcs_fetch_command,
-        .push => config.vcs_push_command,
-    };
     try tp.self_pid().send(.{ "cmd", "exit_overlay_mode" });
-    try tp.self_pid().send(.{ "cmd", "open_terminal", .{ cmd, config.terminal_on_exit, palette.value.root } });
+    try vcs_repo.run_in_terminal(terminal_action, palette.value.root);
 }
