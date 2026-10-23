@@ -340,6 +340,13 @@ pub fn did_save(file_path: []const u8) (ProjectManagerError || ProjectError)!voi
     return send(.{ "did_save", project, file_path });
 }
 
+pub fn file_deleted(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "file_deleted", project, file_path });
+}
+
 pub fn did_close(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -862,6 +869,8 @@ const Process = struct {
             self.did_change_full(project_directory, path, version, hash, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "file_deleted", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.file_deleted(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_close(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "goto_definition", tp.extract(&project_directory), tp.extract(&source_location) })) {
@@ -1604,6 +1613,11 @@ const Process = struct {
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.did_save(file_path);
+    }
+
+    fn file_deleted(self: *Process, project_directory: []const u8, file_path: []const u8) ProjectError!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        project.file_deleted(file_path);
     }
 
     fn did_close(self: *Process, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.StartLspError)!void {
