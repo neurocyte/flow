@@ -2321,6 +2321,11 @@ const cmds = struct {
     }
     pub const vcs_commit_meta: Meta = .{ .description = "Git commit" };
 
+    pub fn vcs_commit_all(self: *Self, _: Ctx) Result {
+        return self.request_vcs_terminal(.commit_all);
+    }
+    pub const vcs_commit_all_meta: Meta = .{ .description = "Git commit --all" };
+
     pub fn vcs_amend(self: *Self, _: Ctx) Result {
         return self.request_vcs_terminal(.amend);
     }

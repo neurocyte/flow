@@ -239,6 +239,7 @@ pub const vcs: Menu = .{ .label = "Git", .items = &.{
     .{ .command = .{ .command = "show_vcs_status" } },
     .separator,
     .{ .command = .{ .command = "vcs_commit" } },
+    .{ .command = .{ .command = "vcs_commit_all" } },
     .{ .command = .{ .command = "vcs_amend" } },
     .{ .command = .{ .command = "vcs_fetch" } },
     .{ .command = .{ .command = "vcs_push" } },
