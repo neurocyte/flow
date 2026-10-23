@@ -182,10 +182,13 @@ const cmds_ = struct {
         const bm = tui.get_buffer_manager() orelse return;
         if (mv.get_active_buffer()) |buffer| {
             const remaining = try bm.close_others(buffer);
-            if (remaining > 0) {
-                logger.print("{} unsaved buffer(s) remaining", .{remaining});
+            const deleted = try bm.list_deleted_on_disk(bm.allocator, buffer);
+            defer bm.allocator.free(deleted);
+            if (remaining > deleted.len) {
+                logger.print("{} unsaved buffer(s) remaining", .{remaining - deleted.len});
                 try cmd("next_tab", .empty_from(ctx));
             }
+            if (deleted.len > 0) try mv.confirm_close_deleted_buffers(deleted, .save_and_close);
         }
     }
     pub const bco_meta: Meta = .{ .description = "bco (Close other buffers/tabs)" };

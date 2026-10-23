@@ -597,6 +597,42 @@ pub fn hide_info_view_panel(self: *Self) void {
     self.toggle_panel_view(info_view, .disable) catch {};
 }
 
+pub const DeletedBufferAction = enum { discard, save_and_close, save_and_delete };
+
+pub fn confirm_close_deleted_buffers(self: *Self, buffers: []const *Buffer, on_save: DeletedBufferAction) command.Result {
+    var paths: std.ArrayList([]const u8) = .empty;
+    defer paths.deinit(self.allocator);
+    var message: std.Io.Writer.Allocating = .init(self.allocator);
+    defer message.deinit();
+    try message.writer.writeAll(if (buffers.len == 1) "File was deleted on disk!" else "Files were deleted on disk!");
+    for (buffers) |buffer| {
+        try paths.append(self.allocator, buffer.get_file_path());
+        try message.writer.print("\n{s}", .{buffer.get_file_path()});
+    }
+    var discard: std.Io.Writer.Allocating = .init(self.allocator);
+    defer discard.deinit();
+    try cbor.writeValue(&discard.writer, .{ "cmd", "close_deleted_buffers", .{ DeletedBufferAction.discard, paths.items } });
+    var save: std.Io.Writer.Allocating = .init(self.allocator);
+    defer save.deinit();
+    try cbor.writeValue(&save.writer, .{ "cmd", "close_deleted_buffers", .{ on_save, paths.items } });
+    return tui.open_confirm(.{
+        .message = message.written(),
+        .choices = &.{
+            .{ .label = "Discard", .action = .{ .bytes = discard.written() }, .severity = .err },
+            .{ .label = "Save", .action = .{ .bytes = save.written() } },
+        },
+    });
+}
+
+fn save_buffer_then(self: *Self, buffer: *Buffer, then: []const u8) !void {
+    const file_path = buffer.get_file_path();
+    if (self.get_editor_for_buffer(buffer)) |editor| if (editor.buffer == buffer)
+        return editor.save_file(.fmt(.{ "then", .{ then, .{file_path} } }));
+    var buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+    self.buffer_manager.save(buffer, .{ .then = .{ .bytes = try cbor.fmtBuf(&buf, .{ "cmd", then, .{file_path} }) } }) catch |e|
+        return tp.exit_error(e, @errorReturnTrace());
+}
+
 fn check_all_not_dirty(self: *const Self) command.Result {
     if (self.buffer_manager.is_dirty())
         return tp.exit("unsaved changes");
@@ -1333,6 +1369,8 @@ const cmds = struct {
             file_path = editor.file_path orelse return error.InvalidDeleteBufferArgument;
         }
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        if (buffer.file_state == .deleted_on_disk)
+            return self.confirm_close_deleted_buffers(&.{buffer}, .save_and_delete);
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");
         if (self.get_editor_for_buffer(buffer)) |editor|
@@ -1351,6 +1389,8 @@ const cmds = struct {
         if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
             return error.InvalidDeleteBufferArgument;
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        if (buffer.file_state == .deleted_on_disk)
+            return self.confirm_close_deleted_buffers(&.{buffer}, .save_and_close);
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");
         if (self.get_editor_for_buffer(buffer)) |editor| {
@@ -1362,6 +1402,27 @@ const cmds = struct {
         tui.need_render(@src());
     }
     pub const close_buffer_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn close_deleted_buffers(self: *Self, ctx: Ctx) Result {
+        var action: DeletedBufferAction = undefined;
+        var paths: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&action), tp.extract_cbor(&paths) }))
+            return error.InvalidCloseDeletedBuffersArgument;
+        var len = try cbor.decodeArrayHeader(&paths);
+        while (len > 0) : (len -= 1) {
+            var file_path: []const u8 = undefined;
+            if (!try cbor.matchString(&paths, &file_path))
+                return error.InvalidCloseDeletedBuffersArgument;
+            const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse continue;
+            switch (action) {
+                .discard => try self.discard_buffer(buffer),
+                .save_and_close => try self.save_buffer_then(buffer, "close_buffer"),
+                .save_and_delete => try self.save_buffer_then(buffer, "delete_buffer"),
+            }
+        }
+        tui.need_render(@src());
+    }
+    pub const close_deleted_buffers_meta: Meta = .{ .arguments = &.{ .string, .array } };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
         const logger = log.logger("session");
@@ -3789,9 +3850,9 @@ fn renamed_path(buf: []u8, buffer_path: []const u8, dir_or_file: []const u8, to_
     return std.fmt.bufPrint(buf, "{s}{s}", .{ to_path, buffer_path[dir_or_file.len..] }) catch null;
 }
 
-fn discard_buffer(self: *Self, buffer: *Buffer, ctx: command.Context) command.Result {
+fn discard_buffer(self: *Self, buffer: *Buffer) command.Result {
     if (self.get_editor_for_buffer(buffer)) |editor|
-        try editor.close_file_without_saving(.empty_from(ctx));
+        try editor.close_editor();
     buffer_lsp.close(buffer);
     self.buffer_manager.delete_buffer(buffer);
 }
@@ -3845,7 +3906,7 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
                 } else return self.file_operation_failed(op.path, "file does not exist", reply),
                 else => return self.request_file_operation(.rename, op, resume_),
             }
-            if (target) |buffer| try self.discard_buffer(buffer, ctx);
+            if (target) |buffer| try self.discard_buffer(buffer);
             if (self.buffer_manager.get_buffer_for_file(op.to_path)) |hidden| self.buffer_manager.delete_buffer(hidden);
             for (buffers) |buffer| {
                 if (buffer == target) continue;
@@ -3913,7 +3974,7 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
                 .confirmed => {
                     for (buffers) |buffer| {
                         if (renamed_path(&path_buf, buffer.get_file_path(), op.path, op.path) == null) continue;
-                        try self.discard_buffer(buffer, ctx);
+                        try self.discard_buffer(buffer);
                     }
                     return self.request_file_operation(.delete, op, resume_);
                 },

@@ -7280,6 +7280,8 @@ pub const Editor = struct {
 
     pub fn close_file(self: *Self, _: Context) Result {
         const buffer_ = self.buffer;
+        if (buffer_) |buffer| if (buffer.file_state == .deleted_on_disk)
+            if (tui.mainview()) |mv| return mv.confirm_close_deleted_buffers(&.{buffer}, .save_and_close);
         if (buffer_) |buffer| if (buffer.is_dirty())
             return tp.exit("unsaved changes");
         try self.close();
@@ -7297,7 +7299,10 @@ pub const Editor = struct {
         try self.close();
         if (buffer_) |buffer| {
             buffer_lsp.close(buffer);
-            self.buffer_manager.close_buffer(buffer);
+            if (buffer.file_state == .deleted_on_disk)
+                self.buffer_manager.delete_buffer(buffer)
+            else
+                self.buffer_manager.close_buffer(buffer);
         }
     }
     pub const close_file_without_saving_meta: Meta = .{ .description = "Close file without saving" };

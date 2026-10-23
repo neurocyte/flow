@@ -859,6 +859,15 @@ pub fn close_others(self: *Self, protected: *Buffer) error{OutOfMemory}!usize {
     return remaining;
 }
 
+pub fn list_deleted_on_disk(self: *const Self, allocator: std.mem.Allocator, excluded: *Buffer) error{OutOfMemory}![]*Buffer {
+    var result: std.ArrayList(*Buffer) = .empty;
+    errdefer result.deinit(allocator);
+    var i = self.buffers.valueIterator();
+    while (i.next()) |buffer| if (buffer.* != excluded and buffer.*.file_state == .deleted_on_disk)
+        try result.append(allocator, buffer.*);
+    return result.toOwnedSlice(allocator);
+}
+
 pub fn buffer_from_ref(self: *Self, buffer_ref: Buffer.Ref) ?*Buffer {
     var i = self.buffers.iterator();
     while (i.next()) |p|
@@ -976,7 +985,7 @@ fn file_changed(self: *Self, abs_path: []const u8, event_type: FileStore.EventTy
     if (object_type == .dir) return .nochange;
     const buffer = self.buffer_for_watched_path(abs_path) orelse return .nochange;
     return switch (event_type) {
-        .deleted => file_gone(buffer, null),
+        .deleted => self.file_gone(buffer, null),
         .created, .modified => self.file_replaced(buffer),
         .closed => .nochange,
     };
@@ -985,7 +994,7 @@ fn file_changed(self: *Self, abs_path: []const u8, event_type: FileStore.EventTy
 fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8, _: FileStore.ObjectType) LoadResult {
     var result: LoadResult = .nochange;
     if (self.buffer_for_watched_path(from_path)) |buffer|
-        result = file_gone(buffer, to_path);
+        result = self.file_gone(buffer, to_path);
     if (self.buffer_for_watched_path(to_path)) |buffer|
         if (self.file_replaced(buffer) == .modified) {
             result = .modified;
@@ -993,7 +1002,11 @@ fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8, _: File
     return result;
 }
 
-fn file_gone(buffer: *Buffer, renamed_to: ?[]const u8) LoadResult {
+fn file_gone(self: *Self, buffer: *Buffer, renamed_to: ?[]const u8) LoadResult {
+    if (buffer.hidden and !buffer.is_dirty()) {
+        self.delete_buffer(buffer);
+        return .modified;
+    }
     buffer.file_exists = false;
     buffer.file_state = .deleted_on_disk;
     if (renamed_to) |to_path|
