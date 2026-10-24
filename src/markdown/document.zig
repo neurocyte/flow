@@ -356,8 +356,44 @@ const Builder = struct {
     }
 
     fn table(self: *Builder, parent: *Elem, node: Node) Error!void {
-        const pre = try parent.add_node(self.arena, "pre", node);
-        try pre.add_text(self.arena, std.mem.trimEnd(u8, try self.content_text(node), "\r\n"));
+        const elem = try parent.add_node(self.arena, "table", node);
+        var aligns: std.ArrayList(?[]const u8) = .empty;
+        if (child_of_type(node, "pipe_table_delimiter_row")) |row| {
+            var i: u32 = 0;
+            while (i < row.getNamedChildCount()) : (i += 1) {
+                const cell = row.getNamedChild(i);
+                if (!std.mem.eql(u8, cell.getType(), "pipe_table_delimiter_cell")) continue;
+                const left = child_of_type(cell, "pipe_table_align_left") != null;
+                const right = child_of_type(cell, "pipe_table_align_right") != null;
+                try aligns.append(self.arena, if (left and right) "center" else if (left) "left" else if (right) "right" else null);
+            }
+        }
+        var body: ?*Elem = null;
+        var i: u32 = 0;
+        while (i < node.getNamedChildCount()) : (i += 1) {
+            const row = node.getNamedChild(i);
+            const t = row.getType();
+            const head = std.mem.eql(u8, t, "pipe_table_header");
+            if (!head and !std.mem.eql(u8, t, "pipe_table_row")) continue;
+            const section = if (head)
+                try elem.add_node(self.arena, "thead", row)
+            else
+                body orelse blk: {
+                    body = try elem.add_elem(self.arena, "tbody", row.getStartByte(), node.getEndByte());
+                    break :blk body.?;
+                };
+            const tr = try section.add_node(self.arena, "tr", row);
+            var column: usize = 0;
+            var j: u32 = 0;
+            while (j < row.getNamedChildCount()) : (j += 1) {
+                const cell = row.getNamedChild(j);
+                if (!std.mem.eql(u8, cell.getType(), "pipe_table_cell")) continue;
+                const td = try tr.add_node(self.arena, if (head) "th" else "td", cell);
+                if (column < aligns.items.len) if (aligns.items[column]) |a| try td.set(self.arena, "align", .{ .string = a });
+                column += 1;
+                try self.inline_ranges(td, &.{cell.getRange()});
+            }
+        }
     }
 
     fn is_list_marker(t: []const u8) bool {
@@ -538,6 +574,13 @@ const Builder = struct {
         } else if (eql(u8, t, "entity_reference") or eql(u8, t, "numeric_character_reference")) {
             try self.add_source(elem, pos, cs);
             try elem.add_text(self.arena, try decode_entity(self.arena, self.src[cs..ce]) orelse self.src[cs..ce]);
+        } else if (eql(u8, t, "html_tag")) {
+            try self.add_source(elem, pos, cs);
+            const raw = self.src[cs..ce];
+            if (is_br_tag(raw))
+                _ = try elem.add_node(self.arena, "br", child)
+            else
+                try (try elem.add_node(self.arena, "html", child)).add_text(self.arena, raw);
         } else if (eql(u8, t, "hard_line_break")) {
             try self.add_source(elem, pos, cs);
             _ = try elem.add_node(self.arena, "br", child);
@@ -567,6 +610,13 @@ const Builder = struct {
 
 const heading_tags = [_][]const u8{ "h1", "h2", "h3", "h4", "h5", "h6" };
 
+/// `<br>`, `<br/>` or `<br />`, in any case
+fn is_br_tag(raw: []const u8) bool {
+    if (raw.len < 4 or raw[0] != '<' or raw[raw.len - 1] != '>') return false;
+    const inner = std.mem.trim(u8, raw[1 .. raw.len - 1], " \t/");
+    return std.ascii.eqlIgnoreCase(inner, "br");
+}
+
 fn strip_code_indent(code: []const u8) []const u8 {
     if (std.mem.startsWith(u8, code, "\t")) return code[1..];
     var n: usize = 0;
@@ -593,7 +643,7 @@ fn trim_final_newline(s: []const u8) []const u8 {
 }
 
 fn is_inline_tag(tag: []const u8) bool {
-    const tags = [_][]const u8{ "em", "strong", "del", "a" };
+    const tags = [_][]const u8{ "em", "strong", "del", "a", "html" };
     for (tags) |t| if (std.mem.eql(u8, tag, t)) return true;
     return false;
 }

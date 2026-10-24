@@ -57,6 +57,8 @@ pub fn build(allocator: Allocator, doc: []const u8, theme: Theme, query_cache: *
 
 const Wrap = enum { words, cells };
 
+pub const Row = enum { none, head, body };
+
 const Block = struct {
     first_prefix: []const u8 = "",
     prefix: []const u8 = "",
@@ -65,6 +67,8 @@ const Block = struct {
     fill: []const u8 = "",
     space_before: u8 = 0,
     sloc: ?[2]usize = null,
+    table: ?[]const []const u8 = null,
+    row: Row = .none,
     text: std.ArrayList(u8) = .empty,
     spans: std.ArrayList(Span) = .empty,
     children: std.ArrayList(*Block) = .empty,
@@ -74,8 +78,10 @@ const Block = struct {
         var count: usize = 1;
         if (self.first_prefix.len > 0) count += 1;
         if (self.prefix.len > 0) count += 1;
-        const styled = self.first_prefix.len > 0 or self.prefix.len > 0 or self.fill.len > 0;
+        const styled = self.first_prefix.len > 0 or self.prefix.len > 0 or self.fill.len > 0 or self.table != null;
         if (styled) count += 1;
+        if (self.table) |_| count += 1;
+        if (self.row != .none) count += 1;
         if (self.fill.len > 0) count += 1;
         if (self.space_before > 0) count += 1;
         if (self.sloc) |_| count += 1;
@@ -101,6 +107,15 @@ const Block = struct {
         if (self.space_before > 0) {
             try cbor.writeValue(writer, "space_before");
             try cbor.writeValue(writer, self.space_before);
+        }
+        if (self.table) |columns| {
+            try cbor.writeValue(writer, "table");
+            try cbor.writeArrayHeader(writer, columns.len);
+            for (columns) |column| try cbor.writeValue(writer, column);
+        }
+        if (self.row != .none) {
+            try cbor.writeValue(writer, "row");
+            try cbor.writeValue(writer, @tagName(self.row));
         }
         if (self.sloc) |sloc| {
             try cbor.writeValue(writer, "sloc");
@@ -155,6 +170,7 @@ const Builder = struct {
         if (eql(u8, tag, "code") or eql(u8, tag, "pre")) return .{ .scopes = &.{ "markup.raw", "text.literal", "string" } };
         if (eql(u8, tag, "a")) return .{ .scopes = &.{ "markup.underline.link", "text.reference" }, .bit = .underline };
         if (eql(u8, tag, "html")) return .{ .scopes = &.{"comment"} };
+        if (eql(u8, tag, "th")) return .{ .scopes = &.{}, .bit = .bold };
         return null;
     }
 
@@ -218,6 +234,8 @@ const Builder = struct {
             const b = try self.new_block(parent, elem, spacing);
             b.fill = "─";
             b.prefix_style = self.apply(.{}, quote_prefix);
+        } else if (eql(u8, tag, "table")) {
+            try self.table(parent, elem, spacing);
         } else if (eql(u8, tag, "html")) {
             const b = try self.new_block(parent, elem, spacing);
             b.wrap = .cells;
@@ -251,6 +269,45 @@ const Builder = struct {
             item.prefix_style = prefix_style;
             try self.item_content(item, li, loose);
         }
+    }
+
+    fn table(self: *Builder, parent: *Block, elem: document.Element, spacing: Spacing) Error!void {
+        const b = try self.new_block(parent, elem, spacing);
+        b.wrap = .cells;
+        b.prefix_style = self.apply(.{}, list_prefix);
+        var columns: std.ArrayList([]const u8) = .empty;
+        var sections = elem.iterate();
+        while (try sections.next()) |section_| {
+            const section = switch (section_) {
+                .element => |e| e,
+                .text => continue,
+            };
+            const kind: Row = if (section.is("thead")) .head else .body;
+            var rows = section.iterate();
+            while (try rows.next()) |row_| {
+                const tr = switch (row_) {
+                    .element => |e| e,
+                    .text => continue,
+                };
+                const row = try self.new_block(b, tr, .tight);
+                row.row = kind;
+                row.wrap = .cells;
+                var cells = tr.iterate();
+                var column: usize = 0;
+                while (try cells.next()) |cell_| {
+                    const cell = switch (cell_) {
+                        .element => |e| e,
+                        .text => continue,
+                    };
+                    if (column >= columns.items.len) try columns.append(self.arena, cell.attr_string("align") orelse "");
+                    column += 1;
+                    const c = try self.new_block(row, cell, .tight);
+                    c.wrap = .cells;
+                    try self.inlines(c, cell, .{ .style = self.apply_tag(.{}, cell.tag), .sloc = cell.sloc() });
+                }
+            }
+        }
+        b.table = columns.items;
     }
 
     fn is_loose_item(li: document.Element) bool {
@@ -481,6 +538,26 @@ pub const BlockReader = struct {
 
     pub fn wrap(self: BlockReader) Wrap {
         return if (std.mem.eql(u8, self.attr_string("wrap"), "cells")) .cells else .words;
+    }
+
+    pub fn is_table(self: BlockReader) bool {
+        return self.attr("table") != null;
+    }
+
+    pub const Align = enum { none, left, center, right };
+
+    pub fn column_align(self: BlockReader, column: usize) Align {
+        var iter = self.attr("table") orelse return .none;
+        const len = cbor.decodeArrayHeader(&iter) catch return .none;
+        if (column >= len) return .none;
+        for (0..column) |_| cbor.skipValue(&iter) catch return .none;
+        var value: []const u8 = "";
+        if (!(cbor.matchString(&iter, &value) catch false)) return .none;
+        return std.meta.stringToEnum(Align, value) orelse .none;
+    }
+
+    pub fn row(self: BlockReader) Row {
+        return std.meta.stringToEnum(Row, self.attr_string("row")) orelse .none;
     }
 
     pub fn space_before(self: BlockReader) usize {

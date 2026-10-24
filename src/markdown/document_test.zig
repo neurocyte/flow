@@ -114,3 +114,11 @@ test "source locations" {
     defer std.testing.allocator.free(actual);
     try std.testing.expectEqualStrings("(body :sloc [0 13] (h1 :sloc [0 8] \"a \" (em :sloc [4 7] \"b\")) (blockquote :sloc [9 13] (p :sloc [11 13] \"c\")))", actual);
 }
+
+test "pipe table" {
+    try expect("| a | b | c | d |\n|:--|--:|:-:|---|\n| 1 | **2** | `3` | 4 \\| 5 |\n| x |\n", "(body (table (thead (tr (th :align \"left\" \"a\") (th :align \"right\" \"b\") (th :align \"center\" \"c\") (th \"d\"))) (tbody (tr (td :align \"left\" \"1\") (td :align \"right\" (strong \"2\")) (td :align \"center\" (code \"3\")) (td \"4 | 5\")) (tr (td :align \"left\" \"x\")))))");
+}
+
+test "inline html" {
+    try expect("a<br>b<BR/>c <b>bold</b> d", "(body (p \"a\" (br) \"b\" (br) \"c \" (html \"<b>\") \"bold\" (html \"</b>\") \" d\"))");
+}

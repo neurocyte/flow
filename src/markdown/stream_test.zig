@@ -110,3 +110,7 @@ test "stream reader" {
     try std.testing.expectEqual([2]usize{ 2, 18 }, span.attrs.sloc.?);
     try std.testing.expectEqual(null, try top.next());
 }
+
+test "pipe table" {
+    try expect("| a | b |\n|:--|--:|\n| 1 | **2** |\n", .{}, "(blocks (block :prefix_style { :fg 0x000005 } :wrap \"cells\" :table [\"left\" \"right\"] :width 0 \"\" (block :wrap \"cells\" :row \"head\" :width 0 \"\" (block :wrap \"cells\" :width 1 \"a\" (span 0 1 :bold true)) (block :wrap \"cells\" :width 1 \"b\" (span 0 1 :bold true))) (block :wrap \"cells\" :row \"body\" :width 0 \"\" (block :wrap \"cells\" :width 1 \"1\" (span 0 1)) (block :wrap \"cells\" :width 1 \"2\" (span 0 1 :fg 0x000002 :bold true)))))");
+}

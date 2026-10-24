@@ -430,7 +430,9 @@ const LayoutBuilder = struct {
         const lines_before = self.view.lines.items.len;
 
         const fill = b.fill();
-        if (fill.len > 0) {
+        if (b.is_table()) {
+            try self.table(b);
+        } else if (fill.len > 0) {
             const fill_width = @max(1, self.text_width(fill, 0));
             var line: std.ArrayList(u8) = .empty;
             for (0..self.avail() / fill_width) |_| try line.appendSlice(self.arena, fill);
@@ -442,13 +444,125 @@ const LayoutBuilder = struct {
             try self.wrap(b);
         }
 
-        var children = b.iterate();
-        while (try children.next()) |child| try self.block(child);
+        if (!b.is_table()) {
+            var children = b.iterate();
+            while (try children.next()) |child| try self.block(child);
+        }
 
         if (has_prefix) {
             if (self.view.lines.items.len == lines_before) try self.emit("", &.{}, 0, 0);
             _ = self.prefixes.pop();
         }
+    }
+
+    /// a line of text and the runs that style it
+    const LineText = struct {
+        text: std.ArrayList(u8) = .empty,
+        segs: std.ArrayList(Run) = .empty,
+
+        fn add(self: *LineText, arena: Allocator, text: []const u8, attrs: Attrs) !void {
+            if (text.len == 0) return;
+            try self.text.appendSlice(arena, text);
+            try self.segs.append(arena, .{ .text = text, .attrs = attrs });
+        }
+    };
+
+    const CellLine = struct { segs: []const Run, width: usize };
+    const TableCell = struct { lines: []const CellLine, width: usize };
+    const TableRow = struct { head: bool, height: usize, cells: []const TableCell };
+
+    /// the lines of a cell, split at hard breaks
+    fn cell_lines(self: *const LayoutBuilder, cell: BlockReader) !TableCell {
+        var lines: std.ArrayList(CellLine) = .empty;
+        var segs: std.ArrayList(Run) = .empty;
+        var width: usize = 0;
+        for (try self.segments(cell)) |seg| {
+            var parts = std.mem.splitScalar(u8, seg.text, '\n');
+            var first = true;
+            while (parts.next()) |part| {
+                if (!first) {
+                    try lines.append(self.arena, .{ .segs = segs.items, .width = width });
+                    segs = .empty;
+                    width = 0;
+                }
+                first = false;
+                if (part.len == 0) continue;
+                try segs.append(self.arena, .{ .text = part, .attrs = seg.attrs });
+                width += self.text_width(part, width);
+            }
+        }
+        try lines.append(self.arena, .{ .segs = segs.items, .width = width });
+        var max: usize = 0;
+        for (lines.items) |line| max = @max(max, line.width);
+        return .{ .lines = lines.items, .width = max };
+    }
+
+    /// columns sized to their widest cell, or one wrapped line per row line if that does not fit
+    fn table(self: *LayoutBuilder, b: BlockReader) !void {
+        var rows: std.ArrayList(TableRow) = .empty;
+        var widths: std.ArrayList(usize) = .empty;
+        var row_iter = b.iterate();
+        while (try row_iter.next()) |row| {
+            var cells: std.ArrayList(TableCell) = .empty;
+            var height: usize = 1;
+            var cell_iter = row.iterate();
+            while (try cell_iter.next()) |cell| {
+                const table_cell = try self.cell_lines(cell);
+                if (cells.items.len >= widths.items.len) try widths.append(self.arena, 0);
+                widths.items[cells.items.len] = @max(widths.items[cells.items.len], table_cell.width);
+                height = @max(height, table_cell.lines.len);
+                try cells.append(self.arena, table_cell);
+            }
+            try rows.append(self.arena, .{ .head = row.row() == .head, .height = height, .cells = cells.items });
+        }
+        const separator = " │ ";
+        const border: Attrs = .{ .style = b.prefix_style() };
+        var total: usize = 0;
+        for (widths.items) |w| total += w;
+        total += (widths.items.len -| 1) * self.text_width(separator, 0);
+        const fits = total <= self.avail();
+
+        for (rows.items) |row| {
+            for (0..row.height) |k| {
+                var line: LineText = .{};
+                for (widths.items, 0..) |width, i| {
+                    if (i > 0) try line.add(self.arena, separator, border);
+                    const cell_line: CellLine = if (i < row.cells.len and k < row.cells[i].lines.len)
+                        row.cells[i].lines[k]
+                    else
+                        .{ .segs = &.{}, .width = 0 };
+                    const pad = if (fits) width -| cell_line.width else 0;
+                    const left = switch (b.column_align(i)) {
+                        .right => pad,
+                        .center => pad / 2,
+                        .none, .left => 0,
+                    };
+                    try line.add(self.arena, try self.spaces(left), .{});
+                    for (cell_line.segs) |seg| try line.add(self.arena, seg.text, seg.attrs);
+                    if (i + 1 < widths.items.len) try line.add(self.arena, try self.spaces(pad - left), .{});
+                }
+                if (fits)
+                    try self.emit(line.text.items, line.segs.items, 0, line.text.items.len)
+                else
+                    try self.wrap_words(line.text.items, line.segs.items, 0, line.text.items.len);
+            }
+            if (row.head and fits) {
+                var rule: LineText = .{};
+                for (widths.items, 0..) |width, i| {
+                    if (i > 0) try rule.add(self.arena, "─┼─", border);
+                    var dashes: std.ArrayList(u8) = .empty;
+                    for (0..width) |_| try dashes.appendSlice(self.arena, "─");
+                    try rule.add(self.arena, dashes.items, border);
+                }
+                try self.emit(rule.text.items, rule.segs.items, 0, rule.text.items.len);
+            }
+        }
+    }
+
+    fn spaces(self: *const LayoutBuilder, n: usize) ![]const u8 {
+        const s = try self.arena.alloc(u8, n);
+        @memset(s, ' ');
+        return s;
     }
 
     const Grapheme = struct { len: usize, width: usize };
