@@ -385,17 +385,17 @@ pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
 }
 
 fn show_info_panel(mv: anytype, values: Values) !void {
-    try mv.set_info_content(values.label, .replace);
-    try mv.set_info_content(" ", .append); // blank line
-    try mv.set_info_content(values.detail, .append);
+    try mv.set_info_content(.plaintext, values.label, .replace);
+    try mv.set_info_content(.plaintext, " ", .append); // blank line
+    try mv.set_info_content(.plaintext, values.detail, .append);
     if (builtin.mode == .debug) {
-        try mv.set_info_content("newText:", .append); // blank line
-        try mv.set_info_content(values.textEdit_newText, .append);
-        try mv.set_info_content("insertText:", .append); // blank line
-        try mv.set_info_content(values.insertText, .append);
+        try mv.set_info_content(.plaintext, "newText:", .append); // blank line
+        try mv.set_info_content(.plaintext, values.textEdit_newText, .append);
+        try mv.set_info_content(.plaintext, "insertText:", .append); // blank line
+        try mv.set_info_content(.plaintext, values.insertText, .append);
     }
-    try mv.set_info_content(" ", .append); // blank line
-    try mv.set_info_content(values.documentation, .append);
+    try mv.set_info_content(.plaintext, " ", .append); // blank line
+    try mv.set_info_content(.plaintext, values.documentation, .append);
 }
 
 fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
@@ -416,20 +416,20 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     const info_ = if (w.get(@typeName(info_view))) |w_| w_.dynamic_cast(info_view) orelse null else null;
     const info = info_ orelse @panic("show_info_box");
 
-    try info.set_content(values.label);
+    try info.set_content(.plaintext, values.label);
     if (values.detail.len > 0) {
-        try info.append_content(" "); // blank line
-        try info.append_content(values.detail);
+        try info.append_content(.plaintext, " "); // blank line
+        try info.append_content(.plaintext, values.detail);
     }
     if (builtin.mode == .debug) {
-        try info.append_content("newText:"); // blank line
-        try info.append_content(values.textEdit_newText);
-        try info.append_content("insertText:"); // blank line
-        try info.append_content(values.insertText);
+        try info.append_content(.plaintext, "newText:"); // blank line
+        try info.append_content(.plaintext, values.textEdit_newText);
+        try info.append_content(.plaintext, "insertText:"); // blank line
+        try info.append_content(.plaintext, values.insertText);
     }
     if (values.documentation.len > 0) {
-        try info.append_content(" "); // blank line
-        try info.append_content(values.documentation);
+        try info.append_content(.plaintext, " "); // blank line
+        try info.append_content(.plaintext, values.documentation);
     }
 
     const padding = tui.get_widget_style(info_box_widget_type).padding;

@@ -2498,7 +2498,7 @@ pub const Editor = struct {
         }
         const info = try self.show_info_box();
         info.clear();
-        try info.append_content(content);
+        try info.append_content(.plaintext, content);
         self.place_info_box(range.begin);
         self.info_box_state = .{
             .range = range,

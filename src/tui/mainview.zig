@@ -250,7 +250,7 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     } else if (try m.match(.{ "hover", tp.extract(&path), tp.string, tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         switch (tui.config().hover_info_mode) {
-            .panel => self.set_info_content(lines, .replace) catch {},
+            .panel => self.set_info_content(.plaintext, lines, .replace) catch {},
             .box => if (self.get_editor_for_file(path)) |editor|
                 editor.set_hover_content(.{
                     .begin = .{ .row = begin_line, .col = begin_pos },
@@ -1068,6 +1068,13 @@ const cmds = struct {
         tui.need_render(@src());
     }
     pub const markdown_debug_dump_meta: Meta = .{ .description = "Debug: dump the markdown pipeline stages of the current buffer" };
+
+    pub fn markdown_debug_preview(self: *Self, _: Ctx) Result {
+        const editor = self.get_active_editor() orelse return;
+        const buffer = editor.buffer orelse return;
+        try self.set_info_content(.markdown, buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode), .replace);
+    }
+    pub const markdown_debug_preview_meta: Meta = .{ .description = "Debug: show the current buffer as markdown in the info panel" };
 
     pub fn open_font_test_text(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
@@ -3633,13 +3640,13 @@ fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
     if (self.filelist_view_for(list_id)) |flv| flv.refresh();
 }
 
-pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {
+pub fn set_info_content(self: *Self, kind: info_view.Kind, content: []const u8, mode: enum { replace, append }) tp.result {
     if (content.len == 0) return;
     const info = self.show_panel_view(info_view, .empty()) catch |e| return tp.exit_error(e, @errorReturnTrace());
     self.bottom_area.set_maximized(false);
     switch (mode) {
-        .replace => info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
-        .append => info.append_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+        .replace => info.set_content(kind, content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+        .append => info.append_content(kind, content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
     }
     tui.need_render(@src());
 }

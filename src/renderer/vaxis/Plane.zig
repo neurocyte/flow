@@ -389,6 +389,10 @@ pub fn cell_load(self: *Plane, cell: *Cell, gcluster: []const u8) !usize {
     return bytes;
 }
 
+pub fn cell_set_link(self: *Plane, cell: *Cell, uri: []const u8, params: []const u8) void {
+    cell.cell.link = .{ .uri = self.cache.put(uri), .params = self.cache.put(params) };
+}
+
 pub fn at_cursor_cell(self: Plane, cell: *Cell) !usize {
     cell.* = .{};
     if (self.window.readCell(@intCast(self.col), @intCast(self.row))) |cell_| cell.cell = cell_;

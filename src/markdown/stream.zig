@@ -163,7 +163,7 @@ const Builder = struct {
 
     fn apply(self: *const Builder, base: Style, delta: Delta) Style {
         var style = base;
-        for (delta.scopes) |scope| if (self.theme.lookup(scope)) |token| {
+        for (delta.scopes) |scope| if (self.theme.lookup(scope)) |token| if (token.fg != null or token.fs != null) {
             if (token.fg) |fg| style.fg = rich_line.Color.rgbFromUint(fg);
             if (token.fs) |fs| add_bit(&style, fs);
             break;
@@ -247,7 +247,7 @@ const Builder = struct {
                 try std.mem.concat(self.arena, u8, &.{ marker, if (checked) "[x] " else "[ ] " })
             else
                 marker;
-            item.prefix = try self.spaces(rich_line.display_width(item.first_prefix));
+            item.prefix = try self.spaces(rich_line.display_width(marker));
             item.prefix_style = prefix_style;
             try self.item_content(item, li, loose);
         }

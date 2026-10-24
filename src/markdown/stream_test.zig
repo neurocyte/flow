@@ -51,7 +51,7 @@ test "nested inline styles" {
 }
 
 test "tight lists, task items and ordered start" {
-    try expect("- a\n- [x] b\n  - c\n\n3. one\n4. two", .{}, "(blocks (block :wrap \"words\" :width 0 \"\" (block :first_prefix \"• \" :prefix \"  \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 1 \"a\" (span 0 1)) (block :first_prefix \"• [x] \" :prefix \"      \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 1 \"b\" (span 0 1) (block :wrap \"words\" :width 0 \"\" (block :first_prefix \"• \" :prefix \"  \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 1 \"c\" (span 0 1))))) (block :wrap \"words\" :space_before 1 :width 0 \"\" (block :first_prefix \"3. \" :prefix \"   \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 3 \"one\" (span 0 3)) (block :first_prefix \"4. \" :prefix \"   \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 3 \"two\" (span 0 3))))");
+    try expect("- a\n- [x] b\n  - c\n\n3. one\n4. two", .{}, "(blocks (block :wrap \"words\" :width 0 \"\" (block :first_prefix \"• \" :prefix \"  \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 1 \"a\" (span 0 1)) (block :first_prefix \"• [x] \" :prefix \"  \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 1 \"b\" (span 0 1) (block :wrap \"words\" :width 0 \"\" (block :first_prefix \"• \" :prefix \"  \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 1 \"c\" (span 0 1))))) (block :wrap \"words\" :space_before 1 :width 0 \"\" (block :first_prefix \"3. \" :prefix \"   \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 3 \"one\" (span 0 3)) (block :first_prefix \"4. \" :prefix \"   \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 3 \"two\" (span 0 3))))");
 }
 
 test "loose list" {
