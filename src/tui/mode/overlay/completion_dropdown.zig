@@ -245,6 +245,7 @@ pub const Values = struct {
     label_description: []const u8,
     detail: []const u8,
     documentation: []const u8,
+    documentation_kind: info_view.Kind,
     insertText: []const u8,
     insertTextFormat: usize,
     textEdit_newText: []const u8,
@@ -256,6 +257,7 @@ pub fn get_values(item_cbor: []const u8) Values {
     var label_description: []const u8 = "";
     var detail: []const u8 = "";
     var documentation: []const u8 = "";
+    var documentation_kind: []const u8 = "";
     var sort_text: []const u8 = "";
     var kind: u8 = 0;
     var insertText: []const u8 = "";
@@ -276,7 +278,7 @@ pub fn get_values(item_cbor: []const u8) Values {
         cbor.extract(&kind), // kind
         cbor.extract(&detail), // detail
         cbor.extract(&documentation), // documentation
-        cbor.any, // documentation_kind
+        cbor.extract(&documentation_kind), // documentation_kind
         cbor.extract(&sort_text), // sortText
         cbor.extract(&insertText), // insertText
         cbor.extract(&insertTextFormat), // insertTextFormat
@@ -298,6 +300,7 @@ pub fn get_values(item_cbor: []const u8) Values {
         .label_description = label_description,
         .detail = detail,
         .documentation = documentation,
+        .documentation_kind = .from_lsp(documentation_kind),
         .insertTextFormat = insertTextFormat,
         .insertText = insertText,
         .textEdit_newText = textEdit_newText,
@@ -395,7 +398,7 @@ fn show_info_panel(mv: anytype, values: Values) !void {
         try mv.set_info_content(.plaintext, values.insertText, .append);
     }
     try mv.set_info_content(.plaintext, " ", .append); // blank line
-    try mv.set_info_content(.plaintext, values.documentation, .append);
+    try mv.set_info_content(values.documentation_kind, values.documentation, .append);
 }
 
 fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
@@ -429,7 +432,7 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     }
     if (values.documentation.len > 0) {
         try info.append_content(.plaintext, " "); // blank line
-        try info.append_content(.plaintext, values.documentation);
+        try info.append_content(values.documentation_kind, values.documentation);
     }
 
     const padding = tui.get_widget_style(info_box_widget_type).padding;

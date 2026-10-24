@@ -1109,6 +1109,7 @@ const HoverContentsError = error{
     InvalidHoverContents,
     InvalidHoverContentsField,
     InvalidHoverContentsFieldName,
+    WriteFailed,
 } || cbor.Error;
 
 fn send_contents(
@@ -1121,31 +1122,55 @@ fn send_contents(
     range: ?Range,
 ) HoverContentsError!void {
     var iter = result;
-    var kind: []const u8 = "plaintext";
     var value: []const u8 = "";
+
     if (try cbor.matchValue(&iter, cbor.extract(&value)))
-        return send_content_msg(to, tag, file_path, row, col, kind, value, range);
+        return send_content_msg(to, tag, file_path, row, col, "markdown", value, range);
 
     var list_size = cbor.decodeArrayHeader(&iter) catch blk: {
         iter = result;
         break :blk 1;
     };
 
+    var joined: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+    defer joined.deinit();
+    var kind: []const u8 = "plaintext";
+    var first = true;
     while (list_size > 0) : (list_size -= 1) {
-        var len = cbor.decodeMapHeader(&iter) catch return;
-        while (len > 0) : (len -= 1) {
-            var field_name: []const u8 = undefined;
-            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidHoverContentsFieldName;
-            if (std.mem.eql(u8, field_name, "kind")) {
-                if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return error.InvalidHoverContentsField;
-            } else if (std.mem.eql(u8, field_name, "value")) {
-                if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidHoverContentsField;
-            } else {
-                try cbor.skipValue(&iter);
+        var item_kind: []const u8 = "markdown";
+        var language: ?[]const u8 = null;
+        value = "";
+        if (!try cbor.matchValue(&iter, cbor.extract(&value))) {
+            item_kind = "plaintext";
+            var len = cbor.decodeMapHeader(&iter) catch return;
+            while (len > 0) : (len -= 1) {
+                var field_name: []const u8 = undefined;
+                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidHoverContentsFieldName;
+                if (std.mem.eql(u8, field_name, "kind")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&item_kind)))) return error.InvalidHoverContentsField;
+                } else if (std.mem.eql(u8, field_name, "language")) {
+                    var language_: []const u8 = undefined;
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&language_)))) return error.InvalidHoverContentsField;
+                    language = language_;
+                } else if (std.mem.eql(u8, field_name, "value")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidHoverContentsField;
+                } else {
+                    try cbor.skipValue(&iter);
+                }
             }
         }
-        try send_content_msg(to, tag, file_path, row, col, kind, value, range);
+        if (value.len == 0) continue;
+        if (!first) try joined.writer.writeAll("\n\n");
+        first = false;
+        if (language) |lang| {
+            try joined.writer.print("```{s}\n{s}\n```", .{ lang, value });
+            kind = "markdown";
+        } else {
+            try joined.writer.writeAll(value);
+            if (std.mem.eql(u8, item_kind, "markdown")) kind = "markdown";
+        }
     }
+    try send_content_msg(to, tag, file_path, row, col, kind, joined.written(), range);
 }
 
 pub fn send_content_msg(
@@ -2482,7 +2507,7 @@ fn send_init_request(
                         .snippetSupport = true,
                         .commitCharactersSupport = true,
                         .documentationFormat = .{
-                            // "markdown",
+                            "markdown",
                             "plaintext",
                         },
                         .deprecatedSupport = true,
@@ -2507,7 +2532,7 @@ fn send_init_request(
                 .hover = .{
                     .dynamicRegistration = true,
                     .contentFormat = .{
-                        // "markdown",
+                        "markdown",
                         "plaintext",
                     },
                 },
@@ -2515,7 +2540,7 @@ fn send_init_request(
                     .dynamicRegistration = true,
                     .signatureInformation = .{
                         .documentationFormat = .{
-                            // "markdown",
+                            "markdown",
                             "plaintext",
                         },
                         .parameterInformation = .{ .labelOffsetSupport = true },

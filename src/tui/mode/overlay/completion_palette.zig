@@ -172,7 +172,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
         try mv.set_info_content(.plaintext, values.insertText, .append);
     }
     try mv.set_info_content(.plaintext, " ", .append); // blank line
-    try mv.set_info_content(.plaintext, values.documentation, .append);
+    try mv.set_info_content(values.documentation_kind, values.documentation, .append);
 }
 
 pub fn cancel(palette: *Type, _: command.Context) !void {

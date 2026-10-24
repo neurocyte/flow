@@ -31,7 +31,15 @@ fn find_markdown_token(context: *const anyopaque, scope: []const u8) ?markdown.s
 
 const Self = @This();
 
-pub const Kind = enum { plaintext, markdown };
+pub const Kind = enum {
+    plaintext,
+    markdown,
+
+    /// an LSP `MarkupKind`
+    pub fn from_lsp(kind: []const u8) Kind {
+        return if (std.mem.eql(u8, kind, "markdown")) .markdown else .plaintext;
+    }
+};
 
 const Section = struct {
     kind: Kind,
@@ -252,6 +260,7 @@ fn layout(self: *Self) !void {
             while (try blocks.next()) |block| try builder.block(block);
         },
     };
+    if (self.widget_type == .info_box) try builder.fit_fills();
 }
 
 const Prefix = struct {
@@ -267,6 +276,35 @@ const LayoutBuilder = struct {
     width: usize,
     tab_width: usize,
     prefixes: std.ArrayList(Prefix) = .empty,
+    fills: std.ArrayList(Fill) = .empty,
+
+    const Fill = struct { line: usize, fill: []const u8, prefix_width: usize };
+
+    /// fit fills to the widest line
+    fn fit_fills(self: *LayoutBuilder) !void {
+        if (self.fills.items.len == 0) return;
+        var width: usize = 0;
+        var fill_idx: usize = 0;
+        for (self.view.lines.items, 0..) |line, i| {
+            if (fill_idx < self.fills.items.len and self.fills.items[fill_idx].line == i) {
+                fill_idx += 1;
+                continue;
+            }
+            width = @max(width, line.width);
+        }
+        for (self.fills.items) |f| {
+            const line = &self.view.lines.items[f.line];
+            const fill_width = @max(1, self.text_width(f.fill, 0));
+            const count = @max(1, (width -| f.prefix_width) / fill_width);
+            var text: std.ArrayList(u8) = .empty;
+            for (0..count) |_| try text.appendSlice(self.arena, f.fill);
+            const last = line.runs.len - 1;
+            const runs = try self.arena.dupe(Run, line.runs);
+            runs[last].text = text.items;
+            line.runs = runs;
+            line.width = f.prefix_width + count * fill_width;
+        }
+    }
 
     fn plaintext(self: *LayoutBuilder, content: []const u8) !void {
         var iter = std.mem.splitScalar(u8, content, '\n');
@@ -397,7 +435,9 @@ const LayoutBuilder = struct {
             var line: std.ArrayList(u8) = .empty;
             for (0..self.avail() / fill_width) |_| try line.appendSlice(self.arena, fill);
             const seg: [1]Run = .{.{ .text = line.items, .attrs = .{ .style = b.prefix_style() } }};
+            const prefix_width = self.next_prefix_width();
             try self.emit(line.items, &seg, 0, line.items.len);
+            try self.fills.append(self.arena, .{ .line = self.view.lines.items.len - 1, .fill = fill, .prefix_width = prefix_width });
         } else if (b.text.len > 0) {
             try self.wrap(b);
         }

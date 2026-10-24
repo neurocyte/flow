@@ -2490,7 +2490,7 @@ pub const Editor = struct {
         } else self.file_link_highlight = null;
     }
 
-    pub fn set_hover_content(self: *Self, range: Match, content: []const u8) !void {
+    pub fn set_hover_content(self: *Self, range: Match, kind: info_view.Kind, content: []const u8) !void {
         self.add_hover_highlight(range);
         if (content.len == 0) {
             self.clear_info_box();
@@ -2498,7 +2498,7 @@ pub const Editor = struct {
         }
         const info = try self.show_info_box();
         info.clear();
-        try info.append_content(.plaintext, content);
+        try info.append_content(kind, content);
         self.place_info_box(range.begin);
         self.info_box_state = .{
             .range = range,
