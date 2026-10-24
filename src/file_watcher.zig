@@ -39,10 +39,11 @@ pub const Instance = struct {
     name: [:0]const u8,
     tag: [:0]const u8,
     filtered: bool = false,
+    report_watch_status: bool = false,
     recursive: bool = true,
     quiet_missing: bool = false,
 
-    pub const project_tree: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
+    pub const project_tree: Instance = .{ .name = module_name, .tag = "FW", .filtered = true, .report_watch_status = true };
     pub const file_store: Instance = .{ .name = "file_store_watcher", .tag = "FSW", .recursive = false };
     pub const vcs_metadata: Instance = .{ .name = "vcs_metadata_watcher", .tag = "VW", .recursive = false, .quiet_missing = true };
     pub const repo_worktree: Instance = .{ .name = "repo_worktree_watcher", .tag = "RW", .filtered = true };
@@ -213,22 +214,34 @@ const Process = struct {
         var err_msg: []const u8 = undefined;
 
         if (try cbor.match(m.buf, .{ "fd", tp.extract(&tag), "read_ready" })) {
-            if (builtin.os.tag == .linux)
-                self.nw.?.handle_read_ready() catch |e| std.log.err("file_watcher handle_read_ready: {}", .{e});
+            if (builtin.os.tag == .linux) self.nw.?.handle_read_ready() catch |e| {
+                std.log.err("file_watcher handle_read_ready: {}", .{e});
+                if (self.instance.report_watch_status)
+                    self.parent.send(.{ self.instance.tag, "watch_error", @errorName(e) }) catch return error.ExitNormal;
+            };
         } else if (try cbor.match(m.buf, .{ "fd", tp.extract(&tag), "read_error", tp.extract(&err_code), tp.extract(&err_msg) })) {
             std.log.err("fd read error on {s}: ({d}) {s}", .{ tag, err_code, err_msg });
+            if (self.instance.report_watch_status)
+                self.parent.send(.{ self.instance.tag, "watch_error", err_msg }) catch return error.ExitNormal;
         } else if (try cbor.match(m.buf, .{ "watch", tp.extract(&path) })) {
             self.add_root(path);
             self.add_dir(path);
-            self.nw.?.watch(path) catch |e| switch (e) {
-                error.WatchLimitReached => std.log.err(
-                    "{s} watch: {s} -> watch limit reached after {d} watches{s}",
-                    .{ self.instance.name, path, self.nw.?.watch_count(), limit_hint },
-                ),
-                error.NoEntry => if (!self.instance.quiet_missing)
-                    std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
-                else => std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
+            self.nw.?.watch(path) catch |e| {
+                switch (e) {
+                    error.WatchLimitReached => std.log.err(
+                        "{s} watch: {s} -> watch limit reached after {d} watches{s}",
+                        .{ self.instance.name, path, self.nw.?.watch_count(), limit_hint },
+                    ),
+                    error.NoEntry => if (!self.instance.quiet_missing)
+                        std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
+                    else => std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
+                }
+                if (self.instance.report_watch_status)
+                    self.parent.send(.{ self.instance.tag, "watch_error", @errorName(e) }) catch return error.ExitNormal;
+                return;
             };
+            if (self.instance.report_watch_status)
+                self.parent.send(.{ self.instance.tag, "watching" }) catch return error.ExitNormal;
         } else if (try cbor.match(m.buf, .{ "unwatch", tp.extract(&path) })) {
             self.nw.?.unwatch(path) catch |e| std.log.err("{s} unwatch: {s} -> {}", .{ self.instance.name, path, e });
             self.remove_root(path);
