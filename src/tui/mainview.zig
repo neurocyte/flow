@@ -9,6 +9,7 @@ const project_manager = @import("project_manager");
 const log = @import("log");
 const shell = @import("shell");
 const syntax = @import("syntax");
+const markdown = @import("markdown");
 const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
 const builtin = @import("builtin");
@@ -1047,6 +1048,20 @@ const cmds = struct {
         self.location_update_from_editor();
     }
     pub const open_help_meta: Meta = .{ .description = "Open help" };
+
+    pub fn markdown_debug_dump(self: *Self, ctx: Ctx) Result {
+        const editor = self.get_active_editor() orelse return;
+        const buffer = editor.buffer orelse return;
+        const source = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
+        const doc = try markdown.document.parse(self.allocator, source, tui.query_cache());
+        defer self.allocator.free(doc);
+        const doc_json = try markdown.debug.json(self.allocator, doc);
+        defer self.allocator.free(doc_json);
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", command.fmt(.{ "markdown document", doc_json, "json" }));
+        tui.need_render(@src());
+    }
+    pub const markdown_debug_dump_meta: Meta = .{ .description = "Debug: dump the markdown pipeline stages of the current buffer" };
 
     pub fn open_font_test_text(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();

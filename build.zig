@@ -1349,6 +1349,25 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const markdown_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-markdown",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/markdown/markdown.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("syntax", syntax_mod);
+        tests.root_module.addImport("syntax_validator", syntax_validator_mod);
+        tests.root_module.addImport("vaxis", vaxis_mod);
+        tests.root_module.addImport("build_options", options_mod);
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const stdio_capture_test_run_cmd: ?*std.Build.Step.Run = if (target.result.os.tag == .windows) null else blk: {
         const tests = b.addTest(.{
             .name = "test-stdio_capture",
@@ -1443,6 +1462,17 @@ pub fn build_exe(
         },
     });
 
+    const markdown_mod = b.createModule(.{
+        .root_source_file = b.path("src/markdown/markdown.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "syntax_validator", .module = syntax_validator_mod },
+            .{ .name = "vaxis", .module = vaxis_mod },
+            .{ .name = "build_options", .module = options_mod },
+        },
+    });
+
     const text_manip_mod = b.createModule(.{
         .root_source_file = b.path("src/text_manip.zig"),
         .imports = &.{},
@@ -1473,6 +1503,7 @@ pub fn build_exe(
             .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "syntax_validator", .module = syntax_validator_mod },
+            .{ .name = "markdown", .module = markdown_mod },
             .{ .name = "text_manip", .module = text_manip_mod },
             .{ .name = "argv", .module = argv_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
@@ -1703,6 +1734,7 @@ pub fn build_exe(
     test_step.dependOn(&double_mapped_ring_buffer_test_run_cmd.step);
     test_step.dependOn(&mouse_event_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
+    test_step.dependOn(&markdown_test_run_cmd.step);
     if (stdio_capture_test_run_cmd) |cmd| test_step.dependOn(&cmd.step);
 
     const lints = b.addFmt(.{
