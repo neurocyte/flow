@@ -332,6 +332,7 @@ pub const typescript = .{
 
 pub const typst = .{
     .language_server = .{"tinymist"},
+    .formatter = .{"typstyle"},
 };
 
 pub const uxntal = .{};
