@@ -64,10 +64,6 @@ const Line = struct {
     width: usize,
 };
 
-const default_overflow: CodeOverflow = .wrap;
-
-pub const CodeOverflow = enum { wrap, clip };
-
 allocator: std.mem.Allocator,
 plane: Plane,
 
@@ -78,7 +74,6 @@ lines: std.ArrayList(Line) = .empty,
 layout_arena: std.heap.ArenaAllocator,
 layout_width: usize = 0,
 theme_name: []const u8 = "",
-code_overflow: CodeOverflow = default_overflow,
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
 top: usize = 0,
@@ -577,7 +572,7 @@ const LayoutBuilder = struct {
         const segs = try self.segments(b);
         const mode: enum { words, cells, clip } = switch (b.wrap()) {
             .words => .words,
-            .cells => if (self.view.code_overflow == .clip) .clip else .cells,
+            .cells => if (tui.config().info_code_overflow == .clip) .clip else .cells,
         };
         var lines = std.mem.splitScalar(u8, b.text, '\n');
         var line_start: usize = 0;
