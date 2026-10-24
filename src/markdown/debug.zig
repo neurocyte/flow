@@ -1,6 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const document = @import("document.zig");
+const stream = @import("stream.zig");
 
 pub fn json(allocator: std.mem.Allocator, doc: []const u8) ![]const u8 {
     return cbor.toJsonPrettyAlloc(allocator, doc);
@@ -22,9 +23,47 @@ pub fn sexpr_alloc(allocator: std.mem.Allocator, doc: []const u8, opts: SExprOpt
     return out.toOwnedSlice();
 }
 
-fn write_element(writer: *std.Io.Writer, elem: document.Element, opts: SExprOptions) !void {
-    try writer.print("({s}", .{elem.tag});
-    var iter = elem.attrs;
+/// a stream as s-expressions:
+/// `(block :first_prefix "• " :wrap "words" "text" (span 0 4 :bold true))`
+pub fn stream_sexpr(writer: *std.Io.Writer, doc: []const u8, opts: SExprOptions) !void {
+    try writer.writeAll("(blocks");
+    var iter = try stream.read_blocks(doc);
+    while (try iter.next()) |block| try write_block(writer, block, opts);
+    try writer.writeByte(')');
+}
+
+pub fn stream_sexpr_alloc(allocator: std.mem.Allocator, doc: []const u8, opts: SExprOptions) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try stream_sexpr(&out.writer, doc, opts);
+    return out.toOwnedSlice();
+}
+
+fn write_block(writer: *std.Io.Writer, block: stream.BlockReader, opts: SExprOptions) !void {
+    try writer.writeAll(" (block");
+    try write_map(writer, block.attrs, opts);
+    try writer.print(" :width {d} \"{f}\"", .{ block.display_width, std.zig.fmtString(block.text) });
+    const spans = try block.span_iterator();
+    var iter = spans.iter;
+    for (0..spans.remaining) |_| {
+        _ = try cbor.decodeArrayHeader(&iter);
+        var start: usize = 0;
+        var end: usize = 0;
+        _ = try cbor.matchInt(usize, &iter, &start);
+        _ = try cbor.matchInt(usize, &iter, &end);
+        var attrs: []const u8 = undefined;
+        _ = try cbor.matchValue(&iter, cbor.extract_cbor(&attrs));
+        try writer.print(" (span {d} {d}", .{ start, end });
+        try write_map(writer, attrs, opts);
+        try writer.writeByte(')');
+    }
+    var children = block.iterate();
+    while (try children.next()) |child| try write_block(writer, child, opts);
+    try writer.writeByte(')');
+}
+
+fn write_map(writer: *std.Io.Writer, map: []const u8, opts: SExprOptions) !void {
+    var iter = map;
     var len = try cbor.decodeMapHeader(&iter);
     while (len > 0) : (len -= 1) {
         var key: []const u8 = undefined;
@@ -33,8 +72,25 @@ fn write_element(writer: *std.Io.Writer, elem: document.Element, opts: SExprOpti
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&value))) return error.InvalidDocument;
         if (!opts.sloc and std.mem.eql(u8, key, "sloc")) continue;
         try writer.print(" :{s} ", .{key});
-        try write_value(writer, value);
+        var color: u24 = 0;
+        var color_iter = value;
+        if (is_color_key(key) and try cbor.matchInt(u24, &color_iter, &color)) {
+            try writer.print("0x{x:0>6}", .{color});
+        } else if (value.len > 0 and value[0] >> 5 == 5) {
+            try writer.writeByte('{');
+            try write_map(writer, value, opts);
+            try writer.writeAll(" }");
+        } else try write_value(writer, value);
     }
+}
+
+fn is_color_key(key: []const u8) bool {
+    return std.mem.eql(u8, key, "fg") or std.mem.eql(u8, key, "bg") or std.mem.eql(u8, key, "ul");
+}
+
+fn write_element(writer: *std.Io.Writer, elem: document.Element, opts: SExprOptions) !void {
+    try writer.print("({s}", .{elem.tag});
+    try write_map(writer, elem.attrs, opts);
     var children = elem.iterate();
     while (try children.next()) |child| switch (child) {
         .text => |t| try writer.print(" \"{f}\"", .{std.zig.fmtString(t)}),

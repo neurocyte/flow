@@ -9,8 +9,22 @@ const PanelInput = @import("PanelInput.zig");
 const tp = @import("thespian");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
+const markdown = @import("markdown");
 
 pub const name = @typeName(Self);
+
+pub fn markdown_theme(theme: *const Widget.Theme) markdown.stream.Theme {
+    return .{ .context = theme, .find = find_markdown_token };
+}
+
+fn find_markdown_token(context: *const anyopaque, scope: []const u8) ?markdown.stream.Token {
+    const theme: *const Widget.Theme = @ptrCast(@alignCast(context));
+    const token = tui.find_scope_style(theme, scope) orelse return null;
+    return .{
+        .fg = if (token.style.fg) |fg| fg.color else null,
+        .fs = if (token.style.fs) |fs| std.meta.stringToEnum(markdown.stream.FontStyle, @tagName(fs)) else null,
+    };
+}
 
 const Self = @This();
 
