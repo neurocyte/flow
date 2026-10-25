@@ -8,7 +8,7 @@ const document = @import("document.zig");
 const Allocator = std.mem.Allocator;
 const Node = syntax.Node;
 const Range = syntax.Range;
-const Elem = document.Elem;
+const ElementBuilder = document.ElementBuilder;
 
 pub const Error = error{ OutOfMemory, ParseFailed };
 
@@ -20,7 +20,7 @@ pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.Que
     // a block at the end of the text needs a line end to close, closing code fences in particular
     const source = if (std.mem.endsWith(u8, source_, "\n")) source_ else try std.mem.concat(arena, u8, &.{ source_, "\n" });
 
-    const body = try Elem.create(arena, "body", 0, source_.len);
+    const body = try ElementBuilder.create(arena, "body", 0, source_.len);
     if (!build_options.use_tree_sitter) {
         const pre = try body.add_elem(arena, "pre", 0, source_.len);
         try pre.add_text(arena, source_);
@@ -52,7 +52,7 @@ fn create_syntax(allocator: Allocator, lang: []const u8, query_cache: *syntax.Qu
     };
 }
 
-fn add_node(elem: *Elem, arena: Allocator, tag: []const u8, node: Node) error{OutOfMemory}!*Elem {
+fn add_node(elem: *ElementBuilder, arena: Allocator, tag: []const u8, node: Node) error{OutOfMemory}!*ElementBuilder {
     return elem.add_elem(arena, tag, node.getStartByte(), node.getEndByte());
 }
 
@@ -180,12 +180,12 @@ const Builder = struct {
         return out.items;
     }
 
-    fn blocks(self: *Builder, parent: *Elem, node: Node) Error!void {
+    fn blocks(self: *Builder, parent: *ElementBuilder, node: Node) Error!void {
         var i: u32 = 0;
         while (i < node.getNamedChildCount()) : (i += 1) try self.block(parent, node.getNamedChild(i));
     }
 
-    fn block(self: *Builder, parent: *Elem, node: Node) Error!void {
+    fn block(self: *Builder, parent: *ElementBuilder, node: Node) Error!void {
         const t = node.getType();
         const eql = std.mem.eql;
         if (eql(u8, t, "section") or eql(u8, t, "document")) {
@@ -275,7 +275,7 @@ const Builder = struct {
         return false;
     }
 
-    fn table(self: *Builder, parent: *Elem, node: Node) Error!void {
+    fn table(self: *Builder, parent: *ElementBuilder, node: Node) Error!void {
         const elem = try add_node(parent, self.arena, "table", node);
         var aligns: std.ArrayList(?[]const u8) = .empty;
         if (child_of_type(node, "pipe_table_delimiter_row")) |row| {
@@ -288,7 +288,7 @@ const Builder = struct {
                 try aligns.append(self.arena, if (left and right) "center" else if (left) "left" else if (right) "right" else null);
             }
         }
-        var body: ?*Elem = null;
+        var body: ?*ElementBuilder = null;
         var i: u32 = 0;
         while (i < node.getNamedChildCount()) : (i += 1) {
             const row = node.getNamedChild(i);
@@ -355,7 +355,7 @@ const Builder = struct {
         return newlines >= 2;
     }
 
-    fn list(self: *Builder, parent: *Elem, node: Node) Error!void {
+    fn list(self: *Builder, parent: *ElementBuilder, node: Node) Error!void {
         const first = node.getNamedChild(0);
         const marker = if (first.isNull()) null else child_of_type(first, "list_marker_dot") orelse child_of_type(first, "list_marker_parenthesis");
         const elem = try add_node(parent, self.arena, if (marker) |_| "ol" else "ul", node);
@@ -389,7 +389,7 @@ const Builder = struct {
     }
 
     /// parse inline content in `ranges` and add it to `elem`
-    fn inline_ranges(self: *Builder, elem: *Elem, ranges: []const Range) Error!void {
+    fn inline_ranges(self: *Builder, elem: *ElementBuilder, ranges: []const Range) Error!void {
         if (ranges.len == 0) return;
         try self.set_included_ranges(ranges);
         const tree = self.inline_syn.parser.parseString(null, self.src) catch return error.ParseFailed;
@@ -402,12 +402,12 @@ const Builder = struct {
         try normalize(self.arena, elem, first);
     }
 
-    fn inline_content(self: *Builder, elem: *Elem, node: Node) Error!void {
+    fn inline_content(self: *Builder, elem: *ElementBuilder, node: Node) Error!void {
         return self.inline_ranges(elem, try self.content_ranges(node));
     }
 
     /// add the source bytes in [start, end) that are inside the included ranges
-    fn add_source(self: *const Builder, elem: *Elem, start: usize, end: usize) error{OutOfMemory}!void {
+    fn add_source(self: *const Builder, elem: *ElementBuilder, start: usize, end: usize) error{OutOfMemory}!void {
         for (self.included) |r| {
             const s = @max(start, r.start_byte);
             const e = @min(end, r.end_byte);
@@ -416,13 +416,13 @@ const Builder = struct {
     }
 
     fn source_text(self: *const Builder, start: usize, end: usize) error{OutOfMemory}![]const u8 {
-        var tmp: Elem = .{ .tag = "", .sloc = .{ start, end } };
+        var tmp: ElementBuilder = .{ .tag = "", .sloc = .{ start, end } };
         try self.add_source(&tmp, start, end);
         return if (tmp.children.items.len > 0) tmp.children.items[0].text.items else "";
     }
 
     /// walk an inline node: text between the children, markup children as elements
-    fn container(self: *Builder, elem: *Elem, node: Node, start: usize, end: usize) Error!void {
+    fn container(self: *Builder, elem: *ElementBuilder, node: Node, start: usize, end: usize) Error!void {
         const eql = std.mem.eql;
         var pos = start;
         var i: u32 = 0;
@@ -444,7 +444,7 @@ const Builder = struct {
     }
 
     /// add a markup node, returns false if the node stays text
-    fn inline_node(self: *Builder, elem: *Elem, child: Node, pos: usize) Error!bool {
+    fn inline_node(self: *Builder, elem: *ElementBuilder, child: Node, pos: usize) Error!bool {
         const eql = std.mem.eql;
         const t = child.getType();
         const cs = child.getStartByte();
@@ -477,7 +477,7 @@ const Builder = struct {
             try self.add_source(elem, pos, cs);
             const img = try add_node(elem, self.arena, "img", child);
             try img.set(self.arena, "src", .{ .string = if (child_of_type(child, "link_destination")) |d| try self.destination(d) else "" });
-            var alt: Elem = .{ .tag = "", .sloc = .{ cs, ce } };
+            var alt: ElementBuilder = .{ .tag = "", .sloc = .{ cs, ce } };
             if (child_of_type(child, "image_description")) |d| try self.container(&alt, d, d.getStartByte(), d.getEndByte());
             try img.set(self.arena, "alt", .{ .string = try plain_text(self.arena, &alt) });
             if (child_of_type(child, "link_title")) |ti| try img.set(self.arena, "title", .{ .string = try self.title(ti) });
@@ -545,7 +545,7 @@ fn strip_code_indent(code: []const u8) []const u8 {
 }
 
 /// drop the optional closing `#` sequence of an ATX heading
-fn strip_closing_sequence(h: *Elem) void {
+fn strip_closing_sequence(h: *ElementBuilder) void {
     if (h.children.items.len == 0) return;
     const last = &h.children.items[h.children.items.len - 1];
     if (last.* != .text) return;
@@ -569,7 +569,7 @@ fn is_inline_tag(tag: []const u8) bool {
 }
 
 /// turn soft line breaks into spaces and trim the edges of a block's inline content
-fn normalize(arena: Allocator, elem: *Elem, first: usize) error{OutOfMemory}!void {
+fn normalize(arena: Allocator, elem: *ElementBuilder, first: usize) error{OutOfMemory}!void {
     try collapse_breaks(arena, elem, first);
     const items = elem.children.items[first..];
     for (items, 0..) |*child, i| switch (child.*) {
@@ -594,7 +594,7 @@ fn normalize(arena: Allocator, elem: *Elem, first: usize) error{OutOfMemory}!voi
     }
 }
 
-fn collapse_breaks(arena: Allocator, elem: *Elem, first: usize) error{OutOfMemory}!void {
+fn collapse_breaks(arena: Allocator, elem: *ElementBuilder, first: usize) error{OutOfMemory}!void {
     for (elem.children.items[first..]) |*child| switch (child.*) {
         .text => |*t| {
             var out: std.ArrayList(u8) = .empty;
@@ -615,13 +615,13 @@ fn collapse_breaks(arena: Allocator, elem: *Elem, first: usize) error{OutOfMemor
     };
 }
 
-fn plain_text(arena: Allocator, elem: *const Elem) error{OutOfMemory}![]const u8 {
+fn plain_text(arena: Allocator, elem: *const ElementBuilder) error{OutOfMemory}![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     try append_plain_text(arena, &out, elem);
     return out.items;
 }
 
-fn append_plain_text(arena: Allocator, out: *std.ArrayList(u8), elem: *const Elem) error{OutOfMemory}!void {
+fn append_plain_text(arena: Allocator, out: *std.ArrayList(u8), elem: *const ElementBuilder) error{OutOfMemory}!void {
     for (elem.children.items) |child| switch (child) {
         .text => |t| try out.appendSlice(arena, t.items),
         .elem => |e| try append_plain_text(arena, out, e),

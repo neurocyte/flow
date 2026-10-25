@@ -27,11 +27,11 @@ pub const Attr = struct {
 
 pub const Child = union(enum) {
     text: std.ArrayList(u8),
-    elem: *Elem,
+    elem: *ElementBuilder,
 };
 
 /// an element under construction
-pub const Elem = struct {
+pub const ElementBuilder = struct {
     tag: []const u8,
     sloc: [2]usize,
     attrs: std.ArrayList(Attr) = .empty,
