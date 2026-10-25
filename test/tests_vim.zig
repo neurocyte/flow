@@ -83,11 +83,14 @@ test "select inside long word: a.b is a single WORD unlike word textobject" {
     try expect_long_word_selection(doc, 0, 4, true, .{ .begin_row = 0, .begin_col = 3, .end_row = 0, .end_col = 7 });
 }
 
-test "select inside long word: cursor on whitespace takes the WORD on the right" {
+test "select inside long word: cursor on whitespace takes the whitespace run" {
     //                0123456789012
     const doc = "foo.bar  baz";
-    try expect_long_word_selection(doc, 0, 7, false, .{ .begin_row = 0, .begin_col = 9, .end_row = 0, .end_col = 12 });
-    try expect_long_word_selection(doc, 0, 8, false, .{ .begin_row = 0, .begin_col = 9, .end_row = 0, .end_col = 12 });
+    // like vim, the whitespace run the cursor is in is the unit
+    try expect_long_word_selection(doc, 0, 7, false, .{ .begin_row = 0, .begin_col = 7, .end_row = 0, .end_col = 9 });
+    try expect_long_word_selection(doc, 0, 8, false, .{ .begin_row = 0, .begin_col = 7, .end_row = 0, .end_col = 9 });
+    // around takes the whitespace run plus the WORD that follows it
+    try expect_long_word_selection(doc, 0, 7, true, .{ .begin_row = 0, .begin_col = 7, .end_row = 0, .end_col = 12 });
 }
 
 test "select around long word: leading whitespace at line start is left out" {
@@ -113,8 +116,10 @@ test "select long word: line start and line end boundaries stay in bounds" {
     const doc = "abc ";
     try expect_long_word_selection(doc, 0, 0, false, .{ .begin_row = 0, .begin_col = 0, .end_row = 0, .end_col = 3 });
     try expect_long_word_selection(doc, 0, 0, true, .{ .begin_row = 0, .begin_col = 0, .end_row = 0, .end_col = 4 });
-    // cursor past the last WORD (on trailing whitespace at end of line): only that whitespace is selected
-    try expect_long_word_selection(doc, 0, 3, true, .{ .begin_row = 0, .begin_col = 3, .end_row = 0, .end_col = 4 });
+    // cursor on the trailing whitespace at end of line: inside takes that whitespace
+    try expect_long_word_selection(doc, 0, 3, false, .{ .begin_row = 0, .begin_col = 3, .end_row = 0, .end_col = 4 });
+    // around needs a WORD after the whitespace run, so vim selects nothing here
+    try expect_long_word_selection(doc, 0, 3, true, .{ .begin_row = 0, .begin_col = 4, .end_row = 0, .end_col = 4 });
 }
 
 test "select long word: only the current WORD is selected" {

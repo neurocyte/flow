@@ -770,42 +770,90 @@ fn scan_word_bounds(root: Buffer.Root, prev: *Cursor, next: *Cursor, metrics: Bu
     prev.* = start;
 }
 
-fn select_long_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, scope: enum { inside, around }) !void {
-    const line_width = root.line_width(cursel.cursor.row, metrics) catch 0;
-    const at_eol = line_width == cursel.cursor.col;
-    var prev = cursel.cursor;
-    var next = cursel.cursor;
-
-    if (!at_eol) {
-        var found_word = true;
-        if (cursel.cursor.test_at(root, Editor.is_whitespace, metrics)) {
-            // cursor on whitespace: select the WORD to the right
-            Editor.move_cursor_right_until(root, &next, Editor.is_non_whitespace_at_cursor, metrics);
-            found_word = !cursel.cursor.eql(next);
+/// Scan the whitespace run that holds the cursor: `prev` ends up on its
+/// first character, `next` on the first character after the run.
+fn scan_whitespace_run(root: Buffer.Root, prev: *Cursor, next: *Cursor, metrics: Buffer.Metrics, line_width: usize) void {
+    var start = prev.*;
+    while (start.col > 0) {
+        start.move_left(root, metrics) catch break;
+        if (!start.test_at(root, Editor.is_whitespace, metrics)) {
+            start.move_right(root, metrics) catch {};
+            break;
         }
-        if (found_word)
-            scan_word_bounds(root, &prev, &next, metrics, line_width);
+    }
+    var end = prev.*;
+    while (end.col < line_width and end.test_at(root, Editor.is_whitespace, metrics)) {
+        end.move_right(root, metrics) catch break;
+    }
+    prev.* = start;
+    next.* = end;
+}
+
+/// Extend the selection over the whitespace that belongs to it: the trailing
+/// whitespace run of a WORD, or - at the end of a line - the leading
+/// whitespace run, but only when it is bounded by a word on the left.
+fn extend_over_whitespace(root: Buffer.Root, prev: *Cursor, next: *Cursor, metrics: Buffer.Metrics) void {
+    if (next.test_at(root, is_tab_or_space, metrics)) {
+        // include trailing whitespace up to (not including) the next WORD
+        Editor.move_cursor_right_until(root, next, is_not_tab_or_space_at_cursor, metrics);
+    } else if (prev.col > 0) {
+        // at EOL: include the leading whitespace run, but only when it is
+        // bounded by a word on the left, like vim does
+        const word_start = prev.*;
+        prev.move_left(root, metrics) catch {};
+        if (prev.test_at(root, is_tab_or_space, metrics)) {
+            Editor.move_cursor_left_until(root, prev, is_not_tab_or_space_at_cursor, metrics);
+            if (prev.test_at(root, Editor.is_whitespace, metrics)) {
+                // the run reaches the start of the line: keep the WORD only
+                prev.* = word_start;
+            } else {
+                prev.move_right(root, metrics) catch {};
+            }
+        }
+    }
+}
+
+fn select_long_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, scope: enum { inside, around }) !void {
+    var cursor = cursel.cursor;
+    cursor.clamp_to_buffer(root, metrics);
+    const line_width = root.line_width(cursor.row, metrics) catch 0;
+    const at_eol = cursor.col >= line_width;
+    var prev = cursor;
+    var next = cursor;
+
+    // the unit the cursor is in: a whitespace run or a WORD
+    var unit_is_whitespace = false;
+    if (!at_eol and cursor.test_at(root, Editor.is_whitespace, metrics)) {
+        // cursor on whitespace
+        unit_is_whitespace = true;
+        scan_whitespace_run(root, &prev, &next, metrics, line_width);
+    } else if (at_eol) {
+        // cursor at the end of the line: the unit is whatever ends it
+        var left = cursor;
+        left.move_left(root, metrics) catch {};
+        if (left.test_at(root, Editor.is_whitespace, metrics)) {
+            unit_is_whitespace = true;
+            scan_whitespace_run(root, &prev, &next, metrics, line_width);
+        }
+    }
+    if (!unit_is_whitespace) {
+        // cursor on a WORD char
+        scan_word_bounds(root, &prev, &next, metrics, line_width);
     }
 
     if (scope == .around) {
-        const eol = (root.line_width(next.row, metrics) catch 0) == next.col;
-        if (!eol and next.test_at(root, is_tab_or_space, metrics)) {
-            // include trailing whitespace up to (not including) the next WORD
-            Editor.move_cursor_right_until(root, &next, is_not_tab_or_space_at_cursor, metrics);
-        } else if (prev.col > 0) {
-            // at EOL: include the leading whitespace run, but only when it is
-            // bounded by a word on the left, like vim does
-            const word_start = prev;
-            prev.move_left(root, metrics) catch {};
-            if (prev.test_at(root, is_tab_or_space, metrics)) {
-                Editor.move_cursor_left_until(root, &prev, is_not_tab_or_space_at_cursor, metrics);
-                if (prev.test_at(root, Editor.is_whitespace, metrics)) {
-                    // the run reaches the start of the line: keep the WORD only
-                    prev = word_start;
-                } else {
-                    prev.move_right(root, metrics) catch {};
+        if (unit_is_whitespace) {
+            // include the WORD that follows the whitespace run; vim selects
+            // nothing when there is none
+            if (next.col < line_width) {
+                while (next.col < line_width and is_long_word_char_at_cursor(root, &next, metrics)) {
+                    next.move_right(root, metrics) catch break;
                 }
+            } else {
+                prev = next;
             }
+        } else {
+            extend_over_whitespace(root, &prev, &next, metrics);
         }
     }
 
