@@ -2431,11 +2431,12 @@ const cmds = struct {
         var query: []const u8 = undefined;
         var list_id: FileList.Id = undefined;
         var mode: Buffer.FindMode = tui.config().find_in_files_mode;
+        var filter = tui.config().find_in_files_filter;
         const have_list = (try ctx.args.match(.{ tp.extract(&query), tp.extract(&list_id) })) or
-            (try ctx.args.match(.{ cbor.extract(&mode), tp.extract(&query), tp.extract(&list_id) }));
+            (try ctx.args.match(.{ cbor.extract(&mode), cbor.extract(&filter), tp.extract(&query), tp.extract(&list_id) }));
         if (!have_list and
             !try ctx.args.match(.{tp.extract(&query)}) and
-            !try ctx.args.match(.{ cbor.extract(&mode), tp.extract(&query) }))
+            !try ctx.args.match(.{ cbor.extract(&mode), cbor.extract(&filter), tp.extract(&query) }))
             return error.InvalidFindInFilesQueryArgument;
         const logger = log.logger("find");
         defer logger.deinit();
@@ -2464,7 +2465,7 @@ const cmds = struct {
             .list_id = fl.list_id,
             .clear_if_empty = true,
         });
-        var rg = try find_f(self.allocator, query, mode, "FLS", stream);
+        var rg = try find_f(self.allocator, query, mode, filter, "FLS", stream);
         defer rg.deinit();
     }
     pub const find_in_files_query_meta: Meta = .{ .arguments = &.{ .string, .integer } };

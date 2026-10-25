@@ -7,6 +7,7 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 const Buffer = @import("Buffer");
 const Mode = Buffer.FindMode;
+const Filter = @import("config").FindInFilesFilter;
 
 const tui = @import("../../tui.zig");
 const FileList = @import("../../FileList.zig");
@@ -23,6 +24,7 @@ const max_query_size = 1024;
 allocator: Allocator,
 mini_editor: *tui.MiniEditor,
 find_mode: Mode,
+filter: Filter,
 last_buf: [max_query_size]u8 = undefined,
 last_input: []u8 = "",
 list_id: ?FileList.Id = null,
@@ -37,14 +39,15 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .allocator = allocator,
         .mini_editor = mini_editor,
         .find_mode = tui.config().find_in_files_mode,
+        .filter = tui.config().find_in_files_filter,
     };
     try self.commands.init(self);
     var query: []const u8 = undefined;
     var list_id: FileList.Id = undefined;
-    if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&query), cbor.extract(&list_id) }) catch false) {
+    if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&self.filter), cbor.extract(&query), cbor.extract(&list_id) }) catch false) {
         self.list_id = list_id;
         try self.mini_editor.buffer.set_text(query);
-    } else if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&query) }) catch false) {
+    } else if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&self.filter), cbor.extract(&query) }) catch false) {
         try self.mini_editor.buffer.set_text(query);
     } else {
         _ = ctx.args.match(.{cbor.extract(&self.find_mode)}) catch false;
@@ -58,7 +61,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .insert_command = "mini_mode_insert_bytes",
     });
     mode.event_handler = EventHandler.to_owned(self);
-    return .{ mode, .{ .name = find_mode_name(self.find_mode), .mini_editor = self.mini_editor } };
+    return .{ mode, .{ .name = mode_name(self.find_mode, self.filter), .mini_editor = self.mini_editor } };
 }
 
 pub fn deinit(self: *Self) void {
@@ -67,6 +70,23 @@ pub fn deinit(self: *Self) void {
     self.commands.deinit();
     self.mini_editor.destroy();
     self.allocator.destroy(self);
+}
+
+fn mode_name(find_mode: Mode, filter: Filter) []const u8 {
+    return switch (find_mode) {
+        inline else => |m| switch (filter) {
+            inline else => |f| comptime find_mode_name(m) ++ filter_name(f),
+        },
+    };
+}
+
+fn filter_name(filter: Filter) []const u8 {
+    return switch (filter) {
+        .default => "",
+        .hidden => " H ",
+        .no_ignore => " I ",
+        .all => " IH ",
+    };
 }
 
 fn find_mode_name(find_mode: Mode) []const u8 {
@@ -103,23 +123,24 @@ fn start_query(self: *Self) !void {
             self.list_id = mv.new_filelist(.find_in_files) catch null;
         };
     if (self.list_id) |list_id|
-        try command.executeName("find_in_files_query", command.fmt(.{ self.find_mode, query, list_id }))
+        try command.executeName("find_in_files_query", command.fmt(.{ self.find_mode, self.filter, query, list_id }))
     else
-        try command.executeName("find_in_files_query", command.fmt(.{ self.find_mode, query }));
+        try command.executeName("find_in_files_query", command.fmt(.{ self.find_mode, self.filter, query }));
 }
 
-fn toggle_find_mode(self: *Self, ctx: cmds.Ctx, new_find_mode: Mode) cmds.Result {
+fn restart(self: *Self, ctx: cmds.Ctx, find_mode: Mode, filter: Filter) cmds.Result {
     const allocator = self.allocator;
     const query = try allocator.dupe(u8, self.mini_editor.bytes());
     defer allocator.free(query);
     const list_id = self.list_id;
-    tui.config_mut().find_in_files_mode = new_find_mode;
+    tui.config_mut().find_in_files_mode = find_mode;
+    tui.config_mut().find_in_files_filter = filter;
     try tui.save_config();
     command.executeName("exit_mini_mode", ctx) catch {};
     if (list_id) |id|
-        command.executeName("find_in_files", command.fmt(.{ new_find_mode, query, id })) catch {}
+        command.executeName("find_in_files", command.fmt(.{ find_mode, filter, query, id })) catch {}
     else
-        command.executeName("find_in_files", command.fmt(.{ new_find_mode, query })) catch {};
+        command.executeName("find_in_files", command.fmt(.{ find_mode, filter, query })) catch {};
 }
 
 const cmds = struct {
@@ -129,14 +150,25 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn toggle_find_mode_case_folded(self: *Self, ctx: Ctx) Result {
-        return toggle_find_mode(self, ctx, Buffer.find_mode.toggleCase(self.find_mode));
+        return restart(self, ctx, Buffer.find_mode.toggleCase(self.find_mode), self.filter);
     }
     pub const toggle_find_mode_case_folded_meta: Meta = .{ .description = "Toggle case folded find mode" };
 
     pub fn toggle_find_mode_regex(self: *Self, ctx: Ctx) Result {
-        return toggle_find_mode(self, ctx, Buffer.find_mode.toggleRegex(self.find_mode));
+        return restart(self, ctx, Buffer.find_mode.toggleRegex(self.find_mode), self.filter);
     }
     pub const toggle_find_mode_regex_meta: Meta = .{ .description = "Toggle regex find mode" };
+
+    pub fn toggle_find_in_files_filter(self: *Self, ctx: Ctx) Result {
+        const filter: Filter = switch (self.filter) {
+            .default => .hidden,
+            .hidden => .no_ignore,
+            .no_ignore => .all,
+            .all => .default,
+        };
+        return restart(self, ctx, self.find_mode, filter);
+    }
+    pub const toggle_find_in_files_filter_meta: Meta = .{ .description = "Toggle hidden and ignored files filter" };
 
     pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
         try self.mini_editor.buffer.clear();

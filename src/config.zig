@@ -63,6 +63,7 @@ enable_panel_keyhints: bool = false,
 enable_auto_find: bool = true,
 find_mode: FindMode = .auto,
 find_in_files_mode: FindMode = .auto,
+find_in_files_filter: FindInFilesFilter = .default,
 initial_find_query: InitialFindQuery = .selection,
 jump_label_alphabet: []const u8 = "abcdefghijklmnopqrstuvwxyz",
 ignore_filter_stderr: bool = false,
@@ -369,6 +370,13 @@ pub const TaskRunner = enum {
     terminal,
 
     pub const default = .terminal;
+};
+
+pub const FindInFilesFilter = enum {
+    default,
+    hidden,
+    no_ignore,
+    all,
 };
 
 pub const FindMode = enum {
