@@ -9,23 +9,23 @@ const PanelInput = @import("PanelInput.zig");
 const tp = @import("thespian");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
-const markdown = @import("markdown");
+const richdoc = @import("richdoc");
 
-const Attrs = markdown.rich_line.Attrs;
-const BlockReader = markdown.rich_text.BlockReader;
+const Attrs = richdoc.rich_line.Attrs;
+const BlockReader = richdoc.rich_text.BlockReader;
 
 pub const name = @typeName(Self);
 
-pub fn markdown_theme(theme: *const Widget.Theme) markdown.rich_text.Theme {
-    return .{ .context = theme, .find = find_markdown_token };
+pub fn rich_text_theme(theme: *const Widget.Theme) richdoc.rich_text.Theme {
+    return .{ .context = theme, .find = find_rich_text_token };
 }
 
-fn find_markdown_token(context: *const anyopaque, scope: []const u8) ?markdown.rich_text.Token {
+fn find_rich_text_token(context: *const anyopaque, scope: []const u8) ?richdoc.rich_text.Token {
     const theme: *const Widget.Theme = @ptrCast(@alignCast(context));
     const token = tui.find_scope_style(theme, scope) orelse return null;
     return .{
         .fg = if (token.style.fg) |fg| fg.color else null,
-        .fs = if (token.style.fs) |fs| std.meta.stringToEnum(markdown.rich_text.FontStyle, @tagName(fs)) else null,
+        .fs = if (token.style.fs) |fs| std.meta.stringToEnum(richdoc.rich_text.FontStyle, @tagName(fs)) else null,
     };
 }
 
@@ -44,8 +44,8 @@ pub const Kind = enum {
 const Section = struct {
     kind: Kind,
     text: []const u8,
-    doc: markdown.document.Document = .{},
-    rich_text: markdown.rich_text.RichText = .{},
+    doc: richdoc.document.Document = .{},
+    rich_text: richdoc.rich_text.RichText = .{},
 
     fn deinit(self: *Section, allocator: Allocator) void {
         allocator.free(self.text);
@@ -188,7 +188,7 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
     errdefer self.allocator.free(text);
     var section: Section = .{ .kind = kind, .text = text };
     if (kind == .markdown) {
-        section.doc = try markdown.document.parse(self.allocator, text, tui.query_cache());
+        section.doc = try richdoc.document.parse(self.allocator, text, tui.query_cache());
         errdefer self.allocator.free(section.doc.raw.bytes);
         section.rich_text = try self.build_rich_text(section.doc);
     }
@@ -209,11 +209,11 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
     return .{ .rows = self.lines.items.len, .cols = cols };
 }
 
-fn build_rich_text(self: *Self, doc: markdown.document.Document) !markdown.rich_text.RichText {
+fn build_rich_text(self: *Self, doc: richdoc.document.Document) !richdoc.rich_text.RichText {
     const theme = tui.theme();
     self.theme_name = theme.name;
     const default_lang = if (tui.get_active_editor()) |editor| if (editor.file_type) |ft| ft.parser orelse ft.name else null else null;
-    return markdown.rich_text.build(self.allocator, doc, markdown_theme(theme), tui.query_cache(), .{
+    return richdoc.rich_text.build(self.allocator, doc, rich_text_theme(theme), tui.query_cache(), .{
         .default_lang = default_lang,
         .injection_depth = @intCast(@min(tui.config().syntax_injection_depth, 255)),
     });
@@ -251,7 +251,7 @@ fn layout(self: *Self) !void {
     for (self.sections.items) |section| switch (section.kind) {
         .plaintext => try builder.plaintext(section.text),
         .markdown => {
-            var blocks = try markdown.rich_text.read_blocks(section.rich_text);
+            var blocks = try richdoc.rich_text.read_blocks(section.rich_text);
             while (try blocks.next()) |block| try builder.block(block);
         },
     };
@@ -709,7 +709,7 @@ fn has_markdown(self: *const Self) bool {
     return false;
 }
 
-fn write_run(self: *Self, base: markdown.rich_line.Style, run: Run) void {
+fn write_run(self: *Self, base: richdoc.rich_line.Style, run: Run) void {
     const a = run.attrs.style;
     var style = base;
     if (a.fg != .default) style.fg = a.fg;

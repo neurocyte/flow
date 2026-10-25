@@ -11,7 +11,7 @@ pub const SExprOptions = struct {
     sloc: bool = false,
 };
 
-/// a markdown document as an s-expression
+/// a structured document as an s-expression
 pub fn sexpr(writer: *std.Io.Writer, doc: document.Document, opts: SExprOptions) !void {
     try write_element(writer, try document.root(doc), opts);
 }
