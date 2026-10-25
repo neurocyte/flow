@@ -1,4 +1,4 @@
-//! convert a structured document to a rich text stream
+//! convert a structured document to rich text
 
 const std = @import("std");
 const cbor = @import("cbor");
@@ -51,7 +51,7 @@ pub fn build(allocator: Allocator, doc: []const u8, theme: Theme, query_cache: *
 
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    write_stream(&out.writer, &top) catch return error.OutOfMemory;
+    write_rich_text(&out.writer, &top) catch return error.OutOfMemory;
     return out.toOwnedSlice() catch return error.OutOfMemory;
 }
 
@@ -131,7 +131,7 @@ const Block = struct {
     }
 };
 
-fn write_stream(writer: *std.Io.Writer, top: *const Block) std.Io.Writer.Error!void {
+fn write_rich_text(writer: *std.Io.Writer, top: *const Block) std.Io.Writer.Error!void {
     try cbor.writeArrayHeader(writer, 1 + top.children.items.len);
     try cbor.writeValue(writer, "blocks");
     for (top.children.items) |child| try child.write(writer);
@@ -571,24 +571,24 @@ pub const BlockIterator = struct {
     iter: []const u8,
     remaining: usize,
 
-    pub fn next(self: *BlockIterator) error{InvalidStream}!?BlockReader {
+    pub fn next(self: *BlockIterator) error{InvalidRichText}!?BlockReader {
         if (self.remaining == 0) return null;
         self.remaining -= 1;
-        return read_block(&self.iter) catch error.InvalidStream;
+        return read_block(&self.iter) catch error.InvalidRichText;
     }
 };
 
 fn read_block(iter: *[]const u8) !BlockReader {
     const len = try cbor.decodeArrayHeader(iter);
-    if (len < 4) return error.InvalidStream;
+    if (len < 4) return error.InvalidRichText;
     var attrs: []const u8 = undefined;
-    if (!try cbor.matchValue(iter, cbor.extract_cbor(&attrs))) return error.InvalidStream;
+    if (!try cbor.matchValue(iter, cbor.extract_cbor(&attrs))) return error.InvalidRichText;
     var width: usize = 0;
-    if (!try cbor.matchInt(usize, iter, &width)) return error.InvalidStream;
+    if (!try cbor.matchInt(usize, iter, &width)) return error.InvalidRichText;
     var text: []const u8 = undefined;
-    if (!try cbor.matchString(iter, &text)) return error.InvalidStream;
+    if (!try cbor.matchString(iter, &text)) return error.InvalidRichText;
     var spans: []const u8 = undefined;
-    if (!try cbor.matchValue(iter, cbor.extract_cbor(&spans))) return error.InvalidStream;
+    if (!try cbor.matchValue(iter, cbor.extract_cbor(&spans))) return error.InvalidRichText;
     const start = iter.*;
     for (0..len - 4) |_| try cbor.skipValue(iter);
     return .{
@@ -601,12 +601,12 @@ fn read_block(iter: *[]const u8) !BlockReader {
     };
 }
 
-/// iterate the top level blocks of a stream
-pub fn read_blocks(stream: []const u8) error{InvalidStream}!BlockIterator {
-    var iter = stream;
-    const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidStream;
-    if (len < 1) return error.InvalidStream;
+/// iterate the top level blocks of rich text
+pub fn read_blocks(rich_text: []const u8) error{InvalidRichText}!BlockIterator {
+    var iter = rich_text;
+    const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRichText;
+    if (len < 1) return error.InvalidRichText;
     var tag: []const u8 = undefined;
-    if (!(cbor.matchString(&iter, &tag) catch false) or !std.mem.eql(u8, tag, "blocks")) return error.InvalidStream;
+    if (!(cbor.matchString(&iter, &tag) catch false) or !std.mem.eql(u8, tag, "blocks")) return error.InvalidRichText;
     return .{ .iter = iter, .remaining = len - 1 };
 }

@@ -12,20 +12,20 @@ const tui = @import("tui.zig");
 const markdown = @import("markdown");
 
 const Attrs = markdown.rich_line.Attrs;
-const BlockReader = markdown.stream.BlockReader;
+const BlockReader = markdown.rich_text.BlockReader;
 
 pub const name = @typeName(Self);
 
-pub fn markdown_theme(theme: *const Widget.Theme) markdown.stream.Theme {
+pub fn markdown_theme(theme: *const Widget.Theme) markdown.rich_text.Theme {
     return .{ .context = theme, .find = find_markdown_token };
 }
 
-fn find_markdown_token(context: *const anyopaque, scope: []const u8) ?markdown.stream.Token {
+fn find_markdown_token(context: *const anyopaque, scope: []const u8) ?markdown.rich_text.Token {
     const theme: *const Widget.Theme = @ptrCast(@alignCast(context));
     const token = tui.find_scope_style(theme, scope) orelse return null;
     return .{
         .fg = if (token.style.fg) |fg| fg.color else null,
-        .fs = if (token.style.fs) |fs| std.meta.stringToEnum(markdown.stream.FontStyle, @tagName(fs)) else null,
+        .fs = if (token.style.fs) |fs| std.meta.stringToEnum(markdown.rich_text.FontStyle, @tagName(fs)) else null,
     };
 }
 
@@ -45,12 +45,12 @@ const Section = struct {
     kind: Kind,
     text: []const u8,
     doc: []const u8 = "",
-    stream: []const u8 = "",
+    rich_text: []const u8 = "",
 
     fn deinit(self: *Section, allocator: Allocator) void {
         allocator.free(self.text);
         allocator.free(self.doc);
-        allocator.free(self.stream);
+        allocator.free(self.rich_text);
     }
 };
 
@@ -190,7 +190,7 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
     if (kind == .markdown) {
         section.doc = try markdown.document.parse(self.allocator, text, tui.query_cache());
         errdefer self.allocator.free(section.doc);
-        section.stream = try self.build_stream(section.doc);
+        section.rich_text = try self.build_rich_text(section.doc);
     }
     errdefer section.deinit(self.allocator);
     try self.sections.append(self.allocator, section);
@@ -209,11 +209,11 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
     return .{ .rows = self.lines.items.len, .cols = cols };
 }
 
-fn build_stream(self: *Self, doc: []const u8) ![]const u8 {
+fn build_rich_text(self: *Self, doc: []const u8) ![]const u8 {
     const theme = tui.theme();
     self.theme_name = theme.name;
     const default_lang = if (tui.get_active_editor()) |editor| if (editor.file_type) |ft| ft.parser orelse ft.name else null else null;
-    return markdown.stream.build(self.allocator, doc, markdown_theme(theme), tui.query_cache(), .{
+    return markdown.rich_text.build(self.allocator, doc, markdown_theme(theme), tui.query_cache(), .{
         .default_lang = default_lang,
         .injection_depth = @intCast(@min(tui.config().syntax_injection_depth, 255)),
     });
@@ -221,9 +221,9 @@ fn build_stream(self: *Self, doc: []const u8) ![]const u8 {
 
 fn restyle(self: *Self) !void {
     for (self.sections.items) |*section| if (section.kind == .markdown) {
-        const stream = try self.build_stream(section.doc);
-        self.allocator.free(section.stream);
-        section.stream = stream;
+        const rich_text = try self.build_rich_text(section.doc);
+        self.allocator.free(section.rich_text);
+        section.rich_text = rich_text;
     };
     try self.layout();
 }
@@ -251,7 +251,7 @@ fn layout(self: *Self) !void {
     for (self.sections.items) |section| switch (section.kind) {
         .plaintext => try builder.plaintext(section.text),
         .markdown => {
-            var blocks = try markdown.stream.read_blocks(section.stream);
+            var blocks = try markdown.rich_text.read_blocks(section.rich_text);
             while (try blocks.next()) |block| try builder.block(block);
         },
     };
@@ -412,7 +412,7 @@ const LayoutBuilder = struct {
         return list.items;
     }
 
-    fn block(self: *LayoutBuilder, b: BlockReader) error{ OutOfMemory, InvalidStream, InvalidRichLine }!void {
+    fn block(self: *LayoutBuilder, b: BlockReader) error{ OutOfMemory, InvalidRichText, InvalidRichLine }!void {
         for (0..b.space_before()) |_| try self.blank_line();
         const first_prefix = b.first_prefix();
         const prefix = b.prefix();

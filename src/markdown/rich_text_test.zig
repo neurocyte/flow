@@ -2,12 +2,12 @@ const std = @import("std");
 const syntax = @import("syntax");
 const build_options = @import("build_options");
 const document = @import("document.zig");
-const stream = @import("stream.zig");
+const rich_text = @import("rich_text.zig");
 const debug = @import("debug.zig");
 
 const test_theme = struct {
-    fn find(_: *const anyopaque, scope: []const u8) ?stream.Token {
-        const tokens = [_]struct { []const u8, stream.Token }{
+    fn find(_: *const anyopaque, scope: []const u8) ?rich_text.Token {
+        const tokens = [_]struct { []const u8, rich_text.Token }{
             .{ "markup.heading", .{ .fg = 0x000001 } },
             .{ "markup.bold", .{ .fg = 0x000002 } },
             .{ "text.emphasis", .{ .fs = .italic } },
@@ -21,21 +21,21 @@ const test_theme = struct {
         for (tokens) |t| if (std.mem.eql(u8, t[0], scope)) return t[1];
         return null;
     }
-    const theme: stream.Theme = .{ .context = undefined, .find = find };
+    const theme: rich_text.Theme = .{ .context = undefined, .find = find };
 };
 
-fn dump(source: []const u8, opts: stream.Options) ![]const u8 {
+fn dump(source: []const u8, opts: rich_text.Options) ![]const u8 {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
     const doc = try document.parse(gpa, source, query_cache);
     defer gpa.free(doc);
-    const s = try stream.build(gpa, doc, test_theme.theme, query_cache, opts);
+    const s = try rich_text.build(gpa, doc, test_theme.theme, query_cache, opts);
     defer gpa.free(s);
-    return debug.stream_sexpr_alloc(gpa, s, .{});
+    return debug.rich_text_sexpr_alloc(gpa, s, .{});
 }
 
-fn expect(source: []const u8, opts: stream.Options, expected: []const u8) !void {
+fn expect(source: []const u8, opts: rich_text.Options, expected: []const u8) !void {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     const actual = try dump(source, opts);
     defer std.testing.allocator.free(actual);
@@ -86,16 +86,16 @@ test "code with the default language" {
     try expect("```\nconst y = 2;\n```", .{ .default_lang = "zig" }, "(blocks (block :wrap \"cells\" :width 12 \"const y = 2;\" (span 0 5 :fg 0x000007 :bold true) (span 5 10 :fg 0x000003) (span 10 11 :fg 0x000008) (span 11 12 :fg 0x000003)))");
 }
 
-test "stream reader" {
+test "rich text reader" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
     const doc = try document.parse(gpa, "- [link](http://x)\n", query_cache);
     defer gpa.free(doc);
-    const s = try stream.build(gpa, doc, test_theme.theme, query_cache, .{});
+    const s = try rich_text.build(gpa, doc, test_theme.theme, query_cache, .{});
     defer gpa.free(s);
-    var top = try stream.read_blocks(s);
+    var top = try rich_text.read_blocks(s);
     const list = (try top.next()).?;
     var items = list.iterate();
     const item = (try items.next()).?;

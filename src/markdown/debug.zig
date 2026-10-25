@@ -1,7 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const document = @import("document.zig");
-const stream = @import("stream.zig");
+const rich_text = @import("rich_text.zig");
 
 pub fn json(allocator: std.mem.Allocator, doc: []const u8) ![]const u8 {
     return cbor.toJsonPrettyAlloc(allocator, doc);
@@ -23,23 +23,23 @@ pub fn sexpr_alloc(allocator: std.mem.Allocator, doc: []const u8, opts: SExprOpt
     return out.toOwnedSlice();
 }
 
-/// a stream as s-expressions:
+/// rich text as s-expressions:
 /// `(block :first_prefix "• " :wrap "words" "text" (span 0 4 :bold true))`
-pub fn stream_sexpr(writer: *std.Io.Writer, doc: []const u8, opts: SExprOptions) !void {
+pub fn rich_text_sexpr(writer: *std.Io.Writer, doc: []const u8, opts: SExprOptions) !void {
     try writer.writeAll("(blocks");
-    var iter = try stream.read_blocks(doc);
+    var iter = try rich_text.read_blocks(doc);
     while (try iter.next()) |block| try write_block(writer, block, opts);
     try writer.writeByte(')');
 }
 
-pub fn stream_sexpr_alloc(allocator: std.mem.Allocator, doc: []const u8, opts: SExprOptions) ![]const u8 {
+pub fn rich_text_sexpr_alloc(allocator: std.mem.Allocator, doc: []const u8, opts: SExprOptions) ![]const u8 {
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    try stream_sexpr(&out.writer, doc, opts);
+    try rich_text_sexpr(&out.writer, doc, opts);
     return out.toOwnedSlice();
 }
 
-fn write_block(writer: *std.Io.Writer, block: stream.BlockReader, opts: SExprOptions) !void {
+fn write_block(writer: *std.Io.Writer, block: rich_text.BlockReader, opts: SExprOptions) !void {
     try writer.writeAll(" (block");
     try write_map(writer, block.attrs, opts);
     try writer.print(" :width {d} \"{f}\"", .{ block.display_width, std.zig.fmtString(block.text) });

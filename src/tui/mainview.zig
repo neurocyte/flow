@@ -1059,11 +1059,11 @@ const cmds = struct {
         defer self.allocator.free(doc);
         const doc_json = try markdown.debug.json(self.allocator, doc);
         defer self.allocator.free(doc_json);
-        const stream = try markdown.stream.build(self.allocator, doc, info_view.markdown_theme(tui.theme()), tui.query_cache(), .{});
-        defer self.allocator.free(stream);
-        const stream_json = try markdown.debug.json(self.allocator, stream);
-        defer self.allocator.free(stream_json);
-        const content = try std.mem.concat(self.allocator, u8, &.{ "{\"document\": ", doc_json, ",\n\"stream\": ", stream_json, "}\n" });
+        const rich_text = try markdown.rich_text.build(self.allocator, doc, info_view.markdown_theme(tui.theme()), tui.query_cache(), .{});
+        defer self.allocator.free(rich_text);
+        const rich_text_json = try markdown.debug.json(self.allocator, rich_text);
+        defer self.allocator.free(rich_text_json);
+        const content = try std.mem.concat(self.allocator, u8, &.{ "{\"document\": ", doc_json, ",\n\"rich_text\": ", rich_text_json, "}\n" });
         defer self.allocator.free(content);
         try self.create_editor(ctx.now);
         try command.executeName("open_scratch_buffer", command.fmt(.{ "markdown pipeline", content, "json" }));
