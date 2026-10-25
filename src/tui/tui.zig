@@ -41,6 +41,7 @@ const Terminal = @import("Terminal");
 pub const exports = struct {
     pub const mode = struct {
         pub const helix = @import("mode/helix.zig");
+        pub const vim = @import("mode/vim.zig");
     };
     pub const editor = @import("editor.zig");
     pub const jump_labels = @import("jump_labels.zig");
