@@ -83,9 +83,9 @@ fn mode_name(find_mode: Mode, filter: Filter) []const u8 {
 fn filter_name(filter: Filter) []const u8 {
     return switch (filter) {
         .default => "",
-        .hidden => " H ",
-        .no_ignore => " I ",
-        .all => " IH ",
+        .hidden => " H",
+        .no_ignore => " I",
+        .all => " IH",
     };
 }
 
@@ -96,7 +96,7 @@ fn find_mode_name(find_mode: Mode) []const u8 {
         .exact => base ++ "  ",
         .case_folded => base ++ "  ",
         .regex_auto => base ++ " 󰑑 ",
-        .regex => base ++ " 󰑑   ",
+        .regex => base ++ " 󰑑  ",
         .regex_case_folded => base ++ " 󰑑  ",
     };
 }
