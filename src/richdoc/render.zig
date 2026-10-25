@@ -32,7 +32,7 @@ pub const Options = struct {
     injection_depth: u8 = 2,
 };
 
-pub const Error = error{ OutOfMemory, InvalidDocument };
+pub const Error = error{ OutOfMemory, InvalidSDoc };
 
 /// render a structured document as rich text
 pub fn from_sdoc(allocator: Allocator, doc: SDoc, theme: Theme, query_cache: *syntax.QueryCache, opts: Options) Error!RDoc {

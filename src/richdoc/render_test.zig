@@ -29,11 +29,11 @@ fn dump(source: []const u8, opts: render.Options) ![]const u8 {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
-    const doc = try markdown.parse(gpa, source, query_cache);
-    defer gpa.free(doc.raw.bytes);
-    const s = try render.from_sdoc(gpa, doc, test_theme.theme, query_cache, opts);
-    defer gpa.free(s.raw.bytes);
-    return debug.rich_text_sexpr_alloc(gpa, s, .{});
+    const sdoc = try markdown.parse(gpa, source, query_cache);
+    defer gpa.free(sdoc.raw.bytes);
+    const rdoc = try render.from_sdoc(gpa, sdoc, test_theme.theme, query_cache, opts);
+    defer gpa.free(rdoc.raw.bytes);
+    return debug.rdoc_sexpr_alloc(gpa, rdoc, .{});
 }
 
 fn expect(source: []const u8, opts: render.Options, expected: []const u8) !void {
@@ -87,16 +87,16 @@ test "code with the default language" {
     try expect("```\nconst y = 2;\n```", .{ .default_lang = "zig" }, "(blocks (block :wrap \"cells\" :width 12 \"const y = 2;\" (span 0 5 :fg 0x000007 :bold true) (span 5 10 :fg 0x000003) (span 10 11 :fg 0x000008) (span 11 12 :fg 0x000003)))");
 }
 
-test "rich text reader" {
+test "rdoc reader" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
-    const doc = try markdown.parse(gpa, "- [link](http://x)\n", query_cache);
-    defer gpa.free(doc.raw.bytes);
-    const s = try render.from_sdoc(gpa, doc, test_theme.theme, query_cache, .{});
-    defer gpa.free(s.raw.bytes);
-    var top = try RDoc.BlockIterator.root(s);
+    const sdoc = try markdown.parse(gpa, "- [link](http://x)\n", query_cache);
+    defer gpa.free(sdoc.raw.bytes);
+    const rdoc = try render.from_sdoc(gpa, sdoc, test_theme.theme, query_cache, .{});
+    defer gpa.free(rdoc.raw.bytes);
+    var top = try RDoc.BlockIterator.root(rdoc);
     const list = (try top.next()).?;
     var items = list.iterate();
     const item = (try items.next()).?;

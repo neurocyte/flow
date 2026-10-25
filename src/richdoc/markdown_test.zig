@@ -8,9 +8,9 @@ fn dump(source: []const u8, sloc: bool) ![]const u8 {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
-    const doc = try markdown.parse(gpa, source, query_cache);
-    defer gpa.free(doc.raw.bytes);
-    return debug.sexpr_alloc(gpa, doc, .{ .sloc = sloc });
+    const sdoc = try markdown.parse(gpa, source, query_cache);
+    defer gpa.free(sdoc.raw.bytes);
+    return debug.sdoc_sexpr_alloc(gpa, sdoc, .{ .sloc = sloc });
 }
 
 fn expect(source: []const u8, expected: []const u8) !void {

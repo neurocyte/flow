@@ -16,11 +16,11 @@ const BlockReader = richdoc.RDoc.BlockReader;
 
 pub const name = @typeName(Self);
 
-pub fn rich_text_theme(theme: *const Widget.Theme) richdoc.render.Theme {
-    return .{ .context = theme, .find = find_rich_text_token };
+pub fn render_theme(theme: *const Widget.Theme) richdoc.render.Theme {
+    return .{ .context = theme, .find = find_render_token };
 }
 
-fn find_rich_text_token(context: *const anyopaque, scope: []const u8) ?richdoc.render.Token {
+fn find_render_token(context: *const anyopaque, scope: []const u8) ?richdoc.render.Token {
     const theme: *const Widget.Theme = @ptrCast(@alignCast(context));
     const token = tui.find_scope_style(theme, scope) orelse return null;
     return .{
@@ -44,13 +44,13 @@ pub const Kind = enum {
 const Section = struct {
     kind: Kind,
     text: []const u8,
-    doc: richdoc.SDoc = .{},
-    rich_text: richdoc.RDoc = .{},
+    sdoc: richdoc.SDoc = .{},
+    rdoc: richdoc.RDoc = .{},
 
     fn deinit(self: *Section, allocator: Allocator) void {
         allocator.free(self.text);
-        allocator.free(self.doc.raw.bytes);
-        allocator.free(self.rich_text.raw.bytes);
+        allocator.free(self.sdoc.raw.bytes);
+        allocator.free(self.rdoc.raw.bytes);
     }
 };
 
@@ -188,9 +188,9 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
     errdefer self.allocator.free(text);
     var section: Section = .{ .kind = kind, .text = text };
     if (kind == .markdown) {
-        section.doc = try richdoc.markdown.parse(self.allocator, text, tui.query_cache());
-        errdefer self.allocator.free(section.doc.raw.bytes);
-        section.rich_text = try self.build_rich_text(section.doc);
+        section.sdoc = try richdoc.markdown.parse(self.allocator, text, tui.query_cache());
+        errdefer self.allocator.free(section.sdoc.raw.bytes);
+        section.rdoc = try self.render_sdoc(section.sdoc);
     }
     errdefer section.deinit(self.allocator);
     try self.sections.append(self.allocator, section);
@@ -209,11 +209,11 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
     return .{ .rows = self.lines.items.len, .cols = cols };
 }
 
-fn build_rich_text(self: *Self, doc: richdoc.SDoc) !richdoc.RDoc {
+fn render_sdoc(self: *Self, sdoc: richdoc.SDoc) !richdoc.RDoc {
     const theme = tui.theme();
     self.theme_name = theme.name;
     const default_lang = if (tui.get_active_editor()) |editor| if (editor.file_type) |ft| ft.parser orelse ft.name else null else null;
-    return richdoc.render.from_sdoc(self.allocator, doc, rich_text_theme(theme), tui.query_cache(), .{
+    return richdoc.render.from_sdoc(self.allocator, sdoc, render_theme(theme), tui.query_cache(), .{
         .default_lang = default_lang,
         .injection_depth = @intCast(@min(tui.config().syntax_injection_depth, 255)),
     });
@@ -221,9 +221,9 @@ fn build_rich_text(self: *Self, doc: richdoc.SDoc) !richdoc.RDoc {
 
 fn restyle(self: *Self) !void {
     for (self.sections.items) |*section| if (section.kind == .markdown) {
-        const rich_text = try self.build_rich_text(section.doc);
-        self.allocator.free(section.rich_text.raw.bytes);
-        section.rich_text = rich_text;
+        const rdoc = try self.render_sdoc(section.sdoc);
+        self.allocator.free(section.rdoc.raw.bytes);
+        section.rdoc = rdoc;
     };
     try self.layout();
 }
@@ -251,7 +251,7 @@ fn layout(self: *Self) !void {
     for (self.sections.items) |section| switch (section.kind) {
         .plaintext => try builder.plaintext(section.text),
         .markdown => {
-            var blocks = try richdoc.RDoc.BlockIterator.root(section.rich_text);
+            var blocks = try richdoc.RDoc.BlockIterator.root(section.rdoc);
             while (try blocks.next()) |block| try builder.block(block);
         },
     };
@@ -412,7 +412,7 @@ const LayoutBuilder = struct {
         return list.items;
     }
 
-    fn block(self: *LayoutBuilder, b: BlockReader) error{ OutOfMemory, InvalidRichText }!void {
+    fn block(self: *LayoutBuilder, b: BlockReader) error{ OutOfMemory, InvalidRDoc }!void {
         for (0..b.space_before()) |_| try self.blank_line();
         const first_prefix = b.first_prefix();
         const prefix = b.prefix();

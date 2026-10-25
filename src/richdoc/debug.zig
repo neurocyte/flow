@@ -12,31 +12,41 @@ pub const SExprOptions = struct {
 };
 
 /// a structured document as an s-expression
-pub fn sexpr(writer: *std.Io.Writer, doc: SDoc, opts: SExprOptions) !void {
-    try write_element(writer, try SDoc.Element.root(doc), opts);
+pub fn sdoc_sexpr(writer: *std.Io.Writer, sdoc: SDoc, opts: SExprOptions) error{ WriteFailed, InvalidSDoc }!void {
+    write_element(writer, try SDoc.Element.root(sdoc), opts) catch |e| return switch (e) {
+        error.WriteFailed => error.WriteFailed,
+        else => error.InvalidSDoc,
+    };
 }
 
-pub fn sexpr_alloc(allocator: std.mem.Allocator, doc: SDoc, opts: SExprOptions) ![]const u8 {
+pub fn sdoc_sexpr_alloc(allocator: std.mem.Allocator, sdoc: SDoc, opts: SExprOptions) ![]const u8 {
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    try sexpr(&out.writer, doc, opts);
+    try sdoc_sexpr(&out.writer, sdoc, opts);
     return out.toOwnedSlice();
 }
 
-/// rich text as s-expressions:
+/// a rich text document as s-expressions:
 /// `(block :first_prefix "• " :wrap "words" "text" (span 0 4 :bold true))`
-pub fn rich_text_sexpr(writer: *std.Io.Writer, text: RDoc, opts: SExprOptions) !void {
+pub fn rdoc_sexpr(writer: *std.Io.Writer, rdoc: RDoc, opts: SExprOptions) error{ WriteFailed, InvalidRDoc }!void {
+    write_blocks(writer, rdoc, opts) catch |e| return switch (e) {
+        error.WriteFailed => error.WriteFailed,
+        else => error.InvalidRDoc,
+    };
+}
+
+pub fn rdoc_sexpr_alloc(allocator: std.mem.Allocator, rdoc: RDoc, opts: SExprOptions) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try rdoc_sexpr(&out.writer, rdoc, opts);
+    return out.toOwnedSlice();
+}
+
+fn write_blocks(writer: *std.Io.Writer, rdoc: RDoc, opts: SExprOptions) !void {
     try writer.writeAll("(blocks");
-    var iter = try RDoc.BlockIterator.root(text);
+    var iter = try RDoc.BlockIterator.root(rdoc);
     while (try iter.next()) |block| try write_block(writer, block, opts);
     try writer.writeByte(')');
-}
-
-pub fn rich_text_sexpr_alloc(allocator: std.mem.Allocator, text: RDoc, opts: SExprOptions) ![]const u8 {
-    var out: std.Io.Writer.Allocating = .init(allocator);
-    errdefer out.deinit();
-    try rich_text_sexpr(&out.writer, text, opts);
-    return out.toOwnedSlice();
 }
 
 fn write_block(writer: *std.Io.Writer, block: RDoc.BlockReader, opts: SExprOptions) !void {
@@ -67,9 +77,9 @@ fn write_map(writer: *std.Io.Writer, map: cbor.Raw, opts: SExprOptions) !void {
     var len = try cbor.decodeMapHeader(&iter);
     while (len > 0) : (len -= 1) {
         var key: []const u8 = undefined;
-        if (!try cbor.matchString(&iter, &key)) return error.InvalidDocument;
+        if (!try cbor.matchString(&iter, &key)) return error.InvalidCbor;
         var value: cbor.Raw = undefined;
-        if (!try cbor.matchValue(&iter, cbor.extract(&value))) return error.InvalidDocument;
+        if (!try cbor.matchValue(&iter, cbor.extract(&value))) return error.InvalidCbor;
         if (!opts.sloc and std.mem.eql(u8, key, "sloc")) continue;
         try writer.print(" :{s} ", .{key});
         var color: u24 = 0;
@@ -115,7 +125,7 @@ fn write_value(writer: *std.Io.Writer, value: cbor.Raw) !void {
     var first = true;
     while (len > 0) : (len -= 1) {
         var item: cbor.Raw = undefined;
-        if (!try cbor.matchValue(&iter, cbor.extract(&item))) return error.InvalidDocument;
+        if (!try cbor.matchValue(&iter, cbor.extract(&item))) return error.InvalidCbor;
         if (!first) try writer.writeByte(' ');
         first = false;
         try write_value(writer, item);

@@ -69,8 +69,8 @@ pub const Attrs = struct {
         }
     }
 
-    pub fn read(iter: *[]const u8) error{InvalidRichText}!Attrs {
-        return read_(iter) catch error.InvalidRichText;
+    pub fn read(iter: *[]const u8) error{InvalidRDoc}!Attrs {
+        return read_(iter) catch error.InvalidRDoc;
     }
 
     fn read_(iter: *[]const u8) !Attrs {
@@ -78,7 +78,7 @@ pub const Attrs = struct {
         var len = try cbor.decodeMapHeader(iter);
         while (len > 0) : (len -= 1) {
             var key: []const u8 = undefined;
-            if (!try cbor.matchString(iter, &key)) return error.InvalidRichText;
+            if (!try cbor.matchString(iter, &key)) return error.InvalidRDoc;
             if (std.mem.eql(u8, key, "fg")) {
                 self.style.fg = try read_color(iter);
             } else if (std.mem.eql(u8, key, "bg")) {
@@ -87,20 +87,20 @@ pub const Attrs = struct {
                 self.style.ul = try read_color(iter);
             } else if (std.mem.eql(u8, key, "ul_style")) {
                 var value: u8 = 0;
-                if (!try cbor.matchInt(u8, iter, &value)) return error.InvalidRichText;
+                if (!try cbor.matchInt(u8, iter, &value)) return error.InvalidRDoc;
                 self.style.ul_style = std.enums.fromInt(Style.Underline, value) orelse .off;
             } else if (std.mem.eql(u8, key, "link")) {
-                if (!try cbor.matchString(iter, &self.link)) return error.InvalidRichText;
+                if (!try cbor.matchString(iter, &self.link)) return error.InvalidRDoc;
             } else if (std.mem.eql(u8, key, "link_id")) {
-                if (!try cbor.matchString(iter, &self.link_id)) return error.InvalidRichText;
+                if (!try cbor.matchString(iter, &self.link_id)) return error.InvalidRDoc;
             } else if (std.mem.eql(u8, key, "sloc")) {
                 var start: usize = 0;
                 var end: usize = 0;
-                if (!try cbor.matchValue(iter, .{ cbor.extract(&start), cbor.extract(&end) })) return error.InvalidRichText;
+                if (!try cbor.matchValue(iter, .{ cbor.extract(&start), cbor.extract(&end) })) return error.InvalidRDoc;
                 self.sloc = .{ start, end };
             } else if (bool_key(key)) |field| {
                 var value: bool = false;
-                if (!try cbor.matchBool(iter, &value)) return error.InvalidRichText;
+                if (!try cbor.matchBool(iter, &value)) return error.InvalidRDoc;
                 set_bool(&self.style, field, value);
             } else {
                 try cbor.skipValue(iter);
@@ -266,7 +266,7 @@ pub const BlockReader = struct {
         return .{ .iter = self.children.bytes, .remaining = self.child_count };
     }
 
-    pub fn span_iterator(self: @This()) error{InvalidRichText}!SpanIterator {
+    pub fn span_iterator(self: @This()) error{InvalidRDoc}!SpanIterator {
         return SpanIterator.init(self.spans);
     }
 
@@ -307,7 +307,7 @@ pub const BlockReader = struct {
     }
 
     pub fn wrap(self: @This()) Wrap {
-        return if (std.mem.eql(u8, self.attr_string("wrap"), "cells")) .cells else .words;
+        return std.meta.stringToEnum(Wrap, self.attr_string("wrap")) orelse .words;
     }
 
     pub fn is_table(self: @This()) bool {
@@ -336,17 +336,21 @@ pub const BlockReader = struct {
         return if (cbor.matchInt(usize, &iter, &value) catch false) value else 0;
     }
 
-    pub fn read(iter: *[]const u8) !BlockReader {
+    pub fn read(iter: *[]const u8) error{InvalidRDoc}!BlockReader {
+        return read_(iter) catch error.InvalidRDoc;
+    }
+
+    fn read_(iter: *[]const u8) !BlockReader {
         const len = try cbor.decodeArrayHeader(iter);
-        if (len < 4) return error.InvalidRichText;
+        if (len < 4) return error.InvalidRDoc;
         var attrs: cbor.Raw = undefined;
-        if (!try cbor.matchValue(iter, cbor.extract(&attrs))) return error.InvalidRichText;
+        if (!try cbor.matchValue(iter, cbor.extract(&attrs))) return error.InvalidRDoc;
         var width: usize = 0;
-        if (!try cbor.matchInt(usize, iter, &width)) return error.InvalidRichText;
+        if (!try cbor.matchInt(usize, iter, &width)) return error.InvalidRDoc;
         var text: []const u8 = undefined;
-        if (!try cbor.matchString(iter, &text)) return error.InvalidRichText;
+        if (!try cbor.matchString(iter, &text)) return error.InvalidRDoc;
         var spans: cbor.Raw = undefined;
-        if (!try cbor.matchValue(iter, cbor.extract(&spans))) return error.InvalidRichText;
+        if (!try cbor.matchValue(iter, cbor.extract(&spans))) return error.InvalidRDoc;
         const start = iter.*;
         for (0..len - 4) |_| try cbor.skipValue(iter);
         return .{
@@ -364,19 +368,19 @@ pub const BlockIterator = struct {
     iter: []const u8,
     remaining: usize,
 
-    pub fn next(self: *@This()) error{InvalidRichText}!?BlockReader {
+    pub fn next(self: *@This()) error{InvalidRDoc}!?BlockReader {
         if (self.remaining == 0) return null;
         self.remaining -= 1;
-        return BlockReader.read(&self.iter) catch error.InvalidRichText;
+        return try BlockReader.read(&self.iter);
     }
 
     /// iterate the top level blocks of rich text
-    pub fn root(doc: RDoc) error{InvalidRichText}!BlockIterator {
+    pub fn root(doc: RDoc) error{InvalidRDoc}!BlockIterator {
         var iter = doc.raw.bytes;
-        const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRichText;
-        if (len < 1) return error.InvalidRichText;
+        const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRDoc;
+        if (len < 1) return error.InvalidRDoc;
         var tag: []const u8 = undefined;
-        if (!(cbor.matchString(&iter, &tag) catch false) or !std.mem.eql(u8, tag, "blocks")) return error.InvalidRichText;
+        if (!(cbor.matchString(&iter, &tag) catch false) or !std.mem.eql(u8, tag, "blocks")) return error.InvalidRDoc;
         return .{ .iter = iter, .remaining = len - 1 };
     }
 };
@@ -385,21 +389,21 @@ pub const SpanIterator = struct {
     iter: []const u8,
     remaining: usize,
 
-    pub fn init(spans: cbor.Raw) error{InvalidRichText}!SpanIterator {
+    pub fn init(spans: cbor.Raw) error{InvalidRDoc}!SpanIterator {
         var iter = spans.bytes;
-        const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRichText;
+        const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRDoc;
         return .{ .iter = iter, .remaining = len };
     }
 
-    pub fn next(self: *@This()) error{InvalidRichText}!?Span {
+    pub fn next(self: *@This()) error{InvalidRDoc}!?Span {
         if (self.remaining == 0) return null;
         self.remaining -= 1;
-        const len = cbor.decodeArrayHeader(&self.iter) catch return error.InvalidRichText;
-        if (len != 3) return error.InvalidRichText;
+        const len = cbor.decodeArrayHeader(&self.iter) catch return error.InvalidRDoc;
+        if (len != 3) return error.InvalidRDoc;
         var start: usize = 0;
         var end: usize = 0;
-        if (!(cbor.matchInt(usize, &self.iter, &start) catch false)) return error.InvalidRichText;
-        if (!(cbor.matchInt(usize, &self.iter, &end) catch false)) return error.InvalidRichText;
+        if (!(cbor.matchInt(usize, &self.iter, &start) catch false)) return error.InvalidRDoc;
+        if (!(cbor.matchInt(usize, &self.iter, &end) catch false)) return error.InvalidRDoc;
         return .{ .start = start, .end = end, .attrs = try Attrs.read(&self.iter) };
     }
 };
