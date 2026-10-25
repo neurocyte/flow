@@ -874,7 +874,9 @@ test "the builtin fallback list prunes the historical directories" {
 }
 
 test "case insensitivity" {
-    var f = try Fixture.init(&.{ ".gitignore\x00FOO\n", "foo", "FOO" }, .{});
+    // Default options are platform-dependent (Darwin/Windows are case
+    // insensitive), so spell case sensitivity out explicitly.
+    var f = try Fixture.init(&.{ ".gitignore\x00FOO\n", "foo", "FOO" }, .{ .case_insensitive = false });
     defer f.deinit();
     try f.expect("FOO", .file, true);
     try f.expect("foo", .file, false);
