@@ -37,19 +37,19 @@ pub const Elem = struct {
     attrs: std.ArrayList(Attr) = .empty,
     children: std.ArrayList(Child) = .empty,
 
-    pub fn create(arena: Allocator, tag: []const u8, start: usize, end: usize) error{OutOfMemory}!*Elem {
-        const self = try arena.create(Elem);
+    pub fn create(arena: Allocator, tag: []const u8, start: usize, end: usize) error{OutOfMemory}!*@This() {
+        const self = try arena.create(@This());
         self.* = .{ .tag = tag, .sloc = .{ start, end } };
         return self;
     }
 
-    pub fn add_elem(self: *Elem, arena: Allocator, tag: []const u8, start: usize, end: usize) error{OutOfMemory}!*Elem {
+    pub fn add_elem(self: *@This(), arena: Allocator, tag: []const u8, start: usize, end: usize) error{OutOfMemory}!*@This() {
         const elem = try create(arena, tag, start, end);
         try self.children.append(arena, .{ .elem = elem });
         return elem;
     }
 
-    pub fn add_text(self: *Elem, arena: Allocator, text: []const u8) error{OutOfMemory}!void {
+    pub fn add_text(self: *@This(), arena: Allocator, text: []const u8) error{OutOfMemory}!void {
         if (text.len == 0) return;
         if (self.children.items.len > 0) switch (self.children.items[self.children.items.len - 1]) {
             .text => |*t| return t.appendSlice(arena, text),
@@ -60,23 +60,23 @@ pub const Elem = struct {
         try self.children.append(arena, .{ .text = t });
     }
 
-    pub fn set(self: *Elem, arena: Allocator, name: []const u8, value: Value) error{OutOfMemory}!void {
+    pub fn set(self: *@This(), arena: Allocator, name: []const u8, value: Value) error{OutOfMemory}!void {
         try self.attrs.append(arena, .{ .name = name, .value = value });
     }
 
-    pub fn is(self: *const Elem, tag: []const u8) bool {
+    pub fn is(self: *const @This(), tag: []const u8) bool {
         return std.mem.eql(u8, self.tag, tag);
     }
 
     /// encode the tree under this element, clamping `sloc` to `limit`
-    pub fn encode(self: *const Elem, allocator: Allocator, limit: usize) error{OutOfMemory}!Document {
+    pub fn encode(self: *const @This(), allocator: Allocator, limit: usize) error{OutOfMemory}!Document {
         var out: std.Io.Writer.Allocating = .init(allocator);
         errdefer out.deinit();
         self.write(&out.writer, limit) catch return error.OutOfMemory;
         return .{ .raw = .{ .bytes = out.toOwnedSlice() catch return error.OutOfMemory } };
     }
 
-    pub fn write(self: *const Elem, writer: *std.Io.Writer, limit: usize) std.Io.Writer.Error!void {
+    pub fn write(self: *const @This(), writer: *std.Io.Writer, limit: usize) std.Io.Writer.Error!void {
         try cbor.writeArrayHeader(writer, 2 + self.children.items.len);
         try cbor.writeValue(writer, self.tag);
         try cbor.writeMapHeader(writer, 1 + self.attrs.items.len);
@@ -105,11 +105,11 @@ pub const Element = struct {
     children: cbor.Raw,
     child_count: usize,
 
-    pub fn iterate(self: Element) Iterator {
+    pub fn iterate(self: @This()) Iterator {
         return .{ .iter = self.children.bytes, .remaining = self.child_count };
     }
 
-    pub fn attr(self: Element, name: []const u8) ?cbor.Raw {
+    pub fn attr(self: @This(), name: []const u8) ?cbor.Raw {
         var iter = self.attrs.bytes;
         var len = cbor.decodeMapHeader(&iter) catch return null;
         while (len > 0) : (len -= 1) {
@@ -122,32 +122,32 @@ pub const Element = struct {
         return null;
     }
 
-    pub fn attr_string(self: Element, name: []const u8) ?[]const u8 {
+    pub fn attr_string(self: @This(), name: []const u8) ?[]const u8 {
         var iter = (self.attr(name) orelse return null).bytes;
         var value: []const u8 = undefined;
         return if (cbor.matchString(&iter, &value) catch false) value else null;
     }
 
-    pub fn attr_uint(self: Element, name: []const u8) ?u64 {
+    pub fn attr_uint(self: @This(), name: []const u8) ?u64 {
         var iter = (self.attr(name) orelse return null).bytes;
         var value: u64 = undefined;
         return if (cbor.matchInt(u64, &iter, &value) catch false) value else null;
     }
 
-    pub fn attr_bool(self: Element, name: []const u8) ?bool {
+    pub fn attr_bool(self: @This(), name: []const u8) ?bool {
         var iter = (self.attr(name) orelse return null).bytes;
         var value: bool = undefined;
         return if (cbor.matchBool(&iter, &value) catch false) value else null;
     }
 
-    pub fn sloc(self: Element) ?[2]usize {
+    pub fn sloc(self: @This()) ?[2]usize {
         var iter = (self.attr("sloc") orelse return null).bytes;
         var start: usize = 0;
         var end: usize = 0;
         return if (cbor.matchValue(&iter, .{ cbor.extract(&start), cbor.extract(&end) }) catch false) .{ start, end } else null;
     }
 
-    pub fn is(self: Element, tag: []const u8) bool {
+    pub fn is(self: @This(), tag: []const u8) bool {
         return std.mem.eql(u8, self.tag, tag);
     }
 };
