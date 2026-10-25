@@ -90,6 +90,16 @@ test "select inside long word: cursor on whitespace takes the WORD on the right"
     try expect_long_word_selection(doc, 0, 8, false, .{ .begin_row = 0, .begin_col = 9, .end_row = 0, .end_col = 12 });
 }
 
+test "select around long word: leading whitespace at line start is left out" {
+    //                0123456
+    const doc = "  foo";
+    // the WORD is at the end of the line and the leading whitespace reaches the
+    // start of the line: vim does not include any of it
+    try expect_long_word_selection(doc, 0, 2, true, .{ .begin_row = 0, .begin_col = 2, .end_row = 0, .end_col = 5 });
+    // with a word in front of the whitespace run, the whole run is included
+    try expect_long_word_selection("ab  foo", 0, 4, true, .{ .begin_row = 0, .begin_col = 2, .end_row = 0, .end_col = 7 });
+}
+
 test "select around long word: includes trailing whitespace" {
     //                0123456789012345
     const doc = "aa bb.cc  dd";

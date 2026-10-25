@@ -793,11 +793,18 @@ fn select_long_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buff
             // include trailing whitespace up to (not including) the next WORD
             Editor.move_cursor_right_until(root, &next, is_not_tab_or_space_at_cursor, metrics);
         } else if (prev.col > 0) {
-            // at EOL: include the single leading whitespace run
+            // at EOL: include the leading whitespace run, but only when it is
+            // bounded by a word on the left, like vim does
+            const word_start = prev;
             prev.move_left(root, metrics) catch {};
             if (prev.test_at(root, is_tab_or_space, metrics)) {
                 Editor.move_cursor_left_until(root, &prev, is_not_tab_or_space_at_cursor, metrics);
-                prev.move_right(root, metrics) catch {};
+                if (prev.test_at(root, Editor.is_whitespace, metrics)) {
+                    // the run reaches the start of the line: keep the WORD only
+                    prev = word_start;
+                } else {
+                    prev.move_right(root, metrics) catch {};
+                }
             }
         }
     }
