@@ -150,11 +150,38 @@ pub const Element = struct {
     pub fn is(self: @This(), tag: []const u8) bool {
         return std.mem.eql(u8, self.tag, tag);
     }
+
+    pub fn read(iter: *[]const u8) error{InvalidDocument}!Element {
+        const len = cbor.decodeArrayHeader(iter) catch return error.InvalidDocument;
+        if (len < 2) return error.InvalidDocument;
+        var tag: []const u8 = undefined;
+        if (!(cbor.matchString(iter, &tag) catch return error.InvalidDocument)) return error.InvalidDocument;
+        var attrs: cbor.Raw = undefined;
+        if (!(cbor.matchValue(iter, cbor.extract(&attrs)) catch return error.InvalidDocument)) return error.InvalidDocument;
+        const start = iter.*;
+        for (0..len - 2) |_| cbor.skipValue(iter) catch return error.InvalidDocument;
+        return .{ .tag = tag, .attrs = attrs, .children = .{ .bytes = start[0 .. start.len - iter.len] }, .child_count = len - 2 };
+    }
+
+    pub fn root(doc: Document) error{InvalidDocument}!Element {
+        var iter = doc.raw.bytes;
+        return read(&iter);
+    }
 };
 
 pub const Content = union(enum) {
     text: []const u8,
     element: Element,
+
+    pub fn read(iter: *[]const u8) error{InvalidDocument}!Content {
+        if (iter.len == 0) return error.InvalidDocument;
+        if (iter.*[0] >> 5 == 3) {
+            var s: []const u8 = undefined;
+            if (!(cbor.matchString(iter, &s) catch return error.InvalidDocument)) return error.InvalidDocument;
+            return .{ .text = s };
+        }
+        return .{ .element = try Element.read(iter) };
+    }
 };
 
 pub const Iterator = struct {
@@ -164,33 +191,6 @@ pub const Iterator = struct {
     pub fn next(self: *Iterator) error{InvalidDocument}!?Content {
         if (self.remaining == 0) return null;
         self.remaining -= 1;
-        return try read_content(&self.iter);
+        return try Content.read(&self.iter);
     }
 };
-
-pub fn read_content(iter: *[]const u8) error{InvalidDocument}!Content {
-    if (iter.len == 0) return error.InvalidDocument;
-    if (iter.*[0] >> 5 == 3) {
-        var s: []const u8 = undefined;
-        if (!(cbor.matchString(iter, &s) catch return error.InvalidDocument)) return error.InvalidDocument;
-        return .{ .text = s };
-    }
-    return .{ .element = try read_element(iter) };
-}
-
-pub fn read_element(iter: *[]const u8) error{InvalidDocument}!Element {
-    const len = cbor.decodeArrayHeader(iter) catch return error.InvalidDocument;
-    if (len < 2) return error.InvalidDocument;
-    var tag: []const u8 = undefined;
-    if (!(cbor.matchString(iter, &tag) catch return error.InvalidDocument)) return error.InvalidDocument;
-    var attrs: cbor.Raw = undefined;
-    if (!(cbor.matchValue(iter, cbor.extract(&attrs)) catch return error.InvalidDocument)) return error.InvalidDocument;
-    const start = iter.*;
-    for (0..len - 2) |_| cbor.skipValue(iter) catch return error.InvalidDocument;
-    return .{ .tag = tag, .attrs = attrs, .children = .{ .bytes = start[0 .. start.len - iter.len] }, .child_count = len - 2 };
-}
-
-pub fn root(doc: Document) error{InvalidDocument}!Element {
-    var iter = doc.raw.bytes;
-    return read_element(&iter);
-}

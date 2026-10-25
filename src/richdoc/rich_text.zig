@@ -52,7 +52,7 @@ pub fn build(allocator: Allocator, doc: document.Document, theme: Theme, query_c
         .opts = opts,
     };
     var top: Block = .{};
-    try builder.blocks(&top, try document.root(doc), .container);
+    try builder.blocks(&top, try document.Element.root(doc), .container);
 
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();

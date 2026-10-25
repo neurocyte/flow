@@ -13,7 +13,7 @@ pub const SExprOptions = struct {
 
 /// a structured document as an s-expression
 pub fn sexpr(writer: *std.Io.Writer, doc: document.Document, opts: SExprOptions) !void {
-    try write_element(writer, try document.root(doc), opts);
+    try write_element(writer, try document.Element.root(doc), opts);
 }
 
 pub fn sexpr_alloc(allocator: std.mem.Allocator, doc: document.Document, opts: SExprOptions) ![]const u8 {
