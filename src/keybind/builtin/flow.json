@@ -649,6 +649,8 @@
             [["ctrl+enter", "Insert new line char"], "mini_mode_insert_bytes", "\n"],
             ["alt+backspace", "mini_mode_delete_word_left"],
             ["ctrl+backspace", "mini_mode_delete_word_left"],
+            ["alt+c", "toggle_find_mode_case_folded"],
+            ["alt+r", "toggle_find_mode_regex"],
             ["alt+n", "goto_next_file"],
             ["alt+p", "goto_prev_file"],
             ["shift+f3", "goto_prev_match"],

@@ -204,14 +204,16 @@ fn append_button(self: *Self) void {
 
 pub fn handle_filelist_event(self: *Self, event: FileList.Event) void {
     switch (event) {
-        .none => tui.need_render(@src()),
+        .none => {},
         .rebuild => self.rebuild_list_box(),
         .append_one => self.append_button(),
     }
+    tui.need_render(@src());
 }
 
 pub fn refresh(self: *Self) void {
     self.rebuild_list_box();
+    tui.need_render(@src());
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const log = @import("log");
 const bin_path = @import("bin_path");
 const root = @import("soft_root").root;
+const FindMode = @import("config").FindMode;
 
 pid: ?tp.pid,
 stdin_behavior: tp.subprocess.StdIo,
@@ -35,15 +36,15 @@ pub const BufferedWriter = struct {
 pub const FindF = fn (allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize) Error!Self;
 
 pub fn find_in_stdin(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize) Error!Self {
-    return create(allocator, query, tag, id, .pipe);
+    return create(allocator, query, .auto, tag, id, .pipe);
 }
 
-pub fn find_in_files(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize) Error!Self {
-    return create(allocator, query, tag, id, .close);
+pub fn find_in_files(allocator: std.mem.Allocator, query: []const u8, mode: FindMode, tag: [:0]const u8, id: usize) Error!Self {
+    return create(allocator, query, mode, tag, id, .close);
 }
 
-fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize, stdin_behavior: tp.subprocess.StdIo) !Self {
-    return .{ .pid = try Process.create(allocator, query, tag, id, stdin_behavior), .stdin_behavior = stdin_behavior };
+fn create(allocator: std.mem.Allocator, query: []const u8, mode: FindMode, tag: [:0]const u8, id: usize, stdin_behavior: tp.subprocess.StdIo) !Self {
+    return .{ .pid = try Process.create(allocator, query, mode, tag, id, stdin_behavior), .stdin_behavior = stdin_behavior };
 }
 
 pub fn deinit(self: *Self) void {
@@ -86,6 +87,7 @@ pub fn bufferedWriter(self: *Self) BufferedWriter {
 const Process = struct {
     allocator: std.mem.Allocator,
     query: []const u8,
+    mode: FindMode,
     receiver: Receiver,
     sp: ?tp.subprocess = null,
     output: std.Io.Writer.Allocating,
@@ -98,12 +100,13 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, id: usize, stdin_behavior: tp.subprocess.StdIo) !tp.pid {
+    pub fn create(allocator: std.mem.Allocator, query: []const u8, mode: FindMode, tag: [:0]const u8, id: usize, stdin_behavior: tp.subprocess.StdIo) !tp.pid {
         const self = try allocator.create(Process);
         errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,
             .query = try allocator.dupe(u8, query),
+            .mode = mode,
             .receiver = .init(receive, dtor, self),
             .output = .init(allocator),
             .parent = tp.self_pid().clone(),
@@ -140,15 +143,29 @@ const Process = struct {
     fn start(self: *Process) tp.result {
         errdefer self.deinit();
         _ = tp.set_trap(true);
-        const args = tp.message.fmt(.{
-            get_ripgrep(),
-            // "--line-buffered",
-            "--fixed-strings",
-            "--json",
-            "--smart-case",
-            self.query,
-            "./.", // never search stdin
-        });
+        const case_flag = switch (self.mode) {
+            .auto, .regex_auto => "--smart-case",
+            .exact, .regex => "--case-sensitive",
+            .case_folded, .regex_case_folded => "--ignore-case",
+        };
+        const args = switch (self.mode) {
+            .auto, .exact, .case_folded => tp.message.fmt(.{
+                get_ripgrep(),
+                // "--line-buffered",
+                "--fixed-strings",
+                "--json",
+                case_flag,
+                self.query,
+                "./.", // never search stdin
+            }),
+            .regex_auto, .regex, .regex_case_folded => tp.message.fmt(.{
+                get_ripgrep(),
+                "--json",
+                case_flag,
+                self.query,
+                "./.", // never search stdin
+            }),
+        };
         self.sp = tp.subprocess.init(root.get_io(), self.allocator, args, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }

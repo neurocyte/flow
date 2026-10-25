@@ -1411,6 +1411,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/ripgrep.zig"),
         .imports = &.{
             .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "config", .module = config_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
