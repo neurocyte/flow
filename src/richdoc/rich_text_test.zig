@@ -1,7 +1,7 @@
 const std = @import("std");
 const syntax = @import("syntax");
 const build_options = @import("build_options");
-const document = @import("document.zig");
+const markdown = @import("markdown.zig");
 const rich_text = @import("rich_text.zig");
 const debug = @import("debug.zig");
 
@@ -28,7 +28,7 @@ fn dump(source: []const u8, opts: rich_text.Options) ![]const u8 {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
-    const doc = try document.parse(gpa, source, query_cache);
+    const doc = try markdown.parse(gpa, source, query_cache);
     defer gpa.free(doc.raw.bytes);
     const s = try rich_text.build(gpa, doc, test_theme.theme, query_cache, opts);
     defer gpa.free(s.raw.bytes);
@@ -91,7 +91,7 @@ test "rich text reader" {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
-    const doc = try document.parse(gpa, "- [link](http://x)\n", query_cache);
+    const doc = try markdown.parse(gpa, "- [link](http://x)\n", query_cache);
     defer gpa.free(doc.raw.bytes);
     const s = try rich_text.build(gpa, doc, test_theme.theme, query_cache, .{});
     defer gpa.free(s.raw.bytes);

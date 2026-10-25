@@ -1055,7 +1055,7 @@ const cmds = struct {
         const editor = self.get_active_editor() orelse return;
         const buffer = editor.buffer orelse return;
         const source = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
-        const doc = try richdoc.document.parse(self.allocator, source, tui.query_cache());
+        const doc = try richdoc.markdown.parse(self.allocator, source, tui.query_cache());
         defer self.allocator.free(doc.raw.bytes);
         const doc_json = try richdoc.debug.json(self.allocator, doc.raw);
         defer self.allocator.free(doc_json);

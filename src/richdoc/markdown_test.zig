@@ -1,14 +1,14 @@
 const std = @import("std");
 const syntax = @import("syntax");
 const build_options = @import("build_options");
-const document = @import("document.zig");
+const markdown = @import("markdown.zig");
 const debug = @import("debug.zig");
 
 fn dump(source: []const u8, sloc: bool) ![]const u8 {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
-    const doc = try document.parse(gpa, source, query_cache);
+    const doc = try markdown.parse(gpa, source, query_cache);
     defer gpa.free(doc.raw.bytes);
     return debug.sexpr_alloc(gpa, doc, .{ .sloc = sloc });
 }

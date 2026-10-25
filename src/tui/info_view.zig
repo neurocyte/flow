@@ -188,7 +188,7 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
     errdefer self.allocator.free(text);
     var section: Section = .{ .kind = kind, .text = text };
     if (kind == .markdown) {
-        section.doc = try richdoc.document.parse(self.allocator, text, tui.query_cache());
+        section.doc = try richdoc.markdown.parse(self.allocator, text, tui.query_cache());
         errdefer self.allocator.free(section.doc.raw.bytes);
         section.rich_text = try self.build_rich_text(section.doc);
     }
