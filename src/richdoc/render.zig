@@ -6,10 +6,9 @@ const syntax_validator = @import("syntax_validator");
 const build_options = @import("build_options");
 const SDoc = @import("SDoc.zig");
 const RDoc = @import("RDoc.zig");
-const rich_line = @import("rich_line.zig");
 
 const Allocator = std.mem.Allocator;
-const Style = rich_line.Style;
+const Style = RDoc.Style;
 const BlockBuilder = RDoc.BlockBuilder;
 
 pub const FontStyle = enum { normal, bold, italic, underline, undercurl, strikethrough };
@@ -94,7 +93,7 @@ const Builder = struct {
     fn apply(self: *const @This(), base: Style, delta: Delta) Style {
         var style = base;
         for (delta.scopes) |scope| if (self.theme.lookup(scope)) |token| if (token.fg != null or token.fs != null) {
-            if (token.fg) |fg| style.fg = rich_line.Color.rgbFromUint(fg);
+            if (token.fg) |fg| style.fg = RDoc.Color.rgbFromUint(fg);
             if (token.fs) |fs| add_bit(&style, fs);
             break;
         };
@@ -179,7 +178,7 @@ const Builder = struct {
                 try std.mem.concat(self.arena, u8, &.{ marker, if (checked) "[x] " else "[ ] " })
             else
                 marker;
-            item.prefix = try self.spaces(rich_line.display_width(marker));
+            item.prefix = try self.spaces(RDoc.display_width(marker));
             item.prefix_style = prefix_style;
             try self.item_content(item, li, loose);
         }
@@ -319,7 +318,7 @@ const Builder = struct {
                 if (idx > 0) return;
                 const token = ctx.builder.theme.lookup(scope) orelse return;
                 var style = ctx.base;
-                if (token.fg) |fg| style.fg = rich_line.Color.rgbFromUint(fg);
+                if (token.fg) |fg| style.fg = RDoc.Color.rgbFromUint(fg);
                 if (token.fs) |fs| add_bit(&style, fs);
                 // nvim style ranking, as in the editor
                 const rank: i64 = (@as(i64, priority) << 32) | @as(i64, pattern_index);

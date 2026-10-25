@@ -11,7 +11,7 @@ const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
 const richdoc = @import("richdoc");
 
-const Attrs = richdoc.rich_line.Attrs;
+const Attrs = richdoc.RDoc.Attrs;
 const BlockReader = richdoc.RDoc.BlockReader;
 
 pub const name = @typeName(Self);
@@ -412,7 +412,7 @@ const LayoutBuilder = struct {
         return list.items;
     }
 
-    fn block(self: *LayoutBuilder, b: BlockReader) error{ OutOfMemory, InvalidRichText, InvalidRichLine }!void {
+    fn block(self: *LayoutBuilder, b: BlockReader) error{ OutOfMemory, InvalidRichText }!void {
         for (0..b.space_before()) |_| try self.blank_line();
         const first_prefix = b.first_prefix();
         const prefix = b.prefix();
@@ -709,7 +709,7 @@ fn has_markdown(self: *const Self) bool {
     return false;
 }
 
-fn write_run(self: *Self, base: richdoc.rich_line.Style, run: Run) void {
+fn write_run(self: *Self, base: richdoc.RDoc.Style, run: Run) void {
     const a = run.attrs.style;
     var style = base;
     if (a.fg != .default) style.fg = a.fg;
