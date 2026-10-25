@@ -3,17 +3,17 @@
 const std = @import("std");
 const syntax = @import("syntax");
 const build_options = @import("build_options");
-const document = @import("document.zig");
+const SDoc = @import("SDoc.zig");
 
 const Allocator = std.mem.Allocator;
 const Node = syntax.Node;
 const Range = syntax.Range;
-const ElementBuilder = document.ElementBuilder;
+const ElementBuilder = SDoc.ElementBuilder;
 
 pub const Error = error{ OutOfMemory, ParseFailed };
 
-/// parse markdown into a document
-pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.QueryCache) Error!document.Document {
+/// parse markdown into a structured document
+pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.QueryCache) Error!SDoc {
     var arena_: std.heap.ArenaAllocator = .init(allocator);
     defer arena_.deinit();
     const arena = arena_.allocator();

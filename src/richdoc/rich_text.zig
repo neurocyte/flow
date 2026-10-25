@@ -5,7 +5,7 @@ const cbor = @import("cbor");
 const syntax = @import("syntax");
 const syntax_validator = @import("syntax_validator");
 const build_options = @import("build_options");
-const document = @import("document.zig");
+const SDoc = @import("SDoc.zig");
 const rich_line = @import("rich_line.zig");
 
 const Allocator = std.mem.Allocator;
@@ -41,7 +41,7 @@ pub const RichText = struct {
     raw: cbor.Raw = .empty,
 };
 
-pub fn build(allocator: Allocator, doc: document.Document, theme: Theme, query_cache: *syntax.QueryCache, opts: Options) Error!RichText {
+pub fn build(allocator: Allocator, doc: SDoc, theme: Theme, query_cache: *syntax.QueryCache, opts: Options) Error!RichText {
     var arena_: std.heap.ArenaAllocator = .init(allocator);
     defer arena_.deinit();
     var builder: Builder = .{
@@ -52,7 +52,7 @@ pub fn build(allocator: Allocator, doc: document.Document, theme: Theme, query_c
         .opts = opts,
     };
     var top: Block = .{};
-    try builder.blocks(&top, try document.Element.root(doc), .container);
+    try builder.blocks(&top, try SDoc.Element.root(doc), .container);
 
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
@@ -197,7 +197,7 @@ const Builder = struct {
         return if (delta_for(tag)) |delta| self.apply(base, delta) else base;
     }
 
-    fn new_block(self: *const Builder, parent: *Block, elem: document.Element, spacing: Spacing) error{OutOfMemory}!*Block {
+    fn new_block(self: *const Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) error{OutOfMemory}!*Block {
         const b = try self.arena.create(Block);
         b.* = .{
             .sloc = elem.sloc(),
@@ -207,7 +207,7 @@ const Builder = struct {
         return b;
     }
 
-    fn blocks(self: *Builder, parent: *Block, elem: document.Element, spacing: Spacing) Error!void {
+    fn blocks(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         var iter = elem.iterate();
         while (try iter.next()) |child| switch (child) {
             .element => |e| try self.block(parent, e, spacing),
@@ -220,7 +220,7 @@ const Builder = struct {
         };
     }
 
-    fn block(self: *Builder, parent: *Block, elem: document.Element, spacing: Spacing) Error!void {
+    fn block(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         const eql = std.mem.eql;
         const tag = elem.tag;
         if (eql(u8, tag, "blockquote")) {
@@ -251,7 +251,7 @@ const Builder = struct {
         }
     }
 
-    fn list(self: *Builder, parent: *Block, elem: document.Element, spacing: Spacing) Error!void {
+    fn list(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         const container = try self.new_block(parent, elem, spacing);
         var number = elem.attr_uint("start") orelse 1;
         const ordered = elem.is("ol");
@@ -276,7 +276,7 @@ const Builder = struct {
         }
     }
 
-    fn table(self: *Builder, parent: *Block, elem: document.Element, spacing: Spacing) Error!void {
+    fn table(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         const b = try self.new_block(parent, elem, spacing);
         b.wrap = .cells;
         b.prefix_style = self.apply(.{}, list_prefix);
@@ -315,13 +315,13 @@ const Builder = struct {
         b.table = columns.items;
     }
 
-    fn is_loose_item(li: document.Element) bool {
+    fn is_loose_item(li: SDoc.Element) bool {
         var iter = li.iterate();
         const first = (iter.next() catch return false) orelse return false;
         return first == .element and first.element.is("p");
     }
 
-    fn item_content(self: *Builder, item: *Block, li: document.Element, loose: bool) Error!void {
+    fn item_content(self: *Builder, item: *Block, li: SDoc.Element, loose: bool) Error!void {
         const base: Inline = .{ .style = .{}, .sloc = li.sloc() };
         var iter = li.iterate();
         while (try iter.next()) |child| switch (child) {
@@ -350,7 +350,7 @@ const Builder = struct {
         });
     }
 
-    fn inlines(self: *Builder, b: *Block, elem: document.Element, in: Inline) Error!void {
+    fn inlines(self: *Builder, b: *Block, elem: SDoc.Element, in: Inline) Error!void {
         var iter = elem.iterate();
         while (try iter.next()) |child| switch (child) {
             .text => |t| try self.add_text(b, t, in),
@@ -358,7 +358,7 @@ const Builder = struct {
         };
     }
 
-    fn inline_element(self: *Builder, b: *Block, elem: document.Element, in: Inline) Error!void {
+    fn inline_element(self: *Builder, b: *Block, elem: SDoc.Element, in: Inline) Error!void {
         const tag = elem.tag;
         if (elem.is("br")) {
             try b.text.append(self.arena, '\n');
@@ -376,7 +376,7 @@ const Builder = struct {
         }
     }
 
-    fn code(self: *Builder, b: *Block, elem: document.Element) Error!void {
+    fn code(self: *Builder, b: *Block, elem: SDoc.Element) Error!void {
         var iter = elem.iterate();
         const text = while (try iter.next()) |child| switch (child) {
             .text => |t| break t,

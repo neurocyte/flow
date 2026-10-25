@@ -44,7 +44,7 @@ pub const Kind = enum {
 const Section = struct {
     kind: Kind,
     text: []const u8,
-    doc: richdoc.document.Document = .{},
+    doc: richdoc.SDoc = .{},
     rich_text: richdoc.rich_text.RichText = .{},
 
     fn deinit(self: *Section, allocator: Allocator) void {
@@ -209,7 +209,7 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
     return .{ .rows = self.lines.items.len, .cols = cols };
 }
 
-fn build_rich_text(self: *Self, doc: richdoc.document.Document) !richdoc.rich_text.RichText {
+fn build_rich_text(self: *Self, doc: richdoc.SDoc) !richdoc.rich_text.RichText {
     const theme = tui.theme();
     self.theme_name = theme.name;
     const default_lang = if (tui.get_active_editor()) |editor| if (editor.file_type) |ft| ft.parser orelse ft.name else null else null;

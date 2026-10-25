@@ -1,6 +1,6 @@
 const std = @import("std");
 const cbor = @import("cbor");
-const document = @import("document.zig");
+const SDoc = @import("SDoc.zig");
 const rich_text = @import("rich_text.zig");
 
 pub fn json(allocator: std.mem.Allocator, value: cbor.Raw) ![]const u8 {
@@ -12,11 +12,11 @@ pub const SExprOptions = struct {
 };
 
 /// a structured document as an s-expression
-pub fn sexpr(writer: *std.Io.Writer, doc: document.Document, opts: SExprOptions) !void {
-    try write_element(writer, try document.Element.root(doc), opts);
+pub fn sexpr(writer: *std.Io.Writer, doc: SDoc, opts: SExprOptions) !void {
+    try write_element(writer, try SDoc.Element.root(doc), opts);
 }
 
-pub fn sexpr_alloc(allocator: std.mem.Allocator, doc: document.Document, opts: SExprOptions) ![]const u8 {
+pub fn sexpr_alloc(allocator: std.mem.Allocator, doc: SDoc, opts: SExprOptions) ![]const u8 {
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
     try sexpr(&out.writer, doc, opts);
@@ -88,7 +88,7 @@ fn is_color_key(key: []const u8) bool {
     return std.mem.eql(u8, key, "fg") or std.mem.eql(u8, key, "bg") or std.mem.eql(u8, key, "ul");
 }
 
-fn write_element(writer: *std.Io.Writer, elem: document.Element, opts: SExprOptions) !void {
+fn write_element(writer: *std.Io.Writer, elem: SDoc.Element, opts: SExprOptions) !void {
     try writer.print("({s}", .{elem.tag});
     try write_map(writer, elem.attrs, opts);
     var children = elem.iterate();

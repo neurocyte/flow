@@ -9,10 +9,10 @@ const cbor = @import("cbor");
 
 const Allocator = std.mem.Allocator;
 
-pub const Document = struct {
-    /// `["body", attrs, child...]`
-    raw: cbor.Raw = .empty,
-};
+/// `["body", attrs, child...]`
+raw: cbor.Raw = .empty,
+
+const SDoc = @This();
 
 pub const Value = union(enum) {
     uint: u64,
@@ -69,7 +69,7 @@ pub const ElementBuilder = struct {
     }
 
     /// encode the tree under this element, clamping `sloc` to `limit`
-    pub fn encode(self: *const @This(), allocator: Allocator, limit: usize) error{OutOfMemory}!Document {
+    pub fn encode(self: *const @This(), allocator: Allocator, limit: usize) error{OutOfMemory}!SDoc {
         var out: std.Io.Writer.Allocating = .init(allocator);
         errdefer out.deinit();
         self.write(&out.writer, limit) catch return error.OutOfMemory;
@@ -163,7 +163,7 @@ pub const Element = struct {
         return .{ .tag = tag, .attrs = attrs, .children = .{ .bytes = start[0 .. start.len - iter.len] }, .child_count = len - 2 };
     }
 
-    pub fn root(doc: Document) error{InvalidDocument}!Element {
+    pub fn root(doc: SDoc) error{InvalidDocument}!Element {
         var iter = doc.raw.bytes;
         return read(&iter);
     }

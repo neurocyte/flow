@@ -1,4 +1,4 @@
-pub const document = @import("document.zig");
+pub const SDoc = @import("SDoc.zig");
 pub const markdown = @import("markdown.zig");
 pub const rich_text = @import("rich_text.zig");
 pub const rich_line = @import("rich_line.zig");
