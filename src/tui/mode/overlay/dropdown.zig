@@ -139,6 +139,7 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "deinit"))
                 options.deinit(self);
             self.entries.deinit(self.allocator);
+            self.query.deinit(self.allocator);
             if (tui.mainview()) |mv|
                 mv.floating_views.remove(self.list_box_layer.widget());
             self.logger.deinit();
@@ -319,15 +320,21 @@ pub fn Create(options: type) type {
             };
 
             var matches: std.ArrayList(Match) = .empty;
+            defer {
+                for (matches.items) |match| self.allocator.free(match.matches);
+                matches.deinit(self.allocator);
+            }
             var match_count: usize = 0;
 
             for (self.entries.items) |*entry| {
                 const match = searcher.scoreMatches(entry.label, query);
                 if (match.score) |_| match_count += 1;
+                const match_positions = try self.allocator.dupe(usize, match.matches);
+                errdefer self.allocator.free(match_positions);
                 (try matches.addOne(self.allocator)).* = .{
                     .entry = entry,
                     .score = match.score orelse 0,
-                    .matches = try self.allocator.dupe(usize, match.matches),
+                    .matches = match_positions,
                 };
             }
             if (matches.items.len == 0) return match_count;
