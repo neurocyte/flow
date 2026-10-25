@@ -15,8 +15,13 @@ const Range = syntax.Range;
 
 pub const Error = error{ OutOfMemory, ParseFailed };
 
+pub const Document = struct {
+    /// `["body", attrs, child...]`
+    raw: cbor.Raw = .empty,
+};
+
 /// parse markdown into a document
-pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.QueryCache) Error![]u8 {
+pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.QueryCache) Error!Document {
     var arena_: std.heap.ArenaAllocator = .init(allocator);
     defer arena_.deinit();
     const arena = arena_.allocator();
@@ -48,7 +53,7 @@ pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.Que
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
     body.write(&out.writer, source_.len) catch return error.OutOfMemory;
-    return out.toOwnedSlice() catch return error.OutOfMemory;
+    return .{ .raw = .{ .bytes = out.toOwnedSlice() catch return error.OutOfMemory } };
 }
 
 fn create_syntax(allocator: Allocator, lang: []const u8, query_cache: *syntax.QueryCache) Error!*syntax {
@@ -769,47 +774,47 @@ fn decode_entity(arena: Allocator, ref: []const u8) error{OutOfMemory}!?[]const 
 
 pub const Element = struct {
     tag: []const u8,
-    attrs: []const u8,
-    children: []const u8,
+    attrs: cbor.Raw,
+    children: cbor.Raw,
     child_count: usize,
 
     pub fn iterate(self: Element) Iterator {
-        return .{ .iter = self.children, .remaining = self.child_count };
+        return .{ .iter = self.children.bytes, .remaining = self.child_count };
     }
 
-    pub fn attr(self: Element, name: []const u8) ?[]const u8 {
-        var iter = self.attrs;
+    pub fn attr(self: Element, name: []const u8) ?cbor.Raw {
+        var iter = self.attrs.bytes;
         var len = cbor.decodeMapHeader(&iter) catch return null;
         while (len > 0) : (len -= 1) {
             var key: []const u8 = undefined;
             if (!(cbor.matchString(&iter, &key) catch return null)) return null;
-            var value: []const u8 = undefined;
-            if (!(cbor.matchValue(&iter, cbor.extract_cbor(&value)) catch return null)) return null;
+            var value: cbor.Raw = undefined;
+            if (!(cbor.matchValue(&iter, cbor.extract(&value)) catch return null)) return null;
             if (std.mem.eql(u8, key, name)) return value;
         }
         return null;
     }
 
     pub fn attr_string(self: Element, name: []const u8) ?[]const u8 {
-        var iter = self.attr(name) orelse return null;
+        var iter = (self.attr(name) orelse return null).bytes;
         var value: []const u8 = undefined;
         return if (cbor.matchString(&iter, &value) catch false) value else null;
     }
 
     pub fn attr_uint(self: Element, name: []const u8) ?u64 {
-        var iter = self.attr(name) orelse return null;
+        var iter = (self.attr(name) orelse return null).bytes;
         var value: u64 = undefined;
         return if (cbor.matchInt(u64, &iter, &value) catch false) value else null;
     }
 
     pub fn attr_bool(self: Element, name: []const u8) ?bool {
-        var iter = self.attr(name) orelse return null;
+        var iter = (self.attr(name) orelse return null).bytes;
         var value: bool = undefined;
         return if (cbor.matchBool(&iter, &value) catch false) value else null;
     }
 
     pub fn sloc(self: Element) ?[2]usize {
-        var iter = self.attr("sloc") orelse return null;
+        var iter = (self.attr("sloc") orelse return null).bytes;
         var start: usize = 0;
         var end: usize = 0;
         return if (cbor.matchValue(&iter, .{ cbor.extract(&start), cbor.extract(&end) }) catch false) .{ start, end } else null;
@@ -851,14 +856,14 @@ pub fn read_element(iter: *[]const u8) error{InvalidDocument}!Element {
     if (len < 2) return error.InvalidDocument;
     var tag: []const u8 = undefined;
     if (!(cbor.matchString(iter, &tag) catch return error.InvalidDocument)) return error.InvalidDocument;
-    var attrs: []const u8 = undefined;
-    if (!(cbor.matchValue(iter, cbor.extract_cbor(&attrs)) catch return error.InvalidDocument)) return error.InvalidDocument;
+    var attrs: cbor.Raw = undefined;
+    if (!(cbor.matchValue(iter, cbor.extract(&attrs)) catch return error.InvalidDocument)) return error.InvalidDocument;
     const start = iter.*;
     for (0..len - 2) |_| cbor.skipValue(iter) catch return error.InvalidDocument;
-    return .{ .tag = tag, .attrs = attrs, .children = start[0 .. start.len - iter.len], .child_count = len - 2 };
+    return .{ .tag = tag, .attrs = attrs, .children = .{ .bytes = start[0 .. start.len - iter.len] }, .child_count = len - 2 };
 }
 
-pub fn root(doc: []const u8) error{InvalidDocument}!Element {
-    var iter = doc;
+pub fn root(doc: Document) error{InvalidDocument}!Element {
+    var iter = doc.raw.bytes;
     return read_element(&iter);
 }

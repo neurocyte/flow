@@ -36,7 +36,12 @@ pub const Options = struct {
 
 pub const Error = error{ OutOfMemory, InvalidDocument };
 
-pub fn build(allocator: Allocator, doc: []const u8, theme: Theme, query_cache: *syntax.QueryCache, opts: Options) Error![]u8 {
+pub const RichText = struct {
+    /// `["blocks", block...]`
+    raw: cbor.Raw = .empty,
+};
+
+pub fn build(allocator: Allocator, doc: document.Document, theme: Theme, query_cache: *syntax.QueryCache, opts: Options) Error!RichText {
     var arena_: std.heap.ArenaAllocator = .init(allocator);
     defer arena_.deinit();
     var builder: Builder = .{
@@ -52,7 +57,7 @@ pub fn build(allocator: Allocator, doc: []const u8, theme: Theme, query_cache: *
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
     write_rich_text(&out.writer, &top) catch return error.OutOfMemory;
-    return out.toOwnedSlice() catch return error.OutOfMemory;
+    return .{ .raw = .{ .bytes = out.toOwnedSlice() catch return error.OutOfMemory } };
 }
 
 const Wrap = enum { words, cells };
@@ -485,36 +490,36 @@ fn is_absolute_uri(uri: []const u8) bool {
 // reader
 
 pub const BlockReader = struct {
-    attrs: []const u8,
+    attrs: cbor.Raw,
     display_width: usize,
     text: []const u8,
-    spans: []const u8,
-    children: []const u8,
+    spans: cbor.Raw,
+    children: cbor.Raw,
     child_count: usize,
 
     pub fn iterate(self: BlockReader) BlockIterator {
-        return .{ .iter = self.children, .remaining = self.child_count };
+        return .{ .iter = self.children.bytes, .remaining = self.child_count };
     }
 
     pub fn span_iterator(self: BlockReader) error{InvalidRichLine}!rich_line.SpanIterator {
         return rich_line.SpanIterator.init(self.spans);
     }
 
-    fn attr(self: BlockReader, name: []const u8) ?[]const u8 {
-        var iter = self.attrs;
+    fn attr(self: BlockReader, name: []const u8) ?cbor.Raw {
+        var iter = self.attrs.bytes;
         var len = cbor.decodeMapHeader(&iter) catch return null;
         while (len > 0) : (len -= 1) {
             var key: []const u8 = undefined;
             if (!(cbor.matchString(&iter, &key) catch return null)) return null;
-            var value: []const u8 = undefined;
-            if (!(cbor.matchValue(&iter, cbor.extract_cbor(&value)) catch return null)) return null;
+            var value: cbor.Raw = undefined;
+            if (!(cbor.matchValue(&iter, cbor.extract(&value)) catch return null)) return null;
             if (std.mem.eql(u8, key, name)) return value;
         }
         return null;
     }
 
     fn attr_string(self: BlockReader, name: []const u8) []const u8 {
-        var iter = self.attr(name) orelse return "";
+        var iter = (self.attr(name) orelse return "").bytes;
         var value: []const u8 = "";
         return if (cbor.matchString(&iter, &value) catch false) value else "";
     }
@@ -532,7 +537,7 @@ pub const BlockReader = struct {
     }
 
     pub fn prefix_style(self: BlockReader) Style {
-        var iter = self.attr("prefix_style") orelse return .{};
+        var iter = (self.attr("prefix_style") orelse return .{}).bytes;
         return (Attrs.read(&iter) catch return .{}).style;
     }
 
@@ -547,7 +552,7 @@ pub const BlockReader = struct {
     pub const Align = enum { none, left, center, right };
 
     pub fn column_align(self: BlockReader, column: usize) Align {
-        var iter = self.attr("table") orelse return .none;
+        var iter = (self.attr("table") orelse return .none).bytes;
         const len = cbor.decodeArrayHeader(&iter) catch return .none;
         if (column >= len) return .none;
         for (0..column) |_| cbor.skipValue(&iter) catch return .none;
@@ -561,7 +566,7 @@ pub const BlockReader = struct {
     }
 
     pub fn space_before(self: BlockReader) usize {
-        var iter = self.attr("space_before") orelse return 0;
+        var iter = (self.attr("space_before") orelse return 0).bytes;
         var value: usize = 0;
         return if (cbor.matchInt(usize, &iter, &value) catch false) value else 0;
     }
@@ -581,14 +586,14 @@ pub const BlockIterator = struct {
 fn read_block(iter: *[]const u8) !BlockReader {
     const len = try cbor.decodeArrayHeader(iter);
     if (len < 4) return error.InvalidRichText;
-    var attrs: []const u8 = undefined;
-    if (!try cbor.matchValue(iter, cbor.extract_cbor(&attrs))) return error.InvalidRichText;
+    var attrs: cbor.Raw = undefined;
+    if (!try cbor.matchValue(iter, cbor.extract(&attrs))) return error.InvalidRichText;
     var width: usize = 0;
     if (!try cbor.matchInt(usize, iter, &width)) return error.InvalidRichText;
     var text: []const u8 = undefined;
     if (!try cbor.matchString(iter, &text)) return error.InvalidRichText;
-    var spans: []const u8 = undefined;
-    if (!try cbor.matchValue(iter, cbor.extract_cbor(&spans))) return error.InvalidRichText;
+    var spans: cbor.Raw = undefined;
+    if (!try cbor.matchValue(iter, cbor.extract(&spans))) return error.InvalidRichText;
     const start = iter.*;
     for (0..len - 4) |_| try cbor.skipValue(iter);
     return .{
@@ -596,14 +601,14 @@ fn read_block(iter: *[]const u8) !BlockReader {
         .display_width = width,
         .text = text,
         .spans = spans,
-        .children = start[0 .. start.len - iter.len],
+        .children = .{ .bytes = start[0 .. start.len - iter.len] },
         .child_count = len - 4,
     };
 }
 
 /// iterate the top level blocks of rich text
-pub fn read_blocks(rich_text: []const u8) error{InvalidRichText}!BlockIterator {
-    var iter = rich_text;
+pub fn read_blocks(rich_text: RichText) error{InvalidRichText}!BlockIterator {
+    var iter = rich_text.raw.bytes;
     const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRichText;
     if (len < 1) return error.InvalidRichText;
     var tag: []const u8 = undefined;

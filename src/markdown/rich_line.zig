@@ -147,8 +147,8 @@ pub const SpanIterator = struct {
     iter: []const u8,
     remaining: usize,
 
-    pub fn init(spans: []const u8) error{InvalidRichLine}!SpanIterator {
-        var iter = spans;
+    pub fn init(spans: cbor.Raw) error{InvalidRichLine}!SpanIterator {
+        var iter = spans.bytes;
         const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRichLine;
         return .{ .iter = iter, .remaining = len };
     }
@@ -222,7 +222,7 @@ test "spans" {
     try cbor.writeArrayHeader(&out.writer, 2);
     try write_span(&out.writer, .{ .start = 0, .end = 2, .attrs = .{ .style = .{ .italic = true } } });
     try write_span(&out.writer, .{ .start = 2, .end = 5, .attrs = .{} });
-    var spans = try SpanIterator.init(out.written());
+    var spans = try SpanIterator.init(.{ .bytes = out.written() });
     const a = (try spans.next()).?;
     try std.testing.expect(a.attrs.style.italic);
     const b = (try spans.next()).?;

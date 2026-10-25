@@ -29,9 +29,9 @@ fn dump(source: []const u8, opts: rich_text.Options) ![]const u8 {
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
     const doc = try document.parse(gpa, source, query_cache);
-    defer gpa.free(doc);
+    defer gpa.free(doc.raw.bytes);
     const s = try rich_text.build(gpa, doc, test_theme.theme, query_cache, opts);
-    defer gpa.free(s);
+    defer gpa.free(s.raw.bytes);
     return debug.rich_text_sexpr_alloc(gpa, s, .{});
 }
 
@@ -92,9 +92,9 @@ test "rich text reader" {
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
     const doc = try document.parse(gpa, "- [link](http://x)\n", query_cache);
-    defer gpa.free(doc);
+    defer gpa.free(doc.raw.bytes);
     const s = try rich_text.build(gpa, doc, test_theme.theme, query_cache, .{});
-    defer gpa.free(s);
+    defer gpa.free(s.raw.bytes);
     var top = try rich_text.read_blocks(s);
     const list = (try top.next()).?;
     var items = list.iterate();

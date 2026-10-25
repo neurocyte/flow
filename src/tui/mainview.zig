@@ -1056,12 +1056,12 @@ const cmds = struct {
         const buffer = editor.buffer orelse return;
         const source = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
         const doc = try markdown.document.parse(self.allocator, source, tui.query_cache());
-        defer self.allocator.free(doc);
-        const doc_json = try markdown.debug.json(self.allocator, doc);
+        defer self.allocator.free(doc.raw.bytes);
+        const doc_json = try markdown.debug.json(self.allocator, doc.raw);
         defer self.allocator.free(doc_json);
         const rich_text = try markdown.rich_text.build(self.allocator, doc, info_view.markdown_theme(tui.theme()), tui.query_cache(), .{});
-        defer self.allocator.free(rich_text);
-        const rich_text_json = try markdown.debug.json(self.allocator, rich_text);
+        defer self.allocator.free(rich_text.raw.bytes);
+        const rich_text_json = try markdown.debug.json(self.allocator, rich_text.raw);
         defer self.allocator.free(rich_text_json);
         const content = try std.mem.concat(self.allocator, u8, &.{ "{\"document\": ", doc_json, ",\n\"rich_text\": ", rich_text_json, "}\n" });
         defer self.allocator.free(content);

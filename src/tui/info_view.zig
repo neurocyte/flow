@@ -44,13 +44,13 @@ pub const Kind = enum {
 const Section = struct {
     kind: Kind,
     text: []const u8,
-    doc: []const u8 = "",
-    rich_text: []const u8 = "",
+    doc: markdown.document.Document = .{},
+    rich_text: markdown.rich_text.RichText = .{},
 
     fn deinit(self: *Section, allocator: Allocator) void {
         allocator.free(self.text);
-        allocator.free(self.doc);
-        allocator.free(self.rich_text);
+        allocator.free(self.doc.raw.bytes);
+        allocator.free(self.rich_text.raw.bytes);
     }
 };
 
@@ -189,7 +189,7 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
     var section: Section = .{ .kind = kind, .text = text };
     if (kind == .markdown) {
         section.doc = try markdown.document.parse(self.allocator, text, tui.query_cache());
-        errdefer self.allocator.free(section.doc);
+        errdefer self.allocator.free(section.doc.raw.bytes);
         section.rich_text = try self.build_rich_text(section.doc);
     }
     errdefer section.deinit(self.allocator);
@@ -209,7 +209,7 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
     return .{ .rows = self.lines.items.len, .cols = cols };
 }
 
-fn build_rich_text(self: *Self, doc: []const u8) ![]const u8 {
+fn build_rich_text(self: *Self, doc: markdown.document.Document) !markdown.rich_text.RichText {
     const theme = tui.theme();
     self.theme_name = theme.name;
     const default_lang = if (tui.get_active_editor()) |editor| if (editor.file_type) |ft| ft.parser orelse ft.name else null else null;
@@ -222,7 +222,7 @@ fn build_rich_text(self: *Self, doc: []const u8) ![]const u8 {
 fn restyle(self: *Self) !void {
     for (self.sections.items) |*section| if (section.kind == .markdown) {
         const rich_text = try self.build_rich_text(section.doc);
-        self.allocator.free(section.rich_text);
+        self.allocator.free(section.rich_text.raw.bytes);
         section.rich_text = rich_text;
     };
     try self.layout();
