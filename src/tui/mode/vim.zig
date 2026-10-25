@@ -751,44 +751,40 @@ fn is_long_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics
     return cursor.test_at(root, is_long_word_char, metrics);
 }
 
+/// Scan the bounds of the WORD at (or right of) the cursor.
+/// `next` ends up after the last WORD character, `prev` on its first character.
+fn scan_word_bounds(root: Buffer.Root, prev: *Cursor, next: *Cursor, metrics: Buffer.Metrics, line_width: usize) void {
+    // scan right over word chars to the WORD end (stops at EOL)
+    while (next.col < line_width and is_long_word_char_at_cursor(root, next, metrics)) {
+        next.move_right(root, metrics) catch break;
+    }
+    // scan left over word chars to the WORD start
+    var start = next.*;
+    while (start.col > 0) {
+        start.move_left(root, metrics) catch break;
+        if (start.test_at(root, Editor.is_whitespace, metrics))
+            break;
+    }
+    if (start.test_at(root, Editor.is_whitespace, metrics))
+        start.move_right(root, metrics) catch {};
+    prev.* = start;
+}
+
 fn select_long_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, scope: enum { inside, around }) !void {
     const line_width = root.line_width(cursel.cursor.row, metrics) catch 0;
     const at_eol = line_width == cursel.cursor.col;
     var prev = cursel.cursor;
     var next = cursel.cursor;
 
-    if (!at_eol and cursel.cursor.test_at(root, Editor.is_whitespace, metrics)) {
-        // cursor on whitespace: select the WORD to the right
-        Editor.move_cursor_right_until(root, &next, Editor.is_non_whitespace_at_cursor, metrics);
-        if (!cursel.cursor.eql(next)) {
-            // scan right over word chars to the WORD end (stops at EOL)
-            while (next.col < line_width and next.test_at(root, is_long_word_char, metrics)) {
-                next.move_right(root, metrics) catch break;
-            }
-            // scan left over word chars to the WORD start
-            prev = next;
-            while (prev.col > 0) {
-                prev.move_left(root, metrics) catch break;
-                if (prev.test_at(root, Editor.is_whitespace, metrics))
-                    break;
-            }
-            if (prev.test_at(root, Editor.is_whitespace, metrics))
-                prev.move_right(root, metrics) catch {};
+    if (!at_eol) {
+        var found_word = true;
+        if (cursel.cursor.test_at(root, Editor.is_whitespace, metrics)) {
+            // cursor on whitespace: select the WORD to the right
+            Editor.move_cursor_right_until(root, &next, Editor.is_non_whitespace_at_cursor, metrics);
+            found_word = !cursel.cursor.eql(next);
         }
-    } else if (!at_eol) {
-        // cursor on a WORD char: scan right to the WORD end (stops at EOL)
-        while (next.col < line_width and next.test_at(root, is_long_word_char, metrics)) {
-            next.move_right(root, metrics) catch break;
-        }
-        // scan left to the WORD start
-        prev = next;
-        while (prev.col > 0) {
-            prev.move_left(root, metrics) catch break;
-            if (prev.test_at(root, Editor.is_whitespace, metrics))
-                break;
-        }
-        if (prev.test_at(root, Editor.is_whitespace, metrics))
-            prev.move_right(root, metrics) catch {};
+        if (found_word)
+            scan_word_bounds(root, &prev, &next, metrics, line_width);
     }
 
     if (scope == .around) {
