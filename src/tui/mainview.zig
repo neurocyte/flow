@@ -1059,7 +1059,7 @@ const cmds = struct {
         defer self.allocator.free(doc.raw.bytes);
         const doc_json = try richdoc.debug.json(self.allocator, doc.raw);
         defer self.allocator.free(doc_json);
-        const rich_text = try richdoc.RDoc.build(self.allocator, doc, info_view.rich_text_theme(tui.theme()), tui.query_cache(), .{});
+        const rich_text = try richdoc.render.from_sdoc(self.allocator, doc, info_view.rich_text_theme(tui.theme()), tui.query_cache(), .{});
         defer self.allocator.free(rich_text.raw.bytes);
         const rich_text_json = try richdoc.debug.json(self.allocator, rich_text.raw);
         defer self.allocator.free(rich_text_json);

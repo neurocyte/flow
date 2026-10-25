@@ -3,11 +3,12 @@ const syntax = @import("syntax");
 const build_options = @import("build_options");
 const markdown = @import("markdown.zig");
 const RDoc = @import("RDoc.zig");
+const render = @import("render.zig");
 const debug = @import("debug.zig");
 
 const test_theme = struct {
-    fn find(_: *const anyopaque, scope: []const u8) ?RDoc.Token {
-        const tokens = [_]struct { []const u8, RDoc.Token }{
+    fn find(_: *const anyopaque, scope: []const u8) ?render.Token {
+        const tokens = [_]struct { []const u8, render.Token }{
             .{ "markup.heading", .{ .fg = 0x000001 } },
             .{ "markup.bold", .{ .fg = 0x000002 } },
             .{ "text.emphasis", .{ .fs = .italic } },
@@ -21,21 +22,21 @@ const test_theme = struct {
         for (tokens) |t| if (std.mem.eql(u8, t[0], scope)) return t[1];
         return null;
     }
-    const theme: RDoc.Theme = .{ .context = undefined, .find = find };
+    const theme: render.Theme = .{ .context = undefined, .find = find };
 };
 
-fn dump(source: []const u8, opts: RDoc.Options) ![]const u8 {
+fn dump(source: []const u8, opts: render.Options) ![]const u8 {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
     const doc = try markdown.parse(gpa, source, query_cache);
     defer gpa.free(doc.raw.bytes);
-    const s = try RDoc.build(gpa, doc, test_theme.theme, query_cache, opts);
+    const s = try render.from_sdoc(gpa, doc, test_theme.theme, query_cache, opts);
     defer gpa.free(s.raw.bytes);
     return debug.rich_text_sexpr_alloc(gpa, s, .{});
 }
 
-fn expect(source: []const u8, opts: RDoc.Options, expected: []const u8) !void {
+fn expect(source: []const u8, opts: render.Options, expected: []const u8) !void {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     const actual = try dump(source, opts);
     defer std.testing.allocator.free(actual);
@@ -93,7 +94,7 @@ test "rich text reader" {
     defer query_cache.deinit();
     const doc = try markdown.parse(gpa, "- [link](http://x)\n", query_cache);
     defer gpa.free(doc.raw.bytes);
-    const s = try RDoc.build(gpa, doc, test_theme.theme, query_cache, .{});
+    const s = try render.from_sdoc(gpa, doc, test_theme.theme, query_cache, .{});
     defer gpa.free(s.raw.bytes);
     var top = try RDoc.BlockIterator.root(s);
     const list = (try top.next()).?;
