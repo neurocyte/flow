@@ -81,9 +81,7 @@ pub const ElementBuilder = struct {
         try cbor.writeValue(writer, self.tag);
         try cbor.writeMapHeader(writer, 1 + self.attrs.items.len);
         try cbor.writeValue(writer, "sloc");
-        try cbor.writeArrayHeader(writer, 2);
-        try cbor.writeValue(writer, @min(self.sloc[0], limit));
-        try cbor.writeValue(writer, @min(self.sloc[1], limit));
+        try cbor.writeValue(writer, [2]usize{ @min(self.sloc[0], limit), @min(self.sloc[1], limit) });
         for (self.attrs.items) |attr| {
             try cbor.writeValue(writer, attr.name);
             switch (attr.value) {

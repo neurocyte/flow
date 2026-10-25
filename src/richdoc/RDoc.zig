@@ -27,7 +27,7 @@ pub const Attrs = struct {
     link_id: []const u8 = "",
     sloc: ?[2]usize = null,
 
-    pub fn write(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const s = self.style;
         var count: usize = 0;
         if (s.fg != .default) count += 1;
@@ -63,17 +63,16 @@ pub const Attrs = struct {
         }
         if (self.sloc) |sloc| {
             try cbor.writeValue(writer, "sloc");
-            try cbor.writeArrayHeader(writer, 2);
-            try cbor.writeValue(writer, sloc[0]);
-            try cbor.writeValue(writer, sloc[1]);
+            try cbor.writeValue(writer, sloc);
         }
     }
 
-    pub fn read(iter: *[]const u8) error{InvalidRDoc}!Attrs {
-        return read_(iter) catch error.InvalidRDoc;
+    pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
+        self.* = read(iter) catch return false;
+        return true;
     }
 
-    fn read_(iter: *[]const u8) !Attrs {
+    fn read(iter: *[]const u8) !Attrs {
         var self: Attrs = .{};
         var len = try cbor.decodeMapHeader(iter);
         while (len > 0) : (len -= 1) {
@@ -149,12 +148,15 @@ pub const Span = struct {
     end: usize,
     attrs: Attrs,
 
-    pub fn write(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        try cbor.writeArrayHeader(writer, 3);
-        try cbor.writeValue(writer, self.start);
-        try cbor.writeValue(writer, self.end);
-        try self.attrs.write(writer);
+    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        return cbor.writeValue(writer, .{ self.start, self.end, self.attrs });
     }
+};
+
+pub const RawSpan = struct {
+    start: usize,
+    end: usize,
+    attrs: cbor.Raw,
 };
 
 /// the width in cells of the widest line of `text`
@@ -203,7 +205,7 @@ pub const BlockBuilder = struct {
         }
         if (styled) {
             try cbor.writeValue(writer, "prefix_style");
-            try (Attrs{ .style = self.prefix_style }).write(writer);
+            try cbor.writeValue(writer, Attrs{ .style = self.prefix_style });
         }
         try cbor.writeValue(writer, "wrap");
         try cbor.writeValue(writer, @tagName(self.wrap));
@@ -226,14 +228,12 @@ pub const BlockBuilder = struct {
         }
         if (self.sloc) |sloc| {
             try cbor.writeValue(writer, "sloc");
-            try cbor.writeArrayHeader(writer, 2);
-            try cbor.writeValue(writer, sloc[0]);
-            try cbor.writeValue(writer, sloc[1]);
+            try cbor.writeValue(writer, sloc);
         }
         try cbor.writeValue(writer, display_width(self.text.items));
         try cbor.writeValue(writer, self.text.items);
         try cbor.writeArrayHeader(writer, self.spans.items.len);
-        for (self.spans.items) |span| try span.write(writer);
+        for (self.spans.items) |span| try cbor.writeValue(writer, span);
         for (self.children.items) |child| try child.write(writer);
     }
 
@@ -303,7 +303,8 @@ pub const BlockReader = struct {
 
     pub fn prefix_style(self: @This()) Style {
         var iter = (self.attr("prefix_style") orelse return .{}).bytes;
-        return (Attrs.read(&iter) catch return .{}).style;
+        var attrs: Attrs = .{};
+        return if (cbor.matchValue(&iter, cbor.extract(&attrs)) catch false) attrs.style else .{};
     }
 
     pub fn wrap(self: @This()) Wrap {
@@ -396,15 +397,20 @@ pub const SpanIterator = struct {
     }
 
     pub fn next(self: *@This()) error{InvalidRDoc}!?Span {
+        return self.next_as(Span);
+    }
+
+    pub fn next_raw(self: *@This()) error{InvalidRDoc}!?RawSpan {
+        return self.next_as(RawSpan);
+    }
+
+    fn next_as(self: *@This(), comptime T: type) error{InvalidRDoc}!?T {
         if (self.remaining == 0) return null;
         self.remaining -= 1;
-        const len = cbor.decodeArrayHeader(&self.iter) catch return error.InvalidRDoc;
-        if (len != 3) return error.InvalidRDoc;
-        var start: usize = 0;
-        var end: usize = 0;
-        if (!(cbor.matchInt(usize, &self.iter, &start) catch false)) return error.InvalidRDoc;
-        if (!(cbor.matchInt(usize, &self.iter, &end) catch false)) return error.InvalidRDoc;
-        return .{ .start = start, .end = end, .attrs = try Attrs.read(&self.iter) };
+        var span: T = undefined;
+        if (!(cbor.matchValue(&self.iter, .{ cbor.extract(&span.start), cbor.extract(&span.end), cbor.extract(&span.attrs) }) catch false))
+            return error.InvalidRDoc;
+        return span;
     }
 };
 
@@ -429,9 +435,10 @@ test "attrs round trip" {
         .link_id = "id1",
         .sloc = .{ 3, 9 },
     };
-    try attrs.write(&out.writer);
+    try cbor.writeValue(&out.writer, attrs);
     var iter: []const u8 = out.written();
-    const read = try Attrs.read(&iter);
+    var read: Attrs = .{};
+    try std.testing.expect(try cbor.matchValue(&iter, cbor.extract(&read)));
     try std.testing.expect(read.style.eql(attrs.style));
     try std.testing.expectEqualStrings("http://x", read.link);
     try std.testing.expectEqualStrings("id1", read.link_id);
@@ -442,11 +449,12 @@ test "attrs round trip" {
 test "default attrs are an empty map and unknown keys are skipped" {
     var buf: [64]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
-    try (Attrs{}).write(&writer);
+    try cbor.writeValue(&writer, Attrs{});
     try std.testing.expectEqualSlices(u8, &.{0xa0}, writer.buffered());
 
     var iter: []const u8 = cbor.fmt(&buf, .{ .other = 1, .bold = true });
-    const read = try Attrs.read(&iter);
+    var read: Attrs = .{};
+    try std.testing.expect(try cbor.matchValue(&iter, cbor.extract(&read)));
     try std.testing.expect(read.style.bold);
 }
 
@@ -454,8 +462,8 @@ test "spans" {
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try cbor.writeArrayHeader(&out.writer, 2);
-    try (Span{ .start = 0, .end = 2, .attrs = .{ .style = .{ .italic = true } } }).write(&out.writer);
-    try (Span{ .start = 2, .end = 5, .attrs = .{} }).write(&out.writer);
+    try cbor.writeValue(&out.writer, Span{ .start = 0, .end = 2, .attrs = .{ .style = .{ .italic = true } } });
+    try cbor.writeValue(&out.writer, Span{ .start = 2, .end = 5, .attrs = .{} });
     var spans = try SpanIterator.init(.{ .bytes = out.written() });
     const a = (try spans.next()).?;
     try std.testing.expect(a.attrs.style.italic);

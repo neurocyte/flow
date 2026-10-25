@@ -53,18 +53,10 @@ fn write_block(writer: *std.Io.Writer, block: RDoc.BlockReader, opts: SExprOptio
     try writer.writeAll(" (block");
     try write_map(writer, block.attrs, opts);
     try writer.print(" :width {d} \"{f}\"", .{ block.display_width, std.zig.fmtString(block.text) });
-    const spans = try block.span_iterator();
-    var iter = spans.iter;
-    for (0..spans.remaining) |_| {
-        _ = try cbor.decodeArrayHeader(&iter);
-        var start: usize = 0;
-        var end: usize = 0;
-        _ = try cbor.matchInt(usize, &iter, &start);
-        _ = try cbor.matchInt(usize, &iter, &end);
-        var attrs: cbor.Raw = undefined;
-        _ = try cbor.matchValue(&iter, cbor.extract(&attrs));
-        try writer.print(" (span {d} {d}", .{ start, end });
-        try write_map(writer, attrs, opts);
+    var spans = try block.span_iterator();
+    while (try spans.next_raw()) |span| {
+        try writer.print(" (span {d} {d}", .{ span.start, span.end });
+        try write_map(writer, span.attrs, opts);
         try writer.writeByte(')');
     }
     var children = block.iterate();
