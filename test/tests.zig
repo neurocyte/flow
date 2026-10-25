@@ -9,6 +9,7 @@ pub const mini_buffer = @import("tests_mini_buffer.zig");
 pub const project_manager = @import("tests_project_manager.zig");
 pub const snippet = @import("tests_snippet.zig");
 pub const text_manip = @import("tests_text_manip.zig");
+pub const word_break = @import("tests_word_break.zig");
 
 test {
     std.testing.refAllDecls(@This());
