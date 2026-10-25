@@ -1,4 +1,4 @@
-//! convert a structured document to rich text
+//! a rich text document
 
 const std = @import("std");
 const cbor = @import("cbor");
@@ -13,6 +13,11 @@ const Style = rich_line.Style;
 const Attrs = rich_line.Attrs;
 const Span = rich_line.Span;
 
+/// `["blocks", block...]`
+raw: cbor.Raw = .empty,
+
+const RDoc = @This();
+
 pub const FontStyle = enum { normal, bold, italic, underline, undercurl, strikethrough };
 
 pub const Token = struct {
@@ -24,7 +29,7 @@ pub const Theme = struct {
     context: *const anyopaque,
     find: *const fn (context: *const anyopaque, scope: []const u8) ?Token,
 
-    fn lookup(self: Theme, scope: []const u8) ?Token {
+    fn lookup(self: @This(), scope: []const u8) ?Token {
         return self.find(self.context, scope);
     }
 };
@@ -36,12 +41,7 @@ pub const Options = struct {
 
 pub const Error = error{ OutOfMemory, InvalidDocument };
 
-pub const RichText = struct {
-    /// `["blocks", block...]`
-    raw: cbor.Raw = .empty,
-};
-
-pub fn build(allocator: Allocator, doc: SDoc, theme: Theme, query_cache: *syntax.QueryCache, opts: Options) Error!RichText {
+pub fn build(allocator: Allocator, doc: SDoc, theme: Theme, query_cache: *syntax.QueryCache, opts: Options) Error!RDoc {
     var arena_: std.heap.ArenaAllocator = .init(allocator);
     defer arena_.deinit();
     var builder: Builder = .{
@@ -56,7 +56,7 @@ pub fn build(allocator: Allocator, doc: SDoc, theme: Theme, query_cache: *syntax
 
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    write_rich_text(&out.writer, &top) catch return error.OutOfMemory;
+    top.write_rich_text(&out.writer) catch return error.OutOfMemory;
     return .{ .raw = .{ .bytes = out.toOwnedSlice() catch return error.OutOfMemory } };
 }
 
@@ -76,9 +76,9 @@ const Block = struct {
     row: Row = .none,
     text: std.ArrayList(u8) = .empty,
     spans: std.ArrayList(Span) = .empty,
-    children: std.ArrayList(*Block) = .empty,
+    children: std.ArrayList(*@This()) = .empty,
 
-    fn write(self: *const Block, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    fn write(self: *const @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try cbor.writeArrayHeader(writer, 4 + self.children.items.len);
         var count: usize = 1;
         if (self.first_prefix.len > 0) count += 1;
@@ -134,13 +134,13 @@ const Block = struct {
         for (self.spans.items) |span| try rich_line.write_span(writer, span);
         for (self.children.items) |child| try child.write(writer);
     }
-};
 
-fn write_rich_text(writer: *std.Io.Writer, top: *const Block) std.Io.Writer.Error!void {
-    try cbor.writeArrayHeader(writer, 1 + top.children.items.len);
-    try cbor.writeValue(writer, "blocks");
-    for (top.children.items) |child| try child.write(writer);
-}
+    fn write_rich_text(top: *const Block, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try cbor.writeArrayHeader(writer, 1 + top.children.items.len);
+        try cbor.writeValue(writer, "blocks");
+        for (top.children.items) |child| try child.write(writer);
+    }
+};
 
 const Spacing = enum {
     container,
@@ -163,26 +163,26 @@ const Builder = struct {
     const Delta = struct {
         scopes: []const []const u8,
         bit: ?FontStyle = null,
-    };
 
-    fn delta_for(tag: []const u8) ?Delta {
-        const eql = std.mem.eql;
-        if (tag.len == 2 and tag[0] == 'h' and tag[1] >= '1' and tag[1] <= '6')
-            return .{ .scopes = &.{ "markup.heading", "text.title" }, .bit = .bold };
-        if (eql(u8, tag, "strong")) return .{ .scopes = &.{ "markup.bold", "text.strong" }, .bit = .bold };
-        if (eql(u8, tag, "em")) return .{ .scopes = &.{ "markup.italic", "text.emphasis" }, .bit = .italic };
-        if (eql(u8, tag, "del")) return .{ .scopes = &.{"markup.strikethrough"}, .bit = .strikethrough };
-        if (eql(u8, tag, "code") or eql(u8, tag, "pre")) return .{ .scopes = &.{ "markup.raw", "text.literal", "string" } };
-        if (eql(u8, tag, "a")) return .{ .scopes = &.{ "markup.underline.link", "text.reference" }, .bit = .underline };
-        if (eql(u8, tag, "html")) return .{ .scopes = &.{"comment"} };
-        if (eql(u8, tag, "th")) return .{ .scopes = &.{}, .bit = .bold };
-        return null;
-    }
+        fn for_tag(tag: []const u8) ?@This() {
+            const eql = std.mem.eql;
+            if (tag.len == 2 and tag[0] == 'h' and tag[1] >= '1' and tag[1] <= '6')
+                return .{ .scopes = &.{ "markup.heading", "text.title" }, .bit = .bold };
+            if (eql(u8, tag, "strong")) return .{ .scopes = &.{ "markup.bold", "text.strong" }, .bit = .bold };
+            if (eql(u8, tag, "em")) return .{ .scopes = &.{ "markup.italic", "text.emphasis" }, .bit = .italic };
+            if (eql(u8, tag, "del")) return .{ .scopes = &.{"markup.strikethrough"}, .bit = .strikethrough };
+            if (eql(u8, tag, "code") or eql(u8, tag, "pre")) return .{ .scopes = &.{ "markup.raw", "text.literal", "string" } };
+            if (eql(u8, tag, "a")) return .{ .scopes = &.{ "markup.underline.link", "text.reference" }, .bit = .underline };
+            if (eql(u8, tag, "html")) return .{ .scopes = &.{"comment"} };
+            if (eql(u8, tag, "th")) return .{ .scopes = &.{}, .bit = .bold };
+            return null;
+        }
+    };
 
     const list_prefix: Delta = .{ .scopes = &.{ "markup.list", "punctuation.special", "punctuation" } };
     const quote_prefix: Delta = .{ .scopes = &.{ "markup.quote", "punctuation.special", "comment" } };
 
-    fn apply(self: *const Builder, base: Style, delta: Delta) Style {
+    fn apply(self: *const @This(), base: Style, delta: Delta) Style {
         var style = base;
         for (delta.scopes) |scope| if (self.theme.lookup(scope)) |token| if (token.fg != null or token.fs != null) {
             if (token.fg) |fg| style.fg = rich_line.Color.rgbFromUint(fg);
@@ -193,11 +193,11 @@ const Builder = struct {
         return style;
     }
 
-    fn apply_tag(self: *const Builder, base: Style, tag: []const u8) Style {
-        return if (delta_for(tag)) |delta| self.apply(base, delta) else base;
+    fn apply_tag(self: *const @This(), base: Style, tag: []const u8) Style {
+        return if (Delta.for_tag(tag)) |delta| self.apply(base, delta) else base;
     }
 
-    fn new_block(self: *const Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) error{OutOfMemory}!*Block {
+    fn new_block(self: *const @This(), parent: *Block, elem: SDoc.Element, spacing: Spacing) error{OutOfMemory}!*Block {
         const b = try self.arena.create(Block);
         b.* = .{
             .sloc = elem.sloc(),
@@ -207,7 +207,7 @@ const Builder = struct {
         return b;
     }
 
-    fn blocks(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
+    fn blocks(self: *@This(), parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         var iter = elem.iterate();
         while (try iter.next()) |child| switch (child) {
             .element => |e| try self.block(parent, e, spacing),
@@ -220,7 +220,7 @@ const Builder = struct {
         };
     }
 
-    fn block(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
+    fn block(self: *@This(), parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         const eql = std.mem.eql;
         const tag = elem.tag;
         if (eql(u8, tag, "blockquote")) {
@@ -251,7 +251,7 @@ const Builder = struct {
         }
     }
 
-    fn list(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
+    fn list(self: *@This(), parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         const container = try self.new_block(parent, elem, spacing);
         var number = elem.attr_uint("start") orelse 1;
         const ordered = elem.is("ol");
@@ -276,7 +276,7 @@ const Builder = struct {
         }
     }
 
-    fn table(self: *Builder, parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
+    fn table(self: *@This(), parent: *Block, elem: SDoc.Element, spacing: Spacing) Error!void {
         const b = try self.new_block(parent, elem, spacing);
         b.wrap = .cells;
         b.prefix_style = self.apply(.{}, list_prefix);
@@ -321,7 +321,7 @@ const Builder = struct {
         return first == .element and first.element.is("p");
     }
 
-    fn item_content(self: *Builder, item: *Block, li: SDoc.Element, loose: bool) Error!void {
+    fn item_content(self: *@This(), item: *Block, li: SDoc.Element, loose: bool) Error!void {
         const base: Inline = .{ .style = .{}, .sloc = li.sloc() };
         var iter = li.iterate();
         while (try iter.next()) |child| switch (child) {
@@ -333,13 +333,13 @@ const Builder = struct {
         };
     }
 
-    fn spaces(self: *const Builder, n: usize) error{OutOfMemory}![]const u8 {
+    fn spaces(self: *const @This(), n: usize) error{OutOfMemory}![]const u8 {
         const s = try self.arena.alloc(u8, n);
         @memset(s, ' ');
         return s;
     }
 
-    fn add_text(self: *const Builder, b: *Block, text: []const u8, in: Inline) error{OutOfMemory}!void {
+    fn add_text(self: *const @This(), b: *Block, text: []const u8, in: Inline) error{OutOfMemory}!void {
         if (text.len == 0) return;
         const start = b.text.items.len;
         try b.text.appendSlice(self.arena, text);
@@ -350,7 +350,7 @@ const Builder = struct {
         });
     }
 
-    fn inlines(self: *Builder, b: *Block, elem: SDoc.Element, in: Inline) Error!void {
+    fn inlines(self: *@This(), b: *Block, elem: SDoc.Element, in: Inline) Error!void {
         var iter = elem.iterate();
         while (try iter.next()) |child| switch (child) {
             .text => |t| try self.add_text(b, t, in),
@@ -358,7 +358,7 @@ const Builder = struct {
         };
     }
 
-    fn inline_element(self: *Builder, b: *Block, elem: SDoc.Element, in: Inline) Error!void {
+    fn inline_element(self: *@This(), b: *Block, elem: SDoc.Element, in: Inline) Error!void {
         const tag = elem.tag;
         if (elem.is("br")) {
             try b.text.append(self.arena, '\n');
@@ -376,7 +376,7 @@ const Builder = struct {
         }
     }
 
-    fn code(self: *Builder, b: *Block, elem: SDoc.Element) Error!void {
+    fn code(self: *@This(), b: *Block, elem: SDoc.Element) Error!void {
         var iter = elem.iterate();
         const text = while (try iter.next()) |child| switch (child) {
             .text => |t| break t,
@@ -395,7 +395,7 @@ const Builder = struct {
     }
 
     /// add highlight spans for `text`, false if the language is unknown
-    fn highlight(self: *Builder, b: *Block, text: []const u8, lang: []const u8, base: Style, sloc: ?[2]usize) !bool {
+    fn highlight(self: *@This(), b: *Block, text: []const u8, lang: []const u8, base: Style, sloc: ?[2]usize) !bool {
         if (!build_options.use_tree_sitter) return false;
         const syn = create_syntax(self.allocator, lang, self.query_cache) orelse return false;
         defer syn.destroy();
@@ -497,15 +497,15 @@ pub const BlockReader = struct {
     children: cbor.Raw,
     child_count: usize,
 
-    pub fn iterate(self: BlockReader) BlockIterator {
+    pub fn iterate(self: @This()) BlockIterator {
         return .{ .iter = self.children.bytes, .remaining = self.child_count };
     }
 
-    pub fn span_iterator(self: BlockReader) error{InvalidRichLine}!rich_line.SpanIterator {
+    pub fn span_iterator(self: @This()) error{InvalidRichLine}!rich_line.SpanIterator {
         return rich_line.SpanIterator.init(self.spans);
     }
 
-    fn attr(self: BlockReader, name: []const u8) ?cbor.Raw {
+    fn attr(self: @This(), name: []const u8) ?cbor.Raw {
         var iter = self.attrs.bytes;
         var len = cbor.decodeMapHeader(&iter) catch return null;
         while (len > 0) : (len -= 1) {
@@ -518,40 +518,40 @@ pub const BlockReader = struct {
         return null;
     }
 
-    fn attr_string(self: BlockReader, name: []const u8) []const u8 {
+    fn attr_string(self: @This(), name: []const u8) []const u8 {
         var iter = (self.attr(name) orelse return "").bytes;
         var value: []const u8 = "";
         return if (cbor.matchString(&iter, &value) catch false) value else "";
     }
 
-    pub fn first_prefix(self: BlockReader) []const u8 {
+    pub fn first_prefix(self: @This()) []const u8 {
         return self.attr_string("first_prefix");
     }
 
-    pub fn prefix(self: BlockReader) []const u8 {
+    pub fn prefix(self: @This()) []const u8 {
         return self.attr_string("prefix");
     }
 
-    pub fn fill(self: BlockReader) []const u8 {
+    pub fn fill(self: @This()) []const u8 {
         return self.attr_string("fill");
     }
 
-    pub fn prefix_style(self: BlockReader) Style {
+    pub fn prefix_style(self: @This()) Style {
         var iter = (self.attr("prefix_style") orelse return .{}).bytes;
         return (Attrs.read(&iter) catch return .{}).style;
     }
 
-    pub fn wrap(self: BlockReader) Wrap {
+    pub fn wrap(self: @This()) Wrap {
         return if (std.mem.eql(u8, self.attr_string("wrap"), "cells")) .cells else .words;
     }
 
-    pub fn is_table(self: BlockReader) bool {
+    pub fn is_table(self: @This()) bool {
         return self.attr("table") != null;
     }
 
     pub const Align = enum { none, left, center, right };
 
-    pub fn column_align(self: BlockReader, column: usize) Align {
+    pub fn column_align(self: @This(), column: usize) Align {
         var iter = (self.attr("table") orelse return .none).bytes;
         const len = cbor.decodeArrayHeader(&iter) catch return .none;
         if (column >= len) return .none;
@@ -561,14 +561,37 @@ pub const BlockReader = struct {
         return std.meta.stringToEnum(Align, value) orelse .none;
     }
 
-    pub fn row(self: BlockReader) Row {
+    pub fn row(self: @This()) Row {
         return std.meta.stringToEnum(Row, self.attr_string("row")) orelse .none;
     }
 
-    pub fn space_before(self: BlockReader) usize {
+    pub fn space_before(self: @This()) usize {
         var iter = (self.attr("space_before") orelse return 0).bytes;
         var value: usize = 0;
         return if (cbor.matchInt(usize, &iter, &value) catch false) value else 0;
+    }
+
+    pub fn read(iter: *[]const u8) !BlockReader {
+        const len = try cbor.decodeArrayHeader(iter);
+        if (len < 4) return error.InvalidRichText;
+        var attrs: cbor.Raw = undefined;
+        if (!try cbor.matchValue(iter, cbor.extract(&attrs))) return error.InvalidRichText;
+        var width: usize = 0;
+        if (!try cbor.matchInt(usize, iter, &width)) return error.InvalidRichText;
+        var text: []const u8 = undefined;
+        if (!try cbor.matchString(iter, &text)) return error.InvalidRichText;
+        var spans: cbor.Raw = undefined;
+        if (!try cbor.matchValue(iter, cbor.extract(&spans))) return error.InvalidRichText;
+        const start = iter.*;
+        for (0..len - 4) |_| try cbor.skipValue(iter);
+        return .{
+            .attrs = attrs,
+            .display_width = width,
+            .text = text,
+            .spans = spans,
+            .children = .{ .bytes = start[0 .. start.len - iter.len] },
+            .child_count = len - 4,
+        };
     }
 };
 
@@ -576,42 +599,19 @@ pub const BlockIterator = struct {
     iter: []const u8,
     remaining: usize,
 
-    pub fn next(self: *BlockIterator) error{InvalidRichText}!?BlockReader {
+    pub fn next(self: *@This()) error{InvalidRichText}!?BlockReader {
         if (self.remaining == 0) return null;
         self.remaining -= 1;
-        return read_block(&self.iter) catch error.InvalidRichText;
+        return BlockReader.read(&self.iter) catch error.InvalidRichText;
+    }
+
+    /// iterate the top level blocks of rich text
+    pub fn root(doc: RDoc) error{InvalidRichText}!BlockIterator {
+        var iter = doc.raw.bytes;
+        const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRichText;
+        if (len < 1) return error.InvalidRichText;
+        var tag: []const u8 = undefined;
+        if (!(cbor.matchString(&iter, &tag) catch false) or !std.mem.eql(u8, tag, "blocks")) return error.InvalidRichText;
+        return .{ .iter = iter, .remaining = len - 1 };
     }
 };
-
-fn read_block(iter: *[]const u8) !BlockReader {
-    const len = try cbor.decodeArrayHeader(iter);
-    if (len < 4) return error.InvalidRichText;
-    var attrs: cbor.Raw = undefined;
-    if (!try cbor.matchValue(iter, cbor.extract(&attrs))) return error.InvalidRichText;
-    var width: usize = 0;
-    if (!try cbor.matchInt(usize, iter, &width)) return error.InvalidRichText;
-    var text: []const u8 = undefined;
-    if (!try cbor.matchString(iter, &text)) return error.InvalidRichText;
-    var spans: cbor.Raw = undefined;
-    if (!try cbor.matchValue(iter, cbor.extract(&spans))) return error.InvalidRichText;
-    const start = iter.*;
-    for (0..len - 4) |_| try cbor.skipValue(iter);
-    return .{
-        .attrs = attrs,
-        .display_width = width,
-        .text = text,
-        .spans = spans,
-        .children = .{ .bytes = start[0 .. start.len - iter.len] },
-        .child_count = len - 4,
-    };
-}
-
-/// iterate the top level blocks of rich text
-pub fn read_blocks(rich_text: RichText) error{InvalidRichText}!BlockIterator {
-    var iter = rich_text.raw.bytes;
-    const len = cbor.decodeArrayHeader(&iter) catch return error.InvalidRichText;
-    if (len < 1) return error.InvalidRichText;
-    var tag: []const u8 = undefined;
-    if (!(cbor.matchString(&iter, &tag) catch false) or !std.mem.eql(u8, tag, "blocks")) return error.InvalidRichText;
-    return .{ .iter = iter, .remaining = len - 1 };
-}

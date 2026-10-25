@@ -12,20 +12,20 @@ const tui = @import("tui.zig");
 const richdoc = @import("richdoc");
 
 const Attrs = richdoc.rich_line.Attrs;
-const BlockReader = richdoc.rich_text.BlockReader;
+const BlockReader = richdoc.RDoc.BlockReader;
 
 pub const name = @typeName(Self);
 
-pub fn rich_text_theme(theme: *const Widget.Theme) richdoc.rich_text.Theme {
+pub fn rich_text_theme(theme: *const Widget.Theme) richdoc.RDoc.Theme {
     return .{ .context = theme, .find = find_rich_text_token };
 }
 
-fn find_rich_text_token(context: *const anyopaque, scope: []const u8) ?richdoc.rich_text.Token {
+fn find_rich_text_token(context: *const anyopaque, scope: []const u8) ?richdoc.RDoc.Token {
     const theme: *const Widget.Theme = @ptrCast(@alignCast(context));
     const token = tui.find_scope_style(theme, scope) orelse return null;
     return .{
         .fg = if (token.style.fg) |fg| fg.color else null,
-        .fs = if (token.style.fs) |fs| std.meta.stringToEnum(richdoc.rich_text.FontStyle, @tagName(fs)) else null,
+        .fs = if (token.style.fs) |fs| std.meta.stringToEnum(richdoc.RDoc.FontStyle, @tagName(fs)) else null,
     };
 }
 
@@ -45,7 +45,7 @@ const Section = struct {
     kind: Kind,
     text: []const u8,
     doc: richdoc.SDoc = .{},
-    rich_text: richdoc.rich_text.RichText = .{},
+    rich_text: richdoc.RDoc = .{},
 
     fn deinit(self: *Section, allocator: Allocator) void {
         allocator.free(self.text);
@@ -209,11 +209,11 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
     return .{ .rows = self.lines.items.len, .cols = cols };
 }
 
-fn build_rich_text(self: *Self, doc: richdoc.SDoc) !richdoc.rich_text.RichText {
+fn build_rich_text(self: *Self, doc: richdoc.SDoc) !richdoc.RDoc {
     const theme = tui.theme();
     self.theme_name = theme.name;
     const default_lang = if (tui.get_active_editor()) |editor| if (editor.file_type) |ft| ft.parser orelse ft.name else null else null;
-    return richdoc.rich_text.build(self.allocator, doc, rich_text_theme(theme), tui.query_cache(), .{
+    return richdoc.RDoc.build(self.allocator, doc, rich_text_theme(theme), tui.query_cache(), .{
         .default_lang = default_lang,
         .injection_depth = @intCast(@min(tui.config().syntax_injection_depth, 255)),
     });
@@ -251,7 +251,7 @@ fn layout(self: *Self) !void {
     for (self.sections.items) |section| switch (section.kind) {
         .plaintext => try builder.plaintext(section.text),
         .markdown => {
-            var blocks = try richdoc.rich_text.read_blocks(section.rich_text);
+            var blocks = try richdoc.RDoc.BlockIterator.root(section.rich_text);
             while (try blocks.next()) |block| try builder.block(block);
         },
     };
