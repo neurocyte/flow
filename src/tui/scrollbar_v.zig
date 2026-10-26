@@ -24,6 +24,7 @@ max_ypx: i32 = 8,
 event_sink: EventHandler,
 hover: bool = false,
 active: bool = false,
+hidden: bool = false,
 style_factory: ?*const fn (self: *Self, theme: *const Widget.Theme) Widget.Theme.Style = null,
 
 const Self = @This();
@@ -50,8 +51,8 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     allocator.destroy(self);
 }
 
-pub fn layout(_: *Self) Widget.Layout {
-    return .{ .static = 1 };
+pub fn layout(self: *Self) Widget.Layout {
+    return .{ .static = if (self.hidden) 0 else 1 };
 }
 
 pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
