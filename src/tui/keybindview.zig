@@ -65,7 +65,7 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
         .panel_input = try PanelInput.init(allocator, "log"),
     };
     try container.add(Widget.to(self));
-    try self.scroller.attach_scrollbar(allocator, container);
+    try self.scroller.attach_scrollbar(allocator, container, container.plane);
     try tui.message_filters().add(MessageFilter.bind(self, keybind_match));
     tui.enable_match_events();
     return Panel.to_hosted(self, container.widget());

@@ -7,6 +7,7 @@ const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
 const Scroller = @import("Scroller.zig");
+const scrollbar_v = @import("scrollbar_v.zig");
 const tp = @import("thespian");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
@@ -108,7 +109,7 @@ fn create_panel_widget(allocator: Allocator, parent: Plane) !struct { *Self, *Wi
     const self = try init(allocator, container.plane, default_widget_type);
     try container.add(Widget.to(self));
     self.panel_input = try PanelInput.init(allocator, "info");
-    try self.scroller.attach_scrollbar(allocator, container);
+    try self.scroller.attach_scrollbar(allocator, container, container.plane);
     return .{ self, container };
 }
 
@@ -118,6 +119,8 @@ pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widg
     const self = try init(allocator, parent, widget_type);
     container.ctx = self;
     try container.add(Widget.to(self));
+    try self.scroller.attach_scrollbar(allocator, container, parent);
+    if (self.scroller.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_v.editor_widget_style;
     return container.widget();
 }
 
@@ -153,8 +156,8 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    const panel_input = if (self.panel_input) |*panel_input| panel_input else return false;
     if (try self.scroller.receive_mouse(m)) return true;
+    const panel_input = if (self.panel_input) |*panel_input| panel_input else return false;
     if (try PanelInput.receive_context_menu(self, m)) return true;
     return panel_input.receive(from, m);
 }
@@ -207,6 +210,10 @@ pub fn set_content(self: *Self, kind: Kind, content: []const u8) !void {
     self.clear();
     self.scroller.scroll(.top);
     return self.append_content(kind, content);
+}
+
+pub fn bar_cols_for(self: *const Self, rows: usize) usize {
+    return if (self.scroller.scrollbar != null and self.layout.lines.items.len > rows) 1 else 0;
 }
 
 pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {

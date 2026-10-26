@@ -105,6 +105,7 @@ pub fn Create(options: type) type {
             self.mode.name = options.name;
             self.list_box_layer.ctx = self;
             self.list_box_layer.prepare_resize = prepare_resize_layer;
+            if (@hasDecl(options, "walk")) self.list_box_layer.walk_extra = walk_layer;
             self.list_box_layer.set(self.list_box.container_widget);
             if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             if (@hasDecl(options, "init")) try options.init(self);
@@ -158,6 +159,11 @@ pub fn Create(options: type) type {
                 .{ .fg = theme.scrollbar_hover.fg, .bg = theme.editor_widget.bg }
             else
                 .{ .fg = theme.scrollbar.fg, .bg = theme.editor_widget.bg };
+        }
+
+        fn walk_layer(ctx_: ?*anyopaque, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
+            const self: *Self = @ptrCast(@alignCast(ctx_ orelse return false));
+            return options.walk(self, walk_ctx, f);
         }
 
         fn prepare_resize_layer(ctx_: ?*anyopaque, _: *tui.WidgetLayerBox, _: Widget.Box) Widget.Box {

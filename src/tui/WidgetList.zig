@@ -234,7 +234,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const widget_style = tui.get_widget_style(self.widget_type);
     const padding = widget_style.padding;
     for (self.widgets.items) |*w| if (!w.layout.eql(w.widget.layout())) {
-        self.refresh_layout(padding);
+        self.refresh_layout();
         break;
     };
 
@@ -478,8 +478,8 @@ fn get_extra_b(self: *Self, pos: *Widget.Box) *u16 {
     };
 }
 
-fn refresh_layout(self: *Self, padding: Widget.Style.Margin) void {
-    return self.handle_resize(self.deco_box.to_client_box(padding));
+fn refresh_layout(self: *Self) void {
+    return self.handle_resize(self.deco_box);
 }
 
 pub fn handle_resize(self: *Self, box: Widget.Box) void {

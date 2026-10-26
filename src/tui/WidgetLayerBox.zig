@@ -42,6 +42,7 @@ inner: ?Widget = null,
 box: Widget.Box = .{},
 ctx: ?*anyopaque = null,
 prepare_resize: ?*const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = null,
+walk_extra: ?*const fn (ctx: ?*anyopaque, walk_ctx: *anyopaque, f: Widget.WalkFn) bool = null,
 alpha: u8 = 0xFF,
 z_index: Layer.Level = .overlay,
 blend: Layer.Target.Blend = .default,
@@ -290,6 +291,7 @@ pub fn get(self: *const Self, name_: []const u8) ?Widget {
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(ctx, Widget.to(self), .begin)) return true;
+    if (self.walk_extra) |walk_extra| if (walk_extra(self.ctx, ctx, f)) return true;
     if (self.inner) |*w| if (w.walk(ctx, f)) return true;
     return f(ctx, Widget.to(self), .end);
 }

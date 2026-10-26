@@ -1250,6 +1250,7 @@ pub const Editor = struct {
     pub fn update(self: *Self) void {
         self.update_scroll();
         self.update_event() catch {};
+        if (self.info_box_layer) |layer| layer.widget().update();
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme, focused: bool, now: std.Io.Timestamp) bool {
@@ -1272,7 +1273,8 @@ pub const Editor = struct {
         const cache: *StyleCache = &self.style_cache.?;
         self.update_file_link_highlight();
         self.render_screen(theme, cache, focused, now);
-        return self.scroll_dest != self.view.row or self.syntax_refresh_full;
+        const info_box_more = if (self.info_box_layer) |layer| layer.widget().render(theme) else false;
+        return self.scroll_dest != self.view.row or self.syntax_refresh_full or info_box_more;
     }
 
     const CellType = enum {
@@ -1458,7 +1460,6 @@ pub const Editor = struct {
         self.render_jump_labels(theme);
         self.render_cursors(ctx_.cell_map, focused) catch {};
         self.render_file_link_highlight(theme);
-        if (self.info_box_layer) |layer| _ = layer.widget().render(theme);
     }
 
     fn render_cursors(self: *Self, cell_map: CellMap, focused: bool) !void {
@@ -2447,10 +2448,13 @@ pub const Editor = struct {
         };
         const y = self.plane.abs_y() + @as(i32, @intCast(pos.row));
         const x = self.plane.abs_x() + @as(i32, @intCast(pos.col));
+        const bottom: i32 = self.plane.abs_y() + @as(i32, @intCast(self.plane.dim_y()));
+        const avail = @as(usize, @intCast(@max(0, bottom - (y + 1)))) -| (padding.top + padding.bottom);
+        const rows = @max(1, @min(dim.rows, tui.config().info_box_height_limit, avail));
 
         layer.handle_resize(.{
-            .h = dim.rows + padding.top + padding.bottom,
-            .w = dim.cols + padding.left + padding.right + 3,
+            .h = rows + padding.top + padding.bottom,
+            .w = dim.cols + padding.left + padding.right + 3 + info.bar_cols_for(rows),
             .y = @intCast(y + 1),
             .x = @intCast(x + 1),
         });
@@ -9221,6 +9225,11 @@ pub const EditorWidget = struct {
 
     pub fn update(self: *Self) void {
         self.editor.update();
+    }
+
+    pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
+        if (self.editor.info_box_layer) |layer| if (layer.widget().walk(ctx, f)) return true;
+        return f(ctx, Widget.to(self), .visit);
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {

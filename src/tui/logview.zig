@@ -61,7 +61,7 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     };
 
     try container.add(Widget.to(self));
-    try self.scroller.attach_scrollbar(allocator, container);
+    try self.scroller.attach_scrollbar(allocator, container, container.plane);
     return Panel.to_hosted(self, container.widget());
 }
 

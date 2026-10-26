@@ -204,10 +204,7 @@ pub fn on_render_list_box(self: *Type, button: *Type.ButtonType, theme: *const W
     if (self.value.editor.get_primary_scr()) |cursor|
         self.value.editor.plane.cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape());
 
-    defer if (selected) if (self.value.info_box_layer) |layer| {
-        _ = layer.widget().render(theme);
-    };
-    return tui.render_symbol(
+    const more = tui.render_symbol(
         &button.plane,
         0,
         values.label,
@@ -224,6 +221,15 @@ pub fn on_render_list_box(self: *Type, button: *Type.ButtonType, theme: *const W
         if (values.label_description.len > description_limit) "…" else "",
         &.{},
     );
+    if (!selected) return more;
+    const layer = self.value.info_box_layer orelse return more;
+    layer.widget().update();
+    return layer.widget().render(theme) or more;
+}
+
+pub fn walk(self: *Type, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
+    const layer = self.value.info_box_layer orelse return false;
+    return layer.widget().walk(walk_ctx, f);
 }
 
 pub fn after_resize(self: *Type) void {
@@ -441,9 +447,11 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     const gy, const gx = button.plane.global_yx();
     const btn_w: i32 = button.plane.dim_x();
     const dim = info.content_size();
+    const avail = tui.screen().h -| @as(usize, @intCast(@max(0, gy))) -| (padding.top + padding.bottom);
+    const rows = @max(1, @min(dim.rows, tui.config().info_box_height_limit, avail));
     layer.handle_resize(.{
-        .h = dim.rows + padding.top + padding.bottom,
-        .w = dim.cols + padding.left + padding.right + 3,
+        .h = rows + padding.top + padding.bottom,
+        .w = dim.cols + padding.left + padding.right + 3 + info.bar_cols_for(rows),
         .y = @intCast(gy),
         .x = @intCast(gx + btn_w + 1),
     });

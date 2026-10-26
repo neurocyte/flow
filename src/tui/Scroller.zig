@@ -1,4 +1,5 @@
 const Allocator = @import("std").mem.Allocator;
+const Plane = @import("renderer").Plane;
 const tp = @import("thespian");
 const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
@@ -18,9 +19,9 @@ sticky_end: bool = false,
 scrollbar: ?*scrollbar_v = null,
 
 /// self must not move after this, the scrollbar keeps a pointer to it
-pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetList) !void {
+pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetList, parent: Plane) !void {
     if (!tui.config().show_scrollbars) return;
-    const sb = try scrollbar_v.create(allocator, container.plane, null, EventHandler.bind(self, handle_scroll));
+    const sb = try scrollbar_v.create(allocator, parent, null, EventHandler.bind(self, handle_scroll));
     errdefer sb.deinit(allocator);
     try container.add(sb);
     const scrollbar = sb.dynamic_cast(scrollbar_v).?;
