@@ -1527,12 +1527,10 @@ fn reload_config(self: *Self) void {
     const conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(self.allocator, conf_bufs);
 
-    switch (self.color_scheme) {
-        .dark => if (!std.mem.eql(u8, conf.theme, self.dark_theme.name))
-            self.set_theme_by_name(conf.theme, .none) catch {},
-        .light => if (!std.mem.eql(u8, conf.light_theme, self.light_theme.name))
-            self.set_theme_by_name(conf.light_theme, .none) catch {},
-    }
+    if (!std.mem.eql(u8, conf.theme, self.dark_theme.name))
+        self.reload_theme(.dark, conf.theme);
+    if (!std.mem.eql(u8, conf.light_theme, self.light_theme.name))
+        self.reload_theme(.light, conf.light_theme);
 
     const arena = self.config_bufs orelse blk: {
         const arena = allocator.create(std.heap.ArenaAllocator) catch return;
@@ -1553,6 +1551,26 @@ fn reload_config(self: *Self) void {
                 self.logger.print_err("config", "reload of {s} failed: {t}", .{ field_name, e });
         }
     }
+}
+
+fn reload_theme(self: *Self, color_scheme: Widget.Theme.Type, name: []const u8) void {
+    const theme_ = Widget.get_theme_by_name(self.allocator, name) orelse {
+        self.logger.print("theme not found: {s}", .{name});
+        return;
+    };
+    switch (color_scheme) {
+        .dark => {
+            self.dark_theme = theme_;
+            self.config_.theme = theme_.name;
+        },
+        .light => {
+            self.light_theme = theme_;
+            self.config_.light_theme = theme_.name;
+        },
+    }
+    if (color_scheme != self.color_scheme) return;
+    self.set_terminal_style(&theme_);
+    self.logger.print("theme: {s}", .{theme_.description});
 }
 
 fn is_reload_skipped_config_field(comptime name: []const u8) bool {
