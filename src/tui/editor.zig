@@ -9122,6 +9122,7 @@ pub const EditorWidget = struct {
     hover_x: c_int = -1,
     hover_y: c_int = -1,
     hover_mouse_event: bool = false,
+    hover_active: bool = false,
 
     const Self = @This();
     const Commands = command.Collection(Editor);
@@ -9215,12 +9216,17 @@ pub const EditorWidget = struct {
 
         const io = root_mod.get_io();
         const now = root_mod.get_now();
-        if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.any })) {
+        if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
             const cell = coord.to_cell(self.editor.plane.mouse_geometry());
             const hover_y, const hover_x = .{ cell.row, cell.col };
-            if (hover_y != self.hover_y or hover_x != self.hover_x) {
+            const hover_active = tui.mouse_actions(mods).hover;
+            if (hover_y != self.hover_y or hover_x != self.hover_x or hover_active != self.hover_active) {
                 self.hover_y, self.hover_x = .{ hover_y, hover_x };
-                if (tui.jump_mode()) {
+                if (hover_active != self.hover_active) {
+                    self.hover_active = hover_active;
+                    self.apply_mouse_cursor();
+                }
+                if (hover_active) {
                     self.update_hover_timer(.init);
                     self.hover_mouse_event = true;
                     if (hover_y >= 0 and hover_x >= 0)
@@ -9228,6 +9234,7 @@ pub const EditorWidget = struct {
                     else
                         self.editor.reset_hover_pos();
                 } else {
+                    self.update_hover_timer(.cancel);
                     self.editor.reset_hover_pos();
                 }
             }
@@ -9250,15 +9257,12 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "A", tp.more })) {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-            if (!self.hover)
+            if (!self.hover) {
                 self.editor.reset_hover_pos();
-            if (tui.jump_mode()) {
-                self.update_hover_timer(.init);
-                tui.rdr().request_mouse_cursor_pointer(self.hover);
-            } else {
+                self.hover_active = false;
                 self.update_hover_timer(.cancel);
-                tui.rdr().request_mouse_cursor_text(self.hover);
             }
+            self.apply_mouse_cursor();
         } else if (try m.match(.{ "HOVER", @intFromPtr(self) })) {
             self.update_hover_timer(.fired);
             if (self.hover_y >= 0 and self.hover_x >= 0 and self.hover_mouse_event)
@@ -9288,6 +9292,13 @@ pub const EditorWidget = struct {
             return false;
         }
         return true;
+    }
+
+    fn apply_mouse_cursor(self: *Self) void {
+        if (self.hover_active)
+            tui.rdr().request_mouse_cursor_pointer(self.hover)
+        else
+            tui.rdr().request_mouse_cursor_text(self.hover);
     }
 
     fn update_hover_timer(self: *Self, event: enum { init, fired, cancel }) void {

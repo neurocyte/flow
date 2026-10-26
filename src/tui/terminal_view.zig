@@ -41,6 +41,8 @@ close_requested_ms: i64 = 0,
 
 hover_pos: ?Position = null,
 last_hover_pos: ?Position = null,
+hover_active: bool = false,
+link_click_pending: bool = false,
 file_link_highlight: ?FileLinkHighlight = null,
 file_link_: ?file_link.Dest = null,
 
@@ -190,7 +192,10 @@ pub fn panel_indicator(self: *Self, visibility: Panel.Visibility) Panel.Indicato
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         self.apply_mouse_cursor();
-        if (!self.hover) self.reset_hover_pos();
+        if (!self.hover) {
+            self.hover_active = false;
+            self.reset_hover_pos();
+        }
         tui.need_render(@src());
         return true;
     }
@@ -205,7 +210,20 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             const button = btn.to_vaxis();
             const is_press = try m.match(.{ MouseEvent.Type.press, tp.more });
 
-            if (tui.mouse_actions(mods).jump) if (self.file_link_) |*link| switch (link.*) {
+            const jump = tui.mouse_actions(mods).jump;
+            if (jump and is_press and !self.hover_active) {
+                // no hover link to open, look up the link under the click
+                const cell = coord.to_cell(self.plane.mouse_geometry());
+                if (cell.row >= 0 and cell.col >= 0) {
+                    self.hover_pos = .{ .row = @intCast(cell.row), .col = @intCast(cell.col) };
+                    self.last_hover_pos = null;
+                    if (self.update_file_link_highlight(true) and self.file_link_ == null) {
+                        self.link_click_pending = true;
+                        return true;
+                    }
+                }
+            }
+            if (jump) if (self.file_link_) |*link| switch (link.*) {
                 .file => |*fl| {
                     if (is_press) navigate_to_file_link(fl);
                     return true;
@@ -324,7 +342,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 tui.need_render(@src());
                 return true;
             }
-            if (tui.jump_mode()) {
+            self.hover_active = tui.mouse_actions(mods).hover;
+            if (self.hover_active) {
                 if (cell.row >= 0 and cell.col >= 0)
                     self.update_hover_pos(@intCast(cell.row), @intCast(cell.col));
             } else {
@@ -489,7 +508,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         }
     }
 
-    self.update_file_link_highlight();
+    if (self.link_click_pending) self.open_pending_link_click();
+    _ = self.update_file_link_highlight(false);
     self.render_file_link_highlight(theme);
     self.render_selection(theme);
 
@@ -617,62 +637,75 @@ fn probe_file_links(self: *Self, range: Vt.Terminal.CommandOutputRange) bool {
     return true;
 }
 
-fn update_file_link_highlight(self: *Self) void {
+/// Opens the link under a jump click once its file probe is done
+fn open_pending_link_click(self: *Self) void {
+    const retry = self.update_file_link_highlight(true);
+    if (self.file_link_) |*link| switch (link.*) {
+        .file => |*fl| navigate_to_file_link(fl),
+        .url => |url| tui.open_url(url.url),
+        .dir => {},
+    };
+    if (self.file_link_ != null or !retry) self.link_click_pending = false;
+}
+
+/// Returns true if the link under the hover position is waiting for a file probe
+fn update_file_link_highlight(self: *Self, force: bool) bool {
     var retry = false;
     defer self.last_hover_pos = if (retry) null else self.hover_pos;
-    if (!tui.jump_mode() or self.vt.vt.back_screen != &self.vt.vt.back_screen_pri) {
+    if (!(self.hover_active or force) or self.vt.vt.back_screen != &self.vt.vt.back_screen_pri) {
         self.reset_file_link();
-        return;
+        return false;
     }
     const pos = self.hover_pos orelse {
         self.reset_file_link();
-        return;
+        return false;
     };
 
     if (self.last_hover_pos) |last| if (last.row == pos.row and last.col == pos.col)
-        return;
+        return false;
 
     if (self.file_link_highlight) |hl| {
         if (pos.row == hl.row and pos.col >= hl.start_col and pos.col < hl.end_col)
-            return;
+            return false;
         self.reset_file_link();
     }
 
-    if (pos.row >= self.vt.vt.back_screen_pri.height) return;
+    if (pos.row >= self.vt.vt.back_screen_pri.height) return false;
     var row_iter = self.row_at(self.vt.vt.viewTop() + pos.row);
     defer row_iter.deinit();
-    const row = row_iter.next() orelse return;
+    const row = row_iter.next() orelse return false;
     const screen = row.screen;
     const screen_row = row.row;
 
-    if (self.try_set_osc8_highlight(screen, screen_row, pos, &retry)) return;
+    if (self.try_set_osc8_highlight(screen, screen_row, pos, &retry)) return false;
 
     var row_text: std.ArrayList(u8) = .empty;
     defer row_text.deinit(self.allocator);
     var col_at_byte: std.ArrayList(u16) = .empty;
     defer col_at_byte.deinit(self.allocator);
-    screen.extractRowText(self.allocator, screen_row, &row_text, &col_at_byte) catch return;
-    if (row_text.items.len == 0) return;
+    screen.extractRowText(self.allocator, screen_row, &row_text, &col_at_byte) catch return retry;
+    if (row_text.items.len == 0) return retry;
 
-    const byte_offset = byte_offset_for_col(col_at_byte.items, pos.col) orelse return;
-    const range = file_link.find_at_point(row_text.items, byte_offset) orelse return;
-    var link = file_link.parse(row_text.items[range.start..range.end]) catch return;
+    const byte_offset = byte_offset_for_col(col_at_byte.items, pos.col) orelse return retry;
+    const range = file_link.find_at_point(row_text.items, byte_offset) orelse return retry;
+    var link = file_link.parse(row_text.items[range.start..range.end]) catch return retry;
     switch (link) {
         .file => |*f| switch (tui.probe_link(f.path)) {
             .text_file => f.exists = true,
             .unknown => {
                 retry = true;
-                return;
+                return retry;
             },
-            .other => return,
+            .other => return retry,
         },
         .url => {},
-        .dir => return,
+        .dir => return retry,
     }
     const start_col = col_at_byte.items[range.start];
     const end_col = col_at_byte.items[range.end];
-    if (end_col <= start_col) return;
+    if (end_col <= start_col) return retry;
     self.set_file_link(link, .{ .row = pos.row, .start_col = start_col, .end_col = end_col }) catch @panic("OOM terminal_view.set_file_link");
+    return false;
 }
 
 fn try_set_osc8_highlight(self: *Self, screen: *const Vt.Screen, screen_row: usize, pos: Position, retry: *bool) bool {
