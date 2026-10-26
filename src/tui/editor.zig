@@ -468,6 +468,7 @@ pub const Editor = struct {
         view: View,
     } = null,
     hover_request: ?Cursor = null,
+    diagnostic_hover_pending: ?Cursor = null,
     file_link_highlight: ?Match = null,
 
     hover_pos: ?HoverPos = null,
@@ -1254,6 +1255,10 @@ pub const Editor = struct {
     pub fn update(self: *Self) void {
         self.update_scroll();
         self.update_event() catch {};
+        if (self.diagnostic_hover_pending) |pos| if (self.view.row == self.scroll_anim.dest) {
+            self.diagnostic_hover_pending = null;
+            tp.self_pid().send(.{ "cmd", "show_diagnostic_hover", .{ pos.row, pos.col } }) catch {};
+        };
         if (self.info_box_layer) |layer| layer.widget().update();
     }
 
@@ -2500,11 +2505,7 @@ pub const Editor = struct {
         }
         const info = try self.show_info_box();
         info.clear();
-        if (self.hover_request) |pos| try self.append_hover_diagnostics(info, pos);
-        if (content.len > 0) {
-            if (diag_sel != null) try info.append_content(.markdown, "---");
-            try info.append_content(kind, content);
-        }
+        try self.append_hover_info(info, kind, content);
         self.place_info_box(box_range.begin);
         self.info_box_state = .{
             .range = box_range,
@@ -2512,26 +2513,43 @@ pub const Editor = struct {
         };
     }
 
+    pub fn set_hover_panel_content(self: *Self, kind: info_view.Kind, content: []const u8) !void {
+        const has_diag = if (self.hover_request) |pos| self.first_diagnostic_at(pos) != null else false;
+        if (content.len == 0 and !has_diag) return;
+        const mv = tui.mainview() orelse return;
+        const info = try mv.show_info_panel();
+        info.clear();
+        info.scroller.scroll(.top);
+        try self.append_hover_info(info, kind, content);
+        tui.need_render(@src());
+    }
+
     fn show_hover_diagnostics(self: *Self, pos: Cursor) bool {
         self.hover_request = pos;
         if (self.first_diagnostic_at(pos) == null) return false;
-        self.set_hover_content(.{}, .plaintext, "") catch return false;
+        switch (tui.config().hover_info_mode) {
+            .box => self.set_hover_content(.{}, .plaintext, "") catch return false,
+            .panel => self.set_hover_panel_content(.plaintext, "") catch return false,
+        }
         return true;
     }
 
     fn first_diagnostic_at(self: *const Self, pos: Cursor) ?Selection {
-        if (tui.config().hover_info_mode != .box) return null;
         for (self.diagnostics.items) |*diag| if (diag.contains(pos)) return diag.sel;
         return null;
     }
 
-    fn append_hover_diagnostics(self: *Self, info: *info_view, pos: Cursor) !void {
+    fn append_hover_info(self: *Self, info: *info_view, kind: info_view.Kind, content: []const u8) !void {
         var first = true;
-        for (self.diagnostics.items) |*diag| if (diag.contains(pos)) {
+        if (self.hover_request) |pos| for (self.diagnostics.items) |*diag| if (diag.contains(pos)) {
             if (!first) try info.append_content(.markdown, "---");
             first = false;
             try self.append_diagnostic_info(info, diag);
         };
+        if (content.len > 0) {
+            if (!first) try info.append_content(.markdown, "---");
+            try info.append_content(kind, content);
+        }
     }
 
     fn append_diagnostic_info(self: *Self, info: *info_view, diag: *const Diagnostic) !void {
@@ -7661,6 +7679,7 @@ pub const Editor = struct {
         self.cancel_all_selections();
         try primary.cursor.move_to(root, diag.sel.begin.row, diag.sel.begin.col, self.metrics);
         self.clamp(now);
+        self.diagnostic_hover_pending = diag.sel.begin;
         try self.send_editor_jump_destination();
     }
 
@@ -8623,6 +8642,14 @@ pub const Editor = struct {
             return tp.self_pid().send(.{ "cmd", "run_trigger", .{ item.command, [_]u8{char} } }) catch {};
         }
     }
+
+    pub fn show_diagnostic_hover(self: *Self, ctx: Context) Result {
+        var pos: Cursor = .{};
+        if (!try ctx.args.match(.{ tp.extract(&pos.row), tp.extract(&pos.col) }))
+            return error.InvalidShowDiagnosticHoverArgument;
+        if (self.show_hover_diagnostics(pos)) self.need_render();
+    }
+    pub const show_diagnostic_hover_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 
     pub fn run_trigger(_: *Self, ctx: Context) Result {
         var cmd: command.ID = undefined;

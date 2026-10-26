@@ -252,7 +252,10 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ "hover", tp.extract(&path), tp.extract(&content_kind), tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         const kind: info_view.Kind = .from_lsp(content_kind);
         switch (tui.config().hover_info_mode) {
-            .panel => self.set_info_content(kind, lines, .replace) catch {},
+            .panel => if (self.get_editor_for_file(path)) |editor|
+                editor.set_hover_panel_content(kind, lines) catch |e| return tp.exit_error(e, @errorReturnTrace())
+            else
+                self.set_info_content(kind, lines, .replace) catch {},
             .box => if (self.get_editor_for_file(path)) |editor|
                 editor.set_hover_content(.{
                     .begin = .{ .row = begin_line, .col = begin_pos },
@@ -3748,10 +3751,15 @@ fn buffer_name(file_path: []const u8) []const u8 {
     return std.fs.path.basename(file_path);
 }
 
+pub fn show_info_panel(self: *Self) !*info_view {
+    const info = try self.show_panel_view(info_view, .empty());
+    self.bottom_area.set_maximized(false);
+    return info;
+}
+
 pub fn set_info_content(self: *Self, kind: info_view.Kind, content: []const u8, mode: enum { replace, append }) tp.result {
     if (content.len == 0) return;
-    const info = self.show_panel_view(info_view, .empty()) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    self.bottom_area.set_maximized(false);
+    const info = self.show_info_panel() catch |e| return tp.exit_error(e, @errorReturnTrace());
     switch (mode) {
         .replace => info.set_content(kind, content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
         .append => info.append_content(kind, content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
