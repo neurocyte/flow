@@ -40,16 +40,18 @@ pub const Kind = enum {
     }
 };
 
-const Section = struct {
-    kind: Kind,
-    text: []const u8,
-    sdoc: richdoc.SDoc = .{},
-    rdoc: richdoc.RDoc = .{},
+const Section = union(Kind) {
+    plaintext: []const u8,
+    markdown: struct { sdoc: richdoc.SDoc, rdoc: richdoc.RDoc },
 
-    fn deinit(self: *Section, allocator: Allocator) void {
-        allocator.free(self.text);
-        allocator.free(self.sdoc.raw.bytes);
-        allocator.free(self.rdoc.raw.bytes);
+    fn deinit(self: Section, allocator: Allocator) void {
+        switch (self) {
+            .plaintext => |text| allocator.free(text),
+            .markdown => |md| {
+                allocator.free(md.sdoc.raw.bytes);
+                allocator.free(md.rdoc.raw.bytes);
+            },
+        }
     }
 };
 
@@ -114,7 +116,17 @@ pub fn from_layer(layer: *tui.WidgetLayerBox) ?*Self {
     return w.dynamic_cast(Self);
 }
 
-pub const Content = struct { kind: Kind, text: []const u8 };
+pub const Content = union(Kind) {
+    plaintext: []const u8,
+    markdown: richdoc.SDoc,
+
+    fn deinit(self: Content, allocator: Allocator) void {
+        switch (self) {
+            .plaintext => |text| allocator.free(text),
+            .markdown => |sdoc| allocator.free(sdoc.raw.bytes),
+        }
+    }
+};
 
 /// a copy of the content that outlives this info_view
 pub fn dupe_content(self: *const Self, allocator: Allocator) ![]Content {
@@ -122,21 +134,27 @@ pub fn dupe_content(self: *const Self, allocator: Allocator) ![]Content {
     var n: usize = 0;
     errdefer free_content(allocator, content[0..n]);
     for (self.sections.items) |section| {
-        content[n] = .{ .kind = section.kind, .text = try allocator.dupe(u8, section.text) };
+        content[n] = switch (section) {
+            .plaintext => |text| .{ .plaintext = try allocator.dupe(u8, text) },
+            .markdown => |md| .{ .markdown = .{ .raw = .{ .bytes = try allocator.dupe(u8, md.sdoc.raw.bytes) } } },
+        };
         n += 1;
     }
     return content;
 }
 
 pub fn free_content(allocator: Allocator, content: []const Content) void {
-    for (content) |c| allocator.free(c.text);
+    for (content) |c| c.deinit(allocator);
     allocator.free(content);
 }
 
 pub fn set_contents(self: *Self, content: []const Content) !void {
     self.clear();
     self.scroller.scroll(.top);
-    for (content) |c| try self.append_content(c.kind, c.text);
+    for (content) |c| switch (c) {
+        .plaintext => |text| try self.append_content(.plaintext, text),
+        .markdown => |sdoc| try self.append_sdoc(sdoc),
+    };
 }
 
 pub fn is_preview_of(self: *Self, source: []const u8) bool {
@@ -217,7 +235,7 @@ pub fn panel_copy(self: *Self) void {
 }
 
 pub fn clear(self: *Self) void {
-    for (self.sections.items) |*section| section.deinit(self.allocator);
+    for (self.sections.items) |section| section.deinit(self.allocator);
     self.sections.clearRetainingCapacity();
     self.layout.reset();
     self.layout_width = 0;
@@ -233,16 +251,30 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
 }
 
 pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
-    const text = try self.allocator.dupe(u8, content);
-    errdefer self.allocator.free(text);
-    var section: Section = .{ .kind = kind, .text = text };
-    if (kind == .markdown) {
-        section.sdoc = try richdoc.markdown.parse(self.allocator, text, tui.query_cache());
-        errdefer self.allocator.free(section.sdoc.raw.bytes);
-        section.rdoc = try self.render_sdoc(section.sdoc);
+    switch (kind) {
+        .plaintext => {
+            const text = try self.allocator.dupe(u8, content);
+            self.sections.append(self.allocator, .{ .plaintext = text }) catch |e| {
+                self.allocator.free(text);
+                return e;
+            };
+            try self.relayout();
+        },
+        .markdown => try self.append_owned_sdoc(try richdoc.markdown.parse(self.allocator, content, tui.query_cache())),
     }
-    errdefer section.deinit(self.allocator);
-    try self.sections.append(self.allocator, section);
+}
+
+pub fn append_sdoc(self: *Self, sdoc: richdoc.SDoc) !void {
+    return self.append_owned_sdoc(.{ .raw = .{ .bytes = try self.allocator.dupe(u8, sdoc.raw.bytes) } });
+}
+
+fn append_owned_sdoc(self: *Self, sdoc: richdoc.SDoc) !void {
+    {
+        errdefer self.allocator.free(sdoc.raw.bytes);
+        const rdoc = try self.render_sdoc(sdoc);
+        errdefer self.allocator.free(rdoc.raw.bytes);
+        try self.sections.append(self.allocator, .{ .markdown = .{ .sdoc = sdoc, .rdoc = rdoc } });
+    }
     try self.relayout();
 }
 
@@ -271,10 +303,13 @@ fn render_sdoc(self: *Self, sdoc: richdoc.SDoc) !richdoc.RDoc {
 }
 
 fn restyle(self: *Self) !void {
-    for (self.sections.items) |*section| if (section.kind == .markdown) {
-        const rdoc = try self.render_sdoc(section.sdoc);
-        self.allocator.free(section.rdoc.raw.bytes);
-        section.rdoc = rdoc;
+    for (self.sections.items) |*section| switch (section.*) {
+        .plaintext => {},
+        .markdown => |*md| {
+            const rdoc = try self.render_sdoc(md.sdoc);
+            self.allocator.free(md.rdoc.raw.bytes);
+            md.rdoc = rdoc;
+        },
     };
     try self.relayout();
 }
@@ -311,9 +346,9 @@ fn relayout(self: *Self) !void {
 fn layout_at(self: *Self, width: usize) !void {
     self.layout.reset();
     const tab_width = tui.config().tab_width;
-    for (self.sections.items) |section| switch (section.kind) {
-        .plaintext => try self.layout_plaintext(section.text, width, tab_width),
-        .markdown => try richdoc.render.to_layout(&self.layout, section.rdoc, &self.plane, .{
+    for (self.sections.items) |section| switch (section) {
+        .plaintext => |text| try self.layout_plaintext(text, width, tab_width),
+        .markdown => |md| try richdoc.render.to_layout(&self.layout, md.rdoc, &self.plane, .{
             .width = width,
             .tab_width = tab_width,
             .code_overflow = switch (tui.config().info_code_overflow) {
@@ -351,6 +386,6 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 fn has_markdown(self: *const Self) bool {
-    for (self.sections.items) |section| if (section.kind == .markdown) return true;
+    for (self.sections.items) |section| if (section == .markdown) return true;
     return false;
 }
