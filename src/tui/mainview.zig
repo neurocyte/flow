@@ -2080,7 +2080,21 @@ const cmds = struct {
         var message: []const u8 = undefined;
         var severity: i32 = 0;
         var sel: ed.Selection = .{};
+        var rendered: []const u8 = "";
+        var related: cbor.Raw = .empty;
         if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+            tp.extract(&source),
+            tp.extract(&code),
+            tp.extract(&message),
+            tp.extract(&severity),
+            tp.extract(&sel.begin.row),
+            tp.extract(&sel.begin.col),
+            tp.extract(&sel.end.row),
+            tp.extract(&sel.end.col),
+            tp.extract(&rendered),
+            cbor.extract(&related),
+        }) and !try ctx.args.match(.{
             tp.extract(&file_path),
             tp.extract(&source),
             tp.extract(&code),
@@ -2094,7 +2108,7 @@ const cmds = struct {
         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_editor_for_file(file_path)) |editor| {
-            try editor.add_diagnostic(file_path, source, code, message, severity, sel);
+            try editor.add_diagnostic(file_path, source, code, message, severity, sel, rendered, related.bytes);
             if (!tui.config().show_local_diagnostics_in_panel)
                 return;
         }
@@ -2114,7 +2128,7 @@ const cmds = struct {
             .background,
         );
     }
-    pub const add_diagnostic_meta: Meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
+    pub const add_diagnostic_meta: Meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer, .string, .array } };
 
     pub fn add_completion(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;

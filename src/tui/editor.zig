@@ -323,11 +323,22 @@ pub const Diagnostic = struct {
     message: []const u8,
     severity: i32,
     sel: Selection,
+    rendered: []const u8,
+    related: []const u8,
 
     fn deinit(self: *Diagnostic, allocator: std.mem.Allocator) void {
         allocator.free(self.source);
         allocator.free(self.code);
         allocator.free(self.message);
+        allocator.free(self.rendered);
+        allocator.free(self.related);
+    }
+
+    fn contains(self: *const Diagnostic, pos: Cursor) bool {
+        var sel = self.sel;
+        sel.normalize();
+        if (sel.empty()) sel.end.col += 1;
+        return pos.within(sel);
     }
 
     pub const Severity = enum { Error, Warning, Information, Hint };
@@ -456,6 +467,7 @@ pub const Editor = struct {
         range: Match,
         view: View,
     } = null,
+    hover_request: ?Cursor = null,
     file_link_highlight: ?Match = null,
 
     hover_pos: ?HoverPos = null,
@@ -2479,19 +2491,77 @@ pub const Editor = struct {
     }
 
     pub fn set_hover_content(self: *Self, range: Match, kind: info_view.Kind, content: []const u8) !void {
-        self.add_hover_highlight(range);
-        if (content.len == 0) {
+        const diag_sel = if (self.hover_request) |pos| self.first_diagnostic_at(pos) else null;
+        const box_range = if (content.len == 0 and diag_sel != null) Match.from_selection(diag_sel.?) else range;
+        self.add_hover_highlight(box_range);
+        if (content.len == 0 and diag_sel == null) {
             self.clear_info_box();
             return;
         }
         const info = try self.show_info_box();
         info.clear();
-        try info.append_content(kind, content);
-        self.place_info_box(range.begin);
+        if (self.hover_request) |pos| try self.append_hover_diagnostics(info, pos);
+        if (content.len > 0) {
+            if (diag_sel != null) try info.append_content(.markdown, "---");
+            try info.append_content(kind, content);
+        }
+        self.place_info_box(box_range.begin);
         self.info_box_state = .{
-            .range = range,
+            .range = box_range,
             .view = self.view,
         };
+    }
+
+    fn show_hover_diagnostics(self: *Self, pos: Cursor) bool {
+        self.hover_request = pos;
+        if (self.first_diagnostic_at(pos) == null) return false;
+        self.set_hover_content(.{}, .plaintext, "") catch return false;
+        return true;
+    }
+
+    fn first_diagnostic_at(self: *const Self, pos: Cursor) ?Selection {
+        if (tui.config().hover_info_mode != .box) return null;
+        for (self.diagnostics.items) |*diag| if (diag.contains(pos)) return diag.sel;
+        return null;
+    }
+
+    fn append_hover_diagnostics(self: *Self, info: *info_view, pos: Cursor) !void {
+        var first = true;
+        for (self.diagnostics.items) |*diag| if (diag.contains(pos)) {
+            if (!first) try info.append_content(.markdown, "---");
+            first = false;
+            try self.append_diagnostic_info(info, diag);
+        };
+    }
+
+    fn append_diagnostic_info(self: *Self, info: *info_view, diag: *const Diagnostic) !void {
+        var md: std.Io.Writer.Allocating = .init(self.allocator);
+        defer md.deinit();
+        try md.writer.print("**{t}** `{s}`", .{ diag.get_severity(), diag.source });
+        if (!std.mem.eql(u8, diag.code, "none")) try md.writer.print(" `{s}`", .{diag.code});
+        if (diag.rendered.len > 0) {
+            try md.writer.writeAll("\n\n");
+            try project_manager.write_code_fence(&md.writer, "", std.mem.trimEnd(u8, diag.rendered, "\n"));
+            try info.append_content(.markdown, md.written());
+        } else {
+            try info.append_content(.markdown, md.written());
+            try info.append_content(.plaintext, diag.message);
+        }
+
+        var related: std.Io.Writer.Allocating = .init(self.allocator);
+        defer related.deinit();
+        var iter = diag.related;
+        var len = cbor.decodeArrayHeader(&iter) catch 0;
+        while (len > 0) : (len -= 1) {
+            var file_path: []const u8 = undefined;
+            var line: usize = 0;
+            var character: usize = 0;
+            var message: []const u8 = undefined;
+            if (!(cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.extract(&line), cbor.extract(&character), cbor.extract(&message) }) catch false)) break;
+            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            try related.writer.print("{s}:{d}:{d}: {s}\n", .{ project_manager.normalize_file_path(file_path, &file_path_buf), line + 1, character + 1, message });
+        }
+        if (related.written().len > 0) try info.append_content(.plaintext, related.written());
     }
 
     fn clamp_abs_offset(self: *Self, abs: bool, offset: usize, now: std.Io.Timestamp) void {
@@ -8328,7 +8398,8 @@ pub const Editor = struct {
     }
 
     pub fn hover(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.hover);
+        const shown = self.show_hover_diagnostics(self.get_primary().cursor);
+        self.pm_with_primary_cursor_pos(project_manager.hover) catch |e| if (!shown) return e;
     }
     pub const hover_meta: Meta = .{ .description = "Language: Show documentation for symbol (hover)" };
 
@@ -8368,12 +8439,13 @@ pub const Editor = struct {
     }
 
     pub fn hover_at(self: *Self, row: usize, col: usize) Result {
+        const shown = self.show_hover_diagnostics(.{ .row = row, .col = col });
         const root = self.buf_root() catch return;
-        return project_manager.hover(.{ .src = .{
+        project_manager.hover(.{ .src = .{
             .path = self.file_path orelse return,
             .line = row,
             .column = root.get_line_width_to_pos(row, col, self.metrics) catch return,
-        } });
+        } }) catch |e| if (!shown) return e;
     }
 
     pub fn add_hover_highlight(self: *Self, match_: Match) void {
@@ -8424,6 +8496,8 @@ pub const Editor = struct {
         message: []const u8,
         severity: i32,
         sel_: Selection,
+        rendered: []const u8,
+        related: []const u8,
     ) Result {
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
 
@@ -8435,6 +8509,8 @@ pub const Editor = struct {
             .message = try self.allocator.dupe(u8, message),
             .severity = severity,
             .sel = sel_.from_pos(root, self.metrics),
+            .rendered = try self.allocator.dupe(u8, rendered),
+            .related = try self.allocator.dupe(u8, related),
         };
 
         switch (Diagnostic.to_severity(severity)) {
