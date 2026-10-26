@@ -246,6 +246,27 @@ test "to_char_right_beyond_eol" {
 // is made, then trying to move to the right, the
 // first movement is swallowed
 
+test "maW selects around the WORD, including trailing whitespace" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string("Test here,   next", &eol_mode, &sanitized), now);
+    const root: Buffer.Root = buffer.root;
+
+    // cursor on a word char (the 'h' of "here"); the original functions
+    // deliberately do nothing when the cursor is on whitespace
+    var inner: @import("tui").exports.editor.CurSel = .{ .cursor = .{ .row = 0, .col = 5 } };
+    try helix.test_internal.textobject_for(.inside, "W").?(root, &inner, metrics());
+    try std.testing.expectEqual(5, inner.selection.?.begin.col);
+    try std.testing.expectEqual(10, inner.selection.?.end.col);
+
+    var around: @import("tui").exports.editor.CurSel = .{ .cursor = .{ .row = 0, .col = 5 } };
+    try helix.test_internal.textobject_for(.around, "W").?(root, &around, metrics());
+    try std.testing.expectEqual(5, around.selection.?.begin.col);
+    try std.testing.expectEqual(13, around.selection.?.end.col);
+    try std.testing.expect(around.selection.?.end.col > inner.selection.?.end.col);
+}
+
 test "insert_line_vim nudges other cursors" {
     const now = std.Io.Clock.real.now(std.testing.io);
     const buffer = try Buffer.create(a, now);

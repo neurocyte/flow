@@ -427,21 +427,7 @@ const cmds_ = struct {
     pub const extend_to_char_right_helix_meta: Meta = .{ .description = "Extend Selection to char right" };
 
     pub fn select_textobject_inner(_: *void, ctx: Ctx) Result {
-        var action: []const u8 = "";
-
-        if (!try ctx.args.match(.{tp.extract(&action)})) return error.Stop;
-        const mv = tui.mainview() orelse return;
-        const ed = mv.get_active_editor() orelse return;
-        const root = ed.buf_root() catch return;
-
-        if (std.mem.eql(u8, action, "w")) {
-            try ed.with_cursels_const(root, select_inner_word, ed.metrics);
-        } else if (std.mem.eql(u8, action, "W")) {
-            try ed.with_cursels_const(root, select_inner_long_word, ed.metrics);
-        } else {
-            return;
-        }
-        ed.clamp(ctx.now);
+        try select_textobject(ctx, .inside);
     }
     pub const select_textobject_inner_meta: Meta = .{ .description = "select inside object helix" };
 
@@ -457,21 +443,7 @@ const cmds_ = struct {
     pub const surround_add_meta: Meta = .{ .description = "surround add" };
 
     pub fn select_textobject_around(_: *void, ctx: Ctx) Result {
-        var action: []const u8 = "";
-
-        if (!try ctx.args.match(.{tp.extract(&action)})) return error.Stop;
-        const mv = tui.mainview() orelse return;
-        const ed = mv.get_active_editor() orelse return;
-        const root = ed.buf_root() catch return;
-
-        if (std.mem.eql(u8, action, "w")) {
-            try ed.with_cursels_const(root, select_around_word, ed.metrics);
-        } else if (std.mem.eql(u8, action, "W")) {
-            try ed.with_cursels_const(root, select_inner_long_word, ed.metrics);
-        } else {
-            return;
-        }
-        ed.clamp(ctx.now);
+        try select_textobject(ctx, .around);
     }
     pub const select_textobject_around_meta: Meta = .{ .description = "select around object helix" };
 
@@ -651,10 +623,51 @@ fn select_inner_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Me
     Editor.move_cursor_left_until(root, &prev, is_long_word_boundary_left, metrics);
     Editor.move_cursor_right_until(root, &next, is_long_word_boundary_right, metrics);
     try next.move_right(root, metrics);
-    const sel = cursel.enable_selection(root, metrics);
+    // style is unobservable here: both variants of enable_selection only move
+    // sel.end one cell right, which is immediately overwritten below
+    const sel = cursel.enable_selection_normal();
     sel.begin = prev;
     sel.end = next;
     cursel.*.cursor = next;
+}
+
+// Which side of the text object the selection covers.
+const TextobjectScope = enum { inside, around };
+
+const CurselOperatorConst = *const fn (root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void;
+
+// Maps a (scope, action) pair to the operator that performs it. Pure, so the
+// test build can check the mapping without a live TUI. Only the long-word
+// operators are listed: the short-word ones still call enable_selection(),
+// which reaches the TUI singleton and cannot be analysed in the test build.
+fn textobject_for(cmd_kind: TextobjectScope, action: []const u8) ?CurselOperatorConst {
+    if (std.mem.eql(u8, action, "W")) {
+        return switch (cmd_kind) {
+            .inside => select_inner_long_word,
+            .around => select_around_long_word,
+        };
+    }
+    return null;
+}
+
+fn select_textobject(ctx: command.Context, cmd_kind: TextobjectScope) command.Result {
+    var action: []const u8 = "";
+
+    if (!try ctx.args.match(.{tp.extract(&action)})) return error.Stop;
+    const mv = tui.mainview() orelse return;
+    const ed = mv.get_active_editor() orelse return;
+    const root = ed.buf_root() catch return;
+
+    if (std.mem.eql(u8, action, "w")) {
+        const op: CurselOperatorConst = if (cmd_kind == .inside) select_inner_word else select_around_word;
+        try ed.with_cursels_const(root, op, ed.metrics);
+    } else if (std.mem.eql(u8, action, "W")) {
+        const op = textobject_for(cmd_kind, action) orelse return;
+        try ed.with_cursels_const(root, op, ed.metrics);
+    } else {
+        return;
+    }
+    ed.clamp(ctx.now);
 }
 
 fn is_tab_or_space(c: []const u8) bool {
@@ -697,7 +710,7 @@ fn select_around_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.M
     if (!cursel.cursor.test_at(root, Editor.is_word_char, metrics)) return;
     var expander = cursel.*;
     try select_inner_long_word(root, &expander, metrics);
-    const sel_e = try expander.enable_selection(root, metrics);
+    const sel_e = expander.enable_selection_normal();
     var prev = sel_e.begin;
     var next = sel_e.end;
     if (next.test_at(root, is_tab_or_space, metrics)) {
@@ -712,7 +725,7 @@ fn select_around_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.M
             prev = sel_e.begin;
         }
     }
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection_normal();
     sel.begin = prev;
     sel.end = next;
     cursel.*.cursor = next;
@@ -1350,4 +1363,5 @@ pub const test_internal = struct {
     pub const insert_replace_selection = private.insert_replace_selection;
     pub const insert_after = private.insert_after;
     pub const surround_add = private.surround_add;
+    pub const textobject_for = private.textobject_for;
 };
