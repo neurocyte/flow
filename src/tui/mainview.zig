@@ -1543,6 +1543,16 @@ const cmds = struct {
     }
     pub const panel_scroll_page_up_meta: Meta = .{ .description = "Scroll up a page" };
 
+    pub fn panel_scroll_half_page_up(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.half_page_up);
+    }
+    pub const panel_scroll_half_page_up_meta: Meta = .{ .description = "Scroll up half a page" };
+
+    pub fn panel_scroll_half_page_down(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.half_page_down);
+    }
+    pub const panel_scroll_half_page_down_meta: Meta = .{ .description = "Scroll down half a page" };
+
     pub fn panel_scroll_page_down(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.page_down);
     }

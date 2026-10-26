@@ -146,6 +146,8 @@ pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
     self.scroll_to(switch (action) {
         .line_up => cur -| 1,
         .line_down => cur + 1,
+        .half_page_up => cur -| @max(1, rows / 2),
+        .half_page_down => cur + @max(1, rows / 2),
         .page_up => cur -| rows,
         .page_down => cur + rows,
         .top => 0,

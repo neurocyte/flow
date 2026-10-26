@@ -7,7 +7,7 @@ pub const Indicator = enum { none, alt_screen, activity, bell, busy, exited, exi
 pub const Visibility = enum { visible, hidden };
 pub const CloseResult = enum { closed, vetoed };
 pub const Id = u32;
-pub const ScrollAction = enum { line_up, line_down, page_up, page_down, top, bottom };
+pub const ScrollAction = enum { line_up, line_down, half_page_up, half_page_down, page_up, page_down, top, bottom };
 
 id: Id = 0,
 widget: Widget,

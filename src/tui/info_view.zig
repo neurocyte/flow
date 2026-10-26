@@ -207,6 +207,8 @@ pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
     switch (action) {
         .line_up => self.scroll_to(self.scroll_dest -| 1),
         .line_down => self.scroll_to(self.scroll_dest + 1),
+        .half_page_up => self.scroll_animated(self.scroll_dest -| @max(1, rows / 2)),
+        .half_page_down => self.scroll_animated(self.scroll_dest + @max(1, rows / 2)),
         .page_up => self.scroll_animated(self.scroll_dest -| rows),
         .page_down => self.scroll_animated(self.scroll_dest + rows),
         .top => self.scroll_to(0),

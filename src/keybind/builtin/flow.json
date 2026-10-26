@@ -731,6 +731,11 @@
         "press": [
             ["up", "panel_scroll_up"],
             ["down", "panel_scroll_down"],
+            ["k", "panel_scroll_up"],
+            ["j", "panel_scroll_down"],
+            ["ctrl+u", "panel_scroll_half_page_up"],
+            ["ctrl+d", "panel_scroll_half_page_down"],
+            ["q", "panel_tab_close"],
             ["page_up", "panel_scroll_page_up"],
             ["page_down", "panel_scroll_page_down"],
             ["home", "panel_scroll_top"],
