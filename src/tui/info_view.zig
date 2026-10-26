@@ -6,6 +6,9 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
+const scrollbar_v = @import("scrollbar_v.zig");
+const MouseEvent = @import("MouseEvent");
+const EventHandler = @import("EventHandler");
 const tp = @import("thespian");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
@@ -62,6 +65,7 @@ layout_width: usize = 0,
 theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
+scrollbar: ?*scrollbar_v = null,
 top: usize = 0,
 
 const default_widget_type: Widget.Type = .panel;
@@ -78,10 +82,28 @@ pub fn panel_icon(_: *Self) []const u8 {
 }
 
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
-    const self = try init(allocator, parent, default_widget_type);
-    errdefer self.deinit(allocator);
+    const container = try WidgetList.createH(allocator, parent, "info.container", .dynamic);
+    errdefer container.deinit(allocator);
+    const self = try init(allocator, container.plane, default_widget_type);
+    try container.add(Widget.to(self));
     self.panel_input = try PanelInput.init(allocator, "info");
-    return Panel.to(self);
+    if (tui.config().show_scrollbars) {
+        const sb = try scrollbar_v.create(allocator, container.plane, null, EventHandler.bind(self, handle_scroll));
+        try container.add(sb);
+        self.scrollbar = sb.dynamic_cast(scrollbar_v);
+        self.scrollbar.?.style_factory = scrollbar_style;
+        self.scrollbar.?.hidden = true;
+    }
+    return Panel.to_hosted(self, container.widget());
+}
+
+fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
+    return if (sb.active)
+        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
+    else if (sb.hover)
+        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
+    else
+        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
 }
 
 pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !Widget {
@@ -124,22 +146,70 @@ pub fn unfocus(self: *Self) void {
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const panel_input = if (self.panel_input) |*panel_input| panel_input else return false;
+    var btn: MouseEvent.Button = .none;
+    if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more })) switch (btn) {
+        .wheel_up => {
+            self.mouse_scroll(.up);
+            return true;
+        },
+        .wheel_down => {
+            self.mouse_scroll(.down);
+            return true;
+        },
+        else => {},
+    };
     if (try PanelInput.receive_context_menu(self, m)) return true;
     return panel_input.receive(from, m);
 }
 
+fn max_top(self: *const Self) usize {
+    return self.layout.lines.items.len -| @max(1, self.view_rows);
+}
+
+fn scroll_to(self: *Self, top: usize) void {
+    self.top = @min(self.max_top(), top);
+    tui.need_render(@src());
+}
+
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
     const rows = @max(1, self.view_rows);
-    const max_top = self.layout.lines.items.len -| rows;
-    self.top = @min(max_top, switch (action) {
+    self.scroll_to(switch (action) {
         .line_up => self.top -| 1,
         .line_down => self.top + 1,
         .page_up => self.top -| rows,
         .page_down => self.top + rows,
         .top => 0,
-        .bottom => max_top,
+        .bottom => self.max_top(),
     });
-    tui.need_render(@src());
+}
+
+fn mouse_scroll(self: *Self, direction: enum { up, down }) void {
+    const rows = @max(1, self.view_rows);
+    const step = if (tui.fast_scroll()) rows else @min(rows, tui.config().scroll_step_vertical);
+    self.scroll_to(switch (direction) {
+        .up => self.top -| step,
+        .down => self.top + step,
+    });
+}
+
+fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+    var top: usize = 0;
+    if (try m.match(.{ "scroll_to", tp.extract(&top) }))
+        self.scroll_to(top);
+}
+
+fn update_scrollbar(self: *Self) void {
+    const scrollbar = self.scrollbar orelse return;
+    scrollbar.set(@intCast(self.layout.lines.items.len), @intCast(self.view_rows), @intCast(self.top));
+}
+
+fn scrollbar_cols(self: *const Self) usize {
+    const scrollbar = self.scrollbar orelse return 0;
+    return if (scrollbar.hidden) 0 else 1;
+}
+
+fn overflows(self: *const Self) bool {
+    return self.layout.lines.items.len > self.view_rows;
 }
 
 pub fn panel_copy(self: *Self) void {
@@ -164,7 +234,8 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.view_rows = pos.h;
     self.view_cols = pos.w;
-    if (self.target_width() != self.layout_width) self.relayout() catch {};
+    if (self.target_width() != self.layout_width or self.overflows() == (self.scrollbar_cols() == 0))
+        self.relayout() catch {};
 }
 
 pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
@@ -214,15 +285,28 @@ fn target_width(self: *const Self) usize {
     return if (self.widget_type == .info_box)
         tui.config().info_box_width_limit
     else if (self.view_cols > 0)
-        self.view_cols
+        self.view_cols + self.scrollbar_cols()
     else
         tui.screen().w;
 }
 
 fn relayout(self: *Self) !void {
-    self.layout.reset();
     const width = @max(1, self.target_width());
     self.layout_width = width;
+    try self.layout_at(width);
+    if (self.scrollbar) |scrollbar| {
+        const hidden = !self.overflows();
+        if (!hidden and width > 1) try self.layout_at(width - 1);
+        if (scrollbar.hidden != hidden) {
+            scrollbar.hidden = hidden;
+            tui.need_render(@src());
+        }
+    }
+    self.top = @min(self.top, self.max_top());
+}
+
+fn layout_at(self: *Self, width: usize) !void {
+    self.layout.reset();
     const tab_width = tui.config().tab_width;
     for (self.sections.items) |section| switch (section.kind) {
         .plaintext => try self.layout_plaintext(section.text, width, tab_width),
@@ -254,6 +338,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(if (tui.config().hover_info_mode == .box) theme.editor_widget else theme.panel);
     self.plane.erase();
     self.plane.home();
+    self.update_scrollbar();
     richdoc.render.to_plane(&self.layout, &self.plane, self.top, self.view_rows, self.plane.style);
     return false;
 }
