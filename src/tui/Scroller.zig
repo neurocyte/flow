@@ -1,10 +1,13 @@
-const Allocator = @import("std").mem.Allocator;
+const std = @import("std");
+const Allocator = std.mem.Allocator;
 const Plane = @import("renderer").Plane;
 const tp = @import("thespian");
+const root = @import("soft_root").root;
 const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
+const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
 const WidgetList = @import("WidgetList.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
@@ -17,6 +20,23 @@ content_rows: usize = 0,
 view_rows: usize = 0,
 sticky_end: bool = false,
 scrollbar: ?*scrollbar_v = null,
+overlay: ?Overlay = null,
+synced_top: ?usize = null,
+
+const Overlay = struct {
+    widget: Widget,
+    allocator: Allocator,
+    hide_at_us: i64 = 0,
+    hide_timer: ?tp.Cancellable = null,
+    in_use: bool = false,
+
+    fn cancel_timer(self: *Overlay) void {
+        var timer = self.hide_timer orelse return;
+        timer.cancel() catch {};
+        timer.deinit();
+        self.hide_timer = null;
+    }
+};
 
 /// self must not move after this, the scrollbar keeps a pointer to it
 pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetList, parent: Plane) !void {
@@ -28,6 +48,84 @@ pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetLis
     scrollbar.style_factory = scrollbar_v.panel_style;
     scrollbar.hidden = !self.wants_bar();
     self.scrollbar = scrollbar;
+}
+
+/// a bar drawn over the last column of `content` while scrolling, owned by self
+/// self must not move after this, the scrollbar keeps a pointer to it
+pub fn attach_overlay(self: *Self, allocator: Allocator, content: Plane) !void {
+    if (!tui.config().show_scrollbars) return;
+    const sb = try scrollbar_v.create(allocator, content, null, EventHandler.bind(self, handle_scroll));
+    const scrollbar = sb.dynamic_cast(scrollbar_v).?;
+    scrollbar.style_factory = scrollbar_v.editor_style;
+    self.scrollbar = scrollbar;
+    self.overlay = .{ .widget = sb, .allocator = allocator };
+}
+
+pub fn deinit(self: *Self) void {
+    const overlay = if (self.overlay) |*overlay| overlay else return;
+    overlay.cancel_timer();
+    overlay.widget.deinit(overlay.allocator);
+    self.overlay = null;
+    self.scrollbar = null;
+}
+
+/// `box` is the owner's box, the bar covers its last column
+pub fn resize_overlay(self: *Self, box: Widget.Box) void {
+    const overlay = self.overlay orelse return;
+    overlay.widget.resize(.{ .y = box.y, .x = box.x + box.w -| 1, .h = box.h, .w = 1 });
+}
+
+fn overlay_visible(self: *const Self) bool {
+    const overlay = self.overlay orelse return false;
+    const scrollbar = self.scrollbar orelse return false;
+    if (!self.overflows()) return false;
+    if (scrollbar.hover or scrollbar.active) return true;
+    return root.get_now().toMicroseconds() < overlay.hide_at_us;
+}
+
+/// show the overlay bar and restart its hide delay
+pub fn activity(self: *Self) void {
+    const overlay = if (self.overlay) |*overlay| overlay else return;
+    const delay_us: i64 = @intCast(tui.config().scrollbar_overlay_hide_delay * std.time.us_per_ms);
+    overlay.hide_at_us = root.get_now().toMicroseconds() + delay_us;
+    overlay.cancel_timer();
+    // a little late, so the render that hides the bar comes after hide_at_us
+    const send_after_us: u64 = @intCast(delay_us + std.time.us_per_ms);
+    overlay.hide_timer = tp.self_pid().delay_send_cancellable(overlay.allocator, "scroller.hide", send_after_us, .{"render"}) catch null;
+    tui.need_render(@src());
+}
+
+/// the owner draws its content first
+pub fn render_overlay(self: *Self, theme: *const Widget.Theme) bool {
+    const overlay = if (self.overlay) |*overlay| overlay else return false;
+    const scrollbar = self.scrollbar orelse return false;
+    const in_use = scrollbar.hover or scrollbar.active;
+    if (overlay.in_use and !in_use) self.activity();
+    overlay.in_use = in_use;
+    if (!self.overlay_visible()) return false;
+    return overlay.widget.render(theme);
+}
+
+/// the owner walks this before itself, so the bar wins hit tests over the owner
+pub fn walk_overlay(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
+    const overlay = self.overlay orelse return false;
+    if (!self.overlay_visible()) return false;
+    return overlay.widget.walk(ctx, f);
+}
+
+/// for a position owned elsewhere: follow `top` if the owner moved it
+pub fn sync(self: *Self, owner_top: usize) void {
+    if (self.synced_top) |synced| if (synced == owner_top) return;
+    self.anim.jump_to(@min(owner_top, self.max_top()));
+    self.synced_top = owner_top;
+}
+
+/// for a position owned elsewhere: the top to apply after `update`, null if unchanged
+pub fn take_owner_top(self: *Self) ?usize {
+    const pos = self.anim.pos;
+    if (self.synced_top) |synced| if (synced == pos) return null;
+    self.synced_top = pos;
+    return pos;
 }
 
 pub fn set_size(self: *Self, content_rows: usize, view_rows: usize) void {
@@ -81,13 +179,15 @@ fn set_bar_visible(self: *Self, visible: bool) void {
     tui.need_render(@src());
 }
 
-fn jump_to(self: *Self, pos: usize) void {
+pub fn jump_to(self: *Self, pos: usize) void {
     self.anim.jump_to(@min(self.max_top(), pos));
+    self.activity();
     tui.need_render(@src());
 }
 
-fn glide_to(self: *Self, dest: usize) void {
+pub fn glide_to(self: *Self, dest: usize) void {
     self.anim.glide_to(@min(self.max_top(), dest), tui.scroll_animation_timing());
+    self.activity();
     tui.need_render(@src());
 }
 

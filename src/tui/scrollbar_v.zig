@@ -151,21 +151,25 @@ fn move_to(self: *Self, pos_virt: u32) void {
 }
 
 pub fn panel_style(self: *Self, theme: *const Widget.Theme) Widget.Theme.Style {
-    return if (self.active)
-        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
-    else if (self.hover)
-        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
-    else
-        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
+    return self.style_on(theme, theme.panel);
 }
 
 pub fn editor_widget_style(self: *Self, theme: *const Widget.Theme) Widget.Theme.Style {
-    return if (self.active)
-        .{ .fg = theme.scrollbar_active.fg, .bg = theme.editor_widget.bg }
+    return self.style_on(theme, theme.editor_widget);
+}
+
+pub fn editor_style(self: *Self, theme: *const Widget.Theme) Widget.Theme.Style {
+    return self.style_on(theme, theme.editor);
+}
+
+fn style_on(self: *const Self, theme: *const Widget.Theme, background: Widget.Theme.Style) Widget.Theme.Style {
+    const fg = if (self.active)
+        theme.scrollbar_active.fg
     else if (self.hover)
-        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.editor_widget.bg }
+        theme.scrollbar_hover.fg
     else
-        .{ .fg = theme.scrollbar.fg, .bg = theme.editor_widget.bg };
+        theme.scrollbar.fg;
+    return .{ .fg = fg, .bg = background.bg };
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

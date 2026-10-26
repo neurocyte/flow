@@ -13,6 +13,7 @@ const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
+const Scroller = @import("Scroller.zig");
 const Menu = @import("Menu.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
@@ -30,6 +31,7 @@ const Self = @This();
 allocator: Allocator,
 plane: Plane,
 panel_input: PanelInput,
+scroller: Scroller = .{},
 hover: bool = false,
 vt: *Vt,
 commands: Commands = undefined,
@@ -97,6 +99,8 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
         .vt = vt,
     };
     self.commands.init_unregistered(self);
+    try self.scroller.attach_overlay(allocator, self.plane);
+    errdefer self.scroller.deinit();
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
 
     layer.set(Widget.to(self));
@@ -253,18 +257,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                     .same, .notfound => {},
                 },
                 // Scroll wheel: forward to vt if reporting active, else scroll scrollback
-                .wheel_up => {
-                    if (self.vt.vt.mode.mouse == .none) {
-                        if (self.vt.scroll(3)) tui.need_render(@src());
-                        return true;
-                    }
-                },
-                .wheel_down => {
-                    if (self.vt.vt.mode.mouse == .none) {
-                        if (self.vt.scroll(-3)) tui.need_render(@src());
-                        return true;
-                    }
-                },
+                .wheel_up, .wheel_down => if (self.vt.vt.mode.mouse == .none)
+                    return self.scroller.receive_mouse(m),
                 else => {},
             };
             // Forward to vt if terminal mouse reporting is active
@@ -440,6 +434,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.vt.process_exited or self.close_vt) self.vt.deinit(allocator);
     self.panel_input.deinit(Widget.to(self));
     if (self.current) self.commands.unregister();
+    self.scroller.deinit();
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -499,7 +494,25 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     if (self.hover) self.apply_mouse_cursor();
 
-    return false;
+    const more = self.scroller.render();
+    return self.scroller.render_overlay(theme) or more;
+}
+
+pub fn update(self: *Self) void {
+    const vt = &self.vt.vt;
+    const history = vt.historyRows();
+    const view_rows = self.plane.dim_y();
+    self.scroller.set_size(history + view_rows, view_rows);
+    self.scroller.sync(history -| vt.scrollOffset());
+    self.scroller.update();
+    const top = self.scroller.take_owner_top() orelse return;
+    const current = history -| vt.scrollOffset();
+    _ = self.vt.scroll(@intCast(@as(i64, @intCast(current)) - @as(i64, @intCast(top))));
+}
+
+pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
+    if (self.scroller.walk_overlay(ctx, f)) return true;
+    return f(ctx, Widget.to(self), .visit);
 }
 
 fn apply_mouse_cursor(self: *Self) void {
@@ -967,6 +980,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.clear_selection();
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
+    self.scroller.resize_overlay(pos);
     self.vt.resize(pos);
 }
 
@@ -1007,11 +1021,8 @@ pub fn send_text(self: *Self, text: []const u8) void {
 }
 
 fn scroll_command_to_top(self: *Self, target_row: usize) void {
-    const desired: i64 = @as(i64, @intCast(self.vt.vt.liveHistoryRows())) - @as(i64, @intCast(target_row));
-    const current: i64 = @intCast(self.vt.vt.scrollOffset());
-    const delta: i64 = desired - current;
-    if (self.vt.scroll(@intCast(std.math.clamp(delta, std.math.minInt(i32), std.math.maxInt(i32)))))
-        tui.need_render(@src());
+    const offset = self.vt.vt.liveHistoryRows() -| target_row;
+    self.scroller.glide_to(self.vt.vt.historyRows() -| offset);
 }
 
 const Commands = command.Collection(cmds);
@@ -1041,16 +1052,12 @@ const cmds = struct {
     pub const terminal_copy_selection_meta: Meta = .{ .description = "Terminal: Copy selection" };
 
     pub fn terminal_scroll_up(self: *Self, _: Ctx) Result {
-        const half_page = @max(1, self.vt.vt.frames.front().height / 2);
-        if (self.vt.scroll(@intCast(half_page)))
-            tui.need_render(@src());
+        self.scroller.scroll(.half_page_up);
     }
     pub const terminal_scroll_up_meta: Meta = .{ .description = "Terminal: Scroll up" };
 
     pub fn terminal_scroll_down(self: *Self, _: Ctx) Result {
-        const half_page = @max(1, self.vt.vt.frames.front().height / 2);
-        if (self.vt.scroll(-@as(i32, @intCast(half_page))))
-            tui.need_render(@src());
+        self.scroller.scroll(.half_page_down);
     }
     pub const terminal_scroll_down_meta: Meta = .{ .description = "Terminal: Scroll down" };
 
@@ -1075,8 +1082,7 @@ const cmds = struct {
                 self.scroll_command_to_top(target);
         } else if (self.vt.vt.scrollOffset() != 0) {
             // Past the last command: return to the active terminal position.
-            _ = self.vt.scroll_to_bottom();
-            tui.need_render(@src());
+            self.scroller.glide_to(self.scroller.max_top());
         }
     }
     pub const terminal_scroll_next_command_meta: Meta = .{ .description = "Terminal: Scroll to next command" };
