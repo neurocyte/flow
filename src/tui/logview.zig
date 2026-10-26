@@ -136,14 +136,15 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const buffer = if (persistent_buffer) |*p| p else return more;
     const count = buffer.items.len;
     const begin_at = @min(self.scroller.top(), count -| height);
-    for (buffer.items[begin_at..@min(count, begin_at + height)]) |item| {
-        if (first) first = false else _ = self.plane.putstr("\n") catch return false;
-        self.output_tdiff(item.tdiff) catch return false;
+    const end_at = @min(count, begin_at + height);
+    for (buffer.items[begin_at..end_at]) |item| {
+        if (first) first = false else _ = self.plane.putstr("\n") catch return more;
+        self.output_tdiff(item.tdiff) catch return more;
         self.plane.set_style(if (item.level == .err) style_error else style_info);
         _ = self.plane.print("{f}: {f}", .{ escape(item.src, .lower), escape(item.msg, .lower) }) catch {};
         self.plane.set_style(style_normal);
     }
-    if (last_count > 0)
+    if (last_count > 0 and end_at == count)
         _ = self.plane.print(" ({})", .{last_count}) catch {};
     return more;
 }
@@ -182,7 +183,7 @@ pub fn process_log(m: tp.message) MessageFilter.Error!void {
 fn append(buffer: *Buffer, src: []const u8, msg: []const u8, level: Level) !void {
     const ts = root.get_now().toMicroseconds();
     const tdiff = if (buffer.getLastOrNull()) |last| ret: {
-        if (eql(u8, msg, last.src) and eql(u8, msg, last.msg)) {
+        if (eql(u8, src, last.src) and eql(u8, msg, last.msg)) {
             last_count += 1;
             return;
         }
