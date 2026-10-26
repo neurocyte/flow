@@ -8388,6 +8388,18 @@ pub const Editor = struct {
     }
     pub const hover_meta: Meta = .{ .description = "Language: Show documentation for symbol (hover)" };
 
+    pub fn hover_info_to_panel(self: *Self, _: Context) Result {
+        const layer = self.info_box_layer orelse return;
+        const state = self.info_box_state orelse return;
+        const info = info_view.from_layer(layer) orelse return;
+        const name = try copy_selection(try self.buf_root(), state.range.to_selection(), self.allocator, self.metrics);
+        defer self.allocator.free(name);
+        const mv = tui.mainview() orelse return;
+        try mv.open_info_copy(info, name);
+        self.clear_info_box();
+    }
+    pub const hover_info_to_panel_meta: Meta = .{ .description = "Language: Open the hover info box in a panel" };
+
     pub fn restart_language_server(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         project_manager.restart_language_server(file_path) catch |e| {

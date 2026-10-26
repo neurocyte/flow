@@ -90,13 +90,53 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
 
 /// a non-singleton info panel showing a preview of `source`
 pub fn create_preview(allocator: Allocator, parent: Plane, source: []const u8, name_: []const u8) !Panel {
+    return create_detached(allocator, parent, "Preview", name_, source);
+}
+
+/// a non-singleton info panel for a copy of an info box
+pub fn create_info_copy(allocator: Allocator, parent: Plane, name_: []const u8) !Panel {
+    return create_detached(allocator, parent, "Info", name_, null);
+}
+
+fn create_detached(allocator: Allocator, parent: Plane, prefix: []const u8, name_: []const u8, source: ?[]const u8) !Panel {
     const self, const container = try create_panel_widget(allocator, parent);
     errdefer container.deinit(allocator);
-    self.title = try std.fmt.allocPrint(allocator, "Preview: {s}", .{name_});
-    self.source = try allocator.dupe(u8, source);
+    self.title = try std.fmt.allocPrint(allocator, "{s}: {s}", .{ prefix, name_ });
+    if (source) |s| self.source = try allocator.dupe(u8, s);
     var panel = Panel.to_tagged(self, preview_tag, false);
     panel.widget = container.widget();
     return panel;
+}
+
+/// the info_view inside an info box layer
+pub fn from_layer(layer: *tui.WidgetLayerBox) ?*Self {
+    const w = layer.widget().get(@typeName(Self)) orelse return null;
+    return w.dynamic_cast(Self);
+}
+
+pub const Content = struct { kind: Kind, text: []const u8 };
+
+/// a copy of the content that outlives this info_view
+pub fn dupe_content(self: *const Self, allocator: Allocator) ![]Content {
+    const content = try allocator.alloc(Content, self.sections.items.len);
+    var n: usize = 0;
+    errdefer free_content(allocator, content[0..n]);
+    for (self.sections.items) |section| {
+        content[n] = .{ .kind = section.kind, .text = try allocator.dupe(u8, section.text) };
+        n += 1;
+    }
+    return content;
+}
+
+pub fn free_content(allocator: Allocator, content: []const Content) void {
+    for (content) |c| allocator.free(c.text);
+    allocator.free(content);
+}
+
+pub fn set_contents(self: *Self, content: []const Content) !void {
+    self.clear();
+    self.scroller.scroll(.top);
+    for (content) |c| try self.append_content(c.kind, c.text);
 }
 
 pub fn is_preview_of(self: *Self, source: []const u8) bool {

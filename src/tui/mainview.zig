@@ -3719,6 +3719,16 @@ fn write_buffer_as_markdown(writer: *std.Io.Writer, editor: *ed.Editor) !void {
     try richdoc.markdown.write_code_block(writer, lang, &.{std.mem.trimEnd(u8, text, "\n")});
 }
 
+pub fn open_info_copy(self: *Self, from: *const info_view, name: []const u8) !void {
+    const content = try from.dupe_content(self.allocator);
+    defer info_view.free_content(self.allocator, content);
+    const owned_name = try self.allocator.dupe(u8, name);
+    defer self.allocator.free(owned_name);
+    const info = try self.bottom_area.create_panel_with(info_view, info_view.create_info_copy, .{owned_name}, .{});
+    try info.set_contents(content);
+    tui.need_render(@src());
+}
+
 fn buffer_name(file_path: []const u8) []const u8 {
     if (file_path.len > 0 and file_path[0] == '*') return file_path;
     return std.fs.path.basename(file_path);

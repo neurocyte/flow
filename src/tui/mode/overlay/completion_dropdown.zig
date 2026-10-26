@@ -479,4 +479,13 @@ const cmds = struct {
         try update_query_text(self, self.value.editor.get_primary().cursor);
     }
     pub const update_completion_meta: Meta = .{};
+
+    pub fn completion_info_to_panel(self: *Type, _: Ctx) Result {
+        const layer = self.value.info_box_layer orelse return;
+        const info = info_view.from_layer(layer) orelse return;
+        const button = self.list_box.get_selected() orelse return;
+        const mv = tui.mainview() orelse return;
+        try mv.open_info_copy(info, get_values(button.opts.label).label);
+    }
+    pub const completion_info_to_panel_meta: Meta = .{ .description = "Open the completion info box in a panel" };
 };

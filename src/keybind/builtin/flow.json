@@ -152,6 +152,7 @@
             ["ctrl+k ctrl+d", "move_cursor_next_match"],
             ["ctrl+k i", "highlight_references"],
             ["ctrl+k ctrl+i", "hover"],
+            ["ctrl+k ctrl+o", "hover_info_to_panel"],
             ["ctrl+f", "find"],
             ["ctrl+g", "goto"],
             ["ctrl+d", "add_cursor_next_match"],
@@ -502,6 +503,7 @@
         "inherit": "normal",
         "press": [
             ["ctrl+space", "toggle_completion_info"],
+            ["ctrl+k ctrl+o", "completion_info_to_panel"],
             ["alt+f9", "dropdown_next_widget_style"],
             ["shift+alt+f9", "info_box_next_widget_style"],
             ["ctrl+p", "palette_menu_up"],
@@ -517,6 +519,7 @@
         "inherit": "normal",
         "press": [
             ["ctrl+space", "toggle_completion_info"],
+            ["ctrl+k ctrl+o", "completion_info_to_panel"],
             ["alt+f9", "dropdown_next_widget_style"],
             ["shift+alt+f9", "info_box_next_widget_style"],
             ["ctrl+p", "palette_menu_up"],
