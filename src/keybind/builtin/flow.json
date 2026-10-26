@@ -762,11 +762,6 @@
         "inherit": "panel",
         "press": []
     },
-    "keybindview": {
-        "on_match_failure": "nothing",
-        "inherit": "panel",
-        "press": []
-    },
     "filelist": {
         "on_match_failure": "nothing",
         "inherit": "panel",

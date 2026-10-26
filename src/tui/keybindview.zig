@@ -15,8 +15,10 @@ const command = @import("command");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
+const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
+const Scroller = @import("Scroller.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 pub const name = "keybindview";
@@ -26,6 +28,7 @@ parent: Plane,
 plane: Plane,
 buffer: Buffer,
 panel_input: PanelInput,
+scroller: Scroller = .{ .sticky_end = true },
 
 const Self = @This();
 
@@ -48,7 +51,9 @@ pub fn panel_icon(_: *Self) []const u8 {
 }
 
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
-    var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
+    const container = try WidgetList.createH(allocator, parent, "keybindview.container", .dynamic);
+    errdefer container.deinit(allocator);
+    var n = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), container.plane);
     errdefer n.deinit();
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -57,11 +62,13 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
         .parent = parent,
         .plane = n,
         .buffer = .empty,
-        .panel_input = try PanelInput.init(allocator, "keybindview"),
+        .panel_input = try PanelInput.init(allocator, "log"),
     };
+    try container.add(Widget.to(self));
+    try self.scroller.attach_scrollbar(allocator, container);
     try tui.message_filters().add(MessageFilter.bind(self, keybind_match));
     tui.enable_match_events();
-    return Panel.to(self);
+    return Panel.to_hosted(self, container.widget());
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -75,20 +82,26 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     allocator.destroy(self);
 }
 
+pub fn update(self: *Self) void {
+    self.scroller.set_size(self.buffer.items.len, self.plane.dim_y());
+    self.scroller.update();
+}
+
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    const more = self.scroller.render();
     self.plane.set_base_style(theme.panel);
     self.plane.erase();
     self.plane.home();
     const height = self.plane.dim_y();
     var first = true;
     const count = self.buffer.items.len;
-    const begin_at = if (height > count) 0 else count - height;
-    for (self.buffer.items[begin_at..]) |item| {
-        if (first) first = false else _ = self.plane.putstr("\n") catch return false;
-        self.output_tdiff(item.tdiff) catch return false;
-        _ = self.plane.putstr(item.msg) catch return false;
+    const begin_at = @min(self.scroller.top(), count -| height);
+    for (self.buffer.items[begin_at..@min(count, begin_at + height)]) |item| {
+        if (first) first = false else _ = self.plane.putstr("\n") catch return more;
+        self.output_tdiff(item.tdiff) catch return more;
+        _ = self.plane.putstr(item.msg) catch return more;
     }
-    return false;
+    return more;
 }
 
 fn output_tdiff(self: *Self, tdiff: i64) !void {
@@ -160,8 +173,13 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try self.scroller.receive_mouse(m)) return true;
     if (try PanelInput.receive_context_menu(self, m)) return true;
     return self.panel_input.receive(from, m);
+}
+
+pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
+    self.scroller.scroll(action);
 }
 
 pub fn panel_copy(self: *Self) void {
