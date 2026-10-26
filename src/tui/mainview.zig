@@ -1074,9 +1074,17 @@ const cmds = struct {
     pub fn markdown_debug_preview(self: *Self, _: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
         const buffer = editor.buffer orelse return;
-        try self.set_info_content(.markdown, buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode), .replace);
+        const text = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
+        const ft = editor.file_type;
+        if (ft != null and std.mem.eql(u8, ft.?.name, "markdown"))
+            return self.set_info_content(.markdown, text, .replace);
+        var content: std.Io.Writer.Allocating = .init(self.allocator);
+        defer content.deinit();
+        const lang = if (ft) |ft_| ft_.parser orelse ft_.name else null;
+        try richdoc.markdown.write_code_block(&content.writer, lang, &.{std.mem.trimEnd(u8, text, "\n")});
+        try self.set_info_content(.markdown, content.written(), .replace);
     }
-    pub const markdown_debug_preview_meta: Meta = .{ .description = "Debug: show the current buffer as markdown in the info panel" };
+    pub const markdown_debug_preview_meta: Meta = .{ .description = "Debug: show the current buffer in the info panel, as markdown or as a code block" };
 
     pub fn open_font_test_text(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
