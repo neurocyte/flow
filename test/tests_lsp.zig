@@ -1,6 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const write_workspace_edit = @import("project_manager").test_internal.write_workspace_edit;
+const write_code_fence = @import("project_manager").test_internal.write_code_fence;
 
 const a = std.testing.allocator;
 
@@ -548,4 +549,23 @@ test "code actions: lines from diagnostics before text edits" {
     ,
         \\[["Fix","","normal","",{"title":"Fix","diagnostics":[{"range":{"start":{"line":7,"character":1},"end":{"line":7,"character":5}},"message":"bad"}],"edit":{"changes":{"file:///p/main.zig":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"x"}]}}},[[7,7]]]]
     );
+}
+
+fn code_fence(lang: []const u8, value: []const u8) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(a);
+    errdefer out.deinit();
+    try write_code_fence(&out.writer, lang, value);
+    return out.toOwnedSlice();
+}
+
+test "hover code fence" {
+    const out = try code_fence("zig", "const x = 1;");
+    defer a.free(out);
+    try std.testing.expectEqualStrings("```zig\nconst x = 1;\n```", out);
+}
+
+test "hover code fence is longer than any backtick run in the value" {
+    const out = try code_fence("md", "a ``` b\n````");
+    defer a.free(out);
+    try std.testing.expectEqualStrings("`````md\na ``` b\n````\n`````", out);
 }

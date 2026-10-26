@@ -1112,6 +1112,19 @@ const HoverContentsError = error{
     WriteFailed,
 } || cbor.Error;
 
+/// a fenced code block with a fence no backtick run in `value` can close
+pub fn write_code_fence(writer: *std.Io.Writer, lang: []const u8, value: []const u8) std.Io.Writer.Error!void {
+    var fence_len: usize = 3;
+    var run: usize = 0;
+    for (value) |c| {
+        run = if (c == '`') run + 1 else 0;
+        fence_len = @max(fence_len, run + 1);
+    }
+    try writer.splatByteAll('`', fence_len);
+    try writer.print("{s}\n{s}\n", .{ lang, value });
+    try writer.splatByteAll('`', fence_len);
+}
+
 fn send_contents(
     to: tp.pid_ref,
     tag: []const u8,
@@ -1163,7 +1176,7 @@ fn send_contents(
         if (!first) try joined.writer.writeAll("\n\n");
         first = false;
         if (language) |lang| {
-            try joined.writer.print("```{s}\n{s}\n```", .{ lang, value });
+            try write_code_fence(&joined.writer, lang, value);
             kind = "markdown";
         } else {
             try joined.writer.writeAll(value);
