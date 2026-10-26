@@ -205,7 +205,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             const button = btn.to_vaxis();
             const is_press = try m.match(.{ MouseEvent.Type.press, tp.more });
 
-            if (tui.jump_mode()) if (self.file_link_) |*link| switch (link.*) {
+            if (tui.mouse_actions(mods).jump) if (self.file_link_) |*link| switch (link.*) {
                 .file => |*fl| {
                     if (is_press) navigate_to_file_link(fl);
                     return true;

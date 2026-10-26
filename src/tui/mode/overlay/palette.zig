@@ -8,6 +8,7 @@ const Plane = @import("renderer").Plane;
 const input = @import("input");
 const keybind = @import("keybind");
 const command = @import("command");
+const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
@@ -478,15 +479,15 @@ pub fn Create(options: type) type {
             self.start_query(0) catch {};
         }
 
-        fn mouse_modal_scroll_up(self: *Self, _: *ModalBackground.State(*Self)) void {
-            if (@hasDecl(options, "scroll_background")) options.scroll_background(self, .up);
+        fn mouse_modal_scroll_up(self: *Self, _: *ModalBackground.State(*Self), mods: MouseEvent.Modifiers) void {
+            if (@hasDecl(options, "scroll_background")) options.scroll_background(self, .up, mods);
         }
 
-        fn mouse_modal_scroll_down(self: *Self, _: *ModalBackground.State(*Self)) void {
-            if (@hasDecl(options, "scroll_background")) options.scroll_background(self, .down);
+        fn mouse_modal_scroll_down(self: *Self, _: *ModalBackground.State(*Self), mods: MouseEvent.Modifiers) void {
+            if (@hasDecl(options, "scroll_background")) options.scroll_background(self, .down, mods);
         }
 
-        fn mouse_palette_menu_cancel(self: *Self, _: *ModalBackground.State(*Self)) void {
+        fn mouse_palette_menu_cancel(self: *Self, _: *ModalBackground.State(*Self), _: MouseEvent.Modifiers) void {
             self.cmd("palette_menu_cancel", .empty()) catch {};
         }
 

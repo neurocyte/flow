@@ -19,16 +19,16 @@ pub fn Options(context: type) type {
         effect: Effect = .dim,
         dim_target: u8 = 192,
 
-        on_click: *const fn (ctx: context, self: *State(Context)) void = on_click_exit_overlay_mode,
-        on_click2: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
-        on_click3: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
-        on_click4: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
-        on_click5: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
+        on_click: *const fn (ctx: context, self: *State(Context), mods: MouseEvent.Modifiers) void = on_click_exit_overlay_mode,
+        on_click2: *const fn (ctx: context, self: *State(Context), mods: MouseEvent.Modifiers) void = do_nothing,
+        on_click3: *const fn (ctx: context, self: *State(Context), mods: MouseEvent.Modifiers) void = do_nothing,
+        on_click4: *const fn (ctx: context, self: *State(Context), mods: MouseEvent.Modifiers) void = do_nothing,
+        on_click5: *const fn (ctx: context, self: *State(Context), mods: MouseEvent.Modifiers) void = do_nothing,
 
         pub const Context = context;
-        pub fn do_nothing(_: context, _: *State(Context)) void {}
+        pub fn do_nothing(_: context, _: *State(Context), _: MouseEvent.Modifiers) void {}
 
-        fn on_click_exit_overlay_mode(_: context, _: *State(Context)) void {
+        fn on_click_exit_overlay_mode(_: context, _: *State(Context), _: MouseEvent.Modifiers) void {
             tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch {};
         }
     };
@@ -123,14 +123,15 @@ pub fn State(ctx_type: type) type {
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
             var btn: MouseEvent.Button = .none;
-            if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more })) {
+            var mods: MouseEvent.Modifiers = .{};
+            if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.any, tp.extract(&mods) })) {
                 switch (btn) {
-                    .wheel_up, .wheel_down => self.call_click_handler(btn),
+                    .wheel_up, .wheel_down => self.call_click_handler(btn, mods),
                     else => {},
                 }
                 return true;
-            } else if (try m.match(.{ MouseEvent.Type.release, tp.extract(&btn), tp.more })) {
-                self.call_click_handler(btn);
+            } else if (try m.match(.{ MouseEvent.Type.release, tp.extract(&btn), tp.any, tp.extract(&mods) })) {
+                self.call_click_handler(btn, mods);
                 return true;
             } else if (try m.match(.{ MouseEvent.Type.drag, tp.more })) {
                 return true;
@@ -141,14 +142,14 @@ pub fn State(ctx_type: type) type {
             return false;
         }
 
-        fn call_click_handler(self: *Self, btn: MouseEvent.Button) void {
+        fn call_click_handler(self: *Self, btn: MouseEvent.Button, mods: MouseEvent.Modifiers) void {
             if (!self.hover) return;
             switch (btn) {
-                .left => self.opts.on_click(self.opts.ctx, self),
-                .middle => self.opts.on_click2(self.opts.ctx, self),
-                .right => self.opts.on_click3(self.opts.ctx, self),
-                .wheel_up => self.opts.on_click4(self.opts.ctx, self),
-                .wheel_down => self.opts.on_click5(self.opts.ctx, self),
+                .left => self.opts.on_click(self.opts.ctx, self, mods),
+                .middle => self.opts.on_click2(self.opts.ctx, self, mods),
+                .right => self.opts.on_click3(self.opts.ctx, self, mods),
+                .wheel_up => self.opts.on_click4(self.opts.ctx, self, mods),
+                .wheel_down => self.opts.on_click5(self.opts.ctx, self, mods),
                 else => {},
             }
         }

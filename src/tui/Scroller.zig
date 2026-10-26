@@ -220,9 +220,10 @@ pub fn scroll(self: *Self, action: Panel.ScrollAction) void {
 
 pub fn receive_mouse(self: *Self, m: tp.message) error{Exit}!bool {
     var btn: MouseEvent.Button = .none;
-    if (!try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more })) return false;
+    var mods: MouseEvent.Modifiers = .{};
+    if (!try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.any, tp.extract(&mods) })) return false;
     const rows = self.page_rows();
-    const step = if (tui.fast_scroll()) rows else @min(rows, tui.config().scroll_step_vertical);
+    const step = if (tui.mouse_actions(mods).fast_scroll) rows else @min(rows, tui.config().scroll_step_vertical);
     switch (btn) {
         .wheel_up => self.glide_to(self.anim.dest -| step),
         .wheel_down => self.glide_to(self.anim.dest + step),

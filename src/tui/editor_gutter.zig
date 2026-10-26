@@ -99,6 +99,7 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var coord: MouseEvent.Coord = undefined;
+    var mods: MouseEvent.Modifiers = .{};
     var line_number_mode: ?LineNumberMode = null;
     var line_number_style: DigitStyle = undefined;
 
@@ -122,10 +123,10 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return self.secondary_click(coord);
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
         return self.primary_drag(coord);
-    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_up, tp.more }))
-        return self.mouse_click_button4();
-    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_down, tp.more }))
-        return self.mouse_click_button5();
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_up, tp.any, tp.extract(&mods) }))
+        return self.mouse_click_button4(mods);
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_down, tp.any, tp.extract(&mods) }))
+        return self.mouse_click_button5(mods);
     if (try m.match(.{ "line_number_mode", tp.extract(&line_number_mode) })) {
         self.line_number_mode = line_number_mode;
         return false;
@@ -541,13 +542,13 @@ fn middle_click(_: *Self) error{Exit}!bool {
     return true;
 }
 
-fn mouse_click_button4(self: *Self) error{Exit}!bool {
-    self.editor.mouse_scroll_up(root.get_now());
+fn mouse_click_button4(self: *Self, mods: MouseEvent.Modifiers) error{Exit}!bool {
+    self.editor.mouse_scroll_up(root.get_now(), tui.mouse_actions(mods));
     return true;
 }
 
-fn mouse_click_button5(self: *Self) error{Exit}!bool {
-    self.editor.mouse_scroll_down(root.get_now());
+fn mouse_click_button5(self: *Self, mods: MouseEvent.Modifiers) error{Exit}!bool {
+    self.editor.mouse_scroll_down(root.get_now(), tui.mouse_actions(mods));
     return true;
 }
 

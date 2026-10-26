@@ -3447,10 +3447,10 @@ pub const Editor = struct {
         if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
-    pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
+    pub fn primary_click(self: *Self, y: c_int, x: c_int, actions: tui.MouseActions) !void {
         if (y < 0 or x < 0) return;
         const root = self.buf_root() catch return;
-        if (tui.fast_scroll()) {
+        if (actions.alt_click) {
             var at: Cursor = .{};
             at.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
             if (self.remove_cursor_at(at))
@@ -3467,7 +3467,7 @@ pub const Editor = struct {
         self.collapse_cursors();
         self.clamp_mouse(root_mod.get_now());
         try self.send_editor_jump_destination();
-        if (tui.jump_mode()) try self.open_link_or_goto_definition();
+        if (actions.jump) try self.open_link_or_goto_definition();
         tui.reset_input_idle_timer();
     }
 
@@ -3577,7 +3577,7 @@ pub const Editor = struct {
         return self.primary_drag(y, x, root_mod.get_now());
     }
 
-    pub fn tertiary_click(self: *Self, y: c_int, x: c_int) !void {
+    pub fn tertiary_click(self: *Self, y: c_int, x: c_int, actions: tui.MouseActions) !void {
         if (y < 0 or x < 0) return;
         const root = self.buf_root() catch return;
         self.cancel_all_selections();
@@ -3588,7 +3588,7 @@ pub const Editor = struct {
         self.collapse_cursors();
         self.clamp_mouse(root_mod.get_now());
         try self.send_editor_jump_destination();
-        if (tui.jump_mode()) try self.goto_definition(.empty());
+        if (actions.jump) try self.goto_definition(.empty());
         tui.reset_input_idle_timer();
         switch (builtin.os.tag) {
             .windows, .macos => tui.rdr().request_system_clipboard(),
@@ -3653,19 +3653,19 @@ pub const Editor = struct {
         self.update_scroll_dest_abs(dest_row, now);
     }
 
-    pub fn mouse_scroll_up(self: *Self, now: std.Io.Timestamp) void {
-        if (tui.alt_scroll())
-            self.mouse_scroll_left()
-        else if (tui.fast_scroll())
+    pub fn mouse_scroll_up(self: *Self, now: std.Io.Timestamp, actions: tui.MouseActions) void {
+        if (actions.alt_scroll)
+            self.mouse_scroll_left(actions)
+        else if (actions.fast_scroll)
             self.scroll_pageup(now)
         else
             self.scroll_up_internal(tui.config().scroll_step_vertical, now);
     }
 
-    pub fn mouse_scroll_down(self: *Self, now: std.Io.Timestamp) void {
-        if (tui.alt_scroll())
-            self.mouse_scroll_right()
-        else if (tui.fast_scroll())
+    pub fn mouse_scroll_down(self: *Self, now: std.Io.Timestamp, actions: tui.MouseActions) void {
+        if (actions.alt_scroll)
+            self.mouse_scroll_right(actions)
+        else if (actions.fast_scroll)
             self.scroll_pagedown(now)
         else
             self.scroll_down_internal(tui.config().scroll_step_vertical, now);
@@ -5533,20 +5533,20 @@ pub const Editor = struct {
     }
     pub const scroll_right_meta: Meta = .{ .description = "Scroll right", .arguments = &.{.integer} };
 
-    pub fn mouse_scroll_left(self: *Self) void {
+    pub fn mouse_scroll_left(self: *Self, actions: tui.MouseActions) void {
         const scroll_step_horizontal = tui.config().scroll_step_horizontal;
         const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
-        self.view.move_left(if (tui.fast_scroll())
+        self.view.move_left(if (actions.fast_scroll)
             scroll_step_horizontal_fast
         else
             scroll_step_horizontal) catch {};
     }
 
-    pub fn mouse_scroll_right(self: *Self) void {
+    pub fn mouse_scroll_right(self: *Self, actions: tui.MouseActions) void {
         const scroll_step_horizontal = tui.config().scroll_step_horizontal;
         const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
         if (self.buffer) |buffer| {
-            self.view.move_right(buffer, if (tui.fast_scroll())
+            self.view.move_right(buffer, if (actions.fast_scroll)
                 scroll_step_horizontal_fast
             else
                 scroll_step_horizontal) catch {};
@@ -9208,6 +9208,7 @@ pub const EditorWidget = struct {
         var mouse_type: MouseEvent.Type = undefined;
         var btn: MouseEvent.Button = undefined;
         var coord: MouseEvent.Coord = undefined;
+        var mods: MouseEvent.Modifiers = .{};
         var pos: u32 = 0;
         var bytes: []const u8 = "";
         var whitespace_mode: WhitespaceMode = .none;
@@ -9230,9 +9231,9 @@ pub const EditorWidget = struct {
                     self.editor.reset_hover_pos();
                 }
             }
-        } else if (try m.match(.{ tp.extract(&mouse_type), tp.extract(&btn), tp.extract(&coord), tp.any })) {
+        } else if (try m.match(.{ tp.extract(&mouse_type), tp.extract(&btn), tp.extract(&coord), tp.extract(&mods) })) {
             switch (mouse_type) {
-                .press, .release => try self.mouse_click_event(mouse_type, btn, coord),
+                .press, .release => try self.mouse_click_event(mouse_type, btn, coord, mods),
                 .drag => try self.mouse_drag_event(mouse_type, btn, coord),
                 .motion => {},
             }
@@ -9304,7 +9305,7 @@ pub const EditorWidget = struct {
 
     const Result = command.Result;
 
-    fn mouse_click_event(self: *Self, mouse_type: MouseEvent.Type, btn: MouseEvent.Button, coord: MouseEvent.Coord) Result {
+    fn mouse_click_event(self: *Self, mouse_type: MouseEvent.Type, btn: MouseEvent.Button, coord: MouseEvent.Coord, mods: MouseEvent.Modifiers) Result {
         if (mouse_type == .release and btn == .right) {
             defer self.right_click = .none;
             if (self.right_click == .pressed) try self.open_context_menu(coord);
@@ -9326,7 +9327,7 @@ pub const EditorWidget = struct {
             .button_8 => &mouse_click_button8, //back
             .button_9 => &mouse_click_button9, //forward
             else => return,
-        })(self, coord);
+        })(self, coord, tui.mouse_actions(mods));
         self.last_btn = btn;
         self.last_btn_time_ms = root_mod.get_now().toMilliseconds();
         return ret;
@@ -9351,7 +9352,7 @@ pub const EditorWidget = struct {
         return .{ cell.row, cell.col };
     }
 
-    fn mouse_click_button1(self: *Self, coord: MouseEvent.Coord) Result {
+    fn mouse_click_button1(self: *Self, coord: MouseEvent.Coord, actions: tui.MouseActions) Result {
         const y_, const x_ = self.mouse_pos_abs(coord);
         defer {
             self.last_btn_y = y_;
@@ -9374,7 +9375,7 @@ pub const EditorWidget = struct {
             }
         }
         self.last_btn_count = 1;
-        try self.editor.primary_click(y_, x_);
+        try self.editor.primary_click(y_, x_, actions);
         return;
     }
 
@@ -9383,14 +9384,14 @@ pub const EditorWidget = struct {
         self.editor.primary_drag(y_, x_, root_mod.get_now());
     }
 
-    fn mouse_click_button2(self: *Self, coord: MouseEvent.Coord) Result {
+    fn mouse_click_button2(self: *Self, coord: MouseEvent.Coord, actions: tui.MouseActions) Result {
         const y_, const x_ = self.mouse_pos_abs(coord);
-        try self.editor.tertiary_click(y_, x_);
+        try self.editor.tertiary_click(y_, x_, actions);
     }
 
     fn mouse_drag_button2(_: *Self, _: MouseEvent.Coord) Result {}
 
-    fn mouse_click_button3(self: *Self, _: MouseEvent.Coord) Result {
+    fn mouse_click_button3(self: *Self, _: MouseEvent.Coord, _: tui.MouseActions) Result {
         self.right_click = .pressed;
     }
 
@@ -9403,34 +9404,34 @@ pub const EditorWidget = struct {
     fn open_context_menu(self: *Self, coord: MouseEvent.Coord) Result {
         const y_, const x_ = self.mouse_pos_abs(coord);
         if (!self.editor.is_point_in_any_selection(y_, x_))
-            try self.editor.primary_click(y_, x_);
+            try self.editor.primary_click(y_, x_, .{});
         const menus = @import("menu/Editor.zig");
         const menu = if (self.editor.has_selection()) &menus.selection else &menus.cursor;
         const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
         try tui.open_menu(menu, .below(.{ .y = cell.row, .x = cell.col }), null);
     }
 
-    fn mouse_click_button4(self: *Self, _: MouseEvent.Coord) Result {
-        self.editor.mouse_scroll_up(root_mod.get_now());
+    fn mouse_click_button4(self: *Self, _: MouseEvent.Coord, actions: tui.MouseActions) Result {
+        self.editor.mouse_scroll_up(root_mod.get_now(), actions);
     }
 
-    fn mouse_click_button5(self: *Self, _: MouseEvent.Coord) Result {
-        self.editor.mouse_scroll_down(root_mod.get_now());
+    fn mouse_click_button5(self: *Self, _: MouseEvent.Coord, actions: tui.MouseActions) Result {
+        self.editor.mouse_scroll_down(root_mod.get_now(), actions);
     }
 
-    fn mouse_click_button6(self: *Self, _: MouseEvent.Coord) Result {
-        self.editor.mouse_scroll_left();
+    fn mouse_click_button6(self: *Self, _: MouseEvent.Coord, actions: tui.MouseActions) Result {
+        self.editor.mouse_scroll_left(actions);
     }
 
-    fn mouse_click_button7(self: *Self, _: MouseEvent.Coord) Result {
-        self.editor.mouse_scroll_right();
+    fn mouse_click_button7(self: *Self, _: MouseEvent.Coord, actions: tui.MouseActions) Result {
+        self.editor.mouse_scroll_right(actions);
     }
 
-    fn mouse_click_button8(_: *Self, _: MouseEvent.Coord) Result {
+    fn mouse_click_button8(_: *Self, _: MouseEvent.Coord, _: tui.MouseActions) Result {
         try command.executeName("jump_back", .empty());
     }
 
-    fn mouse_click_button9(_: *Self, _: MouseEvent.Coord) Result {
+    fn mouse_click_button9(_: *Self, _: MouseEvent.Coord, _: tui.MouseActions) Result {
         try command.executeName("jump_forward", .empty());
     }
 
