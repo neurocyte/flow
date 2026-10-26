@@ -1505,6 +1505,11 @@ fn config_file_changed(self: *Self, path: []const u8) void {
     const config_file = root.get_config_file_name(@import("config"), &file_name_buffer) catch return;
     if (std.mem.eql(u8, config_file, path))
         self.reload_config();
+    if (comptime @hasDecl(renderer, "reload_config"))
+        if (root.get_config_file_name(@import("gui_config"), &file_name_buffer)) |gui_config_file| {
+            if (std.mem.eql(u8, gui_config_file, path))
+                self.rdr_.reload_config();
+        } else |_| {};
     if (self.config_.desktop_theme_file.len > 0 and std.mem.eql(u8, self.config_.desktop_theme_file, path))
         self.read_desktop_theme_file() catch {};
     if (@import("lsp_config").settings_server_name(path, tp.env.get().str("project"))) |lsp_name|

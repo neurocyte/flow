@@ -666,6 +666,11 @@ pub fn reset_fontsize(self: *Self) void {
     app.resetFontSize();
 }
 
+pub fn reload_config(self: *Self) void {
+    _ = self;
+    app.reloadConfig();
+}
+
 pub fn set_background_opacity(self: *Self, value: f32) void {
     _ = self;
     app.setBackgroundOpacity(value);

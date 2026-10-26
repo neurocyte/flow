@@ -874,7 +874,34 @@ pub fn loadConfig() void {
     font_name_len = copy_len;
 }
 
+pub fn reloadConfig() void {
+    const conf, const conf_bufs = root.read_config(gui_config, config_arena);
+    defer root.free_config(config_arena, conf_bufs);
+
+    save_suppressed = true;
+    defer save_suppressed = false;
+
+    if (conf.fontsize != font_size_pt) setFontSize(@floatFromInt(conf.fontsize));
+    const weight: u16 = if (conf.fontweight < 100) 400 else conf.fontweight;
+    if (weight != font_weight) setFontWeight(weight);
+    if (conf.fontweight_bold_offset != font_weight_bold_offset) setFontWeightBoldOffset(conf.fontweight_bold_offset);
+    if (conf.fontbackend != font_backend) setRasterizerBackend(conf.fontbackend);
+    if (conf.fonthinting != font_hinting) setHinting(conf.fonthinting);
+    const line_height: u8 = if (conf.lineheight == 0) 100 else conf.lineheight;
+    if (line_height != font_line_height) setLineHeight(line_height);
+    if (conf.block_and_line_symbols != block_and_line_symbols) setSymbolRasterizer(conf.block_and_line_symbols);
+    if (conf.allow_color_glyphs != allow_color_glyphs) setAllowColorGlyphs(conf.allow_color_glyphs);
+    if (!std.mem.eql(u8, conf.fontface, font_name_buf[0..font_name_len])) setFontFace(conf.fontface);
+    if (conf.gui_ignore_theme_alpha != ignore_theme_alpha.load(.acquire)) toggleIgnoreThemeAlpha();
+    if (conf.gui_background_opacity != getBackgroundOpacity()) setBackgroundOpacity(conf.gui_background_opacity);
+    glyph_atlas_budget_bytes = @as(usize, conf.gui_glyph_atlas_budget_mb) << 20;
+    gpu.setGlyphAtlasPageBytes(@as(usize, conf.gui_glyph_atlas_page_mb) << 20);
+}
+
+var save_suppressed: bool = false;
+
 fn saveConfig() void {
+    if (save_suppressed) return;
     var conf, _ = root.read_config(gui_config, config_arena);
     conf.fontsize = @truncate(font_size_pt);
     conf.fontweight = font_weight;
@@ -884,7 +911,6 @@ fn saveConfig() void {
     conf.lineheight = font_line_height;
     conf.block_and_line_symbols = block_and_line_symbols;
     conf.allow_color_glyphs = allow_color_glyphs;
-    conf.gui_window_transparency = window_transparency;
     conf.gui_background_opacity = @bitCast(background_opacity.load(.acquire));
     conf.gui_ignore_theme_alpha = ignore_theme_alpha.load(.acquire);
     conf.gui_glyph_atlas_budget_mb = @intCast(glyph_atlas_budget_bytes >> 20);
