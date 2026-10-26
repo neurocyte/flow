@@ -1363,5 +1363,6 @@ pub const test_internal = struct {
     pub const insert_replace_selection = private.insert_replace_selection;
     pub const insert_after = private.insert_after;
     pub const surround_add = private.surround_add;
+    pub const TextobjectScope = private.TextobjectScope;
     pub const textobject_for = private.textobject_for;
 };
