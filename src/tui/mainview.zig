@@ -1073,18 +1073,30 @@ const cmds = struct {
 
     pub fn markdown_debug_preview(self: *Self, _: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
-        const buffer = editor.buffer orelse return;
-        const text = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
-        const ft = editor.file_type;
-        if (ft != null and std.mem.eql(u8, ft.?.name, "markdown"))
-            return self.set_info_content(.markdown, text, .replace);
         var content: std.Io.Writer.Allocating = .init(self.allocator);
         defer content.deinit();
-        const lang = if (ft) |ft_| ft_.parser orelse ft_.name else null;
-        try richdoc.markdown.write_code_block(&content.writer, lang, &.{std.mem.trimEnd(u8, text, "\n")});
+        try write_buffer_as_markdown(&content.writer, editor);
         try self.set_info_content(.markdown, content.written(), .replace);
     }
     pub const markdown_debug_preview_meta: Meta = .{ .description = "Debug: show the current buffer in the info panel, as markdown or as a code block" };
+
+    pub fn markdown_preview(self: *Self, _: Ctx) Result {
+        const editor = self.get_active_editor() orelse return;
+        const buffer = editor.buffer orelse return;
+        const source = buffer.get_file_path();
+        const was_hidden = !self.bottom_area.visible();
+        const preview = if (self.bottom_area.find_tagged_where(info_view, info_view.preview_tag, source, info_view.is_preview_of)) |f| blk: {
+            self.bottom_area.activate(f.panel.id);
+            break :blk f.panel.cast(info_view) orelse return error.PanelNotFound;
+        } else try self.bottom_area.create_panel_with(info_view, info_view.create_preview, .{ source, buffer_name(source) }, .{});
+        var content: std.Io.Writer.Allocating = .init(self.allocator);
+        defer content.deinit();
+        try write_buffer_as_markdown(&content.writer, editor);
+        try preview.set_content(.markdown, content.written());
+        if (was_hidden) self.bottom_area.set_maximized(true);
+        tui.need_render(@src());
+    }
+    pub const markdown_preview_meta: Meta = .{ .description = "Preview the current buffer as markdown" };
 
     pub fn open_font_test_text(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
@@ -3695,6 +3707,21 @@ fn add_filelist_entry(
 fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
     self.filelists.clear(list_id);
     if (self.filelist_view_for(list_id)) |flv| flv.refresh();
+}
+
+fn write_buffer_as_markdown(writer: *std.Io.Writer, editor: *ed.Editor) !void {
+    const buffer = editor.buffer orelse return;
+    const text = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
+    const ft = editor.file_type;
+    if (ft != null and std.mem.eql(u8, ft.?.name, "markdown"))
+        return writer.writeAll(text);
+    const lang = if (ft) |ft_| ft_.parser orelse ft_.name else null;
+    try richdoc.markdown.write_code_block(writer, lang, &.{std.mem.trimEnd(u8, text, "\n")});
+}
+
+fn buffer_name(file_path: []const u8) []const u8 {
+    if (file_path.len > 0 and file_path[0] == '*') return file_path;
+    return std.fs.path.basename(file_path);
 }
 
 pub fn set_info_content(self: *Self, kind: info_view.Kind, content: []const u8, mode: enum { replace, append }) tp.result {

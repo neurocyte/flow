@@ -34,6 +34,11 @@ pub const VTable = struct {
 
 pub fn to(pimpl: anytype) Self {
     const child: type = @typeInfo(@TypeOf(pimpl)).pointer.child;
+    return to_tagged(pimpl, child.panel_tag, if (@hasDecl(child, "panel_singleton")) child.panel_singleton else false);
+}
+
+pub fn to_tagged(pimpl: anytype, comptime tag_: []const u8, comptime singleton_: bool) Self {
+    const child: type = @typeInfo(@TypeOf(pimpl)).pointer.child;
     const self_of = struct {
         inline fn f(ctx: *anyopaque) *child {
             return @ptrCast(@alignCast(ctx));
@@ -43,8 +48,8 @@ pub fn to(pimpl: anytype) Self {
         .widget = Widget.to(pimpl),
         .impl = Widget.to(pimpl),
         .vtable = comptime &.{
-            .tag = child.panel_tag,
-            .singleton = if (@hasDecl(child, "panel_singleton")) child.panel_singleton else false,
+            .tag = tag_,
+            .singleton = singleton_,
             .title = struct {
                 fn f(ctx: *anyopaque) []const u8 {
                     return self_of(ctx).panel_title();

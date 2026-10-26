@@ -276,6 +276,7 @@
             ["tab", "indent"],
             [["ctrl+shift+a", "Enter select mode"], "enter_mode", "select"],
             ["ctrl+alt+o", "open_file_links"],
+            ["ctrl+shift+v", "markdown_preview"],
 
             [["\"", "Smart insert pair \"\""], "smart_insert_pair", "\"", "\""],
             [["'", "Smart insert pair ''"], "smart_insert_pair", "'", "'"],

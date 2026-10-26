@@ -64,15 +64,18 @@ theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
 scroller: Scroller = .{},
+title: ?[]const u8 = null,
+source: ?[]const u8 = null,
 
 const default_widget_type: Widget.Type = .panel;
 const panel_margin = 2;
 
 pub const panel_tag = "info";
 pub const panel_singleton = true;
+pub const preview_tag = "preview";
 
-pub fn panel_title(_: *Self) []const u8 {
-    return "Info";
+pub fn panel_title(self: *Self) []const u8 {
+    return self.title orelse "Info";
 }
 
 pub fn panel_icon(_: *Self) []const u8 {
@@ -80,13 +83,33 @@ pub fn panel_icon(_: *Self) []const u8 {
 }
 
 pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
+    const self, const container = try create_panel_widget(allocator, parent);
+    return Panel.to_hosted(self, container.widget());
+}
+
+/// a non-singleton info panel showing a preview of `source`
+pub fn create_preview(allocator: Allocator, parent: Plane, source: []const u8, name_: []const u8) !Panel {
+    const self, const container = try create_panel_widget(allocator, parent);
+    errdefer container.deinit(allocator);
+    self.title = try std.fmt.allocPrint(allocator, "Preview: {s}", .{name_});
+    self.source = try allocator.dupe(u8, source);
+    var panel = Panel.to_tagged(self, preview_tag, false);
+    panel.widget = container.widget();
+    return panel;
+}
+
+pub fn is_preview_of(self: *Self, source: []const u8) bool {
+    return if (self.source) |s| std.mem.eql(u8, s, source) else false;
+}
+
+fn create_panel_widget(allocator: Allocator, parent: Plane) !struct { *Self, *WidgetList } {
     const container = try WidgetList.createH(allocator, parent, "info.container", .dynamic);
     errdefer container.deinit(allocator);
     const self = try init(allocator, container.plane, default_widget_type);
     try container.add(Widget.to(self));
     self.panel_input = try PanelInput.init(allocator, "info");
     try self.scroller.attach_scrollbar(allocator, container);
-    return Panel.to_hosted(self, container.widget());
+    return .{ self, container };
 }
 
 pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !Widget {
@@ -114,6 +137,8 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.panel_input) |*panel_input| panel_input.deinit(Widget.to(self));
     self.clear();
     self.sections.deinit(self.allocator);
+    if (self.title) |title| self.allocator.free(title);
+    if (self.source) |source| self.allocator.free(source);
     self.layout.deinit();
     self.plane.deinit();
     allocator.destroy(self);

@@ -246,9 +246,13 @@ fn group_for(self: *Self, target: Target) error{OutOfMemory}!*PanelGroup {
 }
 
 pub fn create_panel(self: *Self, comptime V: type, args: anytype, opts: OpenOptions) !*V {
+    return self.create_panel_with(V, V.create, args, opts);
+}
+
+pub fn create_panel_with(self: *Self, comptime V: type, comptime create_fn: anytype, args: anytype, opts: OpenOptions) !*V {
     const group = try self.group_for(opts.target);
     errdefer if (group.empty()) self.remove_group(group);
-    const panel = try @call(.auto, V.create, .{ self.allocator, group.panel_parent() } ++ args);
+    const panel = try @call(.auto, create_fn, .{ self.allocator, group.panel_parent() } ++ args);
     errdefer panel.widget.deinit(self.allocator);
     try self.add(group, panel, opts);
     return panel.cast(V) orelse unreachable;
@@ -285,7 +289,11 @@ pub fn find_first(self: *const Self, comptime V: type) ?*V {
 }
 
 pub fn find_panel_where(self: *const Self, comptime V: type, key: anytype, comptime pred: fn (*V, @TypeOf(key)) bool) ?Found {
-    for (self.groups.items) |g| for (g.panels.items) |p| if (p.is(V)) if (p.cast(V)) |v|
+    return self.find_tagged_where(V, V.panel_tag, key, pred);
+}
+
+pub fn find_tagged_where(self: *const Self, comptime V: type, tag: []const u8, key: anytype, comptime pred: fn (*V, @TypeOf(key)) bool) ?Found {
+    for (self.groups.items) |g| for (g.panels.items) |p| if (std.mem.eql(u8, p.tag(), tag)) if (p.cast(V)) |v|
         if (pred(v, key)) return .{ .group = g, .panel = p };
     return null;
 }
