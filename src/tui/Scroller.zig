@@ -95,6 +95,18 @@ pub fn activity(self: *Self) void {
     tui.need_render(@src());
 }
 
+/// show the overlay bar on edge hover
+pub fn overlay_edge_hover(self: *Self, coord: MouseEvent.Coord, owner: Plane) void {
+    if (self.overlay == null or !self.overflows()) return;
+    const geometry = owner.mouse_geometry();
+    const cell = coord.to_cell(geometry);
+    if (cell.col != @as(i32, @intCast(owner.dim_x())) - 1) return;
+    const cell_width: u16 = @intCast(@max(1, geometry.cell_width));
+    if (tui.rdr().pixel_mouse() and cell.xoffset < cell_width - cell_width / 4) return;
+    self.activity();
+    tui.refresh_hover(@src());
+}
+
 /// the owner draws its content first
 pub fn render_overlay(self: *Self, theme: *const Widget.Theme) bool {
     const overlay = if (self.overlay) |*overlay| overlay else return false;

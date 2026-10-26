@@ -308,6 +308,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         }
         // Mouse motion (no button held)
         if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
+            self.scroller.overlay_edge_hover(coord, self.plane);
             const cell = coord.to_cell(self.plane.mouse_geometry());
             if (self.panel_input.focused and self.vt.vt.mode.mouse == .any_event) {
                 const mouse_event: vaxis.Mouse = .{

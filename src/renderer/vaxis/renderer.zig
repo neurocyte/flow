@@ -763,6 +763,10 @@ pub fn cell_size(self: *const Self) ?Layer.CellSize {
     return Layer.cell_size_px(&self.vx.screen);
 }
 
+pub fn pixel_mouse(self: *const Self) bool {
+    return self.vx.state.pixel_mouse;
+}
+
 var xtversion_buffer: [128]u8 = undefined;
 var xtversion_len: std.atomic.Value(usize) = .init(0);
 
