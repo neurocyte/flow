@@ -5,7 +5,6 @@ const root = @import("soft_root").root;
 const command = @import("command");
 const Buffer = @import("Buffer");
 const Selection = Buffer.Selection;
-const builtin = @import("builtin");
 const CompletionItemKind = @import("lsp_types").CompletionItemKind;
 
 const tui = @import("../../tui.zig");
@@ -381,24 +380,56 @@ pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
     switch (tui.config().completion_info_mode) {
         .none => {},
         .box => try show_info_box(self, button, values),
-        .panel => try show_info_panel(mv, values),
+        .panel => try show_info_panel(self.allocator, mv, values),
     }
     if (mv.get_active_editor()) |editor|
         self.value.view = editor.view;
 }
 
-fn show_info_panel(mv: anytype, values: Values) !void {
-    try mv.set_info_content(.plaintext, values.label, .replace);
-    try mv.set_info_content(.plaintext, " ", .append); // blank line
-    try mv.set_info_content(.plaintext, values.detail, .append);
-    if (builtin.mode == .debug) {
-        try mv.set_info_content(.plaintext, "newText:", .append); // blank line
-        try mv.set_info_content(.plaintext, values.textEdit_newText, .append);
-        try mv.set_info_content(.plaintext, "insertText:", .append); // blank line
-        try mv.set_info_content(.plaintext, values.insertText, .append);
+pub fn show_info_panel(allocator: std.mem.Allocator, mv: anytype, values: Values) !void {
+    var content: std.Io.Writer.Allocating = .init(allocator);
+    defer content.deinit();
+    try write_info_markdown(&content.writer, values);
+    try mv.set_info_content(.markdown, content.written(), .replace);
+    if (has_plaintext_documentation(values)) {
+        try mv.set_info_content(.plaintext, " ", .append); // blank line
+        try mv.set_info_content(.plaintext, values.documentation, .append);
     }
-    try mv.set_info_content(.plaintext, " ", .append); // blank line
-    try mv.set_info_content(values.documentation_kind, values.documentation, .append);
+}
+
+fn has_plaintext_documentation(values: Values) bool {
+    return values.documentation_kind == .plaintext and values.documentation.len > 0;
+}
+
+fn write_info_markdown(writer: *std.Io.Writer, values: Values) std.Io.Writer.Error!void {
+    try write_code_block(writer, &.{ values.label, values.detail });
+    if (values.documentation_kind == .markdown and values.documentation.len > 0) {
+        try writer.writeByte('\n');
+        try writer.writeAll(values.documentation);
+    }
+}
+
+fn write_code_block(writer: *std.Io.Writer, lines: []const []const u8) std.Io.Writer.Error!void {
+    var fence_len: usize = 3;
+    for (lines) |line| fence_len = @max(fence_len, longest_backtick_run(line) + 1);
+    try writer.splatByteAll('`', fence_len);
+    try writer.writeByte('\n');
+    for (lines) |line| if (line.len > 0) {
+        try writer.writeAll(line);
+        try writer.writeByte('\n');
+    };
+    try writer.splatByteAll('`', fence_len);
+    try writer.writeByte('\n');
+}
+
+fn longest_backtick_run(text: []const u8) usize {
+    var longest: usize = 0;
+    var run: usize = 0;
+    for (text) |c| {
+        run = if (c == '`') run + 1 else 0;
+        longest = @max(longest, run);
+    }
+    return longest;
 }
 
 fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
@@ -419,20 +450,13 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     const info_ = if (w.get(@typeName(info_view))) |w_| w_.dynamic_cast(info_view) orelse null else null;
     const info = info_ orelse @panic("show_info_box");
 
-    try info.set_content(.plaintext, values.label);
-    if (values.detail.len > 0) {
+    var content: std.Io.Writer.Allocating = .init(self.allocator);
+    defer content.deinit();
+    try write_info_markdown(&content.writer, values);
+    try info.set_content(.markdown, content.written());
+    if (has_plaintext_documentation(values)) {
         try info.append_content(.plaintext, " "); // blank line
-        try info.append_content(.plaintext, values.detail);
-    }
-    if (builtin.mode == .debug) {
-        try info.append_content(.plaintext, "newText:"); // blank line
-        try info.append_content(.plaintext, values.textEdit_newText);
-        try info.append_content(.plaintext, "insertText:"); // blank line
-        try info.append_content(.plaintext, values.insertText);
-    }
-    if (values.documentation.len > 0) {
-        try info.append_content(.plaintext, " "); // blank line
-        try info.append_content(values.documentation_kind, values.documentation);
+        try info.append_content(.plaintext, values.documentation);
     }
 
     const padding = tui.get_widget_style(info_box_widget_type).padding;

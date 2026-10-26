@@ -4,7 +4,6 @@ const tp = @import("thespian");
 const root = @import("soft_root").root;
 const command = @import("command");
 const Buffer = @import("Buffer");
-const builtin = @import("builtin");
 const CompletionItemKind = @import("lsp_types").CompletionItemKind;
 
 const tui = @import("../../tui.zig");
@@ -16,6 +15,7 @@ const Widget = @import("../../Widget.zig");
 const Values = @import("completion_dropdown.zig").Values;
 const get_values = @import("completion_dropdown.zig").get_values;
 const get_query_selection = @import("completion_dropdown.zig").get_query_selection;
+const show_info_panel = @import("completion_dropdown.zig").show_info_panel;
 
 pub const label = "Select completion";
 pub const name = "completion";
@@ -162,17 +162,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     editor.resolve_completion(values.item, values.additionalTextEdits);
 
     const mv = tui.mainview() orelse return;
-    try mv.set_info_content(.plaintext, values.label, .replace);
-    try mv.set_info_content(.plaintext, " ", .append); // blank line
-    try mv.set_info_content(.plaintext, values.detail, .append);
-    if (builtin.mode == .debug) {
-        try mv.set_info_content(.plaintext, "newText:", .append); // blank line
-        try mv.set_info_content(.plaintext, values.textEdit_newText, .append);
-        try mv.set_info_content(.plaintext, "insertText:", .append); // blank line
-        try mv.set_info_content(.plaintext, values.insertText, .append);
-    }
-    try mv.set_info_content(.plaintext, " ", .append); // blank line
-    try mv.set_info_content(values.documentation_kind, values.documentation, .append);
+    try show_info_panel(palette.allocator, mv, values);
 }
 
 pub fn cancel(palette: *Type, _: command.Context) !void {
