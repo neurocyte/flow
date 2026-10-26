@@ -7,10 +7,10 @@ const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
+const ScrollAnimation = @import("ScrollAnimation.zig");
 const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 const tp = @import("thespian");
-const root = @import("soft_root").root;
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
 const richdoc = @import("richdoc");
@@ -67,10 +67,7 @@ theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
 scrollbar: ?*scrollbar_v = null,
-top: usize = 0,
-scroll_dest: usize = 0,
-animation_step: usize = 1,
-animation_last_time: i64 = 0,
+anim: ScrollAnimation = .{},
 
 const default_widget_type: Widget.Type = .panel;
 const panel_margin = 2;
@@ -172,46 +169,24 @@ fn max_top(self: *const Self) usize {
 }
 
 fn scroll_to(self: *Self, top: usize) void {
-    self.top = @min(self.max_top(), top);
-    self.scroll_dest = self.top;
+    self.anim.jump_to(@min(self.max_top(), top));
     tui.need_render(@src());
 }
 
 fn scroll_animated(self: *Self, dest: usize) void {
-    self.scroll_dest = @min(self.max_top(), dest);
-    self.update_animation_step();
+    self.anim.glide_to(@min(self.max_top(), dest), tui.scroll_animation_timing());
     tui.need_render(@src());
-}
-
-fn update_animation_step(self: *Self) void {
-    const ts = root.get_now().toMicroseconds();
-    const tdiff: f64 = @floatFromInt(ts - self.animation_last_time);
-    self.animation_last_time = ts;
-    const min_lag: f64 = @floatFromInt(tui.config().animation_min_lag);
-    const max_lag: f64 = @floatFromInt(tui.config().animation_max_lag);
-    const lag = @max(@min(tdiff / std.time.us_per_s, @max(max_lag * 0.001, 0.001)), @max(min_lag * 0.001, 0.001));
-    const frame_rate: f64 = @floatFromInt(tp.env.get().num("frame-rate"));
-    const steps: f64 = @floatFromInt(@max(self.scroll_dest, self.top) - @min(self.scroll_dest, self.top));
-    self.animation_step = @max(1, @as(usize, @intFromFloat(steps / (lag * frame_rate))));
-}
-
-fn update_scroll(self: *Self) void {
-    const step = self.animation_step;
-    self.top = if (self.top < self.scroll_dest)
-        @min(self.scroll_dest, self.top + step)
-    else
-        @max(self.scroll_dest, self.top -| step);
 }
 
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
     const rows = @max(1, self.view_rows);
     switch (action) {
-        .line_up => self.scroll_to(self.scroll_dest -| 1),
-        .line_down => self.scroll_to(self.scroll_dest + 1),
-        .half_page_up => self.scroll_animated(self.scroll_dest -| @max(1, rows / 2)),
-        .half_page_down => self.scroll_animated(self.scroll_dest + @max(1, rows / 2)),
-        .page_up => self.scroll_animated(self.scroll_dest -| rows),
-        .page_down => self.scroll_animated(self.scroll_dest + rows),
+        .line_up => self.scroll_to(self.anim.dest -| 1),
+        .line_down => self.scroll_to(self.anim.dest + 1),
+        .half_page_up => self.scroll_animated(self.anim.dest -| @max(1, rows / 2)),
+        .half_page_down => self.scroll_animated(self.anim.dest + @max(1, rows / 2)),
+        .page_up => self.scroll_animated(self.anim.dest -| rows),
+        .page_down => self.scroll_animated(self.anim.dest + rows),
         .top => self.scroll_to(0),
         .bottom => self.scroll_to(self.max_top()),
     }
@@ -221,8 +196,8 @@ fn mouse_scroll(self: *Self, direction: enum { up, down }) void {
     const rows = @max(1, self.view_rows);
     const step = if (tui.fast_scroll()) rows else @min(rows, tui.config().scroll_step_vertical);
     self.scroll_animated(switch (direction) {
-        .up => self.scroll_dest -| step,
-        .down => self.scroll_dest + step,
+        .up => self.anim.dest -| step,
+        .down => self.anim.dest + step,
     });
 }
 
@@ -234,7 +209,7 @@ fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 
 fn update_scrollbar(self: *Self) void {
     const scrollbar = self.scrollbar orelse return;
-    scrollbar.set(@intCast(self.layout.lines.items.len), @intCast(self.view_rows), @intCast(self.top));
+    scrollbar.set(@intCast(self.layout.lines.items.len), @intCast(self.view_rows), @intCast(self.anim.pos));
 }
 
 fn scrollbar_cols(self: *const Self) usize {
@@ -288,8 +263,7 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
 
 pub fn set_content(self: *Self, kind: Kind, content: []const u8) !void {
     self.clear();
-    self.top = 0;
-    self.scroll_dest = 0;
+    self.anim.jump_to(0);
     return self.append_content(kind, content);
 }
 
@@ -349,8 +323,7 @@ fn relayout(self: *Self) !void {
             tui.need_render(@src());
         }
     }
-    self.top = @min(self.top, self.max_top());
-    self.scroll_dest = @min(self.scroll_dest, self.max_top());
+    self.anim.clamp(self.max_top());
 }
 
 fn layout_at(self: *Self, width: usize) !void {
@@ -382,7 +355,7 @@ fn layout_plaintext(self: *Self, content: []const u8, width: usize, tab_width: u
 }
 
 pub fn update(self: *Self) void {
-    self.update_scroll();
+    self.anim.advance();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -391,8 +364,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
     self.update_scrollbar();
-    richdoc.render.to_plane(&self.layout, &self.plane, self.top, self.view_rows, self.text_col(), self.plane.style);
-    return self.top != self.scroll_dest;
+    richdoc.render.to_plane(&self.layout, &self.plane, self.anim.pos, self.view_rows, self.text_col(), self.plane.style);
+    return self.anim.animating();
 }
 
 fn has_markdown(self: *const Self) bool {

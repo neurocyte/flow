@@ -45,6 +45,7 @@ pub const exports = struct {
     pub const editor = @import("editor.zig");
     pub const jump_labels = @import("jump_labels.zig");
     pub const MiniBuffer = @import("MiniBuffer.zig");
+    pub const ScrollAnimation = @import("ScrollAnimation.zig");
 };
 
 const Allocator = std.mem.Allocator;
@@ -3914,6 +3915,16 @@ pub fn enable_match_events() void {
 pub fn disable_match_events() void {
     keybind.enable_match_events = false;
     keybind.enable_insert_events = false;
+}
+
+pub fn scroll_animation_timing() @import("ScrollAnimation.zig").Timing {
+    const conf = config();
+    return .{
+        .now_us = root.get_now().toMicroseconds(),
+        .frame_rate = conf.frame_rate,
+        .min_lag_ms = conf.animation_min_lag,
+        .max_lag_ms = conf.animation_max_lag,
+    };
 }
 
 pub fn fast_scroll() bool {
