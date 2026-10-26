@@ -15,11 +15,9 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
-const scrollbar_v = @import("scrollbar_v.zig");
+const Scroller = @import("Scroller.zig");
 const tui = @import("tui.zig");
 const MessageFilter = @import("MessageFilter.zig");
-const MouseEvent = @import("MouseEvent");
-const EventHandler = @import("EventHandler");
 
 const escape = @import("std").ascii.hexEscape;
 
@@ -27,8 +25,7 @@ pub const name = @typeName(Self);
 
 plane: Plane,
 panel_input: PanelInput,
-scrollbar: ?*scrollbar_v = null,
-top: ?usize = null,
+scroller: Scroller = .{ .sticky_end = true },
 
 var persistent_buffer: ?Buffer = null;
 var last_count: u64 = 0;
@@ -63,27 +60,9 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
         .panel_input = try PanelInput.init(allocator, "log"),
     };
 
-    const scrollbar: ?Widget = if (tui.config().show_scrollbars)
-        try scrollbar_v.create(allocator, container.plane, null, EventHandler.bind(self, handle_scroll))
-    else
-        null;
-    if (scrollbar) |sb| {
-        self.scrollbar = sb.dynamic_cast(scrollbar_v);
-        self.scrollbar.?.style_factory = scrollbar_style;
-    }
-
     try container.add(Widget.to(self));
-    if (scrollbar) |sb| try container.add(sb);
+    try self.scroller.attach_scrollbar(allocator, container);
     return Panel.to_hosted(self, container.widget());
-}
-
-fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
-    return if (sb.active)
-        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
-    else if (sb.hover)
-        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
-    else
-        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
 }
 
 pub fn panel_title(_: *Self) []const u8 {
@@ -109,73 +88,13 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var btn: MouseEvent.Button = .none;
-    if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more })) switch (btn) {
-        .wheel_up => {
-            self.mouse_scroll(.up);
-            return true;
-        },
-        .wheel_down => {
-            self.mouse_scroll(.down);
-            return true;
-        },
-        else => {},
-    };
+    if (try self.scroller.receive_mouse(m)) return true;
     if (try PanelInput.receive_context_menu(self, m)) return true;
     return self.panel_input.receive(from, m);
 }
 
-fn view_rows(self: *const Self) usize {
-    return @max(1, self.plane.dim_y());
-}
-
-fn last_top(self: *const Self) usize {
-    const buffer = if (persistent_buffer) |*p| p else return 0;
-    return buffer.items.len -| self.view_rows();
-}
-
-fn scroll_to(self: *Self, top: usize) void {
-    const last = self.last_top();
-    self.top = if (top >= last) null else top;
-    tui.need_render(@src());
-}
-
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
-    const rows = self.view_rows();
-    const cur = self.top orelse self.last_top();
-    self.scroll_to(switch (action) {
-        .line_up => cur -| 1,
-        .line_down => cur + 1,
-        .half_page_up => cur -| @max(1, rows / 2),
-        .half_page_down => cur + @max(1, rows / 2),
-        .page_up => cur -| rows,
-        .page_down => cur + rows,
-        .top => 0,
-        .bottom => self.last_top(),
-    });
-}
-
-fn mouse_scroll(self: *Self, direction: enum { up, down }) void {
-    const rows = self.view_rows();
-    const step = if (tui.fast_scroll()) rows else @min(rows, tui.config().scroll_step_vertical);
-    const cur = self.top orelse self.last_top();
-    self.scroll_to(switch (direction) {
-        .up => cur -| step,
-        .down => cur + step,
-    });
-}
-
-fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var top: usize = 0;
-    if (try m.match(.{ "scroll_to", tp.extract(&top) }))
-        self.scroll_to(top);
-}
-
-fn update_scrollbar(self: *Self) void {
-    const scrollbar = self.scrollbar orelse return;
-    const buffer = if (persistent_buffer) |*p| p else return;
-    const last = self.last_top();
-    scrollbar.set(@intCast(buffer.items.len), @intCast(self.view_rows()), @intCast(@min(self.top orelse last, last)));
+    self.scroller.scroll(action);
 }
 
 pub fn panel_copy(_: *Self) void {
@@ -186,7 +105,7 @@ pub fn panel_copy(_: *Self) void {
     PanelInput.copy_to_clipboard(text.written());
 }
 
-pub fn panel_clear(self: *Self) void {
+pub fn panel_clear(_: *Self) void {
     const buffer = if (persistent_buffer) |*p| p else return;
     for (buffer.items) |item| {
         // free sentinel too
@@ -195,8 +114,13 @@ pub fn panel_clear(self: *Self) void {
     }
     buffer.clearRetainingCapacity();
     last_count = 0;
-    self.top = null;
     tui.need_render(@src());
+}
+
+pub fn update(self: *Self) void {
+    const count = if (persistent_buffer) |*p| p.items.len else 0;
+    self.scroller.set_size(count, self.plane.dim_y());
+    self.scroller.update();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -206,12 +130,12 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(style_normal);
     self.plane.erase();
     self.plane.home();
-    self.update_scrollbar();
+    const more = self.scroller.render();
     const height = self.plane.dim_y();
     var first = true;
-    const buffer = if (persistent_buffer) |*p| p else return false;
+    const buffer = if (persistent_buffer) |*p| p else return more;
     const count = buffer.items.len;
-    const begin_at = if (self.top) |top| @min(top, count -| height) else count -| height;
+    const begin_at = @min(self.scroller.top(), count -| height);
     for (buffer.items[begin_at..@min(count, begin_at + height)]) |item| {
         if (first) first = false else _ = self.plane.putstr("\n") catch return false;
         self.output_tdiff(item.tdiff) catch return false;
@@ -221,7 +145,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     }
     if (last_count > 0)
         _ = self.plane.print(" ({})", .{last_count}) catch {};
-    return false;
+    return more;
 }
 
 fn output_tdiff(self: *Self, tdiff: i64) !void {
