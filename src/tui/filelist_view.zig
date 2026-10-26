@@ -78,7 +78,7 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
         .manager = manager,
         .list_id = list_id,
     };
-    if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+    if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_v.panel_style;
     self.list_box.container.render_decoration = null;
     self.commands.init_unregistered(self);
     self.rebuild_list_box();
@@ -143,15 +143,6 @@ pub fn is_list(self: *Self, list_id: FileList.Id) bool {
 
 pub fn list(self: *Self) ?*FileList {
     return self.manager.get(self.list_id);
-}
-
-fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
-    return if (sb.active)
-        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
-    else if (sb.hover)
-        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
-    else
-        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
