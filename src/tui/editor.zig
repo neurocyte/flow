@@ -42,13 +42,13 @@ const IndentMode = @import("config").IndentMode;
 const WhitespaceMode = @import("config").WhitespaceMode;
 const CodeActionIndicatorMode = @import("config").CodeActionIndicatorMode;
 const info_view = @import("info_view.zig");
+const ScrollAnimation = @import("ScrollAnimation.zig");
 
 pub const Cursor = Buffer.Cursor;
 pub const View = Buffer.View;
 pub const Selection = Buffer.Selection;
 
 const Allocator = std.mem.Allocator;
-const time = std.time;
 
 const double_click_time_ms = 350;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
@@ -408,12 +408,7 @@ pub const Editor = struct {
 
     view: View = View{},
     handlers: EventHandler.List,
-    scroll_dest: usize = 0,
-
-    animation_step: usize = 0,
-    animation_frame_rate: i64,
-    animation_lag: f64,
-    animation_last_time: i64,
+    scroll_anim: ScrollAnimation = .{},
 
     render_whitespace: WhitespaceMode,
     indent_size: usize,
@@ -617,7 +612,7 @@ pub const Editor = struct {
             try cbor.writeArrayHeader(writer, 0);
         }
         var view = self.view;
-        view.row = self.scroll_dest;
+        view.row = self.scroll_anim.dest;
         try view.write(writer);
 
         try write_cursels(writer, self.cursels.items);
@@ -707,7 +702,7 @@ pub const Editor = struct {
         const cols = self.view.cols;
         if (!try self.view.extract(&view_cbor))
             return error.RestoreView;
-        self.scroll_dest = self.view.row;
+        self.scroll_anim.jump_to(self.view.row);
         self.view.rows = rows;
         self.view.cols = cols;
 
@@ -728,7 +723,6 @@ pub const Editor = struct {
 
     fn init(self: *Self, allocator: Allocator, n: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) void {
         const logger = log.logger("editor");
-        const frame_rate = tp.env.get().num("frame-rate");
         const tab_width = tui.get_tab_width();
         const indent_mode = tui.config().indent_mode;
         const indent_size = if (indent_mode == .tabs) tab_width else tui.config().indent_size;
@@ -744,9 +738,7 @@ pub const Editor = struct {
             .buffer = null,
             .buffer_manager = buffer_manager,
             .handlers = EventHandler.List.init(allocator),
-            .animation_lag = get_animation_max_lag(),
-            .animation_frame_rate = frame_rate,
-            .animation_last_time = now.toMicroseconds(),
+            .scroll_anim = .{ .last_time_us = now.toMicroseconds() },
             .enable_format_on_save = tui.config().enable_format_on_save,
             .render_whitespace = tui.config().whitespace_mode,
         };
@@ -1274,7 +1266,7 @@ pub const Editor = struct {
         self.update_file_link_highlight();
         self.render_screen(theme, cache, focused, now);
         const info_box_more = if (self.info_box_layer) |layer| layer.widget().render(theme) else false;
-        return self.scroll_dest != self.view.row or self.syntax_refresh_full or info_box_more;
+        return self.scroll_anim.dest != self.view.row or self.syntax_refresh_full or info_box_more;
     }
 
     const CellType = enum {
@@ -3621,82 +3613,42 @@ pub const Editor = struct {
             tui.need_render(@src());
     }
 
-    fn get_animation_min_lag() f64 {
-        const ms: f64 = @floatFromInt(tui.config().animation_min_lag);
-        return @max(ms * 0.001, 0.001); // to seconds
-    }
-
-    fn get_animation_max_lag() f64 {
-        const ms: f64 = @floatFromInt(tui.config().animation_max_lag);
-        return @max(ms * 0.001, 0.001); // to seconds
-    }
-
-    fn update_animation_lag(self: *Self, now: std.Io.Timestamp) void {
-        const ts = now.toMicroseconds();
-        const tdiff = ts - self.animation_last_time;
-        const lag: f64 = @as(f64, @floatFromInt(tdiff)) / time.us_per_s;
-        self.animation_lag = @max(@min(lag, get_animation_max_lag()), get_animation_min_lag());
-        self.animation_last_time = ts;
-        // self.logger.print("update_lag: {d} {d:.2}", .{ lag, self.animation_lag }) catch {};
-    }
-
-    fn update_animation_step(self: *Self, dest: usize, now: std.Io.Timestamp) void {
-        const steps_ = @max(dest, self.view.row) - @min(dest, self.view.row);
-        self.update_animation_lag(now);
-        const steps: f64 = @floatFromInt(steps_);
-        const frame_rate: f64 = @floatFromInt(self.animation_frame_rate);
-        const frame_time: f64 = 1.0 / frame_rate;
-        const step_frames = self.animation_lag / frame_time;
-        const step: f64 = steps / step_frames;
-        self.animation_step = @intFromFloat(step);
-        if (self.animation_step == 0) self.animation_step = 1;
-    }
-
     fn update_scroll(self: *Self) void {
-        const step = self.animation_step;
-        const view = self.view.row;
-        const dest = self.scroll_dest;
-        if (view == dest) return;
-        var row = view;
-        if (view < dest) {
-            row += step;
-            if (dest < row) row = dest;
-        } else if (dest < view) {
-            row -= if (row < step) row else step;
-            if (row < dest) row = dest;
-        }
-        self.view.row = row;
+        if (self.view.row == self.scroll_anim.dest) return;
+        self.scroll_anim.pos = self.view.row;
+        self.scroll_anim.advance();
+        self.view.row = self.scroll_anim.pos;
     }
 
     pub fn update_scroll_dest_abs(self: *Self, dest: usize, now: std.Io.Timestamp) void {
         const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const root = self.buf_root() catch return;
         const max_view = if (root.lines() <= scroll_cursor_min_border_distance) 0 else root.lines() - scroll_cursor_min_border_distance;
-        self.scroll_dest = @min(dest, max_view);
-        self.update_animation_step(dest, now);
+        self.scroll_anim.pos = self.view.row;
+        self.scroll_anim.glide_to(@min(dest, max_view), tui.scroll_animation_timing_at(now));
     }
 
     fn scroll_up_internal(self: *Self, count: usize, now: std.Io.Timestamp) void {
-        var dest_row = self.scroll_dest;
+        var dest_row = self.scroll_anim.dest;
         dest_row -|= count;
         self.update_scroll_dest_abs(dest_row, now);
     }
 
     fn scroll_down_internal(self: *Self, count: usize, now: std.Io.Timestamp) void {
-        var dest_row = self.scroll_dest;
+        var dest_row = self.scroll_anim.dest;
         dest_row += count;
         self.update_scroll_dest_abs(dest_row, now);
     }
 
     fn scroll_pageup(self: *Self, now: std.Io.Timestamp) void {
-        var dest_row = self.scroll_dest;
+        var dest_row = self.scroll_anim.dest;
         const view_rows = self.view.rows;
         dest_row = if (dest_row > view_rows) dest_row - view_rows else 0;
         self.update_scroll_dest_abs(dest_row, now);
     }
 
     fn scroll_pagedown(self: *Self, now: std.Io.Timestamp) void {
-        var dest_row: usize = self.scroll_dest;
+        var dest_row: usize = self.scroll_anim.dest;
         dest_row += self.view.rows;
         self.update_scroll_dest_abs(dest_row, now);
     }

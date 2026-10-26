@@ -3918,9 +3918,13 @@ pub fn disable_match_events() void {
 }
 
 pub fn scroll_animation_timing() @import("ScrollAnimation.zig").Timing {
+    return scroll_animation_timing_at(root.get_now());
+}
+
+pub fn scroll_animation_timing_at(now: std.Io.Timestamp) @import("ScrollAnimation.zig").Timing {
     const conf = config();
     return .{
-        .now_us = root.get_now().toMicroseconds(),
+        .now_us = now.toMicroseconds(),
         .frame_rate = conf.frame_rate,
         .min_lag_ms = conf.animation_min_lag,
         .max_lag_ms = conf.animation_max_lag,
