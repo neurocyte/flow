@@ -12,6 +12,31 @@ const ElementBuilder = SDoc.ElementBuilder;
 
 pub const Error = error{ OutOfMemory, ParseFailed };
 
+/// write `lines` as a fenced code block, with a fence no line can close
+pub fn write_code_block(writer: *std.Io.Writer, lang: ?[]const u8, lines: []const []const u8) std.Io.Writer.Error!void {
+    var fence_len: usize = 3;
+    for (lines) |line| fence_len = @max(fence_len, longest_backtick_run(line) + 1);
+    try writer.splatByteAll('`', fence_len);
+    if (lang) |l| try writer.writeAll(l);
+    try writer.writeByte('\n');
+    for (lines) |line| if (line.len > 0) {
+        try writer.writeAll(line);
+        try writer.writeByte('\n');
+    };
+    try writer.splatByteAll('`', fence_len);
+    try writer.writeByte('\n');
+}
+
+fn longest_backtick_run(text: []const u8) usize {
+    var longest: usize = 0;
+    var run: usize = 0;
+    for (text) |c| {
+        run = if (c == '`') run + 1 else 0;
+        longest = @max(longest, run);
+    }
+    return longest;
+}
+
 /// parse markdown into a structured document
 pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.QueryCache) Error!SDoc {
     var arena_: std.heap.ArenaAllocator = .init(allocator);

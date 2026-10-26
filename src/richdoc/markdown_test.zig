@@ -122,3 +122,23 @@ test "pipe table" {
 test "inline html" {
     try expect("a<br>b<BR/>c <b>bold</b> d", "(body (p \"a\" (br) \"b\" (br) \"c \" (html \"<b>\") \"bold\" (html \"</b>\") \" d\"))");
 }
+
+fn code_block(lang: ?[]const u8, lines: []const []const u8) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    errdefer out.deinit();
+    try markdown.write_code_block(&out.writer, lang, lines);
+    return out.toOwnedSlice();
+}
+
+test "write_code_block" {
+    const out = try code_block("zig", &.{ "const x = 1;", "", "x += 1;" });
+    defer std.testing.allocator.free(out);
+    try std.testing.expectEqualStrings("```zig\nconst x = 1;\nx += 1;\n```\n", out);
+}
+
+test "write_code_block fence is longer than any backtick run" {
+    const out = try code_block(null, &.{ "a ``` b", "````" });
+    defer std.testing.allocator.free(out);
+    try std.testing.expectEqualStrings("`````\na ``` b\n````\n`````\n", out);
+    try expect(out, "(body (pre \"a ``` b\\n````\"))");
+}

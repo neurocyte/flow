@@ -13,6 +13,7 @@ const ed = @import("../../editor.zig");
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
 const info_view = @import("../../info_view.zig");
+const richdoc = @import("richdoc");
 
 pub const label = "Select completion";
 pub const name = "completion";
@@ -402,34 +403,11 @@ fn has_plaintext_documentation(values: Values) bool {
 }
 
 fn write_info_markdown(writer: *std.Io.Writer, values: Values) std.Io.Writer.Error!void {
-    try write_code_block(writer, &.{ values.label, values.detail });
+    try richdoc.markdown.write_code_block(writer, null, &.{ values.label, values.detail });
     if (values.documentation_kind == .markdown and values.documentation.len > 0) {
         try writer.writeByte('\n');
         try writer.writeAll(values.documentation);
     }
-}
-
-fn write_code_block(writer: *std.Io.Writer, lines: []const []const u8) std.Io.Writer.Error!void {
-    var fence_len: usize = 3;
-    for (lines) |line| fence_len = @max(fence_len, longest_backtick_run(line) + 1);
-    try writer.splatByteAll('`', fence_len);
-    try writer.writeByte('\n');
-    for (lines) |line| if (line.len > 0) {
-        try writer.writeAll(line);
-        try writer.writeByte('\n');
-    };
-    try writer.splatByteAll('`', fence_len);
-    try writer.writeByte('\n');
-}
-
-fn longest_backtick_run(text: []const u8) usize {
-    var longest: usize = 0;
-    var run: usize = 0;
-    for (text) |c| {
-        run = if (c == '`') run + 1 else 0;
-        longest = @max(longest, run);
-    }
-    return longest;
 }
 
 fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
