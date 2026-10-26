@@ -397,7 +397,7 @@ inline fn render_diff(self: *Self, sym: Diff, pos: usize, linenum: usize, theme:
 }
 
 fn render_diagnostics(self: *Self, theme: *const Widget.Theme) void {
-    if (tui.config().inline_diagnostics)
+    if (tui.config().inline_diagnostics.show_indicator())
         for (self.editor.diagnostics.items) |*diag| self.render_diagnostic(diag, theme);
 }
 

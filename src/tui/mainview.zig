@@ -2044,7 +2044,16 @@ const cmds = struct {
 
     pub fn toggle_inline_diagnostics(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
-        config.inline_diagnostics = !config.inline_diagnostics;
+        config.inline_diagnostics = switch (config.inline_diagnostics) {
+            .none => .undercurl,
+            .undercurl => .indicator,
+            .indicator => .text,
+            .text => .all,
+            .all => .none,
+        };
+        const logger = log.logger("diagnostics");
+        defer logger.deinit();
+        defer logger.print("inline diagnostics {t}", .{config.inline_diagnostics});
         try tui.save_config();
     }
     pub const toggle_inline_diagnostics_meta: Meta = .{ .description = "Toggle display of diagnostics inline" };

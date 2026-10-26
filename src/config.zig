@@ -1,5 +1,7 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
+const cbor = @import("cbor");
 
 frame_rate: usize = 60,
 theme: []const u8 = "ayu-mirage-bordered",
@@ -35,7 +37,7 @@ highlight_columns: []const u16 = &.{ 80, 100, 120 },
 highlight_columns_alpha: u8 = 240,
 highlight_columns_enabled: bool = false,
 whitespace_mode: WhitespaceMode = .indent,
-inline_diagnostics: bool = true,
+inline_diagnostics: InlineDiagnostics = .all,
 inline_diagnostics_alignment: Alignment = .right,
 inline_vcs_blame: bool = false,
 inline_vcs_blame_alignment: Alignment = .right,
@@ -338,6 +340,35 @@ pub const CompletionInfoMode = enum {
     none,
     box,
     panel,
+};
+
+pub const InlineDiagnostics = enum {
+    none,
+    undercurl,
+    indicator,
+    text,
+    all,
+
+    pub fn show_undercurl(self: @This()) bool {
+        return self != .none;
+    }
+
+    pub fn show_indicator(self: @This()) bool {
+        return self == .indicator or self == .all;
+    }
+
+    pub fn show_text(self: @This()) bool {
+        return self == .text or self == .all;
+    }
+
+    pub fn cborExtract(self: *@This(), iter: *[]const u8, _: std.mem.Allocator) cbor.Error!bool {
+        var enabled: bool = undefined;
+        if (try cbor.matchValue(iter, cbor.extract(&enabled))) {
+            self.* = if (enabled) .all else .none;
+            return true;
+        }
+        return cbor.matchEnum(@This(), iter, self);
+    }
 };
 
 pub const HoverInfoMode = enum {

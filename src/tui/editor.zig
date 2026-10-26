@@ -1459,7 +1459,7 @@ pub const Editor = struct {
             else => {},
         }
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
-        const pc_row_diag = if (tui.config().inline_diagnostics)
+        const pc_row_diag = if (tui.config().inline_diagnostics.show_undercurl())
             self.render_diagnostics(theme, pc_row, hl_row, ctx_.cell_map)
         else
             false;
@@ -1635,7 +1635,7 @@ pub const Editor = struct {
     fn render_diagnostics(self: *Self, theme: *const Widget.Theme, pc_row: usize, hl_row: ?usize, cell_map: CellMap) bool {
         var diagnostic_on_pc_row: bool = false;
         for (self.diagnostics.items) |*diag| {
-            if (diag.sel.begin.row == pc_row)
+            if (diag.sel.begin.row == pc_row and tui.config().inline_diagnostics.show_text())
                 diagnostic_on_pc_row = true;
             self.render_diagnostic(diag, theme, hl_row, cell_map);
         }
@@ -1664,6 +1664,7 @@ pub const Editor = struct {
                 self.render_diagnostic_cell(style);
             }
         }
+        if (!tui.config().inline_diagnostics.show_text()) return;
         var space_begin = screen_width;
         while (space_begin > 0) : (space_begin -= 1)
             if (cell_map.get_yx(pos.row, space_begin).cell_type != .empty) break;
