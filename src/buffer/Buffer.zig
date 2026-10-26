@@ -79,6 +79,7 @@ external_allocator: Allocator,
 root: Root,
 leaves_buf: ?[]Node = null,
 file_buf: ?[]const u8 = null,
+retired_loads: std.ArrayList(RetiredLoad) = .empty,
 file_path_buf: std.ArrayListUnmanaged(u8) = .empty,
 last_save: ?Root = null,
 file_exists: bool = true,
@@ -1385,6 +1386,8 @@ pub fn deinit(self: *Self) void {
     if (self.meta) |buf| self.external_allocator.free(buf);
     if (self.file_buf) |buf| self.external_allocator.free(buf);
     if (self.leaves_buf) |buf| self.external_allocator.free(buf);
+    for (self.retired_loads.items) |retired| retired.deinit(self.external_allocator);
+    self.retired_loads.deinit(self.external_allocator);
     self.file_path_buf.deinit(self.external_allocator);
     self.arena.deinit();
     self.external_allocator.destroy(self);
@@ -1619,6 +1622,10 @@ fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sani
         }
     }
     if (timing) |t| t.sanitize_us = t.timer.lap();
+    self_.retire_load() catch |e| {
+        self.external_allocator.free(buf);
+        return e;
+    };
     self_.file_buf = buf;
 
     eol_mode.* = .lf;
@@ -1742,6 +1749,23 @@ pub fn reloaded(self: *Self, eol_mode: EolMode, now: std.Io.Timestamp) void {
     self.file_utf8_sanitized = false;
     self.last_save_eol_mode = eol_mode;
     self.mtime = now.toMilliseconds();
+}
+
+const RetiredLoad = struct {
+    file_buf: ?[]const u8,
+    leaves_buf: ?[]Node,
+
+    fn deinit(self: RetiredLoad, allocator: Allocator) void {
+        if (self.file_buf) |buf| allocator.free(buf);
+        if (self.leaves_buf) |buf| allocator.free(buf);
+    }
+};
+
+fn retire_load(self: *Self) error{OutOfMemory}!void {
+    if (self.file_buf == null and self.leaves_buf == null) return;
+    try self.retired_loads.append(self.external_allocator, .{ .file_buf = self.file_buf, .leaves_buf = self.leaves_buf });
+    self.file_buf = null;
+    self.leaves_buf = null;
 }
 
 pub fn load_from_owned_bytes_and_update(self: *Self, file_path: []const u8, bytes: []u8, file_exists: bool, now: std.Io.Timestamp) LoadError!void {
