@@ -13,6 +13,7 @@ const ed = @import("../../editor.zig");
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
 const info_view = @import("../../info_view.zig");
+const Panel = @import("../../Panel.zig");
 const richdoc = @import("richdoc");
 
 pub const label = "Select completion";
@@ -486,6 +487,15 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     };
 }
 
+fn scroll_info(self: *Type, action: Panel.ScrollAction) void {
+    const info = switch (tui.config().completion_info_mode) {
+        .none => null,
+        .box => info_view.from_layer(self.value.info_box_layer orelse return),
+        .panel => (tui.mainview() orelse return).bottom_area.find_first(info_view),
+    } orelse return;
+    info.panel_scroll(action);
+}
+
 pub fn cancel(_: *Type, _: command.Context) !void {
     const editor = tui.get_active_editor() orelse return;
     editor.cancel_all_matches();
@@ -517,4 +527,14 @@ const cmds = struct {
         try mv.open_info_copy(info, get_values(button.opts.label).label);
     }
     pub const completion_info_to_panel_meta: Meta = .{ .description = "Open the completion info box in a panel" };
+
+    pub fn completion_info_scroll_down(self: *Type, _: Ctx) Result {
+        scroll_info(self, .half_page_down);
+    }
+    pub const completion_info_scroll_down_meta: Meta = .{ .description = "Scroll the completion info down half a page" };
+
+    pub fn completion_info_scroll_up(self: *Type, _: Ctx) Result {
+        scroll_info(self, .half_page_up);
+    }
+    pub const completion_info_scroll_up_meta: Meta = .{ .description = "Scroll the completion info up half a page" };
 };
