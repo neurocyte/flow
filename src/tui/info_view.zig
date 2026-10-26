@@ -6,10 +6,7 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
-const scrollbar_v = @import("scrollbar_v.zig");
-const ScrollAnimation = @import("ScrollAnimation.zig");
-const MouseEvent = @import("MouseEvent");
-const EventHandler = @import("EventHandler");
+const Scroller = @import("Scroller.zig");
 const tp = @import("thespian");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
@@ -66,8 +63,7 @@ layout_width: usize = 0,
 theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
-scrollbar: ?*scrollbar_v = null,
-anim: ScrollAnimation = .{},
+scroller: Scroller = .{},
 
 const default_widget_type: Widget.Type = .panel;
 const panel_margin = 2;
@@ -89,23 +85,8 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
     const self = try init(allocator, container.plane, default_widget_type);
     try container.add(Widget.to(self));
     self.panel_input = try PanelInput.init(allocator, "info");
-    if (tui.config().show_scrollbars) {
-        const sb = try scrollbar_v.create(allocator, container.plane, null, EventHandler.bind(self, handle_scroll));
-        try container.add(sb);
-        self.scrollbar = sb.dynamic_cast(scrollbar_v);
-        self.scrollbar.?.style_factory = scrollbar_style;
-        self.scrollbar.?.hidden = true;
-    }
+    try self.scroller.attach_scrollbar(allocator, container);
     return Panel.to_hosted(self, container.widget());
-}
-
-fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
-    return if (sb.active)
-        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
-    else if (sb.hover)
-        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
-    else
-        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
 }
 
 pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !Widget {
@@ -148,77 +129,13 @@ pub fn unfocus(self: *Self) void {
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const panel_input = if (self.panel_input) |*panel_input| panel_input else return false;
-    var btn: MouseEvent.Button = .none;
-    if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more })) switch (btn) {
-        .wheel_up => {
-            self.mouse_scroll(.up);
-            return true;
-        },
-        .wheel_down => {
-            self.mouse_scroll(.down);
-            return true;
-        },
-        else => {},
-    };
+    if (try self.scroller.receive_mouse(m)) return true;
     if (try PanelInput.receive_context_menu(self, m)) return true;
     return panel_input.receive(from, m);
 }
 
-fn max_top(self: *const Self) usize {
-    return self.layout.lines.items.len -| @max(1, self.view_rows);
-}
-
-fn scroll_to(self: *Self, top: usize) void {
-    self.anim.jump_to(@min(self.max_top(), top));
-    tui.need_render(@src());
-}
-
-fn scroll_animated(self: *Self, dest: usize) void {
-    self.anim.glide_to(@min(self.max_top(), dest), tui.scroll_animation_timing());
-    tui.need_render(@src());
-}
-
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
-    const rows = @max(1, self.view_rows);
-    switch (action) {
-        .line_up => self.scroll_to(self.anim.dest -| 1),
-        .line_down => self.scroll_to(self.anim.dest + 1),
-        .half_page_up => self.scroll_animated(self.anim.dest -| @max(1, rows / 2)),
-        .half_page_down => self.scroll_animated(self.anim.dest + @max(1, rows / 2)),
-        .page_up => self.scroll_animated(self.anim.dest -| rows),
-        .page_down => self.scroll_animated(self.anim.dest + rows),
-        .top => self.scroll_to(0),
-        .bottom => self.scroll_to(self.max_top()),
-    }
-}
-
-fn mouse_scroll(self: *Self, direction: enum { up, down }) void {
-    const rows = @max(1, self.view_rows);
-    const step = if (tui.fast_scroll()) rows else @min(rows, tui.config().scroll_step_vertical);
-    self.scroll_animated(switch (direction) {
-        .up => self.anim.dest -| step,
-        .down => self.anim.dest + step,
-    });
-}
-
-fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var top: usize = 0;
-    if (try m.match(.{ "scroll_to", tp.extract(&top) }))
-        self.scroll_to(top);
-}
-
-fn update_scrollbar(self: *Self) void {
-    const scrollbar = self.scrollbar orelse return;
-    scrollbar.set(@intCast(self.layout.lines.items.len), @intCast(self.view_rows), @intCast(self.anim.pos));
-}
-
-fn scrollbar_cols(self: *const Self) usize {
-    const scrollbar = self.scrollbar orelse return 0;
-    return if (scrollbar.hidden) 0 else 1;
-}
-
-fn overflows(self: *const Self) bool {
-    return self.layout.lines.items.len > self.view_rows;
+    self.scroller.scroll(action);
 }
 
 pub fn panel_copy(self: *Self) void {
@@ -243,8 +160,8 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.view_rows = pos.h;
     self.view_cols = pos.w;
-    if (self.text_width() != self.layout_width or self.overflows() == (self.scrollbar_cols() == 0))
-        self.relayout() catch {};
+    if (self.text_width() != self.layout_width) self.relayout() catch {};
+    self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
 }
 
 pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
@@ -263,7 +180,7 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
 
 pub fn set_content(self: *Self, kind: Kind, content: []const u8) !void {
     self.clear();
-    self.anim.jump_to(0);
+    self.scroller.scroll(.top);
     return self.append_content(kind, content);
 }
 
@@ -294,7 +211,7 @@ fn target_width(self: *const Self) usize {
     return if (self.widget_type == .info_box)
         tui.config().info_box_width_limit
     else if (self.view_cols > 0)
-        self.view_cols + self.scrollbar_cols()
+        self.view_cols + self.scroller.bar_cols()
     else
         tui.screen().w;
 }
@@ -316,14 +233,7 @@ fn relayout(self: *Self) !void {
     const width = self.text_width();
     self.layout_width = width;
     try self.layout_at(width);
-    if (self.scrollbar) |scrollbar| {
-        const hidden = !self.overflows();
-        if (scrollbar.hidden != hidden) {
-            scrollbar.hidden = hidden;
-            tui.need_render(@src());
-        }
-    }
-    self.anim.clamp(self.max_top());
+    self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
 }
 
 fn layout_at(self: *Self, width: usize) !void {
@@ -355,7 +265,7 @@ fn layout_plaintext(self: *Self, content: []const u8, width: usize, tab_width: u
 }
 
 pub fn update(self: *Self) void {
-    self.anim.advance();
+    self.scroller.update();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -363,9 +273,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(if (tui.config().hover_info_mode == .box) theme.editor_widget else theme.panel);
     self.plane.erase();
     self.plane.home();
-    self.update_scrollbar();
-    richdoc.render.to_plane(&self.layout, &self.plane, self.anim.pos, self.view_rows, self.text_col(), self.plane.style);
-    return self.anim.animating();
+    const more = self.scroller.render();
+    richdoc.render.to_plane(&self.layout, &self.plane, self.scroller.top(), self.view_rows, self.text_col(), self.plane.style);
+    return more;
 }
 
 fn has_markdown(self: *const Self) bool {

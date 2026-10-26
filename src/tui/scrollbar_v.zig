@@ -150,6 +150,15 @@ fn move_to(self: *Self, pos_virt: u32) void {
     _ = self.event_sink.msg(.{ "scroll_to", pos_virt }) catch {};
 }
 
+pub fn panel_style(self: *Self, theme: *const Widget.Theme) Widget.Theme.Style {
+    return if (self.active)
+        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
+    else if (self.hover)
+        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
+    else
+        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
+}
+
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const style = if (self.style_factory) |f|
         f(self, theme)
