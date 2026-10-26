@@ -1035,7 +1035,7 @@ fn write_color_value(value: u24, writer: *std.Io.Writer) std.Io.Writer.Error!voi
     try writer.writeByte('"');
 }
 
-fn config_eql(config_type: type, T: type, a: T, b: T) bool {
+pub fn config_eql(config_type: type, T: type, a: T, b: T) bool {
     switch (T) {
         []const u8 => return std.mem.eql(u8, a, b),
         []const []const u8 => {

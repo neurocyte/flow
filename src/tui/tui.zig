@@ -1528,6 +1528,47 @@ fn reload_config(self: *Self) void {
         .light => if (!std.mem.eql(u8, conf.light_theme, self.light_theme.name))
             self.set_theme_by_name(conf.light_theme, .none) catch {},
     }
+
+    const arena = self.config_bufs orelse blk: {
+        const arena = allocator.create(std.heap.ArenaAllocator) catch return;
+        arena.* = .init(allocator);
+        self.config_bufs = arena;
+        break :blk arena;
+    };
+    const T = @import("config");
+    @setEvalBranchQuota(10_000);
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |field_name, field_type| {
+        if (comptime is_reload_skipped_config_field(field_name)) continue;
+        const value = &@field(self.config_, field_name);
+        const new_value = @field(conf, field_name);
+        if (!root.config_eql(T, field_type, value.*, new_value)) {
+            if (config_value_dupe(field_type, arena.allocator(), new_value)) |v|
+                value.* = v
+            else |e|
+                self.logger.print_err("config", "reload of {s} failed: {t}", .{ field_name, e });
+        }
+    }
+}
+
+fn is_reload_skipped_config_field(comptime name: []const u8) bool {
+    for ([_][]const u8{ "theme", "light_theme", "frame_rate" }) |skipped|
+        if (std.mem.eql(u8, name, skipped)) return true;
+    return false;
+}
+
+fn config_value_dupe(T: type, allocator: std.mem.Allocator, value: T) error{OutOfMemory}!T {
+    return switch (@typeInfo(T)) {
+        .optional => |info| if (value) |v| try config_value_dupe(info.child, allocator, v) else null,
+        .pointer => |info| switch (info.size) {
+            .slice => {
+                const new_value = try allocator.alloc(info.child, value.len);
+                for (new_value, value) |*dst, src| dst.* = try config_value_dupe(info.child, allocator, src);
+                return new_value;
+            },
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        },
+        else => value,
+    };
 }
 
 fn maybe_watch_desktop_theme_file(self: *Self) void {

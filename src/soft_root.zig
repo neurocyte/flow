@@ -35,6 +35,7 @@ pub const root = struct {
 
     pub const free_config = if (@hasDecl(hard_root, "free_config")) hard_root.free_config else dummy.free_config;
     pub const read_config = if (@hasDecl(hard_root, "read_config")) hard_root.read_config else dummy.read_config;
+    pub const config_eql = if (@hasDecl(hard_root, "config_eql")) hard_root.config_eql else dummy.config_eql;
     pub const write_config = if (@hasDecl(hard_root, "write_config")) hard_root.write_config else dummy.write_config;
     pub const exists_config = if (@hasDecl(hard_root, "exists_config")) hard_root.exists_config else dummy.exists_config;
     pub const get_config_file_name = if (@hasDecl(hard_root, "get_config_file_name")) hard_root.get_config_file_name else dummy.get_config_file_name;
@@ -158,6 +159,9 @@ const dummy = struct {
     }
     pub fn read_config(T: type, _: std.mem.Allocator) struct { T, ?*std.heap.ArenaAllocator } {
         @panic("dummy read_config call");
+    }
+    pub fn config_eql(_: type, T: type, _: T, _: T) bool {
+        @panic("dummy config_eql call");
     }
     pub fn write_config(_: anytype, _: std.mem.Allocator) (ConfigDirError || ConfigWriteError)!void {
         @panic("dummy write_config call");
