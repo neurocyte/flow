@@ -9,7 +9,7 @@ used anywhere else.
 For Kitty rebinding `kitty_mod` by adding this line to your kitty.conf is
 usually enough:
 
-```
+```conf
 kitty_mod ctrl+alt
 ```
 
@@ -243,7 +243,7 @@ Configuration is stored in the standard location
 The default configuration will be written the first time Flow Control is
 started and looks similar to this:
 
-```
+```conf
 frame_rate 60
 theme "default"
 input_mode "flow"
