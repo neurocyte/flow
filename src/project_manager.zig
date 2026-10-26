@@ -39,6 +39,7 @@ pub const CodeActionPreference = @import("LSPClient.zig").CodeActionPreference;
 pub const FileOperation = @import("LSPClient.zig").FileOperation;
 pub const FileConflict = @import("LSPClient.zig").FileConflict;
 pub const FileScope = @import("LSPClient.zig").FileScope;
+pub const write_code_fence = @import("LSPClient.zig").write_code_fence;
 
 pub const test_internal = struct {
     pub const write_workspace_edit = @import("LSPClient.zig").write_workspace_edit;

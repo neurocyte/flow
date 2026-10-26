@@ -1327,7 +1327,7 @@ fn diagnostics_key(self: *const Self, file_path: []const u8, buf: []u8) []const 
         std.fmt.bufPrint(buf, "{s}{c}{s}", .{ self.name, std.fs.path.sep, file_path }) catch file_path;
 }
 
-fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) DiagnosticError!void {
+fn send_diagnostic(self: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) DiagnosticError!void {
     var source: []const u8 = "unknown";
     var code: []const u8 = "none";
     var code_int: i64 = 0;
@@ -1335,6 +1335,10 @@ fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: 
     var message: []const u8 = "empty";
     var severity: i64 = 1;
     var range: ?LSPClient.Range = null;
+    var rendered: []const u8 = "";
+    var related: std.Io.Writer.Allocating = .init(self.allocator);
+    defer related.deinit();
+    try cbor.writeArrayHeader(&related.writer, 0);
     var iter = diagnostic;
     var len = try cbor.decodeMapHeader(&iter);
     while (len > 0) : (len -= 1) {
@@ -1357,6 +1361,15 @@ fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: 
             var range_: []const u8 = undefined;
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidDiagnosticField;
             range = try LSPClient.read_range(range_);
+        } else if (std.mem.eql(u8, field_name, "relatedInformation")) {
+            var related_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&related_)))) return error.InvalidDiagnosticField;
+            related.clearRetainingCapacity();
+            try write_related_information(&related.writer, related_);
+        } else if (std.mem.eql(u8, field_name, "data")) {
+            var data: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&data)))) return error.InvalidDiagnosticField;
+            rendered = read_rendered(data) catch "";
         } else {
             try cbor.skipValue(&iter);
         }
@@ -1372,9 +1385,73 @@ fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: 
         range.?.start.character,
         range.?.end.line,
         range.?.end.character,
+        rendered,
+        cbor.Raw{ .bytes = related.written() },
     } }) catch |e| {
         std.log.err("send add_diagnostic failed: {t}", .{e});
     };
+}
+
+/// write a DiagnosticRelatedInformation list as an array of [file_path, line, character, message]
+fn write_related_information(writer: *std.Io.Writer, related: []const u8) DiagnosticError!void {
+    var iter = related;
+    var len = try cbor.decodeArrayHeader(&iter);
+    try cbor.writeArrayHeader(writer, len);
+    while (len > 0) : (len -= 1) {
+        var uri: ?[]const u8 = null;
+        var message: []const u8 = "";
+        var range: ?LSPClient.Range = null;
+        var fields = try cbor.decodeMapHeader(&iter);
+        while (fields > 0) : (fields -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDiagnosticFieldName;
+            if (std.mem.eql(u8, field_name, "location")) {
+                var location: []const u8 = undefined;
+                if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&location)))) return error.InvalidDiagnosticField;
+                var range_: []const u8 = undefined;
+                var uri_: []const u8 = undefined;
+                var loc_iter = location;
+                var loc_fields = try cbor.decodeMapHeader(&loc_iter);
+                while (loc_fields > 0) : (loc_fields -= 1) {
+                    var loc_field: []const u8 = undefined;
+                    if (!(try cbor.matchString(&loc_iter, &loc_field))) return error.InvalidDiagnosticFieldName;
+                    if (std.mem.eql(u8, loc_field, "uri")) {
+                        if (!(try cbor.matchValue(&loc_iter, cbor.extract(&uri_)))) return error.InvalidDiagnosticField;
+                        uri = uri_;
+                    } else if (std.mem.eql(u8, loc_field, "range")) {
+                        if (!(try cbor.matchValue(&loc_iter, cbor.extract_cbor(&range_)))) return error.InvalidDiagnosticField;
+                        range = try LSPClient.read_range(range_);
+                    } else {
+                        try cbor.skipValue(&loc_iter);
+                    }
+                }
+            } else if (std.mem.eql(u8, field_name, "message")) {
+                if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidDiagnosticField;
+            } else {
+                try cbor.skipValue(&iter);
+            }
+        }
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const file_path = try LSPClient.file_uri_to_path(uri orelse return error.InvalidDiagnosticField, &file_path_buf);
+        const start = (range orelse return error.InvalidDiagnosticField).start;
+        try cbor.writeValue(writer, .{ file_path, start.line, start.character, message });
+    }
+}
+
+/// the full compiler output rust-analyzer sends in data.rendered
+fn read_rendered(data: []const u8) cbor.Error![]const u8 {
+    var iter = data;
+    var len = cbor.decodeMapHeader(&iter) catch return "";
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return "";
+        var value: []const u8 = undefined;
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return "";
+        var rendered: []const u8 = undefined;
+        if (std.mem.eql(u8, field_name, "rendered") and try cbor.matchValue(&value, cbor.extract(&rendered)))
+            return rendered;
+    }
+    return "";
 }
 
 fn send_clear_diagnostics(_: *Self, to: tp.pid_ref, file_path: []const u8) void {
