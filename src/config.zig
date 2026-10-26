@@ -1,4 +1,5 @@
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 frame_rate: usize = 60,
 theme: []const u8 = "ayu-mirage-bordered",
@@ -93,6 +94,12 @@ scroll_step_vertical: usize = 3,
 scroll_step_horizontal: usize = 5,
 scroll_cursor_min_border_distance: usize = 5,
 
+mouse_click_jump: MouseModifier = if (macos_gui) .super else .ctrl,
+mouse_click_alternate: MouseModifier = .alt,
+mouse_hover: MouseHover = if (macos_gui) .super else .ctrl,
+mouse_scroll_fast: MouseModifier = .alt,
+mouse_scroll_alternate: MouseModifier = .shift,
+
 start_debugger_on_crash: bool = false,
 
 completion_trigger: CompletionTrigger = .automatic,
@@ -175,6 +182,11 @@ non_indexed_projects: []const []const u8 = switch (builtin.os.tag) {
 watch_non_indexed_projects: bool = false,
 
 include_files: []const u8 = "",
+
+const macos_gui = build_options.gui and builtin.os.tag == .macos;
+
+pub const MouseModifier = enum { none, shift, alt, ctrl, super };
+pub const MouseHover = enum { none, shift, alt, ctrl, super, always };
 
 const default_actions = [_]IdleAction{ .highlight_references, .code_actions };
 pub const IdleAction = enum {

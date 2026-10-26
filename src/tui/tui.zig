@@ -3931,6 +3931,28 @@ pub fn scroll_animation_timing_at(now: std.Io.Timestamp) @import("ScrollAnimatio
     };
 }
 
+pub const MouseActions = struct {
+    jump: bool = false,
+    hover: bool = false,
+    alt_click: bool = false,
+    fast_scroll: bool = false,
+    alt_scroll: bool = false,
+};
+
+pub fn mouse_actions(mods: MouseEvent.Modifiers) MouseActions {
+    const conf = config();
+    return .{
+        .jump = mods.has(conf.mouse_click_jump),
+        .hover = switch (conf.mouse_hover) {
+            .always => true,
+            inline else => |m| mods.has(@field(@import("config").MouseModifier, @tagName(m))),
+        },
+        .alt_click = mods.has(conf.mouse_click_alternate),
+        .fast_scroll = mods.has(conf.mouse_scroll_fast),
+        .alt_scroll = mods.has(conf.mouse_scroll_alternate),
+    };
+}
+
 pub fn fast_scroll() bool {
     const self = current();
     return self.fast_scroll_;

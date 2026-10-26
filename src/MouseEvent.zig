@@ -1,6 +1,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const cbor = @import("cbor");
+const MouseModifier = @import("config").MouseModifier;
 const Writer = std.Io.Writer;
 
 pub const Type = enum {
@@ -57,6 +58,16 @@ pub const Modifiers = packed struct(u4) {
             return true;
         }
         return false;
+    }
+
+    pub fn has(self: @This(), mod: MouseModifier) bool {
+        return switch (mod) {
+            .none => false,
+            .shift => self.shift,
+            .alt => self.alt,
+            .ctrl => self.ctrl,
+            .super => self.super,
+        };
     }
 
     pub fn to_vaxis(self: @This()) vaxis.Mouse.Modifiers {
@@ -170,6 +181,17 @@ test "cbor round-trip preserves every field" {
         try expectEqual(ev.@"2".y, decoded.@"2".y);
         try expectEqual(ev.@"3", decoded.@"3");
     }
+}
+
+test "has matches the configured modifier and ignores the others" {
+    const mods: Modifiers = .{ .ctrl = true, .alt = true };
+    try expect(mods.has(.ctrl));
+    try expect(mods.has(.alt));
+    try expect(!mods.has(.shift));
+    try expect(!mods.has(.super));
+    try expect(!mods.has(.none));
+    try expect(!(Modifiers{}).has(.none));
+    try expect((Modifiers{ .super = true }).has(.super));
 }
 
 test "literal type/button can be matched directly" {

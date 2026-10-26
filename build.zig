@@ -367,6 +367,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/config.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "build_options", .module = options_mod },
         },
     });
 
@@ -604,6 +605,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "config", .module = config_mod },
         },
     });
 
@@ -1326,6 +1328,7 @@ pub fn build_exe(
         });
         tests.root_module.addImport("vaxis", vaxis_mod);
         tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("config", config_mod);
         if (install_tests) b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
