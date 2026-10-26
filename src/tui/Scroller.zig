@@ -25,7 +25,7 @@ pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetLis
     try container.add(sb);
     const scrollbar = sb.dynamic_cast(scrollbar_v).?;
     scrollbar.style_factory = scrollbar_v.panel_style;
-    scrollbar.hidden = !self.overflows();
+    scrollbar.hidden = !self.wants_bar();
     self.scrollbar = scrollbar;
 }
 
@@ -39,7 +39,7 @@ pub fn set_size(self: *Self, content_rows: usize, view_rows: usize) void {
         self.anim.dest = self.max_top()
     else
         self.anim.jump_to(self.max_top());
-    self.set_bar_visible(self.overflows());
+    self.set_bar_visible(self.wants_bar());
 }
 
 pub fn top(self: *const Self) usize {
@@ -61,6 +61,16 @@ pub fn overflows(self: *const Self) bool {
 pub fn bar_cols(self: *const Self) usize {
     const scrollbar = self.scrollbar orelse return 0;
     return if (scrollbar.hidden) 0 else 1;
+}
+
+fn wants_bar(self: *const Self) bool {
+    return self.overflows() and !self.stuck_to_end();
+}
+
+fn stuck_to_end(self: *const Self) bool {
+    if (!self.sticky_end or self.anim.animating() or self.anim.pos < self.max_top()) return false;
+    const scrollbar = self.scrollbar orelse return true;
+    return !scrollbar.active;
 }
 
 fn set_bar_visible(self: *Self, visible: bool) void {
@@ -116,6 +126,7 @@ fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 
 pub fn update(self: *Self) void {
     self.anim.advance();
+    self.set_bar_visible(self.wants_bar());
 }
 
 pub fn render(self: *Self) bool {
