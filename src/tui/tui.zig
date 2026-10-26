@@ -1524,7 +1524,7 @@ fn reload_config(self: *Self) void {
     switch (self.color_scheme) {
         .dark => if (!std.mem.eql(u8, conf.theme, self.dark_theme.name))
             self.set_theme_by_name(conf.theme, .none) catch {},
-        .light => if (!std.mem.eql(u8, conf.light_theme, self.dark_theme.name))
+        .light => if (!std.mem.eql(u8, conf.light_theme, self.light_theme.name))
             self.set_theme_by_name(conf.light_theme, .none) catch {},
     }
 }
