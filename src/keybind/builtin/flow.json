@@ -308,26 +308,7 @@
             ["alt+6", "add_integer_argument_digit", 6],
             ["alt+7", "add_integer_argument_digit", 7],
             ["alt+8", "add_integer_argument_digit", 8],
-            ["alt+9", "add_integer_argument_digit", 9],
-
-            ["left_control", "enable_jump_mode"],
-            ["right_control", "enable_jump_mode"],
-            ["left_super", "enable_jump_mode"],
-            ["right_super", "enable_jump_mode"],
-            ["left_alt", "enable_fast_scroll"],
-            ["right_alt", "enable_fast_scroll"],
-            ["left_shift", "enable_alt_scroll"],
-            ["right_shift", "enable_alt_scroll"]
-        ],
-        "release": [
-            ["left_control", "disable_jump_mode"],
-            ["right_control", "disable_jump_mode"],
-            ["left_super", "disable_jump_mode"],
-            ["right_super", "disable_jump_mode"],
-            ["left_alt", "disable_fast_scroll"],
-            ["right_alt", "disable_fast_scroll"],
-            ["left_shift", "disable_alt_scroll"],
-            ["right_shift", "disable_alt_scroll"]
+            ["alt+9", "add_integer_argument_digit", 9]
         ]
     },
     "select": {
@@ -857,19 +838,7 @@
             [["ctrl+alt+a ctrl+alt+e", "Open new terminal window (gui)"], ["shell_execute_log", "flow-gui", "--connect", "disable", "--exec", "open_terminal", "{{project}}"]],
             [["ctrl+alt+enter", "Open new terminal (system)"], ["shell_execute_log", "xdg-terminal-exec", "--dir={{project}}"]],
             ["ctrl+alt+shift+r", "restart"],
-            ["ctrl+alt+a ctrl+f2", "insert_command_name"],
-
-            ["left_control", "enable_jump_mode"],
-            ["right_control", "enable_jump_mode"],
-            ["left_super", "enable_jump_mode"],
-            ["right_super", "enable_jump_mode"]
-        ],
-        "release": [
-            ["left_control", "disable_jump_mode"],
-            ["right_control", "disable_jump_mode"],
-            ["left_super", "disable_jump_mode"],
-            ["right_super", "disable_jump_mode"]
+            ["ctrl+alt+a ctrl+f2", "insert_command_name"]
         ]
-
     }
 }

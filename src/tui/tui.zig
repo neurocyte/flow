@@ -122,10 +122,6 @@ last_palette: ?LastPalette = null,
 vcs_terminal_request: ?VcsTerminalRequest = null,
 idle_actions_: std.ArrayList(IdleAction) = .empty,
 
-fast_scroll_: bool = false,
-alt_scroll_: bool = false,
-jump_mode_: bool = false,
-
 auto_run_timer: ?tp.Cancellable = null,
 
 rc_server: ?RcServer = null,
@@ -1571,9 +1567,6 @@ fn enter_overlay_mode_create(self: *Self, mode: type, ctx: command.Context, args
     clear_keyboard_focus();
     errdefer if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
         widget.focus();
-    command.executeName("disable_fast_scroll", ctx) catch {};
-    command.executeName("disable_alt_scroll", ctx) catch {};
-    command.executeName("disable_jump_mode", ctx) catch {};
     if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, ctx);
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, ctx);
     const new_mode = try @call(.auto, mode.create, .{self.allocator} ++ args);
@@ -1589,9 +1582,6 @@ fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) c
     clear_keyboard_focus();
     errdefer if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
         widget.focus();
-    command.executeName("disable_fast_scroll", ctx_) catch {};
-    command.executeName("disable_alt_scroll", ctx_) catch {};
-    command.executeName("disable_jump_mode", ctx_) catch {};
     if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, ctx_);
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, ctx_);
     const new_mode = try mode.create_with_args(self.allocator, ctx);
@@ -2688,9 +2678,6 @@ const cmds = struct {
         clear_keyboard_focus();
         errdefer if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
             widget.focus();
-        command.executeName("disable_fast_scroll", ctx_) catch {};
-        command.executeName("disable_alt_scroll", ctx_) catch {};
-        command.executeName("disable_jump_mode", ctx_) catch {};
         if (self.mini_mode_) |_| try exit_mini_mode(self, ctx_);
         if (self.input_mode_outer_) |_| try exit_overlay_mode(self, ctx_);
         if (self.input_mode_outer_ != null) @panic("exit_overlay_mode failed");
@@ -2876,38 +2863,6 @@ const cmds = struct {
         try save_config();
     }
     pub const info_box_next_widget_style_meta: Meta = .{ .description = "Next info box style" };
-
-    pub fn enable_fast_scroll(self: *Self, _: Ctx) Result {
-        self.fast_scroll_ = true;
-    }
-    pub const enable_fast_scroll_meta: Meta = .{ .description = "Enable fast scroll mode" };
-
-    pub fn disable_fast_scroll(self: *Self, _: Ctx) Result {
-        self.fast_scroll_ = false;
-    }
-    pub const disable_fast_scroll_meta: Meta = .{};
-
-    pub fn enable_alt_scroll(self: *Self, _: Ctx) Result {
-        self.alt_scroll_ = true;
-    }
-    pub const enable_alt_scroll_meta: Meta = .{ .description = "Enable alternate scroll mode" };
-
-    pub fn disable_alt_scroll(self: *Self, _: Ctx) Result {
-        self.alt_scroll_ = false;
-    }
-    pub const disable_alt_scroll_meta: Meta = .{};
-
-    pub fn enable_jump_mode(self: *Self, _: Ctx) Result {
-        self.jump_mode_ = true;
-        self.rdr_.request_mouse_cursor_pointer(true);
-    }
-    pub const enable_jump_mode_meta: Meta = .{ .description = "Enable jump/hover mode" };
-
-    pub fn disable_jump_mode(self: *Self, _: Ctx) Result {
-        self.jump_mode_ = false;
-        self.rdr_.request_mouse_cursor_text(true);
-    }
-    pub const disable_jump_mode_meta: Meta = .{};
 };
 
 pub const MiniMode = struct {
@@ -3951,21 +3906,6 @@ pub fn mouse_actions(mods: MouseEvent.Modifiers) MouseActions {
         .fast_scroll = mods.has(conf.mouse_scroll_fast),
         .alt_scroll = mods.has(conf.mouse_scroll_alternate),
     };
-}
-
-pub fn fast_scroll() bool {
-    const self = current();
-    return self.fast_scroll_;
-}
-
-pub fn alt_scroll() bool {
-    const self = current();
-    return self.alt_scroll_;
-}
-
-pub fn jump_mode() bool {
-    const self = current();
-    return self.jump_mode_;
 }
 
 pub fn write_state(writer: *std.Io.Writer) error{WriteFailed}!void {
