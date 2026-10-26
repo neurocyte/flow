@@ -3,6 +3,7 @@ pub const buffer = @import("tests_buffer.zig");
 pub const color = @import("tests_color.zig");
 pub const file_link = @import("tests_file_link.zig");
 pub const helix = @import("tests_helix.zig");
+pub const info_box_placement = @import("tests_info_box_placement.zig");
 pub const jump_labels = @import("tests_jump_labels.zig");
 pub const lsp = @import("tests_lsp.zig");
 pub const mini_buffer = @import("tests_mini_buffer.zig");

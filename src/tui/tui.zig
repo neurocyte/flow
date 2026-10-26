@@ -46,6 +46,7 @@ pub const exports = struct {
     pub const jump_labels = @import("jump_labels.zig");
     pub const MiniBuffer = @import("MiniBuffer.zig");
     pub const ScrollAnimation = @import("ScrollAnimation.zig");
+    pub const info_box_placement = @import("info_box_placement.zig");
 };
 
 const Allocator = std.mem.Allocator;

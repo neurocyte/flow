@@ -199,7 +199,17 @@ pub fn Create(options: type) type {
             const mv = tui.mainview() orelse return null;
             const ed = mv.get_active_editor() orelse return null;
             const cursor = ed.get_primary_abs() orelse return null;
-            return self.prepare_resize_at_y_x(screen, w, cursor.row + 1 + padding.top, cursor.col);
+            const x, const fit_w = self.fit_width(screen, w, cursor.col, padding);
+            return self.prepare_resize_at_y_x(screen, fit_w, cursor.row + 1 + padding.top, x);
+        }
+
+        fn fit_width(self: *Self, screen: Widget.Box, w: usize, x: usize, padding: Widget.Style.Margin) struct { usize, usize } {
+            const scrollbar_cols = 1;
+            const min_w = @min(w, @max(@min(self.longest + 3, max_list_box_width) + 2 + scrollbar_cols, options.label.len + 2));
+            const reserve = if (@hasDecl(options, "reserve_right")) options.reserve_right(self, x -| padding.left) else 0;
+            const room = screen.w -| x -| padding.right;
+            const fit_w = if (room >= min_w + reserve) @min(w, room - reserve) else @max(min_w, @min(w, room));
+            return .{ @min(x, screen.w -| fit_w -| padding.right), fit_w };
         }
 
         fn after_resize_list_box(self: *Self, _: *ListBox.State(*Self), _: Widget.Box) void {

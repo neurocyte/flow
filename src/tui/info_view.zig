@@ -12,6 +12,7 @@ const tp = @import("thespian");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
 const richdoc = @import("richdoc");
+const placement = @import("info_box_placement.zig");
 
 pub const name = @typeName(Self);
 
@@ -63,6 +64,7 @@ view_cols: usize = 0,
 sections: std.ArrayList(Section) = .empty,
 layout: richdoc.RDocLayout,
 layout_width: usize = 0,
+box_text_width: ?usize = null,
 theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
@@ -72,6 +74,8 @@ source: ?[]const u8 = null,
 
 const default_widget_type: Widget.Type = .panel;
 const panel_margin = 2;
+pub const box_min_width = 40;
+const box_slack_cols = 3;
 
 pub const panel_tag = "info";
 pub const panel_singleton = true;
@@ -292,6 +296,53 @@ pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
     return .{ .rows = self.layout.lines.items.len, .cols = self.layout.max_width() };
 }
 
+pub const BoxAnchor = struct {
+    before: usize,
+    after: usize,
+    side_rows: BoxRows,
+    fallback_x: usize,
+    fallback_rows: BoxRows,
+};
+
+pub const BoxRows = placement.Span;
+
+pub const BoxSide = enum { right, left, fallback };
+
+pub fn place_box(self: *Self, layer: *tui.WidgetLayerBox, anchor: BoxAnchor) !BoxSide {
+    const padding = tui.get_widget_style(self.widget_type).padding;
+    const pad_cols = padding.left + padding.right + box_slack_cols;
+    const pad_rows = padding.top + padding.bottom;
+    const height_limit = tui.config().info_box_height_limit;
+    const screen_w = tui.screen().w;
+
+    try self.set_box_text_width(null);
+    const want = self.content_size().cols + pad_cols + self.bar_cols_for(height_limit);
+    const has_fallback = anchor.fallback_rows.below > 0 or anchor.fallback_rows.above > 0;
+    const side = placement.horizontal(screen_w, anchor.before, anchor.after, want, if (has_fallback) box_min_width else 0);
+    const room = if (side) |s| s.w else placement.clamped(screen_w, anchor.fallback_x, want).w;
+    if (room < want) try self.set_box_text_width(room -| (pad_cols + 1));
+
+    const dim = self.content_size();
+    const v = placement.vertical(if (side != null) anchor.side_rows else anchor.fallback_rows, @min(dim.rows, height_limit) + pad_rows);
+    const rows = @max(1, v.h -| pad_rows);
+    const w = dim.cols + pad_cols + self.bar_cols_for(rows);
+    const x = if (side) |s| switch (s.side) {
+        .right => s.x,
+        .left => anchor.before -| w,
+    } else placement.clamped(screen_w, anchor.fallback_x, w).x;
+    layer.handle_resize(.{ .y = v.y, .x = x, .h = rows + pad_rows, .w = w });
+    return if (side) |s| switch (s.side) {
+        .right => .right,
+        .left => .left,
+    } else .fallback;
+}
+
+fn set_box_text_width(self: *Self, width: ?usize) !void {
+    if (self.box_text_width == width) return;
+    self.box_text_width = width;
+    if (self.text_width() != self.layout_width) try self.relayout();
+}
+
 fn render_sdoc(self: *Self, sdoc: richdoc.SDoc) !richdoc.RDoc {
     const theme = tui.theme();
     self.theme_name = theme.name;
@@ -316,7 +367,7 @@ fn restyle(self: *Self) !void {
 
 fn target_width(self: *const Self) usize {
     return if (self.widget_type == .info_box)
-        tui.config().info_box_width_limit
+        @min(tui.config().info_box_width_limit, self.box_text_width orelse std.math.maxInt(usize))
     else if (self.view_cols > 0)
         self.view_cols + self.scroller.bar_cols()
     else

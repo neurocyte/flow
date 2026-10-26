@@ -2432,24 +2432,16 @@ pub const Editor = struct {
     fn place_info_box(self: *Self, cursor: Cursor) void {
         const layer = self.info_box_layer orelse return;
         const info = self.show_info_box() catch return;
-        const padding = tui.get_widget_style(info_box_widget_type).padding;
-        const dim = info.content_size();
         const pos = self.screen_cursor(&cursor) orelse {
             self.clear_info_box();
             return;
         };
-        const y = self.plane.abs_y() + @as(i32, @intCast(pos.row));
-        const x = self.plane.abs_x() + @as(i32, @intCast(pos.col));
-        const bottom: i32 = self.plane.abs_y() + @as(i32, @intCast(self.plane.dim_y()));
-        const avail = @as(usize, @intCast(@max(0, bottom - (y + 1)))) -| (padding.top + padding.bottom);
-        const rows = @max(1, @min(dim.rows, tui.config().info_box_height_limit, avail));
-
-        layer.handle_resize(.{
-            .h = rows + padding.top + padding.bottom,
-            .w = dim.cols + padding.left + padding.right + 3 + info.bar_cols_for(rows),
-            .y = @intCast(y + 1),
-            .x = @intCast(x + 1),
-        });
+        const top: usize = @intCast(@max(0, self.plane.abs_y()));
+        const y = top + pos.row;
+        const x = @as(usize, @intCast(@max(0, self.plane.abs_x()))) + pos.col;
+        const bottom = top + self.plane.dim_y();
+        const rows: info_view.BoxRows = .{ .start = y + 1, .below = bottom -| (y + 1), .above_end = y, .above = y -| top };
+        _ = info.place_box(layer, .{ .before = x, .after = x + 1, .side_rows = rows, .fallback_x = x + 1, .fallback_rows = rows }) catch return;
     }
 
     fn update_file_link_highlight(self: *Self) void {

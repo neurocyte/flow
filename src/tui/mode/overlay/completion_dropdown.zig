@@ -204,27 +204,53 @@ pub fn on_render_list_box(self: *Type, button: *Type.ButtonType, theme: *const W
     if (self.value.editor.get_primary_scr()) |cursor|
         self.value.editor.plane.cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape());
 
+    const lead_cols: usize = if (tui.config().show_fileicons) 5 else 2;
+    const hint_cols = @as(usize, button.plane.dim_x()) -| (lead_cols + values.label.len);
+    const detail = clip_hint(values.label_detail, detail_limit, hint_cols);
+    var description_lines = std.mem.splitScalar(u8, values.label_description, '\n');
+    const desc = clip_hint(description_lines.first(), description_limit, hint_cols -| detail.cols() -| 2);
+
     const more = tui.render_symbol(
         &button.plane,
         0,
         values.label,
         icon_,
         color,
-        values.label_detail[0..@min(values.label_detail.len, detail_limit)],
-        values.label_description[0..@min(values.label_description.len, description_limit)],
+        detail.text,
+        desc.text,
         matches_cbor,
         button.active,
         selected,
         button.hover,
         theme,
-        if (values.label_detail.len > detail_limit) "…" else "",
-        if (values.label_description.len > description_limit) "…" else "",
+        detail.suffix,
+        desc.suffix,
         &.{},
     );
     if (!selected) return more;
     const layer = self.value.info_box_layer orelse return more;
     layer.widget().update();
     return layer.widget().render(theme) or more;
+}
+
+const Hint = struct {
+    text: []const u8,
+    suffix: []const u8,
+
+    fn cols(self: Hint) usize {
+        return self.text.len + @as(usize, if (self.suffix.len > 0) 1 else 0);
+    }
+};
+
+fn clip_hint(text: []const u8, limit: usize, room: usize) Hint {
+    if (text.len <= limit and text.len <= room) return .{ .text = text, .suffix = "" };
+    if (room == 0) return .{ .text = "", .suffix = "" };
+    return .{ .text = text[0..@min(limit, room - 1)], .suffix = "…" };
+}
+
+pub fn reserve_right(_: *Type, x: usize) usize {
+    if (tui.config().completion_info_mode != .box) return 0;
+    return if (x >= info_view.box_min_width) 0 else info_view.box_min_width;
 }
 
 pub fn walk(self: *Type, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
@@ -422,8 +448,6 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
         new_layer.blend = .src_over_blur;
         new_layer.alpha = tui.palette_opacity();
         new_layer.radius = 8;
-        new_layer.corners = .right;
-        new_layer.shadow = .{ .edges = .{ .left = false } };
         errdefer new_layer.deinit(self.allocator);
         const inner = try info_view.create_widget_type(self.allocator, new_layer.inner_plane(), info_box_widget_type);
         new_layer.set(inner);
@@ -443,18 +467,23 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
         try info.append_content(.plaintext, values.documentation);
     }
 
-    const padding = tui.get_widget_style(info_box_widget_type).padding;
-    const gy, const gx = button.plane.global_yx();
-    const btn_w: i32 = button.plane.dim_x();
-    const dim = info.content_size();
-    const avail = tui.screen().h -| @as(usize, @intCast(@max(0, gy))) -| (padding.top + padding.bottom);
-    const rows = @max(1, @min(dim.rows, tui.config().info_box_height_limit, avail));
-    layer.handle_resize(.{
-        .h = rows + padding.top + padding.bottom,
-        .w = dim.cols + padding.left + padding.right + 3 + info.bar_cols_for(rows),
-        .y = @intCast(gy),
-        .x = @intCast(gx + btn_w + 1),
+    const screen_h = tui.screen().h;
+    const list = self.list_box_layer.box;
+    const gy, _ = button.plane.global_yx();
+    const y: usize = @intCast(@max(0, gy));
+    const list_bottom = list.y + list.h;
+    const side = try info.place_box(layer, .{
+        .before = list.x,
+        .after = list.x + list.w,
+        .side_rows = .{ .start = y, .below = screen_h -| y },
+        .fallback_x = list.x,
+        .fallback_rows = .{ .start = list_bottom, .below = screen_h -| list_bottom },
     });
+    layer.corners, layer.shadow = switch (side) {
+        .right => .{ .right, .{ .edges = .{ .left = false } } },
+        .left => .{ .left, .{ .edges = .{ .right = false } } },
+        .fallback => .{ .all, .{} },
+    };
 }
 
 pub fn cancel(_: *Type, _: command.Context) !void {
