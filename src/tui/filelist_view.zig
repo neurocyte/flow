@@ -254,12 +254,13 @@ fn handle_render_list_box(self: *Self, button: *ButtonType, theme: *const Widget
     button.plane.cursor_move_yx(0, @intCast(max_len));
     button.plane.set_style(style_separator);
     _ = button.plane.print(" ▏", .{}) catch {};
-    switch (entry.severity) {
-        .Hint => button.plane.set_style(style_hint),
-        .Information => button.plane.set_style(style_information),
-        .Warning => button.plane.set_style(style_warning),
-        .Error => button.plane.set_style(style_error),
-    }
+    const style_severity = switch (entry.severity) {
+        .Hint => style_hint,
+        .Information => style_information,
+        .Warning => style_warning,
+        .Error => style_error,
+    };
+    button.plane.set_style(style_severity);
     const tab_width = tui.config().tab_width;
     const show_tabs_visual = switch (tui.config().whitespace_mode) {
         .tabs, .external, .visible, .full => true,
@@ -284,7 +285,12 @@ fn handle_render_list_box(self: *Self, button: *ButtonType, theme: *const Widget
                     for (0..spaces) |_| _ = button.plane.putstr(" ") catch {};
                 }
             },
-            0x00...0x08, 0x0a...0x1f, 0x7f => _ = button.plane.print("\\x{x:0>2}", .{cp}) catch {},
+            '\n' => {
+                button.plane.set_style(style_separator);
+                _ = button.plane.putstr(" ⏎ ") catch {};
+                button.plane.set_style(style_severity);
+            },
+            0x00...0x08, 0x0b...0x1f, 0x7f => _ = button.plane.print("\\x{x:0>2}", .{cp}) catch {},
             else => _ = button.plane.putstr(codepoint) catch {},
         }
     }
