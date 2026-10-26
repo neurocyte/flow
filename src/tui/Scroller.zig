@@ -14,6 +14,7 @@ const Self = @This();
 anim: ScrollAnimation = .{},
 content_rows: usize = 0,
 view_rows: usize = 0,
+sticky_end: bool = false,
 scrollbar: ?*scrollbar_v = null,
 
 /// self must not move after this, the scrollbar keeps a pointer to it
@@ -29,9 +30,15 @@ pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetLis
 }
 
 pub fn set_size(self: *Self, content_rows: usize, view_rows: usize) void {
+    const follow_end = self.sticky_end and self.anim.dest >= self.max_top();
     self.content_rows = content_rows;
     self.view_rows = view_rows;
-    self.anim.clamp(self.max_top());
+    if (!follow_end)
+        self.anim.clamp(self.max_top())
+    else if (self.anim.animating())
+        self.anim.dest = self.max_top()
+    else
+        self.anim.jump_to(self.max_top());
     self.set_bar_visible(self.overflows());
 }
 
