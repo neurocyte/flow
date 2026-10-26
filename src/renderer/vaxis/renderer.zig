@@ -47,6 +47,9 @@ enable_sgr_pixel_mode_support: bool = true,
 event_buffer: std.Io.Writer.Allocating,
 input_buffer: std.Io.Writer.Allocating,
 mods: vaxis.Key.Modifiers = .{},
+key_mods: MouseEvent.Modifiers = .{},
+last_mouse: ?MouseEvent.Event = null,
+held_button: MouseEvent.Button = .none,
 queries_done: bool,
 
 bracketed_paste: bool = false,
@@ -588,6 +591,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| return self.handle_bracketed_paste_error(e)) {
                 // we have stored it to handle on .paste_end, so do nothing more here
             } else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
+            try self.update_key_mods(key_, true);
         },
         .key_release => |key__| {
             const key_ = filter_mods(normalize_shifted_alphas(key__));
@@ -601,6 +605,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
                 key_.base_layout_codepoint orelse 0,
             });
             if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
+            try self.update_key_mods(key_, false);
         },
         .mouse => |mouse__| {
             var mouse_ = mouse__;
@@ -622,27 +627,29 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
 
             const cell = self.cell_size() orelse Layer.CellSize{ .w = 1, .h = 1 };
             const coord = MouseEvent.Cell.from_vaxis(mouse).to_coord(.{ .cell_width = cell.w, .cell_height = cell.h });
-            const mouse_event: MouseEvent.Event = .{
-                MouseEvent.Type.from_vaxis(mouse.type),
-                MouseEvent.Button.from_vaxis(mouse.button),
-                coord,
-                MouseEvent.Modifiers.from_vaxis(mouse.mods),
-            };
-            const mouse_msg = try self.fmtmsg(mouse_event);
+            // SGR mouse reports carry no super bit, take it from the key events
+            var mods = MouseEvent.Modifiers.from_vaxis(mouse.mods);
+            mods.super = self.key_mods.super;
+            const button = MouseEvent.Button.from_vaxis(mouse.button);
             switch (mouse.type) {
-                .drag => if (self.dispatch_mouse_drag) |f|
-                    f(self.handler_ctx, coord, mouse_msg),
-                else => if (self.dispatch_mouse) |f|
-                    f(self.handler_ctx, coord, mouse_msg),
+                .press => switch (button) {
+                    .left, .middle, .right => self.held_button = button,
+                    else => {},
+                },
+                .release => self.held_button = .none,
+                .motion, .drag => {},
             }
+            try self.send_mouse(.{ MouseEvent.Type.from_vaxis(mouse.type), button, coord, mods });
         },
         .mouse_leave => {
+            self.last_mouse = null;
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"mouse_leave"}));
         },
         .focus_in => {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_in"}));
         },
         .focus_out => {
+            self.last_mouse = null;
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_out"}));
         },
         .paste_start => try self.handle_bracketed_paste_start(),
@@ -935,6 +942,41 @@ fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !v
     if (!modifiers.shift and self.mods.shift and !(keypress == input.key.left_shift or keypress == input.key.right_shift))
         try self.send_sync_key(input.event.release, input.key.left_shift, "", modifiers);
     self.mods = modifiers;
+}
+
+fn send_mouse(self: *Self, event: MouseEvent.Event) !void {
+    self.last_mouse = event;
+    const coord = event[2];
+    const mouse_msg = try self.fmtmsg(event);
+    switch (event[0]) {
+        .drag => if (self.dispatch_mouse_drag) |f|
+            f(self.handler_ctx, coord, mouse_msg),
+        else => if (self.dispatch_mouse) |f|
+            f(self.handler_ctx, coord, mouse_msg),
+    }
+}
+
+fn update_key_mods(self: *Self, key_: vaxis.Key, pressed: bool) !void {
+    var mods: MouseEvent.Modifiers = .{
+        .shift = key_.mods.shift,
+        .alt = key_.mods.alt,
+        .ctrl = key_.mods.ctrl,
+        .super = key_.mods.super,
+    };
+    switch (key_.codepoint) {
+        input.key.left_shift, input.key.right_shift => mods.shift = pressed,
+        input.key.left_alt, input.key.right_alt => mods.alt = pressed,
+        input.key.left_control, input.key.right_control => mods.ctrl = pressed,
+        input.key.left_super, input.key.right_super => mods.super = pressed,
+        else => return,
+    }
+    self.key_mods = mods;
+    const last = self.last_mouse orelse return;
+    if (last[3] == mods) return;
+    try self.send_mouse(if (self.held_button != .none)
+        .{ .drag, self.held_button, last[2], mods }
+    else
+        .{ .motion, .none, last[2], mods });
 }
 
 fn send_sync_key(self: *Self, event: input.Event, keypress: u32, key_string: []const u8, modifiers: vaxis.Key.Modifiers) !void {

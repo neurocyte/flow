@@ -122,6 +122,7 @@ var tui_pid: thespian.pid = undefined;
 var render_pid: ?thespian.pid = null;
 var last_mods: input_translate.Mods = .{};
 var wio_modifiers: wio.Modifiers = .{};
+var last_mouse: ?MouseEvent.Event = null;
 var font_size_pt: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
@@ -928,6 +929,25 @@ const Pixel = struct {
 fn sendMouse(mouse_type: MouseEvent.Type, button: MouseEvent.Button, pos: wio.Position, mods: MouseEvent.Modifiers) void {
     const p = scaledPixel(pos);
     const event: MouseEvent.Event = .{ mouse_type, button, .{ .x = p.x, .y = p.y }, mods };
+    last_mouse = event;
+    tui_pid.send(.{ "RDR", event }) catch {};
+}
+
+/// Repost the last mouse event if the held modifier keys changed it
+fn repostMouse(held: input_translate.ButtonSet) void {
+    const last = last_mouse orelse return;
+    const mods: MouseEvent.Modifiers = .{
+        .shift = held.has(.left_shift) or held.has(.right_shift),
+        .alt = held.has(.left_alt) or held.has(.right_alt),
+        .ctrl = held.has(.left_control) or held.has(.right_control),
+        .super = held.has(.left_gui) or held.has(.right_gui),
+    };
+    if (last[3] == mods) return;
+    const event: MouseEvent.Event = if (input_translate.heldMouseButtonId(held)) |mb_id|
+        .{ .drag, @fromBackingInt(@intCast(mb_id)), last[2], mods }
+    else
+        .{ .motion, .none, last[2], mods };
+    last_mouse = event;
     tui_pid.send(.{ "RDR", event }) catch {};
 }
 
@@ -1233,8 +1253,10 @@ fn wioLoop() void {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
                             sendKey(press, base_cp, shifted_cp orelse base_cp, baseLayoutCodepoint(btn), mods);
                         } else {
-                            if (input_translate.modifierCodepoint(btn)) |mod_cp|
+                            if (input_translate.modifierCodepoint(btn)) |mod_cp| {
                                 sendKey(press, mod_cp, mod_cp, 0, mods);
+                                repostMouse(held_buttons);
+                            }
                         }
                     }
                 },
@@ -1272,6 +1294,7 @@ fn wioLoop() void {
                             sendKey(release, base_cp, shifted_cp orelse base_cp, baseLayoutCodepoint(btn), mods);
                         } else if (input_translate.modifierCodepoint(btn)) |mod_cp| {
                             sendKey(release, mod_cp, mod_cp, 0, mods);
+                            repostMouse(held_buttons);
                         }
                     }
                 },
@@ -1307,6 +1330,7 @@ fn wioLoop() void {
                     if (render_pid) |*rp| rp.send(.{"focus_in"}) catch {};
                 },
                 .unfocused => {
+                    last_mouse = null;
                     window.disableTextInput();
                     tui_pid.send(.{"focus_out"}) catch {};
                     if (render_pid) |*rp| rp.send(.{"focus_out"}) catch {};
@@ -1326,7 +1350,7 @@ fn wioLoop() void {
                     // TODO: save/restore window position
                 },
                 .mouse_leave => {
-                    // ignored
+                    last_mouse = null;
                 },
                 .size_logical => {
                     // ignored
