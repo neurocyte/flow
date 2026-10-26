@@ -73,6 +73,7 @@ animation_step: usize = 1,
 animation_last_time: i64 = 0,
 
 const default_widget_type: Widget.Type = .panel;
+const panel_margin = 2;
 
 pub const panel_tag = "info";
 pub const panel_singleton = true;
@@ -267,7 +268,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.view_rows = pos.h;
     self.view_cols = pos.w;
-    if (self.target_width() != self.layout_width or self.overflows() == (self.scrollbar_cols() == 0))
+    if (self.text_width() != self.layout_width or self.overflows() == (self.scrollbar_cols() == 0))
         self.relayout() catch {};
 }
 
@@ -324,13 +325,25 @@ fn target_width(self: *const Self) usize {
         tui.screen().w;
 }
 
+fn text_width(self: *const Self) usize {
+    const width = self.target_width();
+    if (self.widget_type == .info_box) return @max(1, width);
+    const avail = width -| 2 * panel_margin;
+    const conf = tui.config();
+    return @max(1, if (conf.panel_centered_view) @min(avail, conf.panel_centered_view_width) else avail);
+}
+
+fn text_col(self: *const Self) usize {
+    if (self.widget_type == .info_box) return 0;
+    return panel_margin + (self.target_width() -| 2 * panel_margin -| self.text_width()) / 2;
+}
+
 fn relayout(self: *Self) !void {
-    const width = @max(1, self.target_width());
+    const width = self.text_width();
     self.layout_width = width;
     try self.layout_at(width);
     if (self.scrollbar) |scrollbar| {
         const hidden = !self.overflows();
-        if (!hidden and width > 1) try self.layout_at(width - 1);
         if (scrollbar.hidden != hidden) {
             scrollbar.hidden = hidden;
             tui.need_render(@src());
@@ -378,7 +391,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
     self.update_scrollbar();
-    richdoc.render.to_plane(&self.layout, &self.plane, self.top, self.view_rows, self.plane.style);
+    richdoc.render.to_plane(&self.layout, &self.plane, self.top, self.view_rows, self.text_col(), self.plane.style);
     return self.top != self.scroll_dest;
 }
 

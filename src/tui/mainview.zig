@@ -1558,6 +1558,38 @@ const cmds = struct {
     }
     pub const panel_scroll_page_down_meta: Meta = .{ .description = "Scroll down a page" };
 
+    pub fn panel_toggle_centered_view(_: *Self, _: Ctx) Result {
+        const conf = tui.config_mut();
+        conf.panel_centered_view = !conf.panel_centered_view;
+        try tui.save_config();
+        tui.resize();
+    }
+    pub const panel_toggle_centered_view_meta: Meta = .{ .description = "Toggle centered panel view" };
+
+    pub fn panel_expand_centered_view(_: *Self, _: Ctx) Result {
+        const conf = tui.config_mut();
+        conf.panel_centered_view_width += 2;
+        try tui.save_config();
+        tui.resize();
+    }
+    pub const panel_expand_centered_view_meta: Meta = .{ .description = "Expand centered panel view" };
+
+    pub fn panel_shrink_centered_view(_: *Self, _: Ctx) Result {
+        const conf = tui.config_mut();
+        conf.panel_centered_view_width = @max(2, conf.panel_centered_view_width -| 2);
+        try tui.save_config();
+        tui.resize();
+    }
+    pub const panel_shrink_centered_view_meta: Meta = .{ .description = "Shrink centered panel view" };
+
+    pub fn panel_reset_centered_view(_: *Self, _: Ctx) Result {
+        const conf = tui.config_mut();
+        conf.panel_centered_view_width = (@import("config"){}).panel_centered_view_width;
+        try tui.save_config();
+        tui.resize();
+    }
+    pub const panel_reset_centered_view_meta: Meta = .{ .description = "Reset centered panel view width" };
+
     pub fn panel_scroll_top(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.top);
     }

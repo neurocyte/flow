@@ -77,12 +77,12 @@ pub fn to_layout(layout: *RDocLayout, rdoc: RDoc, metrics: anytype, opts: Layout
 }
 
 /// draw the lines of `layout` from `first_row` on, at most `rows`, styled over `base`
-pub fn to_plane(layout: *const RDocLayout, plane: anytype, first_row: usize, rows: usize, base: Style) void {
+pub fn to_plane(layout: *const RDocLayout, plane: anytype, first_row: usize, rows: usize, first_col: usize, base: Style) void {
     defer plane.style = base;
     const lines = layout.lines.items;
     for (lines[@min(first_row, lines.len)..], 0..) |line, row| {
         if (row >= rows) break;
-        plane.cursor_move_yx(@intCast(row), 0);
+        plane.cursor_move_yx(@intCast(row), @intCast(first_col));
         for (line.runs) |run| write_run(plane, base, run);
     }
 }
