@@ -1041,7 +1041,7 @@ fn render(self: *Self) void {
             .mode => .mode,
             .global => .global,
         };
-        keyhints.render_input_mode(self.hints_input_mode(), self.allocator, filter, self.config_.enable_prefix_keyhints, .all, theme_);
+        keyhints.render_input_mode(self.hints_input_mode(), self.allocator, filter, self.config_.keyhints_details, self.config_.enable_prefix_keyhints, .all, theme_);
 
         break :ret continue_mainview;
     };
@@ -2156,6 +2156,18 @@ const cmds = struct {
         @import("keyhints.zig").scroll();
     }
     pub const scroll_keybind_hints_meta: Meta = .{ .description = "Scroll keybind hints" };
+
+    pub fn toggle_keybind_hints_details(self: *Self, _: Ctx) Result {
+        self.config_.keyhints_details = switch (self.config_.keyhints_details) {
+            .auto => .shown,
+            .shown => .hidden,
+            .hidden => .auto,
+        };
+        defer self.logger.print("key hints details {t}", .{self.config_.keyhints_details});
+        try save_config();
+        need_render(@src());
+    }
+    pub const toggle_keybind_hints_details_meta: Meta = .{ .description = "Toggle key hints details" };
 
     pub fn toggle_prefix_keyhints(self: *Self, _: Ctx) Result {
         try self.toggle_keyhints_option("enable_prefix_keyhints", "prefix");

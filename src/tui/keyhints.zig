@@ -2,6 +2,7 @@ const std = @import("std");
 const keybind = @import("keybind");
 const command = @import("command");
 const Plane = @import("renderer").Plane;
+const KeyhintsDetails = @import("config").KeyhintsDetails;
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
@@ -15,7 +16,7 @@ var dodging: bool = false;
 
 pub const Filter = enum { prefix, mode, all, global };
 
-pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Allocator, filter: Filter, enable_prefix_keyhints: bool, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
+pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Allocator, filter: Filter, details: KeyhintsDetails, enable_prefix_keyhints: bool, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
     const mode = input_mode orelse return;
     var title_buf: [256]u8 = undefined;
     var title: std.Io.Writer = .fixed(&title_buf);
@@ -40,7 +41,11 @@ pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Al
         .global => keybind.current_global_bindings(allocator, select_mode) catch return,
     };
     defer allocator.free(bindings);
-    const rows = build_rows(arena.allocator(), bindings, 0, if (filter == .all) .shown else .hidden) catch return;
+    const rows = build_rows(arena.allocator(), bindings, 0, switch (details) {
+        .auto => if (filter == .all) .shown else .hidden,
+        .shown => .shown,
+        .hidden => .hidden,
+    }) catch return;
     return render(switch (filter) {
         .mode => mode_title(&title_buf, mode.bindings.config_section),
         .global => "global",

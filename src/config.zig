@@ -63,6 +63,7 @@ enable_prefix_keyhints: bool = true,
 enable_minimode_keyhints: bool = true,
 enable_overlay_keyhints: bool = true,
 enable_panel_keyhints: bool = false,
+keyhints_details: KeyhintsDetails = .auto,
 enable_auto_find: bool = true,
 find_mode: FindMode = .auto,
 find_in_files_mode: FindMode = .auto,
@@ -280,6 +281,12 @@ pub const WhitespaceMode = enum {
     visible,
     full,
     none,
+};
+
+pub const KeyhintsDetails = enum {
+    auto,
+    shown,
+    hidden,
 };
 
 pub const AutoSaveMode = enum {

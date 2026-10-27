@@ -40,6 +40,7 @@ const menu: Menu = .{ .items = &.{
     .{ .command = .{ .command = "toggle_minimode_keyhints", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_overlay_keyhints", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_panel_keyhints", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_keybind_hints_details", .on_activate = .keep_open } },
     .separator,
     .{ .command = .{ .command = "change_theme" } },
     .{ .command = .{ .command = "toggle_color_scheme", .on_activate = .keep_open } },
