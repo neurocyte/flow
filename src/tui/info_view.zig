@@ -17,6 +17,7 @@ const tui = @import("tui.zig");
 const richdoc = @import("richdoc");
 const placement = @import("info_box_placement.zig");
 const OverlayLine = @import("OverlayLine.zig");
+const link_dispatch = @import("link_dispatch.zig");
 
 pub const name = @typeName(Self);
 
@@ -81,6 +82,7 @@ title: ?[]const u8 = null,
 source: ?[]const u8 = null,
 source_version: ?usize = null,
 link_hover: ?LinkHover = null,
+link_pressed: bool = false,
 links_shown: bool = false,
 link_timer: ?tp.Cancellable = null,
 link_line_area: ?Widget.Box = null,
@@ -293,6 +295,15 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
         self.show_links(mods.ctrl);
         self.hover_link(coord);
+    } else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+        self.link_pressed = self.link_hover != null and self.link_under(coord) != null;
+    } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+        const pressed = self.link_pressed;
+        self.link_pressed = false;
+        if (pressed) if (self.link_hover) |link| if (self.link_under(coord)) |href| if (std.mem.eql(u8, href, link.href)) {
+            self.open_link(href);
+            return true;
+        };
     } else if (try m.match(.{ "H", tp.extract(&hover) })) {
         if (!hover) {
             self.show_links(false);
@@ -580,11 +591,23 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.home();
     const more = self.scroller.render();
     richdoc.render.to_plane(&self.layout, &self.plane, self.scroller.top(), self.view_rows, self.text_col(), self.plane.style, .{
-        .terminal_link = richdoc.render.is_absolute_uri,
+        .terminal_link = terminal_link,
         .underline = if (self.links_shown) .all else if (self.link_hover) |h| .{ .link = h.href } else .none,
     });
     self.show_link_line();
     return more;
+}
+
+fn terminal_link(href: []const u8) bool {
+    return link_dispatch.terminal_link(href, link_dispatch.renderer);
+}
+
+fn open_link(self: *Self, href: []const u8) void {
+    var arena: std.heap.ArenaAllocator = .init(self.allocator);
+    defer arena.deinit();
+    const base_dir = if (self.source) |source| std.fs.path.dirname(source) orelse "" else "";
+    const action = link_dispatch.classify(arena.allocator(), href, .{ .base_dir = base_dir }) catch return;
+    link_dispatch.dispatch(action);
 }
 
 fn link_under(self: *Self, coord: MouseEvent.Coord) ?[]const u8 {
