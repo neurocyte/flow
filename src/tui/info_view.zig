@@ -71,6 +71,7 @@ panel_input: ?PanelInput = null,
 scroller: Scroller = .{},
 source_anchor: ?SourceAnchor = null,
 source_top: ?usize = null,
+source_scrolled_away: bool = false,
 title: ?[]const u8 = null,
 source: ?[]const u8 = null,
 source_version: ?usize = null,
@@ -261,7 +262,9 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
 pub const SourceAnchor = struct {
     row: usize,
     place: enum { top, center } = .top,
+    offset: isize = 0,
     motion: enum { jump, glide } = .jump,
+    state: enum { following, scrolled_away } = .following,
 };
 
 pub fn scroll_to_source(self: *Self, anchor: SourceAnchor) void {
@@ -271,9 +274,19 @@ pub fn scroll_to_source(self: *Self, anchor: SourceAnchor) void {
 
 pub fn source_position(self: *const Self) ?SourceAnchor {
     if (self.source_anchor) |anchor| return anchor;
-    var i = @min(self.scroller.top() + 1, self.layout.lines.items.len);
-    while (i > 0) : (i -= 1) if (self.layout.lines.items[i - 1].src_row) |row| return .{ .row = row };
-    return null;
+    const lines = self.layout.lines.items;
+    const top = @min(self.scroller.top(), lines.len);
+    const row = for (lines[top..]) |line| {
+        if (line.src_row) |row| break row;
+    } else for (0..top) |i| {
+        if (lines[top - 1 - i].src_row) |row| break row;
+    } else return null;
+    const line = self.layout.line_of_src_row(row) orelse return null;
+    return .{
+        .row = row,
+        .offset = @as(isize, @intCast(top)) - @as(isize, @intCast(line)),
+        .state = if (self.scrolled_away_from_source()) .scrolled_away else .following,
+    };
 }
 
 fn resolve_source_anchor(self: *Self) void {
@@ -282,7 +295,7 @@ fn resolve_source_anchor(self: *Self) void {
     self.source_anchor = null;
     if (self.layout.line_of_src_row(anchor.row)) |line| {
         const top = switch (anchor.place) {
-            .top => line,
+            .top => @as(usize, @intCast(@max(0, @as(isize, @intCast(line)) + anchor.offset))),
             .center => line -| self.view_rows / 2,
         };
         if (@min(top, self.scroller.max_top()) != self.scroller.anim.dest) switch (anchor.motion) {
@@ -291,10 +304,12 @@ fn resolve_source_anchor(self: *Self) void {
         };
     }
     self.source_top = self.scroller.anim.dest;
+    self.source_scrolled_away = anchor.state == .scrolled_away;
 }
 
 pub fn scrolled_away_from_source(self: *const Self) bool {
-    if (self.source_anchor != null) return false;
+    if (self.source_anchor) |anchor| return anchor.state == .scrolled_away;
+    if (self.source_scrolled_away) return true;
     const top = self.source_top orelse return false;
     return @min(top, self.scroller.max_top()) != self.scroller.anim.dest;
 }

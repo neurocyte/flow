@@ -247,6 +247,12 @@ pub fn reload(self: *Self, buffer: *Buffer, reason: Reload.Reason) LoadError!voi
     self.start_load_stream(pending);
 }
 
+pub fn reload_if_changed_on_disk(self: *Self, buffer: *Buffer) LoadError!void {
+    if (!buffer.hidden or buffer.file_state != .changed_on_disk or buffer.is_dirty()) return;
+    if (self.find_reload(buffer.to_ref()) != null) return;
+    try self.reload(buffer, .external);
+}
+
 fn find_reload(self: *Self, buffer: Buffer.Ref) ?*PendingLoad {
     var it = self.loads.valueIterator();
     while (it.next()) |pending|
@@ -297,7 +303,7 @@ fn start_load_stream(self: *Self, pending: *PendingLoad) void {
     };
 }
 
-pub const LoadResult = enum { nochange, modified };
+pub const LoadResult = enum { nochange, modified, reloaded, changed_on_disk };
 
 fn load_progress(self: *Self, id: usize, m: tp.message) LoadResult {
     const pending = self.loads.getPtr(id) orelse return .nochange;
@@ -321,8 +327,9 @@ fn load_progress(self: *Self, id: usize, m: tp.message) LoadResult {
         return .nochange;
     };
     if (result == .pending) return .nochange;
+    const reloaded = pending.reload != null;
     self.finish_load(id, true);
-    return .modified;
+    return if (reloaded) .reloaded else .modified;
 }
 
 fn finish_load(self: *Self, id: usize, ok: bool) void {
@@ -1004,10 +1011,10 @@ fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8, _: File
     var result: LoadResult = .nochange;
     if (self.buffer_for_watched_path(from_path)) |buffer|
         result = self.file_gone(buffer, to_path);
-    if (self.buffer_for_watched_path(to_path)) |buffer|
-        if (self.file_replaced(buffer) == .modified) {
-            result = .modified;
-        };
+    if (self.buffer_for_watched_path(to_path)) |buffer| switch (self.file_replaced(buffer)) {
+        .nochange => {},
+        else => |replaced| result = replaced,
+    };
     return result;
 }
 
@@ -1036,7 +1043,7 @@ fn file_replaced(self: *Self, buffer: *Buffer) LoadResult {
         log.warn("{s} changed on disk; reload_file to discard your edits or force_save_file to overwrite", .{buffer.get_file_path()});
         return .modified;
     }
-    if (buffer.hidden) return .nochange;
+    if (buffer.hidden) return .changed_on_disk;
     self.reload(buffer, .external) catch |e|
         log.err("reload {s} failed: {t}", .{ buffer.get_file_path(), e });
     return .modified;

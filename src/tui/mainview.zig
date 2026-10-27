@@ -1106,6 +1106,11 @@ const cmds = struct {
     }
     pub const markdown_preview_sync_meta: Meta = .{};
 
+    pub fn markdown_preview_sync_disk(self: *Self, _: Ctx) Result {
+        self.bottom_area.each_tagged(info_view, info_view.preview_tag, self, sync_preview_disk);
+    }
+    pub const markdown_preview_sync_disk_meta: Meta = .{};
+
     pub fn open_font_test_text(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
         try self.create_editor(ctx.now);
@@ -3757,6 +3762,19 @@ fn sync_preview(self: *Self, preview: *info_view) void {
         if (!changed) anchor.motion = .glide;
         preview.scroll_to_source(anchor);
     };
+}
+
+fn sync_preview_disk(self: *Self, preview: *info_view) void {
+    const buffer_manager = tui.get_buffer_manager() orelse return;
+    const buffer = buffer_manager.get_buffer_for_file(preview.source orelse return) orelse return;
+    buffer_manager.reload_if_changed_on_disk(buffer) catch |e|
+        return log.logger("markdown_preview").print_err("sync", "reload {s}: {t}", .{ buffer.get_file_path(), e });
+    if (preview.source_version == buffer.version()) return;
+    const position = preview.source_position();
+    self.refresh_preview(preview, buffer) catch |e|
+        return log.logger("markdown_preview").print_err("sync", "{s}: {t}", .{ buffer.get_file_path(), e });
+    if (position) |anchor| preview.scroll_to_source(anchor);
+    tui.need_render(@src());
 }
 
 fn refresh_preview(self: *Self, preview: *info_view, buffer: *Buffer) !void {

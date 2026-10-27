@@ -542,9 +542,12 @@ fn handle_input_idle(self: *Self) void {
     var buf: [32]u8 = undefined;
     const m = tp.message.fmtbuf(&buf, .{"input_idle"}) catch return;
     _ = self.send_widgets(tp.self_pid(), m) catch return;
-    const idle_cmds = self.config_.idle_commands orelse return;
-    for (idle_cmds) |cmd|
-        command.executeName(cmd, .empty()) catch |e| self.logger.print_err("idlerun", "idle run command '{s}' failed: {t}", .{ cmd, e });
+    self.run_commands("idle", self.config_.idle_commands);
+}
+
+fn run_commands(self: *Self, context: []const u8, commands: ?[]const []const u8) void {
+    for (commands orelse return) |cmd|
+        command.executeName(cmd, .empty()) catch |e| self.logger.print_err(context, "{s} command '{s}' failed: {t}", .{ context, cmd, e });
 }
 
 fn update_input_idle_timer(self: *Self) void {
@@ -969,6 +972,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         if (get_buffer_manager()) |buffer_manager| {
             switch (buffer_manager.receive_file_store_message(from, m)) {
                 .modified => need_render(@src()),
+                .reloaded, .changed_on_disk => {
+                    need_render(@src());
+                    self.run_commands("on disk change", self.config_.on_disk_change_commands);
+                },
                 .nochange => {},
             }
             if (try m.match(.{ "FS", "ready" }))
