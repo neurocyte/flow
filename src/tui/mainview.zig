@@ -1159,6 +1159,28 @@ const cmds = struct {
     }
     pub const markdown_preview_open_meta: Meta = .{ .arguments = &.{ .string, .string, .integer } };
 
+    pub fn markdown_open_heading(self: *Self, ctx: Ctx) Result {
+        var path: []const u8 = undefined;
+        var anchor: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&path), tp.extract(&anchor) }))
+            return error.InvalidMarkdownOpenHeadingArgument;
+        const buffer = self.buffer_manager.get_buffer_for_file(path) orelse {
+            // run again once the file is loaded
+            var then: std.Io.Writer.Allocating = .init(self.allocator);
+            defer then.deinit();
+            try cbor.writeValue(&then.writer, .{ "cmd", "markdown_open_heading", .{ path, anchor } });
+            return self.buffer_manager.load(path, .{ .then = .{ .bytes = then.written() } });
+        };
+        const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
+        const sdoc = try richdoc.markdown.parse(self.allocator, content, tui.query_cache());
+        defer self.allocator.free(sdoc.raw.bytes);
+        if (try richdoc.anchors.heading_row(self.allocator, sdoc, anchor)) |row|
+            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = path, .line = row + 1 } })
+        else
+            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = path } });
+    }
+    pub const markdown_open_heading_meta: Meta = .{ .arguments = &.{ .string, .string } };
+
     pub fn markdown_preview_loaded(self: *Self, ctx: Ctx) Result {
         var path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&path)}))

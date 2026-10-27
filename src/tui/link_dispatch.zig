@@ -63,7 +63,11 @@ pub fn dispatch(action: Action, click: Click) void {
         .file => |target| navigate(target) catch |e| std.log.err("link navigate failed: {t}", .{e}),
         .markdown => |target| switch (click) {
             .normal => preview(target) catch |e| std.log.err("link preview failed: {t}", .{e}),
-            .alternate => navigate(target) catch |e| std.log.err("link navigate failed: {t}", .{e}),
+            .alternate => if (target.anchor) |anchor|
+                tp.self_pid().send(.{ "cmd", "markdown_open_heading", .{ target.path, anchor } }) catch |e|
+                    std.log.err("link navigate failed: {t}", .{e})
+            else
+                navigate(target) catch |e| std.log.err("link navigate failed: {t}", .{e}),
         },
         .anchor => {},
     }
