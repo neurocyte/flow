@@ -41,6 +41,7 @@ close_requested_ms: i64 = 0,
 
 hover_pos: ?Position = null,
 last_hover_pos: ?Position = null,
+mouse_pos: ?Position = null,
 hover_active: bool = false,
 link_click_pending: bool = false,
 file_link_highlight: ?FileLinkHighlight = null,
@@ -194,6 +195,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.apply_mouse_cursor();
         if (!self.hover) {
             self.hover_active = false;
+            self.mouse_pos = null;
             self.reset_hover_pos();
         }
         tui.need_render(@src());
@@ -342,9 +344,16 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 tui.need_render(@src());
                 return true;
             }
+            const pos: ?Position = if (cell.row >= 0 and cell.col >= 0)
+                .{ .row = @intCast(cell.row), .col = @intCast(cell.col) }
+            else
+                null;
+            // a modifier change without mouse motion only arms hover
+            const moved = !std.meta.eql(pos, self.mouse_pos);
+            self.mouse_pos = pos;
             self.hover_active = tui.mouse_actions(mods).hover;
             if (self.hover_active) {
-                if (cell.row >= 0 and cell.col >= 0)
+                if (moved and pos != null)
                     self.update_hover_pos(@intCast(cell.row), @intCast(cell.col));
             } else {
                 self.reset_hover_pos();

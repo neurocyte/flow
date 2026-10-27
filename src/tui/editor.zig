@@ -9318,13 +9318,16 @@ pub const EditorWidget = struct {
             const cell = coord.to_cell(self.editor.plane.mouse_geometry());
             const hover_y, const hover_x = .{ cell.row, cell.col };
             const hover_active = tui.mouse_actions(mods).hover;
-            if (hover_y != self.hover_y or hover_x != self.hover_x or hover_active != self.hover_active) {
+            const moved = hover_y != self.hover_y or hover_x != self.hover_x;
+            if (moved or hover_active != self.hover_active) {
                 self.hover_y, self.hover_x = .{ hover_y, hover_x };
                 if (hover_active != self.hover_active) {
                     self.hover_active = hover_active;
                     self.apply_mouse_cursor();
                 }
                 if (hover_active) {
+                    // a modifier change without mouse motion only arms hover
+                    if (!moved) return true;
                     self.update_hover_timer(.init);
                     self.hover_mouse_event = true;
                     if (hover_y >= 0 and hover_x >= 0)
