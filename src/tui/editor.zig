@@ -7331,8 +7331,10 @@ pub const Editor = struct {
 
     pub fn close_file_without_saving(self: *Self, ctx: Context) Result {
         const buffer_ = self.buffer;
-        if (buffer_) |buffer|
+        if (buffer_) |buffer| {
             buffer.reset_to_last_saved(ctx.now);
+            self.buffer_manager.discard_buffer(buffer);
+        }
         try self.close();
         if (buffer_) |buffer| {
             buffer_lsp.close(buffer);

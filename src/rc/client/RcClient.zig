@@ -75,6 +75,7 @@ const Process = struct {
     next_request_id: u64 = 1,
     outstanding: std.AutoHashMapUnmanaged(u64, Request) = .empty,
     failed: usize = 0,
+    discarded: usize = 0,
     track: Track,
     verbose: bool,
     terminal: ?u64,
@@ -373,6 +374,11 @@ const Process = struct {
             log.err("open {s} failed", .{path});
         } else if (try cbor.match(payload.bytes, .{ "buffer", "renamed", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path), cbor.extract(&old_path) })) {
             self.log_verbose("renamed {s} -> {s}", .{ old_path, path });
+        } else if (try cbor.match(payload.bytes, .{ "buffer", "discarded", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
+            if (self.tracked_buffers.remove(buffer_id)) {
+                self.discarded += 1;
+                self.log_verbose("discarded {s}", .{path});
+            }
         } else if (try cbor.match(payload.bytes, .{ "buffer", cbor.extract(&event), .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path), cbor.more })) {
             if (std.mem.eql(u8, event, "hidden") or std.mem.eql(u8, event, "deleted")) {
                 if (self.tracked_buffers.remove(buffer_id)) self.log_verbose("closed {s}", .{path});
@@ -392,8 +398,8 @@ const Process = struct {
     }
 
     fn exit_done(self: *@This()) error{Exit} {
-        if (self.failed == 0) return tp.exit_normal();
-        log.err("{d} remote request(s) failed", .{self.failed});
+        if (self.failed == 0 and self.discarded == 0) return tp.exit_normal();
+        if (self.failed > 0) log.err("{d} remote request(s) failed", .{self.failed});
         return tp.exit(exit_failed);
     }
 

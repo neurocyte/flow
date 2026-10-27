@@ -524,6 +524,15 @@ pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
     if (meta) |buf| tp.trace(tp.channel.debug, tp.message{ .buf = buf });
 }
 
+pub fn discard_buffer(self: *Self, buffer: *Buffer) void {
+    self.notify(buffer, "discarded", .{});
+}
+
+pub fn discard_all(self: *Self) void {
+    var it = self.listeners.keyIterator();
+    while (it.next()) |buffer| self.discard_buffer(buffer.*);
+}
+
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
     buffer.hidden = true;
     buffer.set_last_view(null);

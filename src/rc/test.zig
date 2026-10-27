@@ -145,7 +145,7 @@ const ClientTest = struct {
     navigated: bool = false,
     receiver: tp.Receiver(*@This()),
 
-    const Scenario = enum { relay_then_server_shutdown, client_shutdown, connect_failure, no_wait, track };
+    const Scenario = enum { relay_then_server_shutdown, client_shutdown, connect_failure, no_wait, track, track_discard };
 
     const Args = struct { allocator: std.mem.Allocator, path: [:0]const u8, scenario: Scenario };
 
@@ -190,15 +190,18 @@ const ClientTest = struct {
         var reply_id: u64 = 0;
 
         if (try m.match(.{"synced"})) {
-            self.client = try RcClient.create(self.allocator, self.path, .{ .track = if (self.scenario == .track) .full else .none });
+            self.client = try RcClient.create(self.allocator, self.path, .{ .track = if (self.scenario == .track or self.scenario == .track_discard) .full else .none });
             try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
-            if (self.scenario == .no_wait or self.scenario == .track) try self.client.?.disconnect();
+            if (self.scenario != .relay_then_server_shutdown and self.scenario != .client_shutdown) try self.client.?.disconnect();
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
-            if (self.scenario == .track) {
+            if (self.scenario == .track or self.scenario == .track_discard) {
                 try expect_tracked_navigate_args(args);
                 try send_reply(reply_piid, reply_id, "ok");
                 try send_reply(reply_piid, reply_id, .{ "navigation", "complete", .{ "BUFID", 42 }, "foo.zig" });
-                try send_reply(reply_piid, reply_id, .{ "buffer", "saved", .{ "BUFID", 42 }, "foo.zig" });
+                if (self.scenario == .track)
+                    try send_reply(reply_piid, reply_id, .{ "buffer", "saved", .{ "BUFID", 42 }, "foo.zig" })
+                else
+                    try send_reply(reply_piid, reply_id, .{ "buffer", "discarded", .{ "BUFID", 42 }, "foo.zig" });
                 try send_reply(reply_piid, reply_id, .{ "buffer", "hidden", .{ "BUFID", 42 }, "foo.zig" });
                 self.navigated = true;
                 return;
@@ -210,7 +213,7 @@ const ClientTest = struct {
                 .relay_then_server_shutdown => self.server.?.pid.?.send(.{"shutdown"}) catch {},
                 .client_shutdown => self.client.?.pid.?.send(.{"shutdown"}) catch {},
                 .connect_failure => return tp.unexpected(m),
-                .no_wait, .track => {},
+                .no_wait, .track, .track_discard => {},
             }
         } else if (try m.match(.{ "exit", tp.extract(&reason) }) or try m.match(.{ "exit", tp.extract(&reason), tp.more })) {
             if (self.client) |c| if (c.pid) |p| if (p.instance_id() == from.instance_id()) {
@@ -223,8 +226,10 @@ const ClientTest = struct {
                         self.server.?.pid.?.send(.{"shutdown"}) catch {};
                     },
                     .relay_then_server_shutdown => if (!normal) return tp.exit("client disconnect not normal"),
-                    .no_wait, .track => {
-                        if (!normal) return tp.exit("client exit not normal");
+                    .no_wait, .track, .track_discard => {
+                        if (self.scenario == .track_discard) {
+                            if (!std.mem.eql(u8, reason, RcClient.exit_failed)) return tp.exit("discarded buffer did not fail the client");
+                        } else if (!normal) return tp.exit("client exit not normal");
                         if (!self.navigated) return tp.exit("client exited before request was delivered");
                         self.server.?.pid.?.send(.{"shutdown"}) catch {};
                     },
@@ -286,4 +291,8 @@ test "rc_client: disconnect after queued requests are delivered" {
 
 test "rc_client: tracked navigation ends when the buffer is hidden" {
     try run_client_test(.track);
+}
+
+test "rc_client: discarding a tracked buffer fails the client" {
+    try run_client_test(.track_discard);
 }

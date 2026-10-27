@@ -734,7 +734,8 @@ const cmds = struct {
     }
     pub const quit_confirmed_meta: Meta = .{};
 
-    pub fn quit_without_saving(_: *Self, _: Ctx) Result {
+    pub fn quit_without_saving(self: *Self, _: Ctx) Result {
+        self.buffer_manager.discard_all();
         try tp.self_pid().send("quit");
     }
     pub const quit_without_saving_meta: Meta = .{ .description = "Quit without saving" };
