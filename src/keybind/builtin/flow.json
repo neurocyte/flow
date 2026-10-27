@@ -472,8 +472,8 @@
             ["page_down", "move_scroll_page_down"],
             ["ctrl+u", "move_scroll_half_page_up"],
             ["ctrl+d", "move_scroll_half_page_down"],
-            ["shift+space", "completion_info_scroll_up"],
-            ["space", "completion_info_scroll_down"],
+            ["shift+space", "move_scroll_half_page_up"],
+            ["space", "move_scroll_half_page_down"],
             [["ctrl+w", "Close"], "palette_menu_action", "cancel"],
             [["escape", "Close"], "palette_menu_action", "cancel"],
             [["q", "Close"], "palette_menu_action", "cancel"]
