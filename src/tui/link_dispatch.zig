@@ -58,7 +58,9 @@ pub fn terminal_link(href: []const u8, renderer_: Renderer) bool {
 pub fn dispatch(action: Action) void {
     switch (action) {
         .url => |url| tui.open_url(url),
-        .file, .markdown => |target| navigate(target) catch |e| std.log.err("link navigate failed: {t}", .{e}),
+        .file => |target| navigate(target) catch |e| std.log.err("link navigate failed: {t}", .{e}),
+        .markdown => |target| tp.self_pid().send(.{ "cmd", "markdown_preview_open", .{ target.path, target.anchor orelse "", target.line orelse 0 } }) catch |e|
+            std.log.err("link preview failed: {t}", .{e}),
         .anchor => {},
     }
 }

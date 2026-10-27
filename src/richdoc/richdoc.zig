@@ -4,6 +4,7 @@ pub const RDocLayout = @import("RDocLayout.zig");
 pub const render = @import("render.zig");
 pub const markdown = @import("markdown.zig");
 pub const debug = @import("debug.zig");
+pub const anchors = @import("anchors.zig");
 
 test {
     _ = @import("markdown_test.zig");

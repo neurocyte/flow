@@ -83,6 +83,7 @@ source: ?[]const u8 = null,
 source_version: ?usize = null,
 link_hover: ?LinkHover = null,
 link_pressed: bool = false,
+heading_anchor: ?[]const u8 = null,
 links_shown: bool = false,
 link_timer: ?tp.Cancellable = null,
 link_line_area: ?Widget.Box = null,
@@ -272,6 +273,7 @@ fn init(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !*Self {
 pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.panel_input) |*panel_input| panel_input.deinit(Widget.to(self));
     self.clear();
+    self.set_heading_anchor(null);
     self.sections.deinit(self.allocator);
     if (self.title) |title| self.allocator.free(title);
     if (self.source) |source| self.allocator.free(source);
@@ -603,11 +605,37 @@ fn terminal_link(href: []const u8) bool {
 }
 
 fn open_link(self: *Self, href: []const u8) void {
+    self.clear_link_hover();
     var arena: std.heap.ArenaAllocator = .init(self.allocator);
     defer arena.deinit();
     const base_dir = if (self.source) |source| std.fs.path.dirname(source) orelse "" else "";
     const action = link_dispatch.classify(arena.allocator(), href, .{ .base_dir = base_dir }) catch return;
-    link_dispatch.dispatch(action);
+    switch (action) {
+        .anchor => |anchor| _ = self.scroll_to_heading(anchor),
+        else => link_dispatch.dispatch(action),
+    }
+}
+
+pub fn set_heading_anchor(self: *Self, anchor: ?[]const u8) void {
+    if (self.heading_anchor) |old| self.allocator.free(old);
+    self.heading_anchor = if (anchor) |a| self.allocator.dupe(u8, a) catch null else null;
+}
+
+pub fn resolve_heading_anchor(self: *Self) void {
+    const anchor = self.heading_anchor orelse return;
+    defer self.set_heading_anchor(null);
+    if (!self.scroll_to_heading(anchor)) std.log.scoped(.info_view).info("no heading #{s}", .{anchor});
+}
+
+pub fn scroll_to_heading(self: *Self, anchor: []const u8) bool {
+    if (self.sections.items.len == 0) return false;
+    const md = switch (self.sections.items[0]) {
+        .markdown => |md| md,
+        .plaintext => return false,
+    };
+    const row = richdoc.anchors.heading_row(self.allocator, md.sdoc, anchor) catch return false;
+    self.scroll_to_source(.{ .row = row orelse return false });
+    return true;
 }
 
 fn link_under(self: *Self, coord: MouseEvent.Coord) ?[]const u8 {

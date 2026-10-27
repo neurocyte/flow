@@ -6,6 +6,7 @@ const RDoc = @import("RDoc.zig");
 const RDocLayout = @import("RDocLayout.zig");
 const render = @import("render.zig");
 const debug = @import("debug.zig");
+const anchors = @import("anchors.zig");
 
 const test_theme = struct {
     fn find(_: *const anyopaque, scope: []const u8) ?render.Token {
@@ -298,4 +299,30 @@ test "draw links as terminal links and underlined" {
     var hovered: MarkPlane = .{};
     render.to_plane(&t.layout, &hovered, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline = .{ .link = "x.md" } });
     try std.testing.expectEqualStrings("..u.l", hovered.marks[0..hovered.len]);
+}
+
+fn expect_heading_row(source: []const u8, anchor: []const u8, expected: ?usize) !void {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    const gpa = std.testing.allocator;
+    const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
+    defer query_cache.deinit();
+    const sdoc = try markdown.parse(gpa, source, query_cache);
+    defer gpa.free(sdoc.raw.bytes);
+    try std.testing.expectEqual(expected, try anchors.heading_row(gpa, sdoc, anchor));
+}
+
+test "heading anchors" {
+    const doc = "# Intro\n\n## Usage & *Setup*\n\ntext\n\n## Usage & Setup\n\n> ### Quoted Heading\n";
+    try expect_heading_row(doc, "intro", 0);
+    try expect_heading_row(doc, "usage--setup", 2);
+    try expect_heading_row(doc, "usage--setup-1", 6);
+    try expect_heading_row(doc, "quoted-heading", 8);
+    try expect_heading_row(doc, "missing", null);
+}
+
+test "heading anchor slugs" {
+    const gpa = std.testing.allocator;
+    const s = try anchors.slug(gpa, " Hello, World! v1.2_beta ");
+    defer gpa.free(s);
+    try std.testing.expectEqualStrings("hello-world-v12_beta", s);
 }

@@ -1127,16 +1127,67 @@ const cmds = struct {
         const buffer = editor.buffer orelse return;
         const source = buffer.get_file_path();
         const was_hidden = !self.bottom_area.visible();
-        const preview = if (self.bottom_area.find_tagged_where(info_view, info_view.preview_tag, source, info_view.is_preview_of)) |f| blk: {
-            self.bottom_area.activate(f.panel.id);
-            break :blk f.panel.cast(info_view) orelse return error.PanelNotFound;
-        } else try self.bottom_area.create_panel_with(info_view, info_view.create_preview, .{source}, .{});
+        const preview = try self.show_preview(source);
         try self.refresh_preview(preview, buffer);
         preview.scroll_to_source(preview_anchor(editor, buffer));
         if (was_hidden) self.bottom_area.set_maximized(true);
         tui.need_render(@src());
     }
     pub const markdown_preview_meta: Meta = .{ .description = "Preview the current buffer as markdown" };
+
+    pub fn markdown_preview_open(self: *Self, ctx: Ctx) Result {
+        var path: []const u8 = undefined;
+        var anchor: []const u8 = undefined;
+        var line: usize = 0;
+        if (!try ctx.args.match(.{ tp.extract(&path), tp.extract(&anchor), tp.extract(&line) }))
+            return error.InvalidMarkdownPreviewOpenArgument;
+        const was_hidden = !self.bottom_area.visible();
+        const preview = try self.show_preview(path);
+        preview.set_heading_anchor(if (anchor.len > 0) anchor else null);
+        if (line > 0) preview.scroll_to_source(.{ .row = line - 1 });
+        if (self.buffer_manager.get_buffer_for_file(path)) |buffer| {
+            try self.refresh_preview(preview, buffer);
+            preview.resolve_heading_anchor();
+        } else {
+            var then: std.Io.Writer.Allocating = .init(self.allocator);
+            defer then.deinit();
+            try cbor.writeValue(&then.writer, .{ "cmd", "markdown_preview_loaded", .{path} });
+            try self.buffer_manager.load(path, .{ .then = .{ .bytes = then.written() } });
+        }
+        if (was_hidden) self.bottom_area.set_maximized(true);
+        tui.need_render(@src());
+    }
+    pub const markdown_preview_open_meta: Meta = .{ .arguments = &.{ .string, .string, .integer } };
+
+    pub fn markdown_preview_loaded(self: *Self, ctx: Ctx) Result {
+        var path: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&path)}))
+            return error.InvalidMarkdownPreviewLoadedArgument;
+        const buffer = self.buffer_manager.get_buffer_for_file(path) orelse return;
+        const f = self.bottom_area.find_tagged_where(info_view, info_view.preview_tag, path, info_view.is_preview_of) orelse return;
+        const preview = f.panel.cast(info_view) orelse return;
+        const has_editor = self.get_editor_for_buffer(buffer) != null;
+        if (!buffer.file_exists) {
+            self.bottom_area.remove(f, .never);
+            if (!has_editor) self.buffer_manager.delete_buffer(buffer);
+            const logger = log.logger("markdown_preview");
+            defer logger.deinit();
+            return logger.print_err("open", "{s} not found", .{path});
+        }
+        if (!has_editor) self.buffer_manager.close_buffer(buffer);
+        if (buffer.file_type_name == null) {
+            const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
+            if (file_type_config.guess_file_type(path, content)) |ft| {
+                buffer.file_type_name = ft.name;
+                buffer.file_type_icon = ft.icon;
+                buffer.file_type_color = ft.color;
+            }
+        }
+        try self.refresh_preview(preview, buffer);
+        preview.resolve_heading_anchor();
+        tui.need_render(@src());
+    }
+    pub const markdown_preview_loaded_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn markdown_preview_sync(self: *Self, _: Ctx) Result {
         self.bottom_area.each_tagged(info_view, info_view.preview_tag, self, sync_preview);
@@ -3828,6 +3879,14 @@ fn sync_preview_disk(self: *Self, preview: *info_view) void {
         return log.logger("markdown_preview").print_err("sync", "{s}: {t}", .{ buffer.get_file_path(), e });
     if (position) |anchor| preview.scroll_to_source(anchor);
     tui.need_render(@src());
+}
+
+fn show_preview(self: *Self, source: []const u8) !*info_view {
+    if (self.bottom_area.find_tagged_where(info_view, info_view.preview_tag, source, info_view.is_preview_of)) |f| {
+        self.bottom_area.activate(f.panel.id);
+        return f.panel.cast(info_view) orelse error.PanelNotFound;
+    }
+    return self.bottom_area.create_panel_with(info_view, info_view.create_preview, .{source}, .{});
 }
 
 fn refresh_preview(self: *Self, preview: *info_view, buffer: *Buffer) !void {
