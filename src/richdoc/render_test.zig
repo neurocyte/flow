@@ -292,7 +292,10 @@ test "draw links as terminal links and underlined" {
     var links: MarkPlane = .{};
     render.to_plane(&t.layout, &links, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri });
     try std.testing.expectEqualStrings("....l", links.marks[0..links.len]);
+    var all: MarkPlane = .{};
+    render.to_plane(&t.layout, &all, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline = .all });
+    try std.testing.expectEqualStrings("..u.L", all.marks[0..all.len]);
     var hovered: MarkPlane = .{};
-    render.to_plane(&t.layout, &hovered, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline_links = true });
-    try std.testing.expectEqualStrings("..u.L", hovered.marks[0..hovered.len]);
+    render.to_plane(&t.layout, &hovered, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline = .{ .link = "x.md" } });
+    try std.testing.expectEqualStrings("..u.l", hovered.marks[0..hovered.len]);
 }

@@ -473,6 +473,7 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     const gy, _ = button.plane.global_yx();
     const y: usize = @intCast(@max(0, gy));
     const list_bottom = list.y + list.h;
+    if (tui.mainview()) |mv| info.link_line_area = mv.editor_area_of(self.value.editor.plane);
     const side = try info.place_box(layer, .{
         .before = list.x,
         .after = list.x + list.w,

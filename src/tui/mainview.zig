@@ -41,6 +41,7 @@ const LspInfo = @import("lsp_info.zig");
 const logview = @import("logview.zig");
 const filelist_view = @import("filelist_view.zig");
 const FileList = @import("FileList.zig");
+const OverlayLine = @import("OverlayLine.zig");
 const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
@@ -76,6 +77,8 @@ panes: *WidgetList,
 panes_widget: Widget,
 bottom_area: *PanelArea = undefined,
 panel_layout_state: ?[]const u8 = null,
+link_line: ?struct { text: []const u8, area: Box } = null,
+link_line_overlay: OverlayLine = .{ .name = "link_line.layer" },
 vcs_commits: std.StringHashMapUnmanaged([]const u8) = .empty,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
@@ -188,6 +191,8 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.bottom_area.deinit();
+    self.hide_link_line();
+    self.link_line_overlay.deinit(allocator);
     if (self.panel_layout_state) |state| allocator.free(state);
     var vcs_commits = self.vcs_commits.iterator();
     while (vcs_commits.next()) |p| {
@@ -360,7 +365,34 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const views_more = self.floating_views.render(theme);
     const widgets_more = self.widgets.render(theme);
+    if (self.link_line) |line|
+        self.link_line_overlay.render(self.allocator, theme, line.area, .right, line.text, theme.statusbar) catch {};
     return widgets_more or views_more;
+}
+
+pub fn show_link_line(self: *Self, text: []const u8, area: Box) void {
+    const owned = self.allocator.dupe(u8, text) catch return;
+    self.hide_link_line();
+    self.link_line = .{ .text = owned, .area = area };
+    tui.need_render(@src());
+}
+
+pub fn editor_area_of(self: *const Self, plane: Plane) Box {
+    var area = OverlayLine.area_of(plane);
+    const editors = self.editor_area_frame();
+    area.frame.h = @min(area.frame.y + area.frame.h, editors.y + editors.h) - area.frame.y;
+    return area;
+}
+
+pub fn hide_link_line(self: *Self) void {
+    const line = self.link_line orelse return;
+    self.allocator.free(line.text);
+    self.link_line = null;
+    tui.need_render(@src());
+}
+
+pub fn link_line_shown(self: *const Self) bool {
+    return self.link_line != null;
 }
 
 pub fn handle_resize(self: *Self, pos: Box) void {

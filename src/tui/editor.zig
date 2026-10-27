@@ -2459,6 +2459,7 @@ pub const Editor = struct {
         const x = @as(usize, @intCast(@max(0, self.plane.abs_x()))) + pos.col;
         const bottom = top + self.plane.dim_y();
         const rows: info_view.BoxRows = .{ .start = y + 1, .below = bottom -| (y + 1), .above_end = y, .above = y -| top };
+        if (tui.mainview()) |mv| info.link_line_area = mv.editor_area_of(self.plane);
         _ = info.place_box(layer, .{ .before = x, .after = x + 1, .side_rows = rows, .fallback_x = x + 1, .fallback_rows = rows }) catch return;
     }
 

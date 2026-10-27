@@ -79,7 +79,14 @@ pub fn to_layout(layout: *RDocLayout, rdoc: RDoc, metrics: anytype, opts: Layout
 pub const PlaneOptions = struct {
     /// links drawn as terminal hyperlinks (OSC 8)
     terminal_link: *const fn (href: []const u8) bool = no_terminal_links,
-    underline_links: bool = false,
+    underline: Underline = .none,
+
+    pub const Underline = union(enum) {
+        none,
+        all,
+        /// the links to this href
+        link: []const u8,
+    };
 
     fn no_terminal_links(_: []const u8) bool {
         return false;
@@ -878,7 +885,11 @@ fn write_run(plane: anytype, base: Style, run: RDocLayout.Run, opts: PlaneOption
     style.reverse = style.reverse or a.reverse;
     style.invisible = style.invisible or a.invisible;
     style.strikethrough = style.strikethrough or a.strikethrough;
-    if (opts.underline_links and run.attrs.link.len > 0) style.ul_style = .single;
+    if (run.attrs.link.len > 0 and switch (opts.underline) {
+        .none => false,
+        .all => true,
+        .link => |href| std.mem.eql(u8, href, run.attrs.link),
+    }) style.ul_style = .single;
     plane.style = style;
     if (run.attrs.link.len == 0 or !opts.terminal_link(run.attrs.link)) {
         _ = plane.putstr(run.text) catch {};

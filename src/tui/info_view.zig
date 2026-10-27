@@ -10,10 +10,13 @@ const Scroller = @import("Scroller.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const root = @import("soft_root").root;
+const MouseEvent = @import("MouseEvent");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
 const richdoc = @import("richdoc");
 const placement = @import("info_box_placement.zig");
+const OverlayLine = @import("OverlayLine.zig");
 
 pub const name = @typeName(Self);
 
@@ -77,6 +80,16 @@ source_scrolled_away: bool = false,
 title: ?[]const u8 = null,
 source: ?[]const u8 = null,
 source_version: ?usize = null,
+link_hover: ?LinkHover = null,
+links_shown: bool = false,
+link_timer: ?tp.Cancellable = null,
+link_line_area: ?Widget.Box = null,
+
+const LinkHover = struct {
+    href: []const u8,
+    since_us: i64,
+    shown: bool = false,
+};
 
 const default_widget_type: Widget.Type = .panel;
 const panel_margin = 2;
@@ -274,13 +287,29 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try self.scroller.receive_mouse(m)) return true;
+    var coord: MouseEvent.Coord = undefined;
+    var mods: MouseEvent.Modifiers = .{};
+    var hover: bool = false;
+    if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
+        self.show_links(mods.ctrl);
+        self.hover_link(coord);
+    } else if (try m.match(.{ "H", tp.extract(&hover) })) {
+        if (!hover) {
+            self.show_links(false);
+            self.clear_link_hover();
+        }
+    }
+    if (try self.scroller.receive_mouse(m)) {
+        self.clear_link_hover();
+        return true;
+    }
     const panel_input = if (self.panel_input) |*panel_input| panel_input else return false;
     if (try PanelInput.receive_context_menu(self, m)) return true;
     return panel_input.receive(from, m);
 }
 
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
+    self.clear_link_hover();
     self.scroller.scroll(action);
 }
 
@@ -295,6 +324,7 @@ pub fn panel_copy(self: *Self) void {
 }
 
 pub fn clear(self: *Self) void {
+    self.clear_link_hover();
     for (self.sections.items) |section| section.deinit(self.allocator);
     self.sections.clearRetainingCapacity();
     self.layout.reset();
@@ -551,8 +581,62 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const more = self.scroller.render();
     richdoc.render.to_plane(&self.layout, &self.plane, self.scroller.top(), self.view_rows, self.text_col(), self.plane.style, .{
         .terminal_link = richdoc.render.is_absolute_uri,
+        .underline = if (self.links_shown) .all else if (self.link_hover) |h| .{ .link = h.href } else .none,
     });
+    self.show_link_line();
     return more;
+}
+
+fn link_under(self: *Self, coord: MouseEvent.Coord) ?[]const u8 {
+    const cell = coord.to_cell(self.plane.mouse_geometry());
+    if (cell.row < 0 or cell.col < 0 or cell.row >= self.view_rows) return null;
+    const col: usize = @intCast(cell.col);
+    if (col < self.text_col()) return null;
+    const line = self.scroller.top() + @as(usize, @intCast(cell.row));
+    return richdoc.render.link_at(&self.layout, line, col - self.text_col(), &self.plane);
+}
+
+fn hover_link(self: *Self, coord: MouseEvent.Coord) void {
+    const href = self.link_under(coord) orelse return self.clear_link_hover();
+    if (self.link_hover) |h| if (std.mem.eql(u8, h.href, href)) return;
+    self.clear_link_hover();
+    const owned = self.allocator.dupe(u8, href) catch return;
+    self.link_hover = .{ .href = owned, .since_us = root.get_now().toMicroseconds() };
+    tui.rdr().request_mouse_cursor(.pointer, true);
+    // a little late, so the render that shows the line comes after the delay
+    const delay_us = std.time.us_per_ms * (tui.config().hover_time_ms + 1);
+    self.link_timer = tp.self_pid().delay_send_cancellable(self.allocator, "info_view.link_timer", delay_us, .{"render"}) catch null;
+    tui.need_render(@src());
+}
+
+fn show_links(self: *Self, shown: bool) void {
+    if (self.links_shown == shown) return;
+    self.links_shown = shown;
+    tui.need_render(@src());
+}
+
+fn clear_link_hover(self: *Self) void {
+    const hover = self.link_hover orelse return;
+    if (self.link_timer) |*timer| {
+        timer.cancel() catch {};
+        timer.deinit();
+        self.link_timer = null;
+    }
+    if (hover.shown) if (tui.mainview()) |mv| mv.hide_link_line();
+    self.allocator.free(hover.href);
+    self.link_hover = null;
+    tui.rdr().request_mouse_cursor(.pointer, false);
+    tui.need_render(@src());
+}
+
+fn show_link_line(self: *Self) void {
+    const hover = if (self.link_hover) |*h| h else return;
+    if (hover.shown) return;
+    const delay_us: i64 = @intCast(std.time.us_per_ms * tui.config().hover_time_ms);
+    if (root.get_now().toMicroseconds() - hover.since_us < delay_us) return;
+    const mv = tui.mainview() orelse return;
+    mv.show_link_line(hover.href, self.link_line_area orelse OverlayLine.area_of(self.plane));
+    hover.shown = true;
 }
 
 fn has_markdown(self: *const Self) bool {
