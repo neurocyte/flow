@@ -61,16 +61,17 @@ pub fn set_resolve_provider_from_event(self: *@This(), cbor_buf: []const u8) err
 }
 
 fn add(self: *@This(), lsp_arg0: []const u8, iter: *[]const u8) error{ InvalidTriggersArray, OutOfMemory }!void {
-    const key = try self.allocator.dupe(u8, lsp_arg0);
-    errdefer self.allocator.free(key);
-
-    const p = try self.table.getOrPut(self.allocator, key);
+    const p = try self.table.getOrPut(self.allocator, lsp_arg0);
     const value = p.value_ptr;
     if (p.found_existing) {
         for (value.trigger_characters.items) |char|
             self.allocator.free(char);
         value.trigger_characters.clearRetainingCapacity();
     } else {
+        p.key_ptr.* = self.allocator.dupe(u8, lsp_arg0) catch |e| {
+            _ = self.table.remove(lsp_arg0);
+            return e;
+        };
         value.* = .{};
     }
 
