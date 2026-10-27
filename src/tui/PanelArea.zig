@@ -452,7 +452,7 @@ pub fn focus_group(self: *Self, dir: GroupDirection) void {
     tui.need_render(@src());
 }
 
-fn find_by_tag(self: *const Self, tag: []const u8) ?Found {
+pub fn find_by_tag(self: *const Self, tag: []const u8) ?Found {
     for (self.groups.items) |g| for (g.panels.items) |p| if (std.mem.eql(u8, p.tag(), tag))
         return .{ .group = g, .panel = p };
     return null;

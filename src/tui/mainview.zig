@@ -540,6 +540,11 @@ fn close_terminal_panels(self: *Self) void {
     while (self.bottom_area.find_panel(terminal_view)) |f| self.bottom_area.remove(f, .never);
 }
 
+fn close_info_panels(self: *Self) void {
+    while (self.bottom_area.find_panel(info_view)) |f| self.bottom_area.remove(f, .never);
+    while (self.bottom_area.find_by_tag(info_view.preview_tag)) |f| self.bottom_area.remove(f, .never);
+}
+
 fn get_panel_view(self: *Self, comptime view: type) ?*view {
     return self.bottom_area.find_first(view);
 }
@@ -831,6 +836,7 @@ const cmds = struct {
             self.closing_project = true;
             defer self.closing_project = false;
             self.close_terminal_panels();
+            self.close_info_panels();
             terminal_view.shutdown_all();
             try close_splits(self, .empty_from(ctx));
             try self.close_all_editors(.empty_from(ctx));
