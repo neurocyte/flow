@@ -419,7 +419,6 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
     } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) {
         self.bottom_bar_drag = null;
         self.set_bottom_bar_offset(0);
-        self.bottom_area.save_height();
         tui.reset_hover(@src());
         tui.refresh_hover(@src());
     }

@@ -55,7 +55,7 @@ tab_style_bufs: ?*std.heap.ArenaAllocator,
 on_maximize: ?MaximizeCallback = null,
 
 height: ?usize = null,
-unsaved_height: ?usize = null,
+height_ratio: f32,
 maximized: bool = false,
 maximized_by_snap: bool = false,
 snap_height: usize = 0,
@@ -75,6 +75,7 @@ pub fn create(allocator: Allocator, host: *WidgetList, location: Location) error
         .list = list,
         .tab_style = tab_style,
         .tab_style_bufs = tab_style_bufs,
+        .height_ratio = tui.config().panel_height_ratio,
     };
     return self;
 }
@@ -469,7 +470,7 @@ fn persistable_count(g: *const PanelGroup) usize {
     return n;
 }
 
-// [location, visible, maximized, focused_group, groups: [[active_index, tabs: [[tag, state]]]]]
+// [location, visible, maximized, focused_group, groups: [[active_index, tabs: [[tag, state]]]], height]
 pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {
     var n_groups: usize = 0;
     var focused: ?usize = null;
@@ -477,7 +478,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void 
         if (self.last_focused == g) focused = n_groups;
         n_groups += 1;
     };
-    try cbor.writeArrayHeader(writer, 5);
+    try cbor.writeArrayHeader(writer, 6);
     try cbor.writeValue(writer, @tagName(self.location));
     try cbor.writeValue(writer, self.attached);
     try cbor.writeValue(writer, self.maximized);
@@ -501,6 +502,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void 
             if (p.vtable.write_state) |write_state_| try write_state_(p.impl.ptr, writer) else try cbor.writeValue(writer, null);
         };
     }
+    try cbor.writeValue(writer, self.get_height());
 }
 
 fn skip_values(iter: *[]const u8, n: usize) !void {
@@ -561,7 +563,12 @@ pub fn restore_state(self: *Self, state: []const u8, restore_panel: RestoreFn) !
                 self.last_focused = g;
         }
     }
-    try skip_values(&iter, fields - 5);
+    if (fields >= 6) {
+        var height: usize = 0;
+        if (!try cbor.matchValue(&iter, cbor.extract(&height))) return error.InvalidPanelAreaState;
+        self.height = height;
+    }
+    try skip_values(&iter, fields -| 6);
     self.maximized = maximized;
     if (visible_) {
         self.show();
@@ -627,22 +634,11 @@ pub fn current_height(self: *const Self) usize {
 
 pub fn get_height(self: *const Self) usize {
     if (self.height) |h| return h;
-    return rows_for_ratio(total_height(), tui.config().panel_height_ratio);
+    return rows_for_ratio(total_height(), self.height_ratio);
 }
 
 pub fn is_maximized(self: *const Self) bool {
     return self.maximized;
-}
-
-fn save_height_ratio(height: usize) void {
-    const total = total_height();
-    if (total == 0) return;
-    const total_f: f32 = @floatFromInt(total);
-    const floor = @as(f32, @floatFromInt(height_min_rows)) / total_f;
-    const ratio = std.math.clamp(@as(f32, @floatFromInt(height)) / total_f, floor, height_ratio_max);
-    if (ratio == tui.config().panel_height_ratio) return;
-    tui.config_mut().panel_height_ratio = ratio;
-    tui.save_config() catch {};
 }
 
 fn ensure_visible(self: *Self) bool {
@@ -665,7 +661,6 @@ pub fn set_height_abs(self: *Self, y: usize) void {
     self.maximized = false;
     self.maximized_by_snap = false;
     self.list.layout_ = .{ .static = height };
-    self.unsaved_height = null;
     if (height == 1) {
         self.height = null;
         self.hide();
@@ -674,16 +669,8 @@ pub fn set_height_abs(self: *Self, y: usize) void {
         self.list.layout_ = .{ .static = max_h };
         self.height = null;
         self.focus_active();
-    } else {
-        self.unsaved_height = height;
     }
     self.notify_maximized();
-}
-
-pub fn save_height(self: *Self) void {
-    const height = self.unsaved_height orelse return;
-    self.unsaved_height = null;
-    save_height_ratio(height);
 }
 
 pub fn set_height_rel(self: *Self, y: isize) void {
@@ -691,7 +678,6 @@ pub fn set_height_rel(self: *Self, y: isize) void {
     if (self.maximized and y > 0) return;
     const h: isize = @intCast(self.get_height());
     self.set_height_abs(@intCast(@max(1, h +| y)));
-    self.save_height();
 }
 
 pub fn toggle_maximize(self: *Self) void {
