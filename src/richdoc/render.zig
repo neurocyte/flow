@@ -76,15 +76,38 @@ pub fn to_layout(layout: *RDocLayout, rdoc: RDoc, metrics: anytype, opts: Layout
     while (try blocks.next()) |block| try builder.block(block);
 }
 
+pub const PlaneOptions = struct {
+    /// links drawn as terminal hyperlinks (OSC 8)
+    terminal_link: *const fn (href: []const u8) bool = no_terminal_links,
+    underline_links: bool = false,
+
+    fn no_terminal_links(_: []const u8) bool {
+        return false;
+    }
+};
+
 /// draw the lines of `layout` from `first_row` on, at most `rows`, styled over `base`
-pub fn to_plane(layout: *const RDocLayout, plane: anytype, first_row: usize, rows: usize, first_col: usize, base: Style) void {
+pub fn to_plane(layout: *const RDocLayout, plane: anytype, first_row: usize, rows: usize, first_col: usize, base: Style, opts: PlaneOptions) void {
     defer plane.style = base;
     const lines = layout.lines.items;
     for (lines[@min(first_row, lines.len)..], 0..) |line, row| {
         if (row >= rows) break;
         plane.cursor_move_yx(@intCast(row), @intCast(first_col));
-        for (line.runs) |run| write_run(plane, base, run);
+        for (line.runs) |run| write_run(plane, base, run, opts);
     }
+}
+
+/// the link at cell `col` of layout line `line`, measured with `metrics` as in `to_layout`
+pub fn link_at(layout: *const RDocLayout, line: usize, col: usize, metrics: anytype) ?[]const u8 {
+    const lines = layout.lines.items;
+    if (line >= lines.len) return null;
+    var x: usize = 0;
+    for (lines[line].runs) |run| {
+        const w = text_width(metrics, run.text, x, 1); // tabs are expanded in the layout
+        if (col < x + w) return if (run.attrs.link.len > 0) run.attrs.link else null;
+        x += w;
+    }
+    return null;
 }
 
 /// the width in cells of `text` from `start_col`, measured with `metrics`
@@ -129,7 +152,7 @@ const Builder = struct {
             if (eql(u8, tag, "em")) return .{ .scopes = &.{ "markup.italic", "text.emphasis" }, .bit = .italic };
             if (eql(u8, tag, "del")) return .{ .scopes = &.{"markup.strikethrough"}, .bit = .strikethrough };
             if (eql(u8, tag, "code") or eql(u8, tag, "pre")) return .{ .scopes = &.{ "markup.raw", "text.literal", "string" } };
-            if (eql(u8, tag, "a")) return .{ .scopes = &.{ "markup.underline.link", "text.reference" }, .bit = .underline };
+            if (eql(u8, tag, "a")) return .{ .scopes = &.{ "markup.underline.link", "text.reference" } };
             if (eql(u8, tag, "html")) return .{ .scopes = &.{"comment"} };
             if (eql(u8, tag, "th")) return .{ .scopes = &.{}, .bit = .bold };
             return null;
@@ -324,9 +347,11 @@ const Builder = struct {
             try self.add_text(b, elem.attr_string("alt") orelse "", .{ .style = in.style, .link = in.link, .sloc = elem.sloc() });
         } else if (elem.is("a")) {
             const href = elem.attr_string("href") orelse "";
+            var style = self.apply_tag(in.style, tag);
+            style.ul_style = .off; // links are underlined while hovered, see PlaneOptions
             try self.inlines(b, elem, .{
-                .style = self.apply_tag(in.style, tag),
-                .link = if (is_absolute_uri(href)) href else in.link,
+                .style = style,
+                .link = if (href.len > 0) href else in.link,
                 .sloc = elem.sloc(),
             });
         } else {
@@ -438,7 +463,7 @@ fn is_block_tag(tag: []const u8) bool {
     return false;
 }
 
-fn is_absolute_uri(uri: []const u8) bool {
+pub fn is_absolute_uri(uri: []const u8) bool {
     const colon = std.mem.indexOfScalar(u8, uri, ':') orelse return false;
     if (colon == 0 or !std.ascii.isAlphabetic(uri[0])) return false;
     for (uri[0..colon]) |c| if (!(std.ascii.isAlphanumeric(c) or c == '+' or c == '-' or c == '.')) return false;
@@ -841,7 +866,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
     };
 }
 
-fn write_run(plane: anytype, base: Style, run: RDocLayout.Run) void {
+fn write_run(plane: anytype, base: Style, run: RDocLayout.Run, opts: PlaneOptions) void {
     const a = run.attrs.style;
     var style = base;
     if (a.fg != .default) style.fg = a.fg;
@@ -855,8 +880,9 @@ fn write_run(plane: anytype, base: Style, run: RDocLayout.Run) void {
     style.reverse = style.reverse or a.reverse;
     style.invisible = style.invisible or a.invisible;
     style.strikethrough = style.strikethrough or a.strikethrough;
+    if (opts.underline_links and run.attrs.link.len > 0) style.ul_style = .single;
     plane.style = style;
-    if (run.attrs.link.len == 0) {
+    if (run.attrs.link.len == 0 or !opts.terminal_link(run.attrs.link)) {
         _ = plane.putstr(run.text) catch {};
         return;
     }

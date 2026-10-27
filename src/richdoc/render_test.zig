@@ -45,7 +45,7 @@ fn expect(source: []const u8, opts: render.Options, expected: []const u8) !void 
 }
 
 test "heading and inline styles" {
-    try expect("# Head *em* **b**\n\npara `code` [l](http://x) [rel](a.md)", .{}, "(blocks (block :wrap \"words\" :width 9 \"Head em b\" (span 0 5 :fg 0x000001 :bold true) (span 5 7 :fg 0x000001 :bold true :italic true) (span 7 8 :fg 0x000001 :bold true) (span 8 9 :fg 0x000002 :bold true)) (block :wrap \"words\" :space_before 1 :width 15 \"para code l rel\" (span 0 5) (span 5 9 :fg 0x000003) (span 9 10) (span 10 11 :fg 0x000004 :ul_style 1 :link \"http://x\") (span 11 12) (span 12 15 :fg 0x000004 :ul_style 1)))");
+    try expect("# Head *em* **b**\n\npara `code` [l](http://x) [rel](a.md)", .{}, "(blocks (block :wrap \"words\" :width 9 \"Head em b\" (span 0 5 :fg 0x000001 :bold true) (span 5 7 :fg 0x000001 :bold true :italic true) (span 7 8 :fg 0x000001 :bold true) (span 8 9 :fg 0x000002 :bold true)) (block :wrap \"words\" :space_before 1 :width 15 \"para code l rel\" (span 0 5) (span 5 9 :fg 0x000003) (span 9 10) (span 10 11 :fg 0x000004 :link \"http://x\") (span 11 12) (span 12 15 :fg 0x000004 :link \"a.md\")))");
 }
 
 test "nested inline styles" {
@@ -108,7 +108,7 @@ test "rdoc reader" {
     var spans = try item.span_iterator();
     const span = (try spans.next()).?;
     try std.testing.expectEqualStrings("http://x", span.attrs.link);
-    try std.testing.expectEqual(.single, span.attrs.style.ul_style);
+    try std.testing.expectEqual(.off, span.attrs.style.ul_style);
     try std.testing.expectEqual([2]usize{ 2, 18 }, span.attrs.sloc.?);
     try std.testing.expectEqual(null, try top.next());
 }
@@ -124,25 +124,50 @@ const test_metrics = struct {
     }
 }{};
 
-fn layout_of(source: []const u8, width: usize) !RDocLayout {
+fn layout_of(source: []const u8, width: usize) !TestLayout {
+    return layout_with(source, width, test_metrics);
+}
+
+/// three byte UTF-8 sequences are two cells wide
+const wide_metrics = struct {
+    pub fn egc_length(_: @This(), text: []const u8, cols: *usize, _: usize, _: usize) usize {
+        const len = std.unicode.utf8ByteSequenceLength(text[0]) catch 1;
+        cols.* = if (len >= 3) 2 else 1;
+        return len;
+    }
+}{};
+
+/// the layout's runs point into the rdoc, so both live until deinit
+const TestLayout = struct {
+    layout: RDocLayout,
+    rdoc: []const u8,
+
+    fn deinit(self: *TestLayout) void {
+        self.layout.deinit();
+        std.testing.allocator.free(self.rdoc);
+    }
+};
+
+fn layout_with(source: []const u8, width: usize, metrics: anytype) !TestLayout {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
     const sdoc = try markdown.parse(gpa, source, query_cache);
     defer gpa.free(sdoc.raw.bytes);
     const rdoc = try render.from_sdoc(gpa, sdoc, test_theme.theme, query_cache, .{});
-    defer gpa.free(rdoc.raw.bytes);
+    errdefer gpa.free(rdoc.raw.bytes);
     var layout: RDocLayout = .init(gpa);
     errdefer layout.deinit();
-    try render.to_layout(&layout, rdoc, test_metrics, .{ .width = width, .tab_width = 8 });
-    return layout;
+    try render.to_layout(&layout, rdoc, metrics, .{ .width = width, .tab_width = 8 });
+    return .{ .layout = layout, .rdoc = rdoc.raw.bytes };
 }
 
 fn expect_rows(source: []const u8, width: usize, expected: []const ?usize) !void {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     const gpa = std.testing.allocator;
-    var layout = try layout_of(source, width);
-    defer layout.deinit();
+    var t = try layout_of(source, width);
+    defer t.deinit();
+    const layout = &t.layout;
     const rows = try gpa.alloc(?usize, layout.lines.items.len);
     defer gpa.free(rows);
     for (layout.lines.items, rows) |line, *row| row.* = line.src_row;
@@ -168,8 +193,9 @@ test "layout source rows of a table" {
 test "layout line of a source row" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     // lines: Head 0, blank, para 2, blank, a 5, b 6
-    var layout = try layout_of("# Head\n\npara\n\n```zig\na\nb\n```\n", 40);
-    defer layout.deinit();
+    var t = try layout_of("# Head\n\npara\n\n```zig\na\nb\n```\n", 40);
+    defer t.deinit();
+    const layout = &t.layout;
     try std.testing.expectEqual(0, layout.line_of_src_row(0));
     try std.testing.expectEqual(0, layout.line_of_src_row(1));
     try std.testing.expectEqual(2, layout.line_of_src_row(2));
@@ -182,8 +208,9 @@ test "layout line of a source row" {
 test "layout line of a source row in wrapped lines" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     // lines: line 0, break 1, blank, aaa 3, bbb 3, ccc 3
-    var layout = try layout_of("line  \nbreak\n\naaa bbb\nccc\n", 5);
-    defer layout.deinit();
+    var t = try layout_of("line  \nbreak\n\naaa bbb\nccc\n", 5);
+    defer t.deinit();
+    const layout = &t.layout;
     try std.testing.expectEqual(1, layout.line_of_src_row(2));
     try std.testing.expectEqual(3, layout.line_of_src_row(3));
     try std.testing.expectEqual(3, layout.line_of_src_row(4));
@@ -194,4 +221,78 @@ test "layout line of a source row before any mapped line" {
     defer layout.deinit();
     try layout.add_line("plain", 5);
     try std.testing.expectEqual(null, layout.line_of_src_row(3));
+}
+
+test "link at a cell of a wrapped link" {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    // lines: "see aaa", "bbb end", the link text is "aaa bbb"
+    var t = try layout_of("see [aaa bbb](other.md) end\n", 7);
+    defer t.deinit();
+    const layout = &t.layout;
+    try std.testing.expectEqual(null, render.link_at(layout, 0, 2, test_metrics));
+    try std.testing.expectEqualStrings("other.md", render.link_at(layout, 0, 4, test_metrics).?);
+    try std.testing.expectEqualStrings("other.md", render.link_at(layout, 1, 0, test_metrics).?);
+    try std.testing.expectEqual(null, render.link_at(layout, 1, 5, test_metrics));
+    try std.testing.expectEqual(null, render.link_at(layout, 0, 40, test_metrics));
+    try std.testing.expectEqual(null, render.link_at(layout, 9, 0, test_metrics));
+}
+
+test "link at a cell after a wide character" {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    // "中 l": the wide character takes cells 0 and 1, the link is at cell 3
+    var t = try layout_with("中 [l](#top)\n", 40, wide_metrics);
+    defer t.deinit();
+    const layout = &t.layout;
+    try std.testing.expectEqual(null, render.link_at(layout, 0, 1, wide_metrics));
+    try std.testing.expectEqual(null, render.link_at(layout, 0, 2, wide_metrics));
+    try std.testing.expectEqualStrings("#top", render.link_at(layout, 0, 3, wide_metrics).?);
+}
+
+/// records one mark per cell: '.' plain, 'u' underlined, 'l' terminal link, 'L' both
+const MarkPlane = struct {
+    style: RDoc.Style = .{},
+    marks: [64]u8 = undefined,
+    len: usize = 0,
+
+    const Cell = struct { char: u8 = ' ', link: bool = false };
+
+    fn mark(self: *MarkPlane, link: bool) void {
+        const ul = self.style.ul_style != .off;
+        self.marks[self.len] = if (link and ul) 'L' else if (link) 'l' else if (ul) 'u' else '.';
+        self.len += 1;
+    }
+    pub fn cursor_move_yx(_: *MarkPlane, _: usize, _: usize) void {}
+    pub fn putstr(self: *MarkPlane, text: []const u8) !usize {
+        for (text) |_| self.mark(false);
+        return text.len;
+    }
+    pub fn cell_init(_: *MarkPlane) Cell {
+        return .{};
+    }
+    pub fn cell_load(_: *MarkPlane, cell: *Cell, text: []const u8) !usize {
+        cell.char = text[0];
+        return 1;
+    }
+    pub fn cell_set_link(_: *MarkPlane, cell: *Cell, _: []const u8, _: []const u8) void {
+        cell.link = true;
+    }
+    pub fn putc(self: *MarkPlane, cell: *Cell) !usize {
+        self.mark(cell.link);
+        return 1;
+    }
+};
+
+test "draw links as terminal links and underlined" {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    var t = try layout_of("a [b](x.md) [c](https://x)\n", 40);
+    defer t.deinit();
+    var plain: MarkPlane = .{};
+    render.to_plane(&t.layout, &plain, 0, 1, 0, .{}, .{});
+    try std.testing.expectEqualStrings(".....", plain.marks[0..plain.len]);
+    var links: MarkPlane = .{};
+    render.to_plane(&t.layout, &links, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri });
+    try std.testing.expectEqualStrings("....l", links.marks[0..links.len]);
+    var hovered: MarkPlane = .{};
+    render.to_plane(&t.layout, &hovered, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline_links = true });
+    try std.testing.expectEqualStrings("..u.L", hovered.marks[0..hovered.len]);
 }

@@ -549,7 +549,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
     const more = self.scroller.render();
-    richdoc.render.to_plane(&self.layout, &self.plane, self.scroller.top(), self.view_rows, self.text_col(), self.plane.style);
+    richdoc.render.to_plane(&self.layout, &self.plane, self.scroller.top(), self.view_rows, self.text_col(), self.plane.style, .{
+        .terminal_link = richdoc.render.is_absolute_uri,
+    });
     return more;
 }
 
