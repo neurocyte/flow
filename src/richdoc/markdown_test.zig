@@ -112,7 +112,7 @@ test "source locations" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     const actual = try dump("# a *b*\n\n> c\n", true);
     defer std.testing.allocator.free(actual);
-    try std.testing.expectEqualStrings("(body :sloc [0 13] (h1 :sloc [0 8] \"a \" (em :sloc [4 7] \"b\")) (blockquote :sloc [9 13] (p :sloc [11 13] \"c\")))", actual);
+    try std.testing.expectEqualStrings("(body :sloc [0 13] :src_row 0 (h1 :sloc [0 8] :src_row 0 \"a \" (em :sloc [4 7] :src_row 0 \"b\")) (blockquote :sloc [9 13] :src_row 2 (p :sloc [11 13] :src_row 2 \"c\")))", actual);
 }
 
 test "pipe table" {

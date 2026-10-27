@@ -72,7 +72,7 @@ fn write_map(writer: *std.Io.Writer, map: cbor.Raw, opts: SExprOptions) !void {
         if (!try cbor.matchString(&iter, &key)) return error.InvalidCbor;
         var value: cbor.Raw = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract(&value))) return error.InvalidCbor;
-        if (!opts.sloc and std.mem.eql(u8, key, "sloc")) continue;
+        if (!opts.sloc and is_sloc_key(key)) continue;
         try writer.print(" :{s} ", .{key});
         var color: u24 = 0;
         var color_iter = value.bytes;
@@ -84,6 +84,10 @@ fn write_map(writer: *std.Io.Writer, map: cbor.Raw, opts: SExprOptions) !void {
             try writer.writeAll(" }");
         } else try write_value(writer, value);
     }
+}
+
+fn is_sloc_key(key: []const u8) bool {
+    return std.mem.eql(u8, key, "sloc") or std.mem.eql(u8, key, "src_row");
 }
 
 fn is_color_key(key: []const u8) bool {

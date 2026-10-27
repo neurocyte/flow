@@ -158,6 +158,7 @@ const Builder = struct {
         const b = try self.arena.create(BlockBuilder);
         b.* = .{
             .sloc = elem.sloc(),
+            .src_row = elem.src_row(),
             .space_before = if (parent.children.items.len > 0 and spacing == .container) 1 else 0,
         };
         try parent.children.append(self.arena, b);
@@ -462,6 +463,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
         tab_width: usize,
         code_overflow: CodeOverflow,
         prefixes: std.ArrayList(Prefix) = .empty,
+        src_row: ?usize = null,
 
         fn text_width(self: *const @This(), text: []const u8, start_col: usize) usize {
             return render.text_width(self.metrics, text, start_col, self.tab_width);
@@ -521,7 +523,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
                 col += self.text_width(part, col);
                 try runs.append(self.arena, .{ .text = part, .attrs = seg.attrs });
             }
-            try self.layout.lines.append(self.arena, .{ .runs = runs.items, .width = col });
+            try self.layout.lines.append(self.arena, .{ .runs = runs.items, .width = col, .src_row = self.src_row });
         }
 
         fn expand_tabs(self: *const @This(), text: []const u8, start_col: usize) ![]const u8 {
@@ -565,6 +567,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
                 .attrs = .{ .style = b.prefix_style() },
             });
             const lines_before = self.layout.lines.items.len;
+            self.src_row = b.src_row();
 
             const fill = b.fill();
             if (b.is_table()) {
@@ -587,6 +590,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
             }
 
             if (has_prefix) {
+                self.src_row = b.src_row();
                 if (self.layout.lines.items.len == lines_before) try self.emit("", &.{}, 0, 0);
                 _ = self.prefixes.pop();
             }
@@ -606,7 +610,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
 
         const CellLine = struct { segs: []const RDocLayout.Run, width: usize };
         const TableCell = struct { lines: []const CellLine, width: usize };
-        const TableRow = struct { head: bool, height: usize, cells: []const TableCell };
+        const TableRow = struct { head: bool, height: usize, cells: []const TableCell, src_row: ?usize };
 
         /// the lines of a cell, split at hard breaks
         fn cell_lines(self: *const @This(), cell: RDoc.BlockReader) !TableCell {
@@ -650,7 +654,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
                     height = @max(height, table_cell.lines.len);
                     try cells.append(self.arena, table_cell);
                 }
-                try rows.append(self.arena, .{ .head = row.row() == .head, .height = height, .cells = cells.items });
+                try rows.append(self.arena, .{ .head = row.row() == .head, .height = height, .cells = cells.items, .src_row = row.src_row() });
             }
             const separator = " │ ";
             const border: RDoc.Attrs = .{ .style = b.prefix_style() };
@@ -661,6 +665,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
 
             for (rows.items) |row| {
                 for (0..row.height) |k| {
+                    self.src_row = if (row.src_row) |r| r + k else null;
                     var line: LineText = .{};
                     for (widths.items, 0..) |width, i| {
                         if (i > 0) try line.add(self.arena, separator, border);
@@ -684,6 +689,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
                         try self.wrap_words(line.text.items, line.segs.items, 0, line.text.items.len);
                 }
                 if (row.head and fits) {
+                    self.src_row = null;
                     var rule: LineText = .{};
                     for (widths.items, 0..) |width, i| {
                         if (i > 0) try rule.add(self.arena, "─┼─", border);
@@ -716,9 +722,12 @@ fn LayoutBuilder(comptime Metrics: type) type {
                 .words => .words,
                 .cells => if (self.code_overflow == .clip) .clip else .cells,
             };
+            const first_row = b.src_row();
             var lines = std.mem.splitScalar(u8, b.text, '\n');
             var line_start: usize = 0;
-            while (lines.next()) |line| {
+            var k: usize = 0;
+            while (lines.next()) |line| : (k += 1) {
+                self.src_row = if (first_row) |r| r + k else null;
                 const a = line_start;
                 const end = a + line.len;
                 line_start = end + 1;

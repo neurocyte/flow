@@ -2,7 +2,8 @@
 //!
 //! An element is `[tag, attrs, child...]`. `tag` is an HTML element name.
 //! `attrs` is a map that always holds `sloc` (`[start_byte, end_byte]` in
-//! the source) and a child is a text string or an element.
+//! the source) and `src_row` (the source row the element starts at) and a child
+//! is a text string or an element.
 
 const std = @import("std");
 const cbor = @import("cbor");
@@ -34,6 +35,7 @@ pub const Child = union(enum) {
 pub const ElementBuilder = struct {
     tag: []const u8,
     sloc: [2]usize,
+    src_row: ?usize = null,
     attrs: std.ArrayList(Attr) = .empty,
     children: std.ArrayList(Child) = .empty,
 
@@ -68,20 +70,25 @@ pub const ElementBuilder = struct {
         return std.mem.eql(u8, self.tag, tag);
     }
 
-    /// encode the tree under this element, clamping `sloc` to `limit`
-    pub fn encode(self: *const @This(), allocator: Allocator, limit: usize) error{OutOfMemory}!SDoc {
+    /// encode the tree under this element, clamping `sloc` to the length of `source`
+    pub fn encode(self: *const @This(), allocator: Allocator, source: []const u8) error{OutOfMemory}!SDoc {
         var out: std.Io.Writer.Allocating = .init(allocator);
         errdefer out.deinit();
-        self.write(&out.writer, limit) catch return error.OutOfMemory;
+        var rows: RowCounter = .{ .src = source };
+        self.write(&out.writer, &rows) catch return error.OutOfMemory;
         return .{ .raw = .{ .bytes = out.toOwnedSlice() catch return error.OutOfMemory } };
     }
 
-    pub fn write(self: *const @This(), writer: *std.Io.Writer, limit: usize) std.Io.Writer.Error!void {
+    pub fn write(self: *const @This(), writer: *std.Io.Writer, rows: *RowCounter) std.Io.Writer.Error!void {
+        const limit = rows.src.len;
+        const start = @min(self.sloc[0], limit);
         try cbor.writeArrayHeader(writer, 2 + self.children.items.len);
         try cbor.writeValue(writer, self.tag);
-        try cbor.writeMapHeader(writer, 1 + self.attrs.items.len);
+        try cbor.writeMapHeader(writer, 2 + self.attrs.items.len);
         try cbor.writeValue(writer, "sloc");
-        try cbor.writeValue(writer, [2]usize{ @min(self.sloc[0], limit), @min(self.sloc[1], limit) });
+        try cbor.writeValue(writer, [2]usize{ start, @min(self.sloc[1], limit) });
+        try cbor.writeValue(writer, "src_row");
+        try cbor.writeValue(writer, self.src_row orelse rows.at(start));
         for (self.attrs.items) |attr| {
             try cbor.writeValue(writer, attr.name);
             switch (attr.value) {
@@ -90,8 +97,22 @@ pub const ElementBuilder = struct {
         }
         for (self.children.items) |child| switch (child) {
             .text => |t| try cbor.writeValue(writer, t.items),
-            .elem => |e| try e.write(writer, limit),
+            .elem => |e| try e.write(writer, rows),
         };
+    }
+};
+
+/// the source rows of byte offsets, counted on from the previous offset
+pub const RowCounter = struct {
+    src: []const u8,
+    pos: usize = 0,
+    row: usize = 0,
+
+    pub fn at(self: *@This(), offset: usize) usize {
+        if (offset < self.pos) self.* = .{ .src = self.src };
+        self.row += std.mem.count(u8, self.src[self.pos..offset], "\n");
+        self.pos = offset;
+        return self.row;
     }
 };
 
@@ -143,6 +164,10 @@ pub const Element = struct {
         var start: usize = 0;
         var end: usize = 0;
         return if (cbor.matchValue(&iter, .{ cbor.extract(&start), cbor.extract(&end) }) catch false) .{ start, end } else null;
+    }
+
+    pub fn src_row(self: @This()) ?usize {
+        return if (self.attr_uint("src_row")) |r| @intCast(r) else null;
     }
 
     pub fn is(self: @This(), tag: []const u8) bool {

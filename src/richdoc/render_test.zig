@@ -3,6 +3,7 @@ const syntax = @import("syntax");
 const build_options = @import("build_options");
 const markdown = @import("markdown.zig");
 const RDoc = @import("RDoc.zig");
+const RDocLayout = @import("RDocLayout.zig");
 const render = @import("render.zig");
 const debug = @import("debug.zig");
 
@@ -114,4 +115,45 @@ test "rdoc reader" {
 
 test "pipe table" {
     try expect("| a | b |\n|:--|--:|\n| 1 | **2** |\n", .{}, "(blocks (block :prefix_style { :fg 0x000005 } :wrap \"cells\" :table [\"left\" \"right\"] :width 0 \"\" (block :wrap \"cells\" :row \"head\" :width 0 \"\" (block :wrap \"cells\" :width 1 \"a\" (span 0 1 :bold true)) (block :wrap \"cells\" :width 1 \"b\" (span 0 1 :bold true))) (block :wrap \"cells\" :row \"body\" :width 0 \"\" (block :wrap \"cells\" :width 1 \"1\" (span 0 1)) (block :wrap \"cells\" :width 1 \"2\" (span 0 1 :fg 0x000002 :bold true)))))");
+}
+
+const test_metrics = struct {
+    pub fn egc_length(_: @This(), text: []const u8, cols: *usize, _: usize, _: usize) usize {
+        cols.* = 1;
+        return std.unicode.utf8ByteSequenceLength(text[0]) catch 1;
+    }
+}{};
+
+fn expect_rows(source: []const u8, width: usize, expected: []const ?usize) !void {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    const gpa = std.testing.allocator;
+    const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
+    defer query_cache.deinit();
+    const sdoc = try markdown.parse(gpa, source, query_cache);
+    defer gpa.free(sdoc.raw.bytes);
+    const rdoc = try render.from_sdoc(gpa, sdoc, test_theme.theme, query_cache, .{});
+    defer gpa.free(rdoc.raw.bytes);
+    var layout: RDocLayout = .init(gpa);
+    defer layout.deinit();
+    try render.to_layout(&layout, rdoc, test_metrics, .{ .width = width, .tab_width = 8 });
+    const rows = try gpa.alloc(?usize, layout.lines.items.len);
+    defer gpa.free(rows);
+    for (layout.lines.items, rows) |line, *row| row.* = line.src_row;
+    try std.testing.expectEqualSlices(?usize, expected, rows);
+}
+
+test "layout source rows of a heading, a paragraph and a code block" {
+    try expect_rows("# Head\n\npara\n\n```zig\na\nb\n```\n", 40, &.{ 0, null, 2, null, 5, 6 });
+}
+
+test "layout source rows of hard breaks and wrapped lines" {
+    try expect_rows("line  \nbreak\n\naaa bbb ccc\n", 5, &.{ 0, 1, null, 3, 3, 3 });
+}
+
+test "layout source rows of a code block in a list item" {
+    try expect_rows("- item\n\n  ```\n  x\n  y\n  ```\n", 40, &.{ 0, null, 3, 4 });
+}
+
+test "layout source rows of a table" {
+    try expect_rows("| a |\n|---|\n| 1 |\n| 2 |\n", 40, &.{ 0, null, 2, 3 });
 }

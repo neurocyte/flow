@@ -67,7 +67,7 @@ pub fn parse(allocator: Allocator, source_: []const u8, query_cache: *syntax.Que
         try builder.blocks(body, top);
     }
 
-    return body.encode(allocator, source_.len);
+    return body.encode(allocator, source_);
 }
 
 fn create_syntax(allocator: Allocator, lang: []const u8, query_cache: *syntax.QueryCache) Error!*syntax {
@@ -237,8 +237,10 @@ const Builder = struct {
             const pre = try add_node(parent, self.arena, "pre", node);
             if (child_of_type(node, "info_string")) |info| if (child_of_type(info, "language")) |lang|
                 try pre.set(self.arena, "lang", .{ .string = self.text(lang) });
-            if (child_of_type(node, "code_fence_content")) |content|
+            if (child_of_type(node, "code_fence_content")) |content| {
+                pre.src_row = content.getStartPoint().row;
                 try pre.add_text(self.arena, try self.dedent(trim_final_newline(try self.content_text(content)), self.fence_indent(node)));
+            }
         } else if (eql(u8, t, "indented_code_block")) {
             const pre = try add_node(parent, self.arena, "pre", node);
             // the indentation of later lines is in block_continuation nodes, the first line keeps it

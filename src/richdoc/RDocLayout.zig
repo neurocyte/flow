@@ -17,6 +17,7 @@ pub const Run = struct {
 pub const Line = struct {
     runs: []const Run,
     width: usize,
+    src_row: ?usize = null,
 };
 
 pub const Fill = struct {

@@ -176,6 +176,7 @@ pub const BlockBuilder = struct {
     fill: []const u8 = "",
     space_before: u8 = 0,
     sloc: ?[2]usize = null,
+    src_row: ?usize = null,
     table: ?[]const []const u8 = null,
     row: Row = .none,
     text: std.ArrayList(u8) = .empty,
@@ -194,6 +195,7 @@ pub const BlockBuilder = struct {
         if (self.fill.len > 0) count += 1;
         if (self.space_before > 0) count += 1;
         if (self.sloc) |_| count += 1;
+        if (self.src_row) |_| count += 1;
         try cbor.writeMapHeader(writer, count);
         if (self.first_prefix.len > 0) {
             try cbor.writeValue(writer, "first_prefix");
@@ -229,6 +231,10 @@ pub const BlockBuilder = struct {
         if (self.sloc) |sloc| {
             try cbor.writeValue(writer, "sloc");
             try cbor.writeValue(writer, sloc);
+        }
+        if (self.src_row) |src_row| {
+            try cbor.writeValue(writer, "src_row");
+            try cbor.writeValue(writer, src_row);
         }
         try cbor.writeValue(writer, display_width(self.text.items));
         try cbor.writeValue(writer, self.text.items);
@@ -329,6 +335,13 @@ pub const BlockReader = struct {
 
     pub fn row(self: @This()) Row {
         return std.meta.stringToEnum(Row, self.attr_string("row")) orelse .none;
+    }
+
+    /// the source row of the first line of the block text
+    pub fn src_row(self: @This()) ?usize {
+        var iter = (self.attr("src_row") orelse return null).bytes;
+        var value: usize = 0;
+        return if (cbor.matchInt(usize, &iter, &value) catch false) value else null;
     }
 
     pub fn space_before(self: @This()) usize {
