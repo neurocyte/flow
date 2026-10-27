@@ -1077,9 +1077,10 @@ const cmds = struct {
 
     pub fn markdown_debug_preview(self: *Self, _: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
+        const buffer = editor.buffer orelse return;
         var content: std.Io.Writer.Allocating = .init(self.allocator);
         defer content.deinit();
-        try write_buffer_as_markdown(&content.writer, editor);
+        try write_buffer_as_markdown(&content.writer, buffer);
         try self.set_info_content(.markdown, content.written(), .replace);
     }
     pub const markdown_debug_preview_meta: Meta = .{ .description = "Debug: show the current buffer in the info panel, as markdown or as a code block" };
@@ -1093,15 +1094,17 @@ const cmds = struct {
             self.bottom_area.activate(f.panel.id);
             break :blk f.panel.cast(info_view) orelse return error.PanelNotFound;
         } else try self.bottom_area.create_panel_with(info_view, info_view.create_preview, .{ source, buffer_name(source) }, .{});
-        var content: std.Io.Writer.Allocating = .init(self.allocator);
-        defer content.deinit();
-        try write_buffer_as_markdown(&content.writer, editor);
-        try preview.set_content(.markdown, content.written());
-        preview.scroll_to_source(editor.scroll_anim.dest + @as(usize, if (is_markdown(editor)) 0 else 1));
+        try self.refresh_preview(preview, buffer);
+        preview.scroll_to_source(preview_anchor(editor, buffer));
         if (was_hidden) self.bottom_area.set_maximized(true);
         tui.need_render(@src());
     }
     pub const markdown_preview_meta: Meta = .{ .description = "Preview the current buffer as markdown" };
+
+    pub fn markdown_preview_sync(self: *Self, _: Ctx) Result {
+        self.bottom_area.each_tagged(info_view, info_view.preview_tag, self, sync_preview);
+    }
+    pub const markdown_preview_sync_meta: Meta = .{};
 
     pub fn open_font_test_text(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
@@ -3737,16 +3740,48 @@ fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
     if (self.filelist_view_for(list_id)) |flv| flv.refresh();
 }
 
-fn is_markdown(editor: *ed.Editor) bool {
-    const ft = editor.file_type orelse return false;
-    return std.mem.eql(u8, ft.name, "markdown");
+fn sync_preview(self: *Self, preview: *info_view) void {
+    const buffer_manager = tui.get_buffer_manager() orelse return;
+    const buffer = buffer_manager.get_buffer_for_file(preview.source orelse return) orelse return;
+    const editor = if (self.get_active_editor()) |editor| if (editor.buffer == buffer) editor else null else null;
+    const changed = preview.source_version != buffer.version();
+    if (changed) {
+        const position = preview.source_position();
+        self.refresh_preview(preview, buffer) catch |e|
+            return log.logger("markdown_preview").print_err("sync", "{s}: {t}", .{ buffer.get_file_path(), e });
+        if (editor == null) if (position) |anchor| preview.scroll_to_source(anchor);
+        tui.need_render(@src());
+    }
+    if (editor) |e| if (changed or !preview.scrolled_away_from_source()) {
+        var anchor = preview_anchor(e, buffer);
+        if (!changed) anchor.motion = .glide;
+        preview.scroll_to_source(anchor);
+    };
 }
 
-fn write_buffer_as_markdown(writer: *std.Io.Writer, editor: *ed.Editor) !void {
-    const buffer = editor.buffer orelse return;
+fn refresh_preview(self: *Self, preview: *info_view, buffer: *Buffer) !void {
+    if (preview.source_version == buffer.version()) return;
+    var content: std.Io.Writer.Allocating = .init(self.allocator);
+    defer content.deinit();
+    try write_buffer_as_markdown(&content.writer, buffer);
+    try preview.set_content(.markdown, content.written());
+    preview.source_version = buffer.version();
+}
+
+fn preview_anchor(editor: *ed.Editor, buffer: *const Buffer) info_view.SourceAnchor {
+    const fence: usize = if (is_markdown(buffer)) 0 else 1;
+    return .{ .row = editor.get_primary().cursor.row + fence, .place = .center };
+}
+
+fn is_markdown(buffer: *const Buffer) bool {
+    return std.mem.eql(u8, buffer.file_type_name orelse return false, "markdown");
+}
+
+fn write_buffer_as_markdown(writer: *std.Io.Writer, buffer: *Buffer) !void {
     const text = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
-    if (is_markdown(editor)) return writer.writeAll(text);
-    const lang = if (editor.file_type) |ft| ft.parser orelse ft.name else null;
+    if (is_markdown(buffer)) return writer.writeAll(text);
+    const ft = if (buffer.file_type_name) |name| file_type_config.get(name) catch null else null;
+    const lang = if (ft) |ft_| ft_.parser orelse ft_.name else null;
     try richdoc.markdown.write_code_block(writer, lang, &.{std.mem.trimEnd(u8, text, "\n")});
 }
 

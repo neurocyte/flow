@@ -69,9 +69,11 @@ theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
 scroller: Scroller = .{},
-source_anchor: ?usize = null,
+source_anchor: ?SourceAnchor = null,
+source_top: ?usize = null,
 title: ?[]const u8 = null,
 source: ?[]const u8 = null,
+source_version: ?usize = null,
 
 const default_widget_type: Widget.Type = .panel;
 const panel_margin = 2;
@@ -256,17 +258,45 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.resolve_source_anchor();
 }
 
-/// scroll to the line of source row `row` of the first section, once the view has a size
-pub fn scroll_to_source(self: *Self, row: usize) void {
-    self.source_anchor = row;
+pub const SourceAnchor = struct {
+    row: usize,
+    place: enum { top, center } = .top,
+    motion: enum { jump, glide } = .jump,
+};
+
+pub fn scroll_to_source(self: *Self, anchor: SourceAnchor) void {
+    self.source_anchor = anchor;
     self.resolve_source_anchor();
 }
 
+pub fn source_position(self: *const Self) ?SourceAnchor {
+    if (self.source_anchor) |anchor| return anchor;
+    var i = @min(self.scroller.top() + 1, self.layout.lines.items.len);
+    while (i > 0) : (i -= 1) if (self.layout.lines.items[i - 1].src_row) |row| return .{ .row = row };
+    return null;
+}
+
 fn resolve_source_anchor(self: *Self) void {
-    const row = self.source_anchor orelse return;
+    const anchor = self.source_anchor orelse return;
     if (self.view_rows == 0) return;
     self.source_anchor = null;
-    if (self.layout.line_of_src_row(row)) |line| self.scroller.jump_to(line);
+    if (self.layout.line_of_src_row(anchor.row)) |line| {
+        const top = switch (anchor.place) {
+            .top => line,
+            .center => line -| self.view_rows / 2,
+        };
+        if (@min(top, self.scroller.max_top()) != self.scroller.anim.dest) switch (anchor.motion) {
+            .jump => self.scroller.jump_to(top),
+            .glide => self.scroller.glide_to(top),
+        };
+    }
+    self.source_top = self.scroller.anim.dest;
+}
+
+pub fn scrolled_away_from_source(self: *const Self) bool {
+    if (self.source_anchor != null) return false;
+    const top = self.source_top orelse return false;
+    return @min(top, self.scroller.max_top()) != self.scroller.anim.dest;
 }
 
 pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {

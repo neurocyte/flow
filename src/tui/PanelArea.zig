@@ -298,6 +298,10 @@ pub fn find_tagged_where(self: *const Self, comptime V: type, tag: []const u8, k
     return null;
 }
 
+pub fn each_tagged(self: *const Self, comptime V: type, tag: []const u8, context: anytype, comptime f: fn (@TypeOf(context), *V) void) void {
+    for (self.groups.items) |g| for (g.panels.items) |p| if (std.mem.eql(u8, p.tag(), tag)) if (p.cast(V)) |v| f(context, v);
+}
+
 pub fn find(self: *const Self, comptime V: type, key: anytype, comptime pred: fn (*V, @TypeOf(key)) bool) ?*V {
     const f = self.find_panel_where(V, key, pred) orelse return null;
     return f.panel.cast(V);
