@@ -276,9 +276,20 @@ fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *
     if (widget_style.padding.top > 0) {
         top_layer_.cursor_move_yx(@intCast(0), @intCast(3));
         if (key_events.len > 0) {
-            _ = top_layer_.print("{s} {s} prefix: {s} {s}", .{
+            const title_len = tui.egc_chunk_width(title, 0, 1);
+            const key_events_len = tui.egc_chunk_width(key_events, 0, 1);
+            const max_title_len = deco_box.w -| 10;
+            const prefix_title: []const u8, const prefix_label: []const u8 =
+                if (title_len + key_events_len + 9 <= max_title_len)
+                    .{ title, " prefix: " }
+                else if (key_events_len + 8 <= max_title_len)
+                    .{ "", "prefix: " }
+                else
+                    .{ "", "pref: " };
+            _ = top_layer_.print("{s} {s}{s}{s} {s}", .{
                 widget_style.border.nib,
-                title,
+                prefix_title,
+                prefix_label,
                 key_events,
                 widget_style.border.nie,
             }) catch {};
