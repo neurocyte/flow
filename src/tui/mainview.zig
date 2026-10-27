@@ -1114,6 +1114,8 @@ const cmds = struct {
         defer content.deinit();
         try info.write_markdown(&content.writer);
         tui.reset_drag_context();
+        self.leave_maximized_panel();
+        tui.clear_keyboard_focus();
         try self.create_editor(ctx.now);
         try command.executeName("open_scratch_buffer", command.fmt(.{ info.panel_title(), content.written(), "markdown" }));
         tui.need_render(@src());
