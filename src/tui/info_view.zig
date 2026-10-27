@@ -9,6 +9,7 @@ const PanelInput = @import("PanelInput.zig");
 const Scroller = @import("Scroller.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const tp = @import("thespian");
+const cbor = @import("cbor");
 const reflow = @import("Buffer").reflow;
 const tui = @import("tui.zig");
 const richdoc = @import("richdoc");
@@ -100,19 +101,71 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
 }
 
 /// a non-singleton info panel showing a preview of `source`
-pub fn create_preview(allocator: Allocator, parent: Plane, source: []const u8, name_: []const u8) !Panel {
-    return create_detached(allocator, parent, "Preview", name_, source);
+pub fn create_preview(allocator: Allocator, parent: Plane, source: []const u8) !Panel {
+    const name_ = if (source.len > 0 and source[0] == '*') source else std.fs.path.basename(source);
+    return create_detached(allocator, parent, "Preview: {s}", .{name_}, source);
 }
 
 /// a non-singleton info panel for a copy of an info box
 pub fn create_info_copy(allocator: Allocator, parent: Plane, name_: []const u8) !Panel {
-    return create_detached(allocator, parent, "Info", name_, null);
+    return create_detached(allocator, parent, "Info: {s}", .{name_}, null);
 }
 
-fn create_detached(allocator: Allocator, parent: Plane, prefix: []const u8, name_: []const u8, source: ?[]const u8) !Panel {
+// a preview: [source, row, offset], an info copy: [title, [[kind, text], ...]]
+pub fn panel_write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {
+    if (self.source) |source| {
+        const position = self.source_position();
+        return cbor.writeValue(writer, .{
+            source,
+            if (position) |p| p.row else null,
+            if (position) |p| p.offset else 0,
+        });
+    }
+    const title = self.title orelse return cbor.writeValue(writer, null);
+    try cbor.writeArrayHeader(writer, 2);
+    try cbor.writeValue(writer, title);
+    try cbor.writeArrayHeader(writer, self.sections.items.len);
+    for (self.sections.items) |section| switch (section) {
+        .plaintext => |text| try cbor.writeValue(writer, .{ @tagName(Kind.plaintext), text }),
+        .markdown => |md| try cbor.writeValue(writer, .{ @tagName(Kind.markdown), md.text }),
+    };
+}
+
+pub fn restore_detached(allocator: Allocator, parent: Plane, state: []const u8) !Panel {
+    var source: []const u8 = undefined;
+    var row: ?usize = null;
+    var offset: isize = 0;
+    if (try cbor.match(state, .{ cbor.extract(&source), cbor.extract(&row), cbor.extract(&offset) })) {
+        const panel = try create_preview(allocator, parent, source);
+        if (row) |r| if (panel.cast(Self)) |self| {
+            self.source_anchor = .{ .row = r, .offset = offset };
+        };
+        try tp.self_pid().send(.{ "cmd", "markdown_preview_sync_disk" });
+        return panel;
+    }
+    var title: []const u8 = undefined;
+    var sections: []const u8 = undefined;
+    if (!try cbor.match(state, .{ cbor.extract(&title), cbor.extract_cbor(&sections) }))
+        return error.InvalidInfoPanelState;
+    const panel = try create_detached(allocator, parent, "{s}", .{title}, null);
+    errdefer panel.widget.deinit(allocator);
+    const self = panel.cast(Self) orelse return error.InvalidInfoPanelState;
+    var iter = sections;
+    var n = try cbor.decodeArrayHeader(&iter);
+    while (n > 0) : (n -= 1) {
+        var kind: []const u8 = undefined;
+        var text: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, .{ cbor.extract(&kind), cbor.extract(&text) }))
+            return error.InvalidInfoPanelState;
+        try self.append_content(std.meta.stringToEnum(Kind, kind) orelse return error.InvalidInfoPanelState, text);
+    }
+    return panel;
+}
+
+fn create_detached(allocator: Allocator, parent: Plane, comptime title_fmt: []const u8, title_args: anytype, source: ?[]const u8) !Panel {
     const self, const container = try create_panel_widget(allocator, parent);
     errdefer container.deinit(allocator);
-    self.title = try std.fmt.allocPrint(allocator, "{s}: {s}", .{ prefix, name_ });
+    self.title = try std.fmt.allocPrint(allocator, title_fmt, title_args);
     if (source) |s| self.source = try allocator.dupe(u8, s);
     var panel = Panel.to_tagged(self, preview_tag, false);
     panel.widget = container.widget();
@@ -290,7 +343,7 @@ pub fn source_position(self: *const Self) ?SourceAnchor {
 
 fn resolve_source_anchor(self: *Self) void {
     const anchor = self.source_anchor orelse return;
-    if (self.view_rows == 0) return;
+    if (self.view_rows == 0 or self.layout.lines.items.len == 0) return;
     self.source_anchor = null;
     if (self.layout.line_of_src_row(anchor.row)) |line| {
         const top = switch (anchor.place) {

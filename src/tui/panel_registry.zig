@@ -9,6 +9,11 @@ const modules = .{
     @import("inspector_view.zig"),
     @import("inputview.zig"),
     @import("keybindview.zig"),
+    struct {
+        const info_view = @import("info_view.zig");
+        pub const panel_tag = info_view.preview_tag;
+        pub const panel_restore = info_view.restore_detached;
+    },
 };
 
 pub fn restore(allocator: std.mem.Allocator, parent: Plane, tag: []const u8, state: []const u8) ?Panel {

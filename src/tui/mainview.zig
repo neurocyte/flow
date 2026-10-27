@@ -1093,7 +1093,7 @@ const cmds = struct {
         const preview = if (self.bottom_area.find_tagged_where(info_view, info_view.preview_tag, source, info_view.is_preview_of)) |f| blk: {
             self.bottom_area.activate(f.panel.id);
             break :blk f.panel.cast(info_view) orelse return error.PanelNotFound;
-        } else try self.bottom_area.create_panel_with(info_view, info_view.create_preview, .{ source, buffer_name(source) }, .{});
+        } else try self.bottom_area.create_panel_with(info_view, info_view.create_preview, .{source}, .{});
         try self.refresh_preview(preview, buffer);
         preview.scroll_to_source(preview_anchor(editor, buffer));
         if (was_hidden) self.bottom_area.set_maximized(true);
@@ -3828,11 +3828,6 @@ pub fn open_info_copy(self: *Self, from: *const info_view, name: []const u8) !vo
     try info.set_contents(content);
     try tp.self_pid().send(.{ "cmd", "focus_panel" });
     tui.need_render(@src());
-}
-
-fn buffer_name(file_path: []const u8) []const u8 {
-    if (file_path.len > 0 and file_path[0] == '*') return file_path;
-    return std.fs.path.basename(file_path);
 }
 
 pub fn show_info_panel(self: *Self) !*info_view {
