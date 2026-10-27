@@ -1106,6 +1106,20 @@ const cmds = struct {
     }
     pub const markdown_preview_sync_meta: Meta = .{};
 
+    pub fn info_open_in_editor(self: *Self, ctx: Ctx) Result {
+        const info = (self.focused_panel() orelse return).cast(info_view) orelse return;
+        if (info.source) |source|
+            return tp.self_pid().send(.{ "cmd", "navigate", .{ .file = source } });
+        var content: std.Io.Writer.Allocating = .init(self.allocator);
+        defer content.deinit();
+        try info.write_markdown(&content.writer);
+        tui.reset_drag_context();
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", command.fmt(.{ info.panel_title(), content.written(), "markdown" }));
+        tui.need_render(@src());
+    }
+    pub const info_open_in_editor_meta: Meta = .{ .description = "Open in editor" };
+
     pub fn markdown_preview_sync_disk(self: *Self, _: Ctx) Result {
         self.bottom_area.each_tagged(info_view, info_view.preview_tag, self, sync_preview_disk);
     }

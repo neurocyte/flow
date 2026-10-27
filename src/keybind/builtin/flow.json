@@ -731,6 +731,7 @@
             ["ctrl+u", "panel_scroll_half_page_up"],
             ["ctrl+d", "panel_scroll_half_page_down"],
             ["q", "panel_tab_close"],
+            ["e", "info_open_in_editor"],
             ["x", "panel_toggle_centered_view"],
             ["-", "panel_shrink_centered_view"],
             ["=", "panel_expand_centered_view"],

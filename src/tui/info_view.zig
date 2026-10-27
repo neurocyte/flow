@@ -43,12 +43,13 @@ pub const Kind = enum {
 
 const Section = union(Kind) {
     plaintext: []const u8,
-    markdown: struct { sdoc: richdoc.SDoc, rdoc: richdoc.RDoc },
+    markdown: struct { text: []const u8, sdoc: richdoc.SDoc, rdoc: richdoc.RDoc },
 
     fn deinit(self: Section, allocator: Allocator) void {
         switch (self) {
             .plaintext => |text| allocator.free(text),
             .markdown => |md| {
+                allocator.free(md.text);
                 allocator.free(md.sdoc.raw.bytes);
                 allocator.free(md.rdoc.raw.bytes);
             },
@@ -126,12 +127,11 @@ pub fn from_layer(layer: *tui.WidgetLayerBox) ?*Self {
 
 pub const Content = union(Kind) {
     plaintext: []const u8,
-    markdown: richdoc.SDoc,
+    markdown: []const u8,
 
     fn deinit(self: Content, allocator: Allocator) void {
         switch (self) {
-            .plaintext => |text| allocator.free(text),
-            .markdown => |sdoc| allocator.free(sdoc.raw.bytes),
+            inline else => |text| allocator.free(text),
         }
     }
 };
@@ -144,7 +144,7 @@ pub fn dupe_content(self: *const Self, allocator: Allocator) ![]Content {
     for (self.sections.items) |section| {
         content[n] = switch (section) {
             .plaintext => |text| .{ .plaintext = try allocator.dupe(u8, text) },
-            .markdown => |md| .{ .markdown = .{ .raw = .{ .bytes = try allocator.dupe(u8, md.sdoc.raw.bytes) } } },
+            .markdown => |md| .{ .markdown = try allocator.dupe(u8, md.text) },
         };
         n += 1;
     }
@@ -160,8 +160,7 @@ pub fn set_contents(self: *Self, content: []const Content) !void {
     self.clear();
     self.scroller.scroll(.top);
     for (content) |c| switch (c) {
-        .plaintext => |text| try self.append_content(.plaintext, text),
-        .markdown => |sdoc| try self.append_sdoc(sdoc),
+        inline else => |text, kind| try self.append_content(kind, text),
     };
 }
 
@@ -322,24 +321,28 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
                 self.allocator.free(text);
                 return e;
             };
-            try self.relayout();
         },
-        .markdown => try self.append_owned_sdoc(try richdoc.markdown.parse(self.allocator, content, tui.query_cache())),
-    }
-}
-
-pub fn append_sdoc(self: *Self, sdoc: richdoc.SDoc) !void {
-    return self.append_owned_sdoc(.{ .raw = .{ .bytes = try self.allocator.dupe(u8, sdoc.raw.bytes) } });
-}
-
-fn append_owned_sdoc(self: *Self, sdoc: richdoc.SDoc) !void {
-    {
-        errdefer self.allocator.free(sdoc.raw.bytes);
-        const rdoc = try self.render_sdoc(sdoc);
-        errdefer self.allocator.free(rdoc.raw.bytes);
-        try self.sections.append(self.allocator, .{ .markdown = .{ .sdoc = sdoc, .rdoc = rdoc } });
+        .markdown => {
+            const text = try self.allocator.dupe(u8, content);
+            errdefer self.allocator.free(text);
+            const sdoc = try richdoc.markdown.parse(self.allocator, text, tui.query_cache());
+            errdefer self.allocator.free(sdoc.raw.bytes);
+            const rdoc = try self.render_sdoc(sdoc);
+            errdefer self.allocator.free(rdoc.raw.bytes);
+            try self.sections.append(self.allocator, .{ .markdown = .{ .text = text, .sdoc = sdoc, .rdoc = rdoc } });
+        },
     }
     try self.relayout();
+}
+
+pub fn write_markdown(self: *const Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    for (self.sections.items, 0..) |section, i| {
+        if (i > 0) try writer.writeByte('\n');
+        switch (section) {
+            .plaintext => |text| try richdoc.markdown.write_code_block(writer, null, &.{std.mem.trimEnd(u8, text, "\n")}),
+            .markdown => |md| try writer.print("{s}\n", .{std.mem.trimEnd(u8, md.text, "\n")}),
+        }
+    }
 }
 
 pub fn set_content(self: *Self, kind: Kind, content: []const u8) !void {
