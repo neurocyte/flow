@@ -229,13 +229,49 @@ fn render(title: []const u8, key_events: []const u8, rows: []const Row, theme: *
                 rows.len,
                 widget_style.border.sie,
             }) catch {};
-            top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
-            _ = top_layer_.print("{s} {s} for more {s}", .{
-                widget_style.border.sib,
-                keybind.current_namespace().scroll_hints_text,
-                widget_style.border.sie,
-            }) catch {};
+            const namespace = keybind.current_namespace();
+            if (deco_box.w > 60) {
+                top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
+                _ = top_layer_.print("{s} {s} more, {s} toggle, {s} details {s}", .{
+                    widget_style.border.sib,
+                    namespace.scroll_hints_key,
+                    namespace.toggle_hints_key,
+                    namespace.toggle_details_hints_key,
+                    widget_style.border.sie,
+                }) catch {};
+            } else if (deco_box.w > 30) {
+                top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
+                _ = top_layer_.print("{s} {s} more, {s} toggle {s}", .{
+                    widget_style.border.sib,
+                    namespace.scroll_hints_key,
+                    namespace.toggle_hints_key,
+                    widget_style.border.sie,
+                }) catch {};
+            } else {
+                _ = top_layer_.print("{s} {s} more {s}", .{
+                    widget_style.border.sib,
+                    namespace.scroll_hints_key,
+                    widget_style.border.sie,
+                }) catch {};
+            }
         }
+    } else if (deco_box.w > 60) {
+        const namespace = keybind.current_namespace();
+        top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
+        _ = top_layer_.print("{s} {s} toggle, {s} details {s}", .{
+            widget_style.border.sib,
+            namespace.toggle_hints_key,
+            namespace.toggle_details_hints_key,
+            widget_style.border.sie,
+        }) catch {};
+    } else if (deco_box.w > 30) {
+        const namespace = keybind.current_namespace();
+        top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
+        _ = top_layer_.print("{s} {s} to toggle {s}", .{
+            widget_style.border.sib,
+            namespace.toggle_hints_key,
+            widget_style.border.sie,
+        }) catch {};
     }
     if (widget_style.padding.top > 0) {
         top_layer_.cursor_move_yx(@intCast(0), @intCast(3));

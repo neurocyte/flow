@@ -333,6 +333,9 @@ const Namespace = struct {
 
     toggle_hints_text: []const u8 = "toggle_keybind_hints command",
     scroll_hints_text: []const u8 = "scroll_keybind_hints command",
+    toggle_hints_key: []const u8 = "",
+    scroll_hints_key: []const u8 = "",
+    toggle_details_hints_key: []const u8 = "",
 
     const builtin_inherit_marker = "<<builtin>>";
 
@@ -451,13 +454,24 @@ const Namespace = struct {
         const press = self.modes.get(default_mode).?.press.items;
         if (try hint_text(allocator, press, "toggle_keybind_hints")) |text| self.toggle_hints_text = text;
         if (try hint_text(allocator, press, "scroll_keybind_hints")) |text| self.scroll_hints_text = text;
+        if (try hint_key(allocator, press, "toggle_keybind_hints")) |text| self.toggle_hints_key = text;
+        if (try hint_key(allocator, press, "scroll_keybind_hints")) |text| self.scroll_hints_key = text;
+        if (try hint_key(allocator, press, "toggle_keybind_hints_details")) |text| self.toggle_details_hints_key = text;
     }
 
     fn hint_text(allocator: std.mem.Allocator, bindings: []const Binding, command_name: []const u8) error{OutOfMemory}!?[]const u8 {
-        for (bindings) |b| {
-            if (b.commands.len != 1 or !std.mem.eql(u8, b.commands[0].command, command_name)) continue;
-            return try std.fmt.allocPrint(allocator, "press {f}", .{key_event_sequence_fmt(b.key_events)});
-        }
+        const binding = find_hint_binding(bindings, command_name) orelse return null;
+        return try std.fmt.allocPrint(allocator, "press {f}", .{key_event_sequence_fmt(binding.key_events)});
+    }
+
+    fn hint_key(allocator: std.mem.Allocator, bindings: []const Binding, command_name: []const u8) error{OutOfMemory}!?[]const u8 {
+        const binding = find_hint_binding(bindings, command_name) orelse return null;
+        return try std.fmt.allocPrint(allocator, "{f}", .{key_event_sequence_fmt(binding.key_events)});
+    }
+
+    fn find_hint_binding(bindings: []const Binding, command_name: []const u8) ?*const Binding {
+        for (bindings) |*b|
+            if (b.commands.len == 1 and std.mem.eql(u8, b.commands[0].command, command_name)) return b;
         return null;
     }
 
@@ -2035,7 +2049,8 @@ test "hints texts use the first binding of the command" {
         \\    ["alt+f1", "toggle_keybind_hints"],
         \\    ["ctrl+?", "toggle_keybind_hints"],
         \\    ["shift+f1", "scroll_keybind_hints"],
-        \\    ["ctrl+alt+?", "scroll_keybind_hints"]
+        \\    ["ctrl+alt+?", "scroll_keybind_hints"],
+        \\    ["shift+alt+f1", "toggle_keybind_hints_details"]
         \\  ]}
         \\}
     );
@@ -2048,6 +2063,14 @@ test "hints texts use the first binding of the command" {
     try std.testing.expectEqualStrings(
         try std.fmt.bufPrint(&buf, "press {f}", .{key_event_sequence_fmt(normal.press.items[2].key_events)}),
         namespace.scroll_hints_text,
+    );
+    try std.testing.expectEqualStrings(
+        try std.fmt.bufPrint(&buf, "{f}", .{key_event_sequence_fmt(normal.press.items[0].key_events)}),
+        namespace.toggle_hints_key,
+    );
+    try std.testing.expectEqualStrings(
+        try std.fmt.bufPrint(&buf, "{f}", .{key_event_sequence_fmt(normal.press.items[4].key_events)}),
+        namespace.toggle_details_hints_key,
     );
 }
 
