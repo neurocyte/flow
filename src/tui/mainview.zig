@@ -3824,6 +3824,7 @@ pub fn open_info_copy(self: *Self, from: *const info_view, name: []const u8) !vo
     defer self.allocator.free(owned_name);
     const info = try self.bottom_area.create_panel_with(info_view, info_view.create_info_copy, .{owned_name}, .{});
     try info.set_contents(content);
+    try tp.self_pid().send(.{ "cmd", "focus_panel" });
     tui.need_render(@src());
 }
 
