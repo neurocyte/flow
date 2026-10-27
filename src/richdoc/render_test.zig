@@ -124,8 +124,7 @@ const test_metrics = struct {
     }
 }{};
 
-fn expect_rows(source: []const u8, width: usize, expected: []const ?usize) !void {
-    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+fn layout_of(source: []const u8, width: usize) !RDocLayout {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
@@ -134,8 +133,16 @@ fn expect_rows(source: []const u8, width: usize, expected: []const ?usize) !void
     const rdoc = try render.from_sdoc(gpa, sdoc, test_theme.theme, query_cache, .{});
     defer gpa.free(rdoc.raw.bytes);
     var layout: RDocLayout = .init(gpa);
-    defer layout.deinit();
+    errdefer layout.deinit();
     try render.to_layout(&layout, rdoc, test_metrics, .{ .width = width, .tab_width = 8 });
+    return layout;
+}
+
+fn expect_rows(source: []const u8, width: usize, expected: []const ?usize) !void {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    const gpa = std.testing.allocator;
+    var layout = try layout_of(source, width);
+    defer layout.deinit();
     const rows = try gpa.alloc(?usize, layout.lines.items.len);
     defer gpa.free(rows);
     for (layout.lines.items, rows) |line, *row| row.* = line.src_row;
@@ -156,4 +163,25 @@ test "layout source rows of a code block in a list item" {
 
 test "layout source rows of a table" {
     try expect_rows("| a |\n|---|\n| 1 |\n| 2 |\n", 40, &.{ 0, null, 2, 3 });
+}
+
+test "layout line of a source row" {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    // lines: Head 0, blank, para 2, blank, a 5, b 6
+    var layout = try layout_of("# Head\n\npara\n\n```zig\na\nb\n```\n", 40);
+    defer layout.deinit();
+    try std.testing.expectEqual(0, layout.line_of_src_row(0));
+    try std.testing.expectEqual(0, layout.line_of_src_row(1));
+    try std.testing.expectEqual(2, layout.line_of_src_row(2));
+    try std.testing.expectEqual(2, layout.line_of_src_row(4));
+    try std.testing.expectEqual(4, layout.line_of_src_row(5));
+    try std.testing.expectEqual(5, layout.line_of_src_row(6));
+    try std.testing.expectEqual(5, layout.line_of_src_row(100));
+}
+
+test "layout line of a source row before any mapped line" {
+    var layout: RDocLayout = .init(std.testing.allocator);
+    defer layout.deinit();
+    try layout.add_line("plain", 5);
+    try std.testing.expectEqual(null, layout.line_of_src_row(3));
 }

@@ -51,6 +51,16 @@ pub fn add_line(self: *@This(), text: []const u8, width: usize) error{OutOfMemor
     try self.lines.append(self.allocator(), .{ .runs = runs, .width = width });
 }
 
+pub fn line_of_src_row(self: *const @This(), row: usize) ?usize {
+    var found: ?usize = null;
+    for (self.lines.items, 0..) |line, i| {
+        const src_row = line.src_row orelse continue;
+        if (src_row > row) break;
+        found = i;
+    }
+    return found;
+}
+
 pub fn max_width(self: *const @This()) usize {
     var w: usize = 0;
     for (self.lines.items) |line| w = @max(w, line.width);

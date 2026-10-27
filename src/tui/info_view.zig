@@ -69,6 +69,7 @@ theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
 scroller: Scroller = .{},
+source_anchor: ?usize = null,
 title: ?[]const u8 = null,
 source: ?[]const u8 = null,
 
@@ -252,6 +253,20 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.view_cols = pos.w;
     if (self.text_width() != self.layout_width) self.relayout() catch {};
     self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
+    self.resolve_source_anchor();
+}
+
+/// scroll to the line of source row `row` of the first section, once the view has a size
+pub fn scroll_to_source(self: *Self, row: usize) void {
+    self.source_anchor = row;
+    self.resolve_source_anchor();
+}
+
+fn resolve_source_anchor(self: *Self) void {
+    const row = self.source_anchor orelse return;
+    if (self.view_rows == 0) return;
+    self.source_anchor = null;
+    if (self.layout.line_of_src_row(row)) |line| self.scroller.jump_to(line);
 }
 
 pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
@@ -392,6 +407,7 @@ fn relayout(self: *Self) !void {
     self.layout_width = width;
     try self.layout_at(width);
     self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
+    self.resolve_source_anchor();
 }
 
 fn layout_at(self: *Self, width: usize) !void {
