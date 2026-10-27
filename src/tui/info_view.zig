@@ -299,11 +299,11 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.hover_link(coord);
     } else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         self.link_pressed = self.link_hover != null and self.link_under(coord) != null;
-    } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+    } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.extract(&coord), tp.extract(&mods) })) {
         const pressed = self.link_pressed;
         self.link_pressed = false;
         if (pressed) if (self.link_hover) |link| if (self.link_under(coord)) |href| if (std.mem.eql(u8, href, link.href)) {
-            self.open_link(href);
+            self.open_link(href, if (tui.mouse_actions(mods).alt_click) .alternate else .normal);
             return true;
         };
     } else if (try m.match(.{ "H", tp.extract(&hover) })) {
@@ -604,7 +604,7 @@ fn terminal_link(href: []const u8) bool {
     return link_dispatch.terminal_link(href, link_dispatch.renderer);
 }
 
-fn open_link(self: *Self, href: []const u8) void {
+fn open_link(self: *Self, href: []const u8, click: link_dispatch.Click) void {
     self.clear_link_hover();
     var arena: std.heap.ArenaAllocator = .init(self.allocator);
     defer arena.deinit();
@@ -612,7 +612,7 @@ fn open_link(self: *Self, href: []const u8) void {
     const action = link_dispatch.classify(arena.allocator(), href, .{ .base_dir = base_dir }) catch return;
     switch (action) {
         .anchor => |anchor| _ = self.scroll_to_heading(anchor),
-        else => link_dispatch.dispatch(action),
+        else => link_dispatch.dispatch(action, click),
     }
 }
 

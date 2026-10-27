@@ -55,14 +55,22 @@ pub fn terminal_link(href: []const u8, renderer_: Renderer) bool {
     return starts_with_ignore_case(href, "http://") or starts_with_ignore_case(href, "https://");
 }
 
-pub fn dispatch(action: Action) void {
+pub const Click = enum { normal, alternate };
+
+pub fn dispatch(action: Action, click: Click) void {
     switch (action) {
         .url => |url| tui.open_url(url),
         .file => |target| navigate(target) catch |e| std.log.err("link navigate failed: {t}", .{e}),
-        .markdown => |target| tp.self_pid().send(.{ "cmd", "markdown_preview_open", .{ target.path, target.anchor orelse "", target.line orelse 0 } }) catch |e|
-            std.log.err("link preview failed: {t}", .{e}),
+        .markdown => |target| switch (click) {
+            .normal => preview(target) catch |e| std.log.err("link preview failed: {t}", .{e}),
+            .alternate => navigate(target) catch |e| std.log.err("link navigate failed: {t}", .{e}),
+        },
         .anchor => {},
     }
+}
+
+fn preview(target: Target) !void {
+    try tp.self_pid().send(.{ "cmd", "markdown_preview_open", .{ target.path, target.anchor orelse "", target.line orelse 0 } });
 }
 
 fn navigate(target: Target) !void {
