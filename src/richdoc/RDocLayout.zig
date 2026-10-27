@@ -53,10 +53,13 @@ pub fn add_line(self: *@This(), text: []const u8, width: usize) error{OutOfMemor
 
 pub fn line_of_src_row(self: *const @This(), row: usize) ?usize {
     var found: ?usize = null;
+    var found_row: ?usize = null;
     for (self.lines.items, 0..) |line, i| {
         const src_row = line.src_row orelse continue;
         if (src_row > row) break;
+        if (found_row == src_row) continue;
         found = i;
+        found_row = src_row;
     }
     return found;
 }

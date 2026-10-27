@@ -179,6 +179,16 @@ test "layout line of a source row" {
     try std.testing.expectEqual(5, layout.line_of_src_row(100));
 }
 
+test "layout line of a source row in wrapped lines" {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    // lines: line 0, break 1, blank, aaa 3, bbb 3, ccc 3
+    var layout = try layout_of("line  \nbreak\n\naaa bbb\nccc\n", 5);
+    defer layout.deinit();
+    try std.testing.expectEqual(1, layout.line_of_src_row(2));
+    try std.testing.expectEqual(3, layout.line_of_src_row(3));
+    try std.testing.expectEqual(3, layout.line_of_src_row(4));
+}
+
 test "layout line of a source row before any mapped line" {
     var layout: RDocLayout = .init(std.testing.allocator);
     defer layout.deinit();

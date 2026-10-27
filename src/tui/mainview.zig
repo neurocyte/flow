@@ -1096,6 +1096,7 @@ const cmds = struct {
         defer content.deinit();
         try write_buffer_as_markdown(&content.writer, editor);
         try preview.set_content(.markdown, content.written());
+        preview.scroll_to_source(editor.scroll_anim.dest + @as(usize, if (is_markdown(editor)) 0 else 1));
         if (was_hidden) self.bottom_area.set_maximized(true);
         tui.need_render(@src());
     }
@@ -3735,13 +3736,16 @@ fn clear_find_in_files_results(self: *Self, list_id: FileList.Id) void {
     if (self.filelist_view_for(list_id)) |flv| flv.refresh();
 }
 
+fn is_markdown(editor: *ed.Editor) bool {
+    const ft = editor.file_type orelse return false;
+    return std.mem.eql(u8, ft.name, "markdown");
+}
+
 fn write_buffer_as_markdown(writer: *std.Io.Writer, editor: *ed.Editor) !void {
     const buffer = editor.buffer orelse return;
     const text = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
-    const ft = editor.file_type;
-    if (ft != null and std.mem.eql(u8, ft.?.name, "markdown"))
-        return writer.writeAll(text);
-    const lang = if (ft) |ft_| ft_.parser orelse ft_.name else null;
+    if (is_markdown(editor)) return writer.writeAll(text);
+    const lang = if (editor.file_type) |ft| ft.parser orelse ft.name else null;
     try richdoc.markdown.write_code_block(writer, lang, &.{std.mem.trimEnd(u8, text, "\n")});
 }
 
