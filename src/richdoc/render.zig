@@ -347,10 +347,8 @@ const Builder = struct {
             try self.add_text(b, elem.attr_string("alt") orelse "", .{ .style = in.style, .link = in.link, .sloc = elem.sloc() });
         } else if (elem.is("a")) {
             const href = elem.attr_string("href") orelse "";
-            var style = self.apply_tag(in.style, tag);
-            style.ul_style = .off; // links are underlined while hovered, see PlaneOptions
             try self.inlines(b, elem, .{
-                .style = style,
+                .style = self.apply_tag(in.style, tag),
                 .link = if (href.len > 0) href else in.link,
                 .sloc = elem.sloc(),
             });
