@@ -167,6 +167,12 @@ test "escaped brace and backslash are literal" {
     try expectEqual(0, parsed.tabstops.len);
 }
 
+test "backslash before other characters is kept" {
+    const parsed = try Snippet.parse(allocator, "printf(\"${1:%d\\n}\\n\")", null);
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("printf(\"%d\\n\\n\")", parsed.text);
+}
+
 test "escaped brace in placeholder content is literal" {
     const parsed = try Snippet.parse(allocator, "${1:a\\}b}", null);
     defer parsed.deinit(allocator);

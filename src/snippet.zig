@@ -67,6 +67,11 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8, resolver: ?Resol
                 else => if (discard == 0) try text.writer.writeByte(c),
             },
             .escape => {
+                // only '$', '}' and '\' can be escaped, any other backslash is literal
+                if (discard == 0) switch (c) {
+                    '$', '}', '\\' => {},
+                    else => try text.writer.writeByte('\\'),
+                };
                 if (discard == 0) try text.writer.writeByte(c);
                 state = state_stack.pop() orelse return error.InvalidState;
             },
