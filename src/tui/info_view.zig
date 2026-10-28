@@ -317,7 +317,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     }
     const panel_input = if (self.panel_input) |*panel_input| panel_input else return false;
-    if (try PanelInput.receive_context_menu(self, m)) return true;
+    if (try PanelInput.receive_mouse(self, m)) return true;
     return panel_input.receive(from, m);
 }
 

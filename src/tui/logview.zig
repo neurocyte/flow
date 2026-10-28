@@ -89,7 +89,7 @@ pub fn unfocus(self: *Self) void {
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try self.scroller.receive_mouse(m)) return true;
-    if (try PanelInput.receive_context_menu(self, m)) return true;
+    if (try PanelInput.receive_mouse(self, m)) return true;
     return self.panel_input.receive(from, m);
 }
 

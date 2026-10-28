@@ -56,8 +56,12 @@ pub fn copy_to_clipboard(text: []const u8) void {
     tui.clipboard_send_to_system() catch {};
 }
 
-pub fn receive_context_menu(panel: anytype, m: tp.message) error{Exit}!bool {
+pub fn receive_mouse(panel: anytype, m: tp.message) error{Exit}!bool {
     var coord: MouseEvent.Coord = undefined;
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.any, tp.any })) {
+        panel.focus();
+        return false;
+    }
     if (!try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.extract(&coord), tp.more })) return false;
     open_context_menu(panel, coord);
     return true;
