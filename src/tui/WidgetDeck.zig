@@ -84,6 +84,14 @@ pub fn detach(self: *Self, n: usize) ?Widget {
     return w; // ownership passed to caller
 }
 
+pub fn swap(self: *Self, a: usize, b: usize) void {
+    std.mem.swap(Widget, &self.widgets.items[a], &self.widgets.items[b]);
+    if (self.active_) |n| {
+        if (n == a) self.active_ = b else if (n == b) self.active_ = a;
+    }
+    tui.need_render(@src());
+}
+
 pub fn set_active(self: *Self, n: usize) void {
     if (n >= self.widgets.items.len) return;
     if (self.active_) |a| if (a == n) return;

@@ -395,10 +395,10 @@ pub fn close_active(self: *Self) void {
     self.close(p.id);
 }
 
-fn move_panel(self: *Self, f: Found, to: *PanelGroup) void {
+fn move_panel(self: *Self, f: Found, to: *PanelGroup, pos: PanelGroup.Position) void {
     const was_focused = tui.is_keyboard_focus(f.panel.impl);
     const panel = f.group.detach(f.panel.id) orelse return;
-    to.add(panel, true) catch {
+    to.add_at(panel, true, pos) catch {
         f.group.add(panel, true) catch panel.widget.deinit(self.allocator);
         return;
     };
@@ -410,7 +410,7 @@ fn move_panel(self: *Self, f: Found, to: *PanelGroup) void {
 
 pub fn move_to_new_group(self: *Self, f: Found) error{OutOfMemory}!void {
     if (f.group.count() < 2) return;
-    self.move_panel(f, try self.new_group_after(f.group));
+    self.move_panel(f, try self.new_group_after(f.group), .last);
 }
 
 pub fn split(self: *Self) error{OutOfMemory}!void {
@@ -429,7 +429,21 @@ pub fn move_active(self: *Self, dir: GroupDirection) error{OutOfMemory}!void {
         .left => if (i > 0) self.groups.items[i - 1] else if (g.count() > 1) try self.add_group_at(0) else return,
         .right => if (i + 1 < n) self.groups.items[i + 1] else if (g.count() > 1) try self.add_group_at(n) else return,
     };
-    self.move_panel(.{ .group = g, .panel = p }, to);
+    self.move_panel(.{ .group = g, .panel = p }, to, .last);
+    self.show();
+}
+
+pub fn move_active_tab(self: *Self, dir: PanelGroup.Direction) error{OutOfMemory}!void {
+    const g = self.focused_group() orelse return;
+    if (g.move_active(dir)) return;
+    const p = g.active() orelse return;
+    const i = self.group_index(g) orelse return;
+    const n = self.groups.items.len;
+    const to, const pos: PanelGroup.Position = switch (dir) {
+        .next => .{ if (i + 1 < n) self.groups.items[i + 1] else if (g.count() > 1) try self.add_group_at(n) else return, .first },
+        .previous => .{ if (i > 0) self.groups.items[i - 1] else return, .last },
+    };
+    self.move_panel(.{ .group = g, .panel = p }, to, pos);
     self.show();
 }
 

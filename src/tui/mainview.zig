@@ -1700,6 +1700,16 @@ const cmds = struct {
     }
     pub const panel_tab_prev_meta: Meta = .{ .description = "Switch to previous panel tab" };
 
+    pub fn panel_tab_move_next(self: *Self, _: Ctx) Result {
+        try self.bottom_area.move_active_tab(.next);
+    }
+    pub const panel_tab_move_next_meta: Meta = .{ .description = "Move panel tab to next position" };
+
+    pub fn panel_tab_move_prev(self: *Self, _: Ctx) Result {
+        try self.bottom_area.move_active_tab(.previous);
+    }
+    pub const panel_tab_move_prev_meta: Meta = .{ .description = "Move panel tab to previous position" };
+
     pub fn panel_tab_close(self: *Self, ctx: Ctx) Result {
         var id: Panel.Id = 0;
         if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&id)}))
@@ -2998,6 +3008,16 @@ const cmds = struct {
         _ = try self.widgets_widget.msg(.{"move_tab_previous"});
     }
     pub const move_tab_previous_meta: Meta = .{ .description = "Move tab to previous position" };
+
+    pub fn move_tab_next_split(self: *Self, _: Ctx) Result {
+        _ = try self.widgets_widget.msg(.{"move_tab_next_split"});
+    }
+    pub const move_tab_next_split_meta: Meta = .{ .description = "Move tab to next split" };
+
+    pub fn move_tab_previous_split(self: *Self, _: Ctx) Result {
+        _ = try self.widgets_widget.msg(.{"move_tab_previous_split"});
+    }
+    pub const move_tab_previous_split_meta: Meta = .{ .description = "Move tab to previous split" };
 
     pub fn move_tab_next_or_scroll_terminal_down(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(terminal_view))

@@ -16,6 +16,7 @@ const Panel = @import("Panel.zig");
 const Self = @This();
 
 pub const Direction = enum { next, previous };
+pub const Position = enum { first, last };
 
 allocator: Allocator,
 list: *WidgetList,
@@ -134,7 +135,17 @@ fn singleton_count(self: *const Self) usize {
 }
 
 pub fn add(self: *Self, panel: Panel, activate_: bool) error{OutOfMemory}!void {
-    const n = if (panel.singleton()) self.singleton_count() else self.panels.items.len;
+    return self.add_at(panel, activate_, .last);
+}
+
+pub fn add_at(self: *Self, panel: Panel, activate_: bool, pos: Position) error{OutOfMemory}!void {
+    const n = if (panel.singleton()) switch (pos) {
+        .first => 0,
+        .last => self.singleton_count(),
+    } else switch (pos) {
+        .first => self.singleton_count(),
+        .last => self.panels.items.len,
+    };
     try self.panels.insert(self.allocator, n, panel);
     errdefer _ = self.panels.orderedRemove(n);
     try self.deck.insert(n, panel.widget);
@@ -156,6 +167,19 @@ fn set_active(self: *Self, n: usize) void {
 fn notify_active(self: *Self) void {
     if (self.active() == null) return;
     if (self.on_activate) |cb| cb.f(cb.ctx, self);
+}
+
+pub fn move_active(self: *Self, dir: Direction) bool {
+    const n = self.deck.active_index() orelse return false;
+    const m = switch (dir) {
+        .next => if (n + 1 < self.panels.items.len) n + 1 else return false,
+        .previous => if (n > 0) n - 1 else return false,
+    };
+    const items = self.panels.items;
+    if (items[n].singleton() != items[m].singleton()) return false;
+    std.mem.swap(Panel, &items[n], &items[m]);
+    self.deck.swap(n, m);
+    return true;
 }
 
 pub fn detach(self: *Self, id: Panel.Id) ?Panel {

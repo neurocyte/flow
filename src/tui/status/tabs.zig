@@ -369,6 +369,10 @@ pub const TabBar = struct {
             self.move_tab_next();
         } else if (try m.match(.{"move_tab_previous"})) {
             self.move_tab_previous();
+        } else if (try m.match(.{"move_tab_next_split"})) {
+            self.move_tab_next_split();
+        } else if (try m.match(.{"move_tab_previous_split"})) {
+            self.move_tab_previous_split();
         } else if (try m.match(.{ "place_next_tab", "after", tp.extract(&buffer_ref) })) {
             self.place_next_tab(.after, buffer_ref);
         } else if (try m.match(.{ "place_next_tab", "before", tp.extract(&buffer_ref) })) {
@@ -678,6 +682,16 @@ pub const TabBar = struct {
         if (this_view -| other_view > 1) return self.move_tab_to_view(this_view -| 1, this_idx);
         const other_idx, _ = self.find_buffer_tab(other_buffer_ref);
         if (other_idx) |idx| self.move_tab_to(idx, this_idx);
+    }
+
+    fn move_tab_next_split(self: *Self) void {
+        const this_idx_, const this_view = self.find_buffer_tab(self.active_focused_buffer_ref orelse return);
+        self.move_tab_to_new_split(this_idx_ orelse return, this_view);
+    }
+
+    fn move_tab_previous_split(self: *Self) void {
+        const this_idx_, const this_view = self.find_buffer_tab(self.active_focused_buffer_ref orelse return);
+        if (this_view > 0) self.move_tab_to_view(this_view - 1, this_idx_ orelse return);
     }
 
     fn move_tab_to(self: *Self, dst_idx: usize, src_idx: usize) void {
