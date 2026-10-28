@@ -367,7 +367,23 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const widgets_more = self.widgets.render(theme);
     if (self.link_line) |line|
         self.link_line_overlay.render(self.allocator, theme, line.area, .right, line.text, theme.statusbar) catch {};
+    if (self.bars_hidden) self.render_hidden_minilog(theme);
     return widgets_more or views_more;
+}
+
+fn render_hidden_minilog(self: *Self, theme: *const Widget.Theme) void {
+    const Ctx = struct {
+        theme: *const Widget.Theme,
+        fn render(ctx_: *anyopaque, w: Widget, _: Widget.WalkEvent) bool {
+            const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+            const minilog = w.dynamic_cast(@import("status/minilog.zig")) orelse return false;
+            _ = minilog.render(ctx.theme);
+            return true;
+        }
+    };
+    var ctx: Ctx = .{ .theme = theme };
+    for ([_]?Widget{ self.top_bar, self.bottom_bar }) |bar|
+        if (bar) |w| if (w.walk(&ctx, Ctx.render)) return;
 }
 
 pub fn show_link_line(self: *Self, text: []const u8, area: Box) void {

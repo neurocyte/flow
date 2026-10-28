@@ -75,6 +75,7 @@ fn overlay_needed(self: *Self) bool {
     const msg = self.msg.written();
     if (msg.len == 0) return false;
     if (tui.mini_mode() != null) return true;
+    if (bars_hidden()) return true;
     const width = tui.egc_chunk_width(msg, 0, 8);
     return width > tui.screen().w / 3;
 }
@@ -106,6 +107,11 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn render_overlay(self: *Self, theme: *const Widget.Theme, msg: []const u8, msg_style: Widget.Theme.Style) !void {
     if (tui.mainview()) |mv| if (mv.link_line_shown()) return;
+    if (bars_hidden()) {
+        var area: Widget.Box = .from(tui.plane());
+        area.frame = tui.window_frame();
+        return self.overlay.render(self.msg.allocator, theme, area, .right, msg, msg_style);
+    }
     const screen = tui.screen();
     const cw: i32 = self.plane.cell_x();
     const ch: i32 = self.plane.cell_y();
@@ -113,6 +119,11 @@ fn render_overlay(self: *Self, theme: *const Widget.Theme, msg: []const u8, msg_
     var area: Widget.Box = .{ .w = screen.w };
     area.frame = .{ .x = 0, .y = py - ch, .w = @as(i32, @intCast(screen.w)) * cw + screen.extra_x, .h = ch };
     try self.overlay.render(self.msg.allocator, theme, area, .right, msg, msg_style);
+}
+
+fn bars_hidden() bool {
+    const mv = tui.mainview() orelse return false;
+    return mv.bars_hidden;
 }
 
 fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
