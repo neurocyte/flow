@@ -756,8 +756,10 @@ pub fn build_exe(
 
                 const Face = struct { name: []const u8, file: []const u8 };
                 const iosevka_faces = [_]Face{
+                    .{ .name = "iosevka_light", .file = "iosevka-34.8.0/Iosevka-Light.ttf" },
                     .{ .name = "iosevka_medium", .file = "iosevka-34.8.0/Iosevka-Medium.ttf" },
                     .{ .name = "iosevka_extrabold", .file = "iosevka-34.8.0/Iosevka-ExtraBold.ttf" },
+                    .{ .name = "iosevka_light_italic", .file = "iosevka-34.8.0/Iosevka-LightItalic.ttf" },
                     .{ .name = "iosevka_medium_italic", .file = "iosevka-34.8.0/Iosevka-MediumItalic.ttf" },
                     .{ .name = "iosevka_extrabold_italic", .file = "iosevka-34.8.0/Iosevka-ExtraBoldItalic.ttf" },
                 };

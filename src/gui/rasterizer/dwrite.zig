@@ -346,8 +346,8 @@ fn resolveBuiltin(self: *Self, req: FaceRequest) !FaceResolution {
         .italic = req.italic,
     };
     const face = self.cache.get(key) orelse blk: {
-        const bold = req.css_weight >= 600;
-        const f = builtinFace(self.factory, bold, req.italic) orelse return error.FontNotFound;
+        const weight = gui_config.BuiltinWeight.fromCss(req.css_weight);
+        const f = builtinFace(self.factory, weight, req.italic) orelse return error.FontNotFound;
         self.cache.put(self.allocator, key, f) catch {
             _ = f.IUnknown.Release();
             return error.FontNotFound;
@@ -806,25 +806,29 @@ const build_options = @import("build_options");
 const noto_emoji_data: []const u8 = if (build_options.embed_emoji) @embedFile("noto_emoji_font") else "";
 
 // Built-in default face and last-resort fallback.
+pub const iosevka_light = @embedFile("iosevka_light");
 pub const iosevka_medium = @embedFile("iosevka_medium");
 pub const iosevka_extrabold = @embedFile("iosevka_extrabold");
+pub const iosevka_light_italic = @embedFile("iosevka_light_italic");
 pub const iosevka_medium_italic = @embedFile("iosevka_medium_italic");
 pub const iosevka_extrabold_italic = @embedFile("iosevka_extrabold_italic");
 
-pub fn embeddedDefault(bold: bool, italic: bool) []const u8 {
-    return if (bold and italic) iosevka_extrabold_italic else if (bold) iosevka_extrabold else if (italic) iosevka_medium_italic else iosevka_medium;
+pub fn embeddedDefault(weight: gui_config.BuiltinWeight, italic: bool) []const u8 {
+    return switch (weight) {
+        .light => if (italic) iosevka_light_italic else iosevka_light,
+        .medium => if (italic) iosevka_medium_italic else iosevka_medium,
+        .extrabold => if (italic) iosevka_extrabold_italic else iosevka_extrabold,
+    };
 }
 
 /// Create a DWrite face for the requested built-in style. The caller owns it.
-fn builtinFace(factory: *win32.IDWriteFactory, bold: bool, italic: bool) ?*win32.IDWriteFontFace {
-    return if (bold and italic)
-        EmbeddedFont(iosevka_extrabold_italic).createFace(factory)
-    else if (bold)
-        EmbeddedFont(iosevka_extrabold).createFace(factory)
-    else if (italic)
-        EmbeddedFont(iosevka_medium_italic).createFace(factory)
-    else
-        EmbeddedFont(iosevka_medium).createFace(factory);
+fn builtinFace(factory: *win32.IDWriteFactory, weight: gui_config.BuiltinWeight, italic: bool) ?*win32.IDWriteFontFace {
+    return switch (weight) {
+        inline else => |w| if (italic)
+            EmbeddedFont(embeddedDefault(w, true)).createFace(factory)
+        else
+            EmbeddedFont(embeddedDefault(w, false)).createFace(factory),
+    };
 }
 
 const HRESULT = win32.HRESULT;

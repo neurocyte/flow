@@ -15,25 +15,29 @@ const Self = @This();
 const nerd_font_data = @embedFile("nerd_font");
 
 // Built-in default face and last-resort fallback.
+pub const iosevka_light = @embedFile("iosevka_light");
 pub const iosevka_medium = @embedFile("iosevka_medium");
 pub const iosevka_extrabold = @embedFile("iosevka_extrabold");
+pub const iosevka_light_italic = @embedFile("iosevka_light_italic");
 pub const iosevka_medium_italic = @embedFile("iosevka_medium_italic");
 pub const iosevka_extrabold_italic = @embedFile("iosevka_extrabold_italic");
 
-pub fn embeddedDefault(bold: bool, italic: bool) []const u8 {
-    return if (bold and italic) iosevka_extrabold_italic else if (bold) iosevka_extrabold else if (italic) iosevka_medium_italic else iosevka_medium;
+pub fn embeddedDefault(weight: gui_config.BuiltinWeight, italic: bool) []const u8 {
+    return switch (weight) {
+        .light => if (italic) iosevka_light_italic else iosevka_light,
+        .medium => if (italic) iosevka_medium_italic else iosevka_medium,
+        .extrabold => if (italic) iosevka_extrabold_italic else iosevka_extrabold,
+    };
 }
 
 /// Identifies the built-in faces in regular_path; must not collide with a real path.
-pub fn embeddedDefaultTag(bold: bool, italic: bool) []const u8 {
-    return if (bold and italic)
-        "<embedded:iosevka-extrabold-italic>"
-    else if (bold)
-        "<embedded:iosevka-extrabold>"
-    else if (italic)
-        "<embedded:iosevka-medium-italic>"
-    else
-        "<embedded:iosevka-medium>";
+pub fn embeddedDefaultTag(weight: gui_config.BuiltinWeight, italic: bool) []const u8 {
+    return switch (weight) {
+        inline else => |w| if (italic)
+            "<embedded:iosevka-" ++ @tagName(w) ++ "-italic>"
+        else
+            "<embedded:iosevka-" ++ @tagName(w) ++ ">",
+    };
 }
 
 fn unitsPerEm(tt: *const TrueType) u16 {
@@ -471,9 +475,9 @@ fn fontFromData(data: []const u8, size_px: u16) !Font {
 }
 
 fn resolveBuiltin(self: *Self, req: FaceRequest) !FaceResolution {
-    const bold = req.css_weight >= 600;
-    const tag = embeddedDefaultTag(bold, req.italic);
-    const font = try self.loadFontFromMemory(embeddedDefault(bold, req.italic), req.size_px);
+    const weight = gui_config.BuiltinWeight.fromCss(req.css_weight);
+    const tag = embeddedDefaultTag(weight, req.italic);
+    const font = try self.loadFontFromMemory(embeddedDefault(weight, req.italic), req.size_px);
     if (req.is_baseline) {
         if (self.regular_path) |old| self.allocator.free(old);
         self.regular_path = self.allocator.dupe(u8, tag) catch null;

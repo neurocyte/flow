@@ -255,13 +255,19 @@ fn fillFontMetrics(font_ref: c.Ref, size_px: u16, out: *Font) !void {
 const nerd_font_data = @embedFile("nerd_font");
 const noto_emoji_data: []const u8 = if (build_options.embed_emoji) @embedFile("noto_emoji_font") else "";
 
+pub const iosevka_light = @embedFile("iosevka_light");
 pub const iosevka_medium = @embedFile("iosevka_medium");
 pub const iosevka_extrabold = @embedFile("iosevka_extrabold");
+pub const iosevka_light_italic = @embedFile("iosevka_light_italic");
 pub const iosevka_medium_italic = @embedFile("iosevka_medium_italic");
 pub const iosevka_extrabold_italic = @embedFile("iosevka_extrabold_italic");
 
-pub fn embeddedDefault(bold: bool, italic: bool) []const u8 {
-    return if (bold and italic) iosevka_extrabold_italic else if (bold) iosevka_extrabold else if (italic) iosevka_medium_italic else iosevka_medium;
+pub fn embeddedDefault(weight: gui_config.BuiltinWeight, italic: bool) []const u8 {
+    return switch (weight) {
+        .light => if (italic) iosevka_light_italic else iosevka_light,
+        .medium => if (italic) iosevka_medium_italic else iosevka_medium,
+        .extrabold => if (italic) iosevka_extrabold_italic else iosevka_extrabold,
+    };
 }
 
 fn faceFromData(data: []const u8, size_px: u16) c.Ref {
@@ -345,8 +351,8 @@ fn resolveBuiltin(self: *Self, req: FaceRequest) !FaceResolution {
         .size_px = req.size_px,
     };
     const face = self.cache.get(key) orelse blk: {
-        const bold = req.css_weight >= 600;
-        const f = faceFromData(embeddedDefault(bold, req.italic), req.size_px) orelse
+        const weight = gui_config.BuiltinWeight.fromCss(req.css_weight);
+        const f = faceFromData(embeddedDefault(weight, req.italic), req.size_px) orelse
             return error.FontNotFound;
         self.cache.put(self.allocator, key, f) catch {
             c.CFRelease(f);

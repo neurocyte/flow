@@ -25,6 +25,17 @@ include_files: []const u8 = "",
 /// Reserved family name for the Iosevka bundled into the binary.
 pub const builtin_fontface = "Iosevka (built-in)";
 
+/// The weights the built-in Iosevka is embedded in.
+pub const BuiltinWeight = enum {
+    light,
+    medium,
+    extrabold,
+
+    pub fn fromCss(css_weight: u16) BuiltinWeight {
+        return if (css_weight < 400) .light else if (css_weight < 600) .medium else .extrabold;
+    }
+};
+
 pub const RasterizerBackend = switch (builtin.os.tag) {
     .windows => enum { dwrite },
     .macos => enum { coretext, truetype },
