@@ -184,9 +184,9 @@ pub fn context_menu(comptime T: type) *const Menu {
         items = items ++ &[_]Menu.Item{
             .separator,
             .{ .command = .{ .command = "toggle_maximize_panel" } },
+            .{ .command = .{ .command = "panel_tab_move_next" } },
+            .{ .command = .{ .command = "panel_tab_move_prev" } },
             .{ .command = .{ .command = "panel_split" } },
-            .{ .command = .{ .command = "panel_move_tab_left" } },
-            .{ .command = .{ .command = "panel_move_tab_right" } },
             .{ .command = .{ .command = "panel_tab_close" } },
         };
         break :blk items[0..items.len].*;
