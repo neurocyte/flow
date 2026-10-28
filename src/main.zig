@@ -340,20 +340,10 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     const connect = if (args.connect) |name|
         if (std.mem.eql(u8, name, "disable")) null else name
     else if (init.environ_map.get("FLOW_SOCKET")) |v| if (v.len > 0) v else null else null;
-    const main_proc = if (connect) |name| blk: {
-        const path = resolve_rc_socket_name(name, &rc_connect_buf) catch |e| {
-            std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
-            exit(1);
-        };
-        const terminal = get_flow_terminal(path);
-        break :blk (try RcClient.spawn(a, &ctx, &client_eh, env, path, .{
-            .track = if (args.no_wait) .none else .full,
-            .verbose = args.log_stdout,
-            .terminal = terminal,
-            .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
-        })).pid.?;
-    } else try tui.spawn(a, &ctx, &eh, env);
-    defer main_proc.deinit();
+    const connect_path = if (connect) |name| resolve_rc_socket_name(name, &rc_connect_buf) catch |e| {
+        std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
+        exit(1);
+    } else null;
 
     var links: std.ArrayList(file_link.Dest) = .empty;
     defer links.deinit(a);
@@ -420,6 +410,24 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             }
         }
     }
+
+    if (connect != null and args.project == null and links.items.len == 0 and script == null and
+        !args.new_file and !args.scratch and !args.dark and !args.light)
+    {
+        std.debug.print("nothing to do\n", .{});
+        exit(1);
+    }
+
+    const main_proc = if (connect_path) |path| blk: {
+        const terminal = get_flow_terminal(path);
+        break :blk (try RcClient.spawn(a, &ctx, &client_eh, env, path, .{
+            .track = if (args.no_wait) .none else .full,
+            .verbose = args.log_stdout,
+            .terminal = terminal,
+            .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
+        })).pid.?;
+    } else try tui.spawn(a, &ctx, &eh, env);
+    defer main_proc.deinit();
 
     var have_project = false;
     var have_file = false;
