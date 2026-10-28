@@ -47,7 +47,7 @@ var in_progress: std.atomic.Value(bool) = .init(false);
 var restart_executable: ?[*:0]const u8 = null;
 var restart_args: []const [:0]const u8 = &.{};
 var restart_environ: [*:null]const ?[*:0]const u8 = undefined;
-var restart_not_before: i64 = 0;
+var restart_started: i64 = 0;
 
 /// short runs do not restart to avoid crash loops
 const restart_min_uptime_s = 10;
@@ -72,7 +72,7 @@ pub fn set_restart_on_crash(executable: [*:0]const u8, args: []const [:0]const u
     restart_executable = executable;
     restart_args = args;
     restart_environ = environ;
-    restart_not_before = monotonic_seconds() + restart_min_uptime_s;
+    restart_started = monotonic_seconds();
 }
 
 /// Install crash handler
@@ -212,16 +212,19 @@ fn write_crash_log_file(kind: []const u8, msg: []const u8, unwind: std.debug.Sta
 fn restart_after_crash(log_path: []const u8) void {
     if (builtin.os.tag == .windows) return;
     const executable = restart_executable orelse return;
-    if (monotonic_seconds() < restart_not_before) return;
     var path_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
     const path = std.fmt.bufPrintSentinel(&path_buf, "{s}", .{log_path}, 0) catch return;
+    const uptime = monotonic_seconds() - restart_started;
+    if (uptime < restart_min_uptime_s)
+        return report_no_restart(path, "crashed {d}s after start, restarting needs {d}s", .{ uptime, restart_min_uptime_s });
     // the crashing signal is blocked in its handler and the mask survives execve
     const all = std.posix.sigfillset();
     std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &all, null);
     set_close_on_exec_all();
     const head = [_][*:0]const u8{ executable, "--restore-session", "--exec", "show_crash_dialog" };
     var argv: [16:null]?[*:0]const u8 = @splat(null);
-    if (head.len + restart_args.len + 1 > argv.len) return;
+    if (head.len + restart_args.len + 1 > argv.len)
+        return report_no_restart(path, "too many arguments", .{});
     var argc: usize = 0;
     for (head) |arg| {
         argv[argc] = arg;
@@ -232,7 +235,18 @@ fn restart_after_crash(log_path: []const u8) void {
         argc += 1;
     }
     argv[argc] = path.ptr;
-    _ = std.c.execve(executable, &argv, restart_environ);
+    const ret = std.c.execve(executable, &argv, restart_environ);
+    report_no_restart(path, "executing {s} failed: E{t}", .{ executable, std.posix.errno(ret) });
+}
+
+fn report_no_restart(log_path: [*:0]const u8, comptime fmt: []const u8, args: anytype) void {
+    var buf: [std.fs.max_path_bytes + 128]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "flow did not restart after the crash: " ++ fmt ++ "\n", args) catch return;
+    _ = std.c.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
+    const fd = std.c.open(log_path, .{ .ACCMODE = .WRONLY, .APPEND = true });
+    if (fd < 0) return;
+    defer _ = std.c.close(fd);
+    _ = std.c.write(fd, msg.ptr, msg.len);
 }
 
 fn set_close_on_exec_all() void {
