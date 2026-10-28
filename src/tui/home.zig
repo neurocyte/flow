@@ -131,7 +131,9 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
             .style = widget_type,
             .on_render = list_box_on_render,
         }),
-        .menu_button = try MenuButton.create(allocator, n, &@import("menu/Main.zig").menu),
+        .menu_button = try MenuButton.create(allocator, n, &@import("menu/Main.zig").menu, .{
+            .get = menu_button_style,
+        }),
         .input_namespace = keybind.get_namespace(),
         .home_style = home_style,
         .home_style_bufs = home_style_bufs,
@@ -456,6 +458,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.place_menu_button();
     _ = self.menu_button.render(theme);
     return more or self.fire != null;
+}
+
+fn menu_button_style(_: ?*anyopaque, theme: *const Widget.Theme) Widget.Theme.Style {
+    return theme.editor;
 }
 
 fn place_menu_button(self: *Self) void {

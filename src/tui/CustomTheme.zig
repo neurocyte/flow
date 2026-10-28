@@ -48,6 +48,7 @@ tab_inactive: Theme.Style,
 tab_selected: Theme.Style,
 tab_unfocused_active: Theme.Style,
 tab_unfocused_inactive: Theme.Style,
+tab_bar: Theme.Style = .{},
 
 ansi_black: Theme.Color,
 ansi_red: Theme.Color,
@@ -131,6 +132,7 @@ pub fn toTheme(self: @This(), allocator: std.mem.Allocator, scope_list: *std.Arr
         .tab_selected = self.tab_selected,
         .tab_unfocused_active = self.tab_unfocused_active,
         .tab_unfocused_inactive = self.tab_unfocused_inactive,
+        .tab_bar = if (self.tab_bar.fg == null and self.tab_bar.bg == null) self.tab_inactive else self.tab_bar,
 
         .ansi_black = self.ansi_black,
         .ansi_red = self.ansi_red,
@@ -224,6 +226,7 @@ pub fn fromTheme(allocator: std.mem.Allocator, theme: Theme, scopes: [][]const u
         .tab_selected = theme.tab_selected,
         .tab_unfocused_active = theme.tab_unfocused_active,
         .tab_unfocused_inactive = theme.tab_unfocused_inactive,
+        .tab_bar = theme.tab_bar,
 
         .ansi_black = theme.ansi_black,
         .ansi_red = theme.ansi_red,

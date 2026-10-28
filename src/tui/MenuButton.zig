@@ -8,15 +8,21 @@ const Button = @import("Button.zig");
 const Menu = @import("Menu.zig");
 
 menu: *const Menu,
+normal: ?NormalStyle,
 
 pub const ButtonType = Button.Options(@This()).ButtonType;
+
+pub const NormalStyle = struct {
+    ctx: ?*anyopaque = null,
+    get: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) Widget.Theme.Style,
+};
 
 pub const label = " ≡ ";
 pub const width = 3;
 
-pub fn create(allocator: Allocator, parent: Plane, menu: *const Menu) error{OutOfMemory}!Widget {
+pub fn create(allocator: Allocator, parent: Plane, menu: *const Menu, normal: ?NormalStyle) error{OutOfMemory}!Widget {
     return Button.create_widget(@This(), allocator, parent, .{
-        .ctx = .{ .menu = menu },
+        .ctx = .{ .menu = menu, .normal = normal },
         .label = label,
         .on_click = on_click,
         .on_layout = layout,
@@ -63,20 +69,23 @@ pub fn layout(_: *@This(), _: *ButtonType) Widget.Layout {
     return .{ .static = width };
 }
 
-pub fn render(_: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
-    return render_button(btn, theme);
+pub fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
+    const normal = if (self.normal) |n| n.get(n.ctx, theme) else theme.tab_inactive;
+    return render_button(btn, theme, normal);
 }
 
-pub fn render_button(btn: anytype, theme: *const Widget.Theme) bool {
-    btn.plane.set_base_style(theme.editor);
-    btn.plane.erase();
-    btn.plane.home();
-    btn.plane.set_style(if (btn.active)
+pub fn render_button(btn: anytype, theme: *const Widget.Theme, normal: Widget.Theme.Style) bool {
+    const style = if (btn.active)
         theme.editor_cursor
     else if (btn.hover)
         theme.statusbar_hover
     else
-        theme.tab_inactive);
+        normal;
+    btn.plane.set_base_style(theme.editor);
+    btn.plane.erase();
+    btn.plane.home();
+    btn.plane.set_base_style(.{ .fg = theme.editor.fg, .bg = style.bg orelse theme.editor.bg });
+    btn.plane.set_style(style);
     btn.plane.fill(" ");
     btn.plane.home();
     _ = btn.plane.putstr(btn.opts.label) catch {};

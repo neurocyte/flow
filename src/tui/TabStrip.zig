@@ -154,13 +154,21 @@ fn find(self: *Self, id: Id) ?TabInfo {
     return null;
 }
 
+fn bar_fg(self: *const Self) Tabs.colors {
+    return if (self.source.focused(self.source.ctx)) self.style.bar_fg else self.style.unfocused_bar_fg;
+}
+
+fn bar_bg(self: *const Self) Tabs.colors {
+    return if (self.source.focused(self.source.ctx)) self.style.bar_bg else self.style.unfocused_bar_bg;
+}
+
 fn fill_bar(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
     plane.set_base_style(theme.editor);
     plane.erase();
     plane.home();
     plane.set_style(.{
-        .fg = self.style.bar_fg.from_theme(theme),
-        .bg = self.style.bar_bg.from_theme(theme),
+        .fg = self.bar_fg().from_theme(theme),
+        .bg = self.bar_bg().from_theme(theme),
     });
     plane.fill(" ");
     plane.home();
@@ -170,7 +178,7 @@ fn render_bar(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
     const self: *Self = @ptrCast(@alignCast(ctx orelse return));
     self.fill_bar(&self.list.plane, theme);
     self.scroll.fade_cells = @intCast(self.style.clipping_fade_cells);
-    self.scroll.fade_color = self.style.bar_bg.from_theme(theme);
+    self.scroll.fade_color = self.bar_bg().from_theme(theme);
 }
 
 fn render_tabs_background(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
@@ -260,7 +268,10 @@ const StripMenuButton = struct {
         return .{ .static = 3 };
     }
 
-    pub fn render(_: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
-        return MenuButton.render_button(btn, theme);
+    pub fn render(m: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
+        return MenuButton.render_button(btn, theme, .{
+            .fg = m.strip.bar_fg().from_theme(theme),
+            .bg = m.strip.bar_bg().from_theme(theme),
+        });
     }
 };

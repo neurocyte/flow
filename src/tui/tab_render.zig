@@ -115,9 +115,11 @@ fn render_mode(
     put_glyph(plane, @field(s, p ++ "_left"), @field(s, p ++ "_left_fg_transparent"), corner_bg);
 
     const fg = @field(s, p ++ "_fg").from_theme(theme);
-    plane.set_style(.{ .fg = fg, .bg = @field(s, p ++ "_bg").from_theme(theme) });
+    plane.set_base_style(.{ .fg = theme.editor.fg, .bg = @field(s, p ++ "_bg").from_theme(theme) });
+    plane.set_style(.{ .fg = fg });
     const hit = render_content(plane, s, theme, hover, fg, c);
 
+    plane.set_base_style(theme.editor);
     plane.set_style(.{
         .fg = @field(s, p ++ "_right_fg").from_theme(theme),
         .bg = @field(s, p ++ "_right_bg").from_theme(theme),

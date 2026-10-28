@@ -71,65 +71,69 @@ const @"style.config" = struct {
     spacer: []const u8 = "|",
     spacer_fg: colors = .active_bg,
     spacer_fg_transparent: bool = true,
-    spacer_bg: colors = .inactive_bg,
+    spacer_bg: colors = .bar_bg,
+    unfocused_spacer_fg: colors = .unfocused_active_bg,
+    unfocused_spacer_bg: colors = .bar_bg,
 
-    bar_fg: colors = .inactive_fg,
-    bar_bg: colors = .inactive_bg,
+    bar_fg: colors = .bar_fg,
+    bar_bg: colors = .bar_bg,
+    unfocused_bar_fg: colors = .bar_fg,
+    unfocused_bar_bg: colors = .bar_bg,
 
     active_fg: colors = .active_fg,
     active_bg: colors = .active_bg,
     active_left: []const u8 = "🭅",
     active_left_fg: colors = .active_bg,
     active_left_fg_transparent: bool = true,
-    active_left_bg: colors = .inactive_bg,
+    active_left_bg: colors = .bar_bg,
     active_right: []const u8 = "🭐",
     active_right_fg: colors = .active_bg,
     active_right_fg_transparent: bool = true,
-    active_right_bg: colors = .inactive_bg,
+    active_right_bg: colors = .bar_bg,
 
     inactive_fg: colors = .inactive_fg,
     inactive_bg: colors = .inactive_bg,
-    inactive_left: []const u8 = " ",
-    inactive_left_fg: colors = .inactive_fg,
+    inactive_left: []const u8 = "🭅",
+    inactive_left_fg: colors = .inactive_bg,
     inactive_left_fg_transparent: bool = true,
-    inactive_left_bg: colors = .inactive_bg,
-    inactive_right: []const u8 = " ",
-    inactive_right_fg: colors = .inactive_fg,
+    inactive_left_bg: colors = .bar_bg,
+    inactive_right: []const u8 = "🭐",
+    inactive_right_fg: colors = .inactive_bg,
     inactive_right_fg_transparent: bool = true,
-    inactive_right_bg: colors = .inactive_bg,
+    inactive_right_bg: colors = .bar_bg,
 
     selected_fg: colors = .active_fg,
     selected_bg: colors = .active_bg,
     selected_left: []const u8 = "🭅",
     selected_left_fg: colors = .active_bg,
     selected_left_fg_transparent: bool = true,
-    selected_left_bg: colors = .inactive_bg,
+    selected_left_bg: colors = .bar_bg,
     selected_right: []const u8 = "🭐",
     selected_right_fg: colors = .active_bg,
     selected_right_fg_transparent: bool = true,
-    selected_right_bg: colors = .inactive_bg,
+    selected_right_bg: colors = .bar_bg,
 
     unfocused_active_fg: colors = .unfocused_active_fg,
     unfocused_active_bg: colors = .unfocused_active_bg,
     unfocused_active_left: []const u8 = "🭅",
     unfocused_active_left_fg: colors = .unfocused_active_bg,
     unfocused_active_left_fg_transparent: bool = true,
-    unfocused_active_left_bg: colors = .unfocused_inactive_bg,
+    unfocused_active_left_bg: colors = .bar_bg,
     unfocused_active_right: []const u8 = "🭐",
     unfocused_active_right_fg: colors = .unfocused_active_bg,
     unfocused_active_right_fg_transparent: bool = true,
-    unfocused_active_right_bg: colors = .unfocused_inactive_bg,
+    unfocused_active_right_bg: colors = .bar_bg,
 
     unfocused_inactive_fg: colors = .unfocused_inactive_fg,
     unfocused_inactive_bg: colors = .unfocused_inactive_bg,
-    unfocused_inactive_left: []const u8 = " ",
-    unfocused_inactive_left_fg: colors = .unfocused_inactive_fg,
+    unfocused_inactive_left: []const u8 = "🭅",
+    unfocused_inactive_left_fg: colors = .unfocused_inactive_bg,
     unfocused_inactive_left_fg_transparent: bool = true,
-    unfocused_inactive_left_bg: colors = .unfocused_inactive_bg,
-    unfocused_inactive_right: []const u8 = " ",
-    unfocused_inactive_right_fg: colors = .unfocused_inactive_fg,
+    unfocused_inactive_left_bg: colors = .bar_bg,
+    unfocused_inactive_right: []const u8 = "🭐",
+    unfocused_inactive_right_fg: colors = .unfocused_inactive_bg,
     unfocused_inactive_right_fg_transparent: bool = true,
-    unfocused_inactive_right_bg: colors = .unfocused_inactive_bg,
+    unfocused_inactive_right_bg: colors = .bar_bg,
 
     file_type_icon: bool = true,
 
@@ -142,6 +146,14 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
     const self = try allocator.create(TabBar);
     errdefer allocator.destroy(self);
     self.* = try TabBar.init(allocator, parent, event_handler, min_tabs);
+    errdefer {
+        root.free_config(allocator, self.tab_style_bufs);
+        self.splits_list_widget.deinit(allocator);
+    }
+    self.menu_button = try MenuButton.create(allocator, self.splits_list.plane, &main_menu.menu, .{
+        .ctx = self,
+        .get = TabBar.menu_button_style,
+    });
     self.splits_list.ctx = self;
     self.splits_list.prepare_resize = TabBar.prepare_splits_resize;
     return Widget.to(self);
@@ -230,7 +242,7 @@ pub const TabBar = struct {
             .plane = w.plane,
             .splits_list = w,
             .splits_list_widget = w.widget(),
-            .menu_button = try MenuButton.create(allocator, w.plane, &main_menu.menu),
+            .menu_button = undefined,
             .event_handler = event_handler,
             .tab_style = tab_style,
             .tab_style_bufs = tab_style_bufs,
@@ -320,14 +332,31 @@ pub const TabBar = struct {
         });
         self.plane.fill(" ");
         self.plane.home();
-        const fade_color = self.tab_style.bar_bg.from_theme(theme);
-        for (self.splits_list.widgets.items) |*w|
+        for (self.splits_list.widgets.items, 0..) |*w, view|
             if (w.widget.dynamic_cast(WidgetScrollBox)) |scroll| {
                 scroll.fade_cells = @intCast(self.tab_style.clipping_fade_cells);
-                scroll.fade_color = fade_color;
+                scroll.fade_color = self.bar_bg(view).from_theme(theme);
             };
         const more = self.splits_list_widget.render(theme);
         return self.menu_button.render(theme) or more;
+    }
+
+    fn menu_button_style(ctx: ?*anyopaque, theme: *const Widget.Theme) Widget.Theme.Style {
+        const self: *Self = @ptrCast(@alignCast(ctx.?));
+        const views = self.splits_list.widgets.items.len;
+        const view = if (tui.config().show_menu == .right and views > 0) views - 1 else 0;
+        return .{
+            .fg = self.bar_fg(view).from_theme(theme),
+            .bg = self.bar_bg(view).from_theme(theme),
+        };
+    }
+
+    fn bar_fg(self: *const Self, view: usize) colors {
+        return if (is_active_view(view)) self.tab_style.bar_fg else self.tab_style.unfocused_bar_fg;
+    }
+
+    fn bar_bg(self: *const Self, view: usize) colors {
+        return if (is_active_view(view)) self.tab_style.bar_bg else self.tab_style.unfocused_bar_bg;
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -471,7 +500,7 @@ pub const TabBar = struct {
                 if (first) {
                     first = false;
                 } else {
-                    try view_widget_list.add(try self.make_spacer(view_widget_list.plane));
+                    try view_widget_list.add(try self.make_spacer(view_widget_list.plane, view));
                 }
                 scroll.adopt(tab.widget);
                 try view_widget_list.add(tab.widget);
@@ -559,15 +588,8 @@ pub const TabBar = struct {
         self.place_next = .atend;
     }
 
-    fn make_spacer(self: @This(), parent: Plane) !Widget {
-        return spacer.create(
-            self.allocator,
-            parent,
-            self.tab_style.spacer,
-            self.tab_style.spacer_fg,
-            self.tab_style.spacer_bg,
-            null,
-        );
+    fn make_spacer(self: *@This(), parent: Plane, view: usize) !Widget {
+        return spacer.create(self.allocator, parent, &self.tab_style, view, null);
     }
 
     fn make_drop_target(self: *@This(), parent: Plane, view: usize) !Widget {
@@ -907,8 +929,7 @@ const Tab = struct {
     }
 
     fn is_focused(self: *@This()) bool {
-        const mv = tui.mainview() orelse @panic("tabs no main view");
-        return self.view == mv.get_active_view();
+        return is_active_view(self.view);
     }
 
     fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
@@ -1022,6 +1043,11 @@ const Tab = struct {
     }
 };
 
+fn is_active_view(view: usize) bool {
+    const mv = tui.mainview() orelse @panic("tabs no main view");
+    return view == mv.get_active_view();
+}
+
 const drop_target = struct {
     tabbar: *TabBar,
     view: usize,
@@ -1045,13 +1071,12 @@ const drop_target = struct {
     }
 
     fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
-        const s = &self.tabbar.tab_style;
         btn.plane.set_base_style(theme.editor);
         btn.plane.erase();
         btn.plane.home();
         btn.plane.set_style(.{
-            .fg = s.bar_fg.from_theme(theme),
-            .bg = s.bar_bg.from_theme(theme),
+            .fg = self.tabbar.bar_fg(self.view).from_theme(theme),
+            .bg = self.tabbar.bar_bg(self.view).from_theme(theme),
         });
         btn.plane.fill(" ");
         btn.plane.home();
@@ -1067,29 +1092,26 @@ const spacer = struct {
     plane: Plane,
     layout_: Widget.Layout,
     on_event: ?EventHandler,
-    content: []const u8,
-    fg: colors,
-    bg: colors,
+    style: *const Style,
+    view: usize,
 
     const Self = @This();
 
     fn create(
         allocator: std.mem.Allocator,
         parent: Plane,
-        content: []const u8,
-        fg: colors,
-        bg: colors,
+        style: *const Style,
+        view: usize,
         event_handler: ?EventHandler,
     ) @import("widget.zig").CreateError!Widget {
         const self: *Self = try allocator.create(Self);
         errdefer allocator.destroy(self);
         self.* = .{
             .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-            .layout_ = .{ .static = self.plane.egc_chunk_width(content, 0, 1) },
+            .layout_ = .{ .static = self.plane.egc_chunk_width(style.spacer, 0, 1) },
             .on_event = event_handler,
-            .content = content,
-            .fg = fg,
-            .bg = bg,
+            .style = style,
+            .view = view,
         };
         return Widget.to(self);
     }
@@ -1107,13 +1129,16 @@ const spacer = struct {
         self.plane.set_base_style(theme.editor);
         self.plane.erase();
         self.plane.home();
+        const focused = is_active_view(self.view);
+        const fg = if (focused) self.style.spacer_fg else self.style.unfocused_spacer_fg;
+        const bg = if (focused) self.style.spacer_bg else self.style.unfocused_spacer_bg;
         self.plane.set_style(.{
-            .fg = self.fg.from_theme(theme),
-            .bg = self.bg.from_theme(theme),
+            .fg = fg.from_theme(theme),
+            .bg = bg.from_theme(theme),
         });
         self.plane.fill(" ");
         self.plane.home();
-        _ = self.plane.putstr(self.content) catch {};
+        _ = self.plane.putstr(self.style.spacer) catch {};
         return false;
     }
 
@@ -1139,6 +1164,8 @@ pub const colors = enum {
     unfocused_active_fg,
     unfocused_inactive_bg,
     unfocused_inactive_fg,
+    bar_bg,
+    bar_fg,
 
     Error,
     Warning,
@@ -1159,6 +1186,8 @@ pub const colors = enum {
             .unfocused_active_fg => theme.tab_unfocused_active.fg,
             .unfocused_inactive_bg => theme.tab_unfocused_inactive.bg,
             .unfocused_inactive_fg => theme.tab_unfocused_inactive.fg,
+            .bar_bg => theme.tab_bar.bg,
+            .bar_fg => theme.tab_bar.fg,
             .Error => theme.editor_error.fg,
             .Warning => theme.editor_warning.fg,
             .Information => theme.editor_information.fg,
