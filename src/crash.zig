@@ -73,7 +73,8 @@ fn install_posix() void {
     const act: std.posix.Sigaction = .{
         .handler = .{ .sigaction = handle_crash_posix },
         .mask = std.posix.sigemptyset(),
-        .flags = (std.posix.SA.SIGINFO | std.posix.SA.RESTART),
+        // RESETHAND: abort() from inside the handler must not re-enter it
+        .flags = (std.posix.SA.SIGINFO | std.posix.SA.RESTART | std.posix.SA.RESETHAND),
     };
     std.posix.sigaction(std.posix.SIG.SEGV, &act, null);
     std.posix.sigaction(std.posix.SIG.BUS, &act, null);
