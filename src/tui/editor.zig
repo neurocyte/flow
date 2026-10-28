@@ -16,6 +16,7 @@ const project_manager = @import("project_manager");
 const root_mod = @import("soft_root").root;
 const file_link = @import("file_link");
 const syntax_validator = @import("syntax_validator");
+const richdoc = @import("richdoc");
 const jump_labels = @import("jump_labels.zig");
 
 const Plane = @import("renderer").Plane;
@@ -42,6 +43,7 @@ const IndentMode = @import("config").IndentMode;
 const WhitespaceMode = @import("config").WhitespaceMode;
 const CodeActionIndicatorMode = @import("config").CodeActionIndicatorMode;
 const info_view = @import("info_view.zig");
+const link_dispatch = @import("link_dispatch.zig");
 const ScrollAnimation = @import("ScrollAnimation.zig");
 
 pub const Cursor = Buffer.Cursor;
@@ -2578,10 +2580,18 @@ pub const Editor = struct {
             var character: usize = 0;
             var message: []const u8 = undefined;
             if (!(cbor.matchValue(&iter, .{ cbor.extract(&file_path), cbor.extract(&line), cbor.extract(&character), cbor.extract(&message) }) catch false)) break;
+            if (related.written().len > 0) try related.writer.writeAll("\\\n");
             var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-            try related.writer.print("{s}:{d}:{d}: {s}\n", .{ project_manager.normalize_file_path(file_path, &file_path_buf), line + 1, character + 1, message });
+            var text_buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+            const text = std.fmt.bufPrint(&text_buf, "{s}:{d}:{d}", .{ project_manager.normalize_file_path(file_path, &file_path_buf), line + 1, character + 1 }) catch file_path;
+            try related.writer.writeByte('[');
+            try richdoc.markdown.write_escaped(&related.writer, text);
+            try related.writer.writeAll("](");
+            try link_dispatch.write_file_href(&related.writer, file_path, line + 1, character + 1);
+            try related.writer.writeAll("): ");
+            try richdoc.markdown.write_escaped(&related.writer, std.mem.trimEnd(u8, message, "\n"));
         }
-        if (related.written().len > 0) try info.append_content(.plaintext, related.written());
+        if (related.written().len > 0) try info.append_content(.markdown, related.written());
     }
 
     fn clamp_abs_offset(self: *Self, abs: bool, offset: usize, now: std.Io.Timestamp) void {

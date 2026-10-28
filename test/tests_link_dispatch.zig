@@ -32,6 +32,19 @@ test "link_dispatch files with a line" {
     try expect("build.zig", "docs", .{ .file = .{ .path = "docs/build.zig" } });
 }
 
+test "link_dispatch files with a line and column" {
+    try expect("src/main.rs:3:22", "", .{ .file = .{ .path = "src/main.rs", .line = 3, .column = 22 } });
+    try expect("/abs/a:b.zig:7", "docs", .{ .file = .{ .path = "/abs/a:b.zig", .line = 7 } });
+}
+
+test "link_dispatch file hrefs read back" {
+    var href: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer href.deinit();
+    try link_dispatch.write_file_href(&href.writer, "/a dir/(x)#1\\y.md", 12, 5);
+    try std.testing.expectEqualStrings("/a%20dir/%28x%29%231%5Cy.md:12:5", href.written());
+    try expect(href.written(), "docs", .{ .markdown = .{ .path = "/a dir/(x)#1\\y.md", .line = 12, .column = 5 } });
+}
+
 test "link_dispatch absolute paths and file uris ignore the base directory" {
     try expect("/abs/a.zig", "docs", .{ .file = .{ .path = "/abs/a.zig" } });
     try expect("file:///tmp/x.md", "docs", .{ .markdown = .{ .path = "/tmp/x.md" } });

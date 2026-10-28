@@ -16,6 +16,7 @@ pub const Context = struct {
 pub const Target = struct {
     path: []const u8,
     line: ?usize = null,
+    column: ?usize = null,
     anchor: ?[]const u8 = null,
 };
 
@@ -38,9 +39,10 @@ pub fn classify(allocator: std.mem.Allocator, href: []const u8, ctx: Context) er
         const fragment = path[i + 1 ..];
         path = path[0..i];
         if (fragment_line(fragment)) |line| target.line = line else if (fragment.len > 0) target.anchor = fragment;
-    } else if (suffix_line(path)) |split| {
+    } else if (suffix_location(path)) |split| {
         path = split.path;
         target.line = split.line;
+        target.column = split.column;
     }
     const decoded = std.Uri.percentDecodeInPlace(try allocator.dupe(u8, path));
     target.path = if (std.fs.path.isAbsolute(decoded) or ctx.base_dir.len == 0)
@@ -78,10 +80,22 @@ fn preview(target: Target) !void {
 }
 
 fn navigate(target: Target) !void {
-    if (target.line) |line|
-        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = target.path, .line = line } })
+    const line = target.line orelse
+        return tp.self_pid().send(.{ "cmd", "navigate", .{ .file = target.path } });
+    if (target.column) |column|
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = target.path, .line = line, .column = column } })
     else
-        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = target.path } });
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = target.path, .line = line } });
+}
+
+/// write an href for `path` at `line` and `column` that `classify` reads back
+pub fn write_file_href(writer: *std.Io.Writer, path: []const u8, line: usize, column: usize) std.Io.Writer.Error!void {
+    try std.Uri.Component.percentEncode(writer, path, is_href_path_char);
+    try writer.print(":{d}:{d}", .{ line, column });
+}
+
+fn is_href_path_char(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '/' or c == '-' or c == '.' or c == '_' or c == '~';
 }
 
 fn scheme(href: []const u8) ?[]const u8 {
@@ -105,12 +119,18 @@ fn fragment_line(fragment: []const u8) ?usize {
     return std.fmt.parseInt(usize, fragment[1..end], 10) catch null;
 }
 
-/// `path:10`
-fn suffix_line(path: []const u8) ?struct { path: []const u8, line: usize } {
+/// `path:10` or `path:10:5`
+fn suffix_location(path: []const u8) ?struct { path: []const u8, line: usize, column: ?usize = null } {
+    const last = suffix_number(path) orelse return null;
+    if (suffix_number(last.path)) |first| return .{ .path = first.path, .line = first.number, .column = last.number };
+    return .{ .path = last.path, .line = last.number };
+}
+
+fn suffix_number(path: []const u8) ?struct { path: []const u8, number: usize } {
     const colon = std.mem.lastIndexOfScalar(u8, path, ':') orelse return null;
     if (colon == 0) return null;
-    const line = std.fmt.parseInt(usize, path[colon + 1 ..], 10) catch return null;
-    return .{ .path = path[0..colon], .line = line };
+    const number = std.fmt.parseInt(usize, path[colon + 1 ..], 10) catch return null;
+    return .{ .path = path[0..colon], .number = number };
 }
 
 fn is_markdown(path: []const u8) bool {

@@ -48,6 +48,13 @@ test "escapes and entities" {
     try expect("\\*no\\* &amp; &#65; &#x42; &bogus; &copy;", "(body (p \"*no* & A B &bogus; ©\"))");
 }
 
+test "escaped plain text renders as itself" {
+    var md: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer md.deinit();
+    try markdown.write_escaped(&md.writer, "# a*b*_c_ [d](e) `f` <g> &amp; 1. \\x\nnext: - line");
+    try expect(md.written(), "(body (p \"# a*b*_c_ [d](e) `f` <g> &amp; 1. \\\\x\" (br) \"next: - line\"))");
+}
+
 test "tight list" {
     try expect("- a\n- b\n  more\n* c", "(body (ul (li \"a\") (li \"b more\")) (ul (li \"c\")))");
 }

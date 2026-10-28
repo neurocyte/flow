@@ -27,6 +27,17 @@ pub fn write_code_block(writer: *std.Io.Writer, lang: ?[]const u8, lines: []cons
     try writer.writeByte('\n');
 }
 
+/// write plain `text` as markdown that renders as the same text, with its line breaks
+pub fn write_escaped(writer: *std.Io.Writer, text: []const u8) std.Io.Writer.Error!void {
+    for (text) |c| switch (c) {
+        '\n' => try writer.writeAll("\\\n"),
+        else => {
+            if (std.ascii.isPunctuation(c)) try writer.writeByte('\\');
+            try writer.writeByte(c);
+        },
+    };
+}
+
 fn longest_backtick_run(text: []const u8) usize {
     var longest: usize = 0;
     var run: usize = 0;
