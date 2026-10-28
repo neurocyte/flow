@@ -108,6 +108,7 @@ pub const panel_singleton = true;
 pub const preview_tag = "preview";
 
 pub const panel_menu: Menu = .{ .label = "Info", .items = &.{
+    .{ .command = .{ .command = "info_open_in_editor" } },
     .{ .command = .{ .command = "toggle_markdown_preview_file_links", .on_activate = .keep_open } },
 } };
 
