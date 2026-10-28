@@ -147,10 +147,10 @@ fn State(ctx_type: type) type {
                 self.drag_anchor_offset = null;
                 self.drag_pos = null;
                 self.drag_pos_offset = null;
-                self.call_click_handler(btn, self.to_rel_cursor(coord));
                 self.middle_press = null;
-                self.middle_dragged = false;
-                if (self.opts.on_event) |h| h.send(from, m) catch {};
+                const on_event = self.opts.on_event;
+                self.call_click_handler(btn, self.to_rel_cursor(coord));
+                if (on_event) |h| h.send(from, m) catch {};
                 tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ MouseEvent.Type.drag, tp.extract(&btn), tp.extract(&coord), tp.any })) {
