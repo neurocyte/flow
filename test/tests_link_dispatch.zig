@@ -32,6 +32,14 @@ test "link_dispatch files with a line" {
     try expect("build.zig", "docs", .{ .file = .{ .path = "docs/build.zig" } });
 }
 
+test "link_dispatch relative files with a line are not urls" {
+    try expect("main.c:5", "docs", .{ .file = .{ .path = "docs/main.c", .line = 5 } });
+    try expect("main.c:5:3", "", .{ .file = .{ .path = "main.c", .line = 5, .column = 3 } });
+    try expect("notes.md:12", "", .{ .markdown = .{ .path = "notes.md", .line = 12 } });
+    try expect("main.c:5:3:1", "", .{ .url = "main.c:5:3:1" });
+    try expect("main.c:x5", "", .{ .url = "main.c:x5" });
+}
+
 test "link_dispatch files with a line and column" {
     try expect("src/main.rs:3:22", "", .{ .file = .{ .path = "src/main.rs", .line = 3, .column = 22 } });
     try expect("/abs/a:b.zig:7", "docs", .{ .file = .{ .path = "/abs/a:b.zig", .line = 7 } });

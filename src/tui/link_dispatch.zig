@@ -30,10 +30,10 @@ pub const Action = union(enum) {
 pub fn classify(allocator: std.mem.Allocator, href: []const u8, ctx: Context) error{OutOfMemory}!Action {
     if (href.len > 0 and href[0] == '#') return .{ .anchor = href[1..] };
     var path = href;
-    if (scheme(href)) |s| {
+    if (scheme(href)) |s| if (!is_location(href[s.len + 1 ..])) {
         if (!std.ascii.eqlIgnoreCase(s, "file")) return .{ .url = href };
         path = file_uri_path(href);
-    }
+    };
     var target: Target = .{ .path = "" };
     if (std.mem.indexOfScalar(u8, path, '#')) |i| {
         const fragment = path[i + 1 ..];
@@ -118,6 +118,17 @@ fn fragment_line(fragment: []const u8) ?usize {
     if (fragment.len < 2 or fragment[0] != 'L') return null;
     const end = std.mem.indexOfScalar(u8, fragment, '-') orelse fragment.len;
     return std.fmt.parseInt(usize, fragment[1..end], 10) catch null;
+}
+
+/// `10` or `10:5`, the rest of `path:10:5`, which has no scheme
+fn is_location(text: []const u8) bool {
+    var parts = std.mem.splitScalar(u8, text, ':');
+    var n: usize = 0;
+    while (parts.next()) |part| : (n += 1) {
+        if (n == 2 or part.len == 0) return false;
+        for (part) |c| if (!std.ascii.isDigit(c)) return false;
+    }
+    return true;
 }
 
 /// `path:10` or `path:10:5`
