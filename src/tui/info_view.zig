@@ -686,7 +686,9 @@ fn show_link_line(self: *Self) void {
     const delay_us: i64 = @intCast(std.time.us_per_ms * tui.config().hover_time_ms);
     if (root.get_now().toMicroseconds() - hover.since_us < delay_us) return;
     const mv = tui.mainview() orelse return;
-    mv.show_link_line(hover.href, self.link_line_area orelse OverlayLine.area_of(self.plane));
+    const text = self.allocator.dupe(u8, hover.href) catch return;
+    defer self.allocator.free(text);
+    mv.show_link_line(std.Uri.percentDecodeInPlace(text), self.link_line_area orelse OverlayLine.area_of(self.plane));
     hover.shown = true;
 }
 
