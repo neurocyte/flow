@@ -2914,6 +2914,20 @@ const cmds = struct {
         .description = if (@hasDecl(tui.renderer, "reset_fontsize")) "Reset font to configured size" else &.{},
     };
 
+    pub fn adjust_fontweight(_: *Self, ctx: Ctx) Result {
+        var delta: i32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&delta)}))
+            return error.InvalidArgument;
+        if (comptime @hasDecl(tui.renderer, "adjust_fontweight"))
+            tui.rdr().adjust_fontweight(delta)
+        else
+            std.log.info("adjust_fontweight not supported", .{});
+    }
+    pub const adjust_fontweight_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "adjust_fontweight")) "Adjust font weight" else &.{},
+        .arguments = &.{.integer},
+    };
+
     pub fn set_background_opacity(_: *Self, ctx: Ctx) Result {
         var value: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&value)}))

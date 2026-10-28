@@ -666,6 +666,11 @@ pub fn reset_fontsize(self: *Self) void {
     app.resetFontSize();
 }
 
+pub fn adjust_fontweight(self: *Self, delta: i32) void {
+    _ = self;
+    app.adjustFontWeight(delta);
+}
+
 pub fn reload_config(self: *Self) void {
     _ = self;
     app.reloadConfig();

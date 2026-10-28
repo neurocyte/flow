@@ -689,6 +689,10 @@ pub fn setFontWeight(weight: u16) void {
     requestRender();
 }
 
+pub fn adjustFontWeight(delta: i32) void {
+    setFontWeight(@intCast(std.math.clamp(@as(i32, font_weight) + delta, 100, 900)));
+}
+
 pub fn getFontWeight() u16 {
     return font_weight;
 }

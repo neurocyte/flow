@@ -205,6 +205,8 @@ const window: Menu = .{ .label = "Window", .items = &.{
     .{ .command = .{ .command = "adjust_fontsize", .args = Menu.args(.{@as(f32, 1.0)}), .label = "Increase font size", .on_activate = .keep_open } },
     .{ .command = .{ .command = "adjust_fontsize", .args = Menu.args(.{@as(f32, -1.0)}), .label = "Decrease font size", .on_activate = .keep_open } },
     .{ .command = .{ .command = "reset_fontsize", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "adjust_fontweight", .args = Menu.args(.{@as(i32, 100)}), .label = "Increase font weight", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "adjust_fontweight", .args = Menu.args(.{@as(i32, -100)}), .label = "Decrease font weight", .on_activate = .keep_open } },
     .separator,
     .{ .command = .{ .command = "adjust_background_opacity", .args = Menu.args(.{@as(f32, 0.05)}), .label = "Increase window opacity", .on_activate = .keep_open } },
     .{ .command = .{ .command = "adjust_background_opacity", .args = Menu.args(.{@as(f32, -0.05)}), .label = "Decrease window opacity", .on_activate = .keep_open } },
