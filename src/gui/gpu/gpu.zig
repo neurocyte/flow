@@ -171,8 +171,8 @@ pub fn writeRuntimeInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("opengl-vendor: {s}\n", .{strings.vendor});
 }
 
-pub fn fontFaceId(backend: RasterizerBackend, name: []const u8, weight: u16, italic: bool) ?u64 {
-    return Rasterizer.faceId(backend, name, weight, italic);
+pub fn fontSetId(backend: RasterizerBackend, name: []const u8, weight: u16, bold_offset: u16) ?[4]u64 {
+    return Rasterizer.fontSetId(backend, name, weight, bold_offset);
 }
 
 pub fn writeFontFileInfo(writer: *std.Io.Writer, name: []const u8, weight: u16) std.Io.Writer.Error!void {

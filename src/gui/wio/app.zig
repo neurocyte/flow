@@ -690,7 +690,29 @@ pub fn setFontWeight(weight: u16) void {
 }
 
 pub fn adjustFontWeight(delta: i32) void {
-    setFontWeight(@intCast(std.math.clamp(@as(i32, font_weight) + delta, 100, 900)));
+    const weight = nextFontWeight(delta) orelse {
+        log.info("font weight {d} (no {s} weight available)", .{ font_weight, if (delta < 0) "lighter" else "heavier" });
+        return;
+    };
+    setFontWeight(weight);
+    log.info("font weight {d}", .{weight});
+}
+
+fn nextFontWeight(delta: i32) ?u16 {
+    if (delta == 0) return null;
+    const current = fontWeightFaces(font_weight);
+    var weight: i32 = font_weight;
+    while (true) {
+        weight += delta;
+        if (weight < 100 or weight > 900) return null;
+        const faces = fontWeightFaces(@intCast(weight));
+        if (current == null or faces == null or !std.mem.eql(u64, &faces.?, &current.?))
+            return @intCast(weight);
+    }
+}
+
+fn fontWeightFaces(weight: u16) ?[4]u64 {
+    return gpu.fontSetId(font_backend, getFontName(), weight, font_weight_bold_offset);
 }
 
 pub fn getFontWeight() u16 {

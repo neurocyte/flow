@@ -343,6 +343,25 @@ fn familyMatches(font: c.Ref, family: []const u8) bool {
     return std.ascii.eqlIgnoreCase(got, family);
 }
 
+pub const FaceMatch = struct { id: u64, style_match: bool };
+
+pub fn faceId(family: []const u8, css_weight: u16, italic: bool) ?FaceMatch {
+    const font = createFace(family, css_weight, italic, 16) orelse return null;
+    defer c.CFRelease(font);
+    if (!familyMatches(font, family)) return null;
+    if (c.CTFontCopyVariation(font)) |variation| {
+        c.CFRelease(variation);
+        return null;
+    }
+    const name = c.CTFontCopyPostScriptName(font) orelse return null;
+    defer c.CFRelease(name);
+    var buf: [256]u8 = undefined;
+    return .{
+        .id = std.hash.Wyhash.hash(0, cfStringToUtf8(name, &buf) orelse return null),
+        .style_match = styleMatches(font, css_weight, italic),
+    };
+}
+
 fn resolveBuiltin(self: *Self, req: FaceRequest) !FaceResolution {
     const key = FaceKey{
         .family_hash = std.hash.Wyhash.hash(0, gui_config.builtin_fontface),
@@ -389,10 +408,13 @@ fn resolveCachedFace(self: *Self, family: []const u8, css_weight: u16, italic: b
         break :blk f;
     };
 
+    return .{ .face = face, .style_match = styleMatches(face, css_weight, italic) };
+}
+
+fn styleMatches(face: c.Ref, css_weight: u16, italic: bool) bool {
     const traits = c.CTFontGetSymbolicTraits(face);
-    const style_match = (!italic or (traits & c.kCTFontTraitItalic) != 0) and
+    return (!italic or (traits & c.kCTFontTraitItalic) != 0) and
         (css_weight < 600 or (traits & c.kCTFontTraitBold) != 0);
-    return .{ .face = face, .style_match = style_match };
 }
 
 pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {

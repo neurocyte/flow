@@ -206,6 +206,63 @@ fn xlat(comptime T: type, value: anytype) T {
     return @fromBackingInt(@intCast(@backingInt(value)));
 }
 
+pub fn fontSetId(backend: Backend, family: []const u8, weight: u16, bold_offset: u16) ?[4]u64 {
+    const bold_w = boldCssWeight(weight, bold_offset);
+    const regular = faceMatch(backend, family, weight, false) orelse return null;
+    var ids: [4]u64 = @splat(regular.id);
+    const face_specs = [_]FaceSpec{
+        .{ .face = .bold, .css_weight = bold_w, .italic = false },
+        .{ .face = .italic, .css_weight = weight, .italic = true },
+        .{ .face = .bold_italic, .css_weight = bold_w, .italic = true },
+    };
+    for (face_specs) |spec| {
+        const idx = @backingInt(spec.face);
+        const wants_bold = spec.face == .bold or spec.face == .bold_italic;
+        const real = if (wants_bold and bold_w == weight) false else blk: {
+            const m = faceMatch(backend, family, spec.css_weight, spec.italic) orelse return null;
+            ids[idx] = m.id;
+            break :blk m.style_match orelse (m.id != regular.id);
+        };
+        if (!real) ids[idx] = regular.id +% idx;
+    }
+    return ids;
+}
+
+const FaceMatch = struct { id: u64, style_match: ?bool = null };
+
+fn faceMatch(backend: Backend, family: []const u8, css_weight: u16, italic: bool) ?FaceMatch {
+    if (std.mem.eql(u8, family, builtin_fontface)) return .{ .id = builtinFaceId(css_weight, italic) };
+    switch (backend) {
+        inline else => |tag| {
+            const field = comptime backendField(tag);
+            const match = if (comptime std.mem.eql(u8, field, "dw"))
+                DW.faceId(family, css_weight, italic)
+            else if (comptime std.mem.eql(u8, field, "ct"))
+                CT.faceId(family, css_weight, italic)
+            else
+                return .{ .id = pathFaceId(family, css_weight, italic) };
+            const m = match orelse return null;
+            return .{ .id = m.id, .style_match = m.style_match };
+        },
+    }
+}
+
+fn builtinFaceId(css_weight: u16, italic: bool) u64 {
+    const weight = @import("gui_config").BuiltinWeight.fromCss(css_weight);
+    return @as(u64, @backingInt(weight)) << 1 | @intFromBool(italic);
+}
+
+fn pathFaceId(family: []const u8, css_weight: u16, italic: bool) u64 {
+    var buffer: [2 * std.fs.max_path_bytes]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&buffer);
+    const match = TT.font_finder.findFontVariant(fba.allocator(), family, css_weight, italic) catch
+        return builtinFaceId(css_weight, italic);
+    var hasher: std.hash.Wyhash = .init(0);
+    hasher.update(match.path);
+    hasher.update(std.mem.asBytes(&match.face_index));
+    return hasher.final();
+}
+
 fn boldCssWeight(css_regular: u16, offset: u16) u16 {
     return @min(900, css_regular + offset);
 }

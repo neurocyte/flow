@@ -120,6 +120,8 @@ pub extern "c" fn CTFontDescriptorCreateWithAttributes(attributes: Ref) Ref;
 pub extern "c" fn CTFontDescriptorCopyAttribute(descriptor: Ref, attribute: Ref) Ref;
 
 pub extern "c" fn CTFontCopyFamilyName(font: Ref) Ref;
+pub extern "c" fn CTFontCopyPostScriptName(font: Ref) Ref;
+pub extern "c" fn CTFontCopyVariation(font: Ref) Ref;
 pub extern "c" fn CTFontGetSymbolicTraits(font: Ref) CTFontSymbolicTraits;
 
 pub extern "c" fn CTFontGetSize(font: Ref) CGFloat;

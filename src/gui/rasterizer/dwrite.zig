@@ -245,6 +245,50 @@ fn resolveCachedFace(
         return error.FontNotFound;
     defer _ = font.IUnknown.Release();
 
+    const style_match = styleMatches(font, css_weight, italic);
+
+    var face: *win32.IDWriteFontFace = undefined;
+    if (font.CreateFontFace(&face) < 0) return error.FontNotFound;
+
+    try self.cache.put(self.allocator, key, face);
+    return .{ .face = face, .style_match = style_match };
+}
+
+pub const FaceMatch = struct { id: u64, style_match: bool };
+
+pub fn faceId(family_utf8: []const u8, css_weight: u16, italic: bool) ?FaceMatch {
+    var factory: *win32.IDWriteFactory = undefined;
+    if (win32.DWriteCreateFactory(
+        win32.DWRITE_FACTORY_TYPE_SHARED,
+        win32.IID_IDWriteFactory,
+        @ptrCast(&factory),
+    ) < 0) return null;
+    defer _ = factory.IUnknown.Release();
+
+    var collection: *win32.IDWriteFontCollection = undefined;
+    if (factory.GetSystemFontCollection(&collection, 0) < 0) return null;
+    defer _ = collection.IUnknown.Release();
+
+    const idx = findFamily(collection, family_utf8) catch return null;
+
+    var family: *win32.IDWriteFontFamily = undefined;
+    if (collection.GetFontFamily(idx, &family) < 0) return null;
+    defer _ = family.IUnknown.Release();
+
+    var font: *win32.IDWriteFont = undefined;
+    const style: win32.DWRITE_FONT_STYLE = if (italic) .ITALIC else .NORMAL;
+    const weight: win32.DWRITE_FONT_WEIGHT = @fromBackingInt(@intCast(@as(i32, css_weight)));
+    if (family.GetFirstMatchingFont(weight, .NORMAL, style, &font) < 0) return null;
+    defer _ = font.IUnknown.Release();
+
+    var hasher: std.hash.Wyhash = .init(idx);
+    hasher.update(std.mem.asBytes(&font.GetWeight()));
+    hasher.update(std.mem.asBytes(&font.GetStyle()));
+    hasher.update(std.mem.asBytes(&font.GetSimulations()));
+    return .{ .id = hasher.final(), .style_match = styleMatches(font, css_weight, italic) };
+}
+
+fn styleMatches(font: *win32.IDWriteFont, css_weight: u16, italic: bool) bool {
     const got_weight: i32 = @backingInt(font.GetWeight());
     const got_style = font.GetStyle();
     const sims = font.GetSimulations();
@@ -252,13 +296,7 @@ fn resolveCachedFace(
     const weight_close = @abs(got_weight - want_w) <= 50;
     const style_ok = (italic and got_style != .NORMAL) or (!italic and got_style == .NORMAL);
     const no_sims = (sims.BOLD == 0 and sims.OBLIQUE == 0);
-    const style_match = weight_close and style_ok and no_sims;
-
-    var face: *win32.IDWriteFontFace = undefined;
-    if (font.CreateFontFace(&face) < 0) return error.FontNotFound;
-
-    try self.cache.put(self.allocator, key, face);
-    return .{ .face = face, .style_match = style_match };
+    return weight_close and style_ok and no_sims;
 }
 
 fn fillFontMetrics(face: *win32.IDWriteFontFace, size_px: u16, out: *Font) !void {
