@@ -472,10 +472,13 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         try main_proc.send(.{ "cmd", "create_scratch_buffer", .{} });
     }
 
-    if (args.dark)
-        try main_proc.send(.{ "cmd", "force_color_scheme", .{"dark"} })
-    else if (args.light)
-        try main_proc.send(.{ "cmd", "force_color_scheme", .{"light"} });
+    if (args.dark or args.light) {
+        const scheme = if (args.dark) "dark" else "light";
+        if (connect != null)
+            try main_proc.send(.{ "request", "force_color_scheme", .{scheme} })
+        else
+            try main_proc.send(.{ "cmd", "force_color_scheme", .{scheme} });
+    }
 
     var exec_eh = thespian.make_exit_handler({}, ignore_exit_status);
     const then_disconnect: ?thespian.message = if (connect != null) thespian.message.fmt(.{"disconnect"}) else null;
