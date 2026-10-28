@@ -233,13 +233,18 @@ const Process = struct {
     }
 
     fn send_request(self: *@This(), cmd: []const u8, args: cbor.Raw, reply_to: ?LocalReply) !void {
+        const creates_buffer = std.mem.eql(u8, cmd, "create_new_file") or std.mem.eql(u8, cmd, "create_scratch_buffer");
         const manage_focus = switch (self.focus_mode) {
-            .auto => std.mem.eql(u8, cmd, "navigate"),
+            .auto => creates_buffer or std.mem.eql(u8, cmd, "navigate"),
             .always => true,
             .never => false,
         };
         if (manage_focus) try self.query_terminal_state();
-        return self.send_request_from(.user, cmd, args, reply_to);
+        try self.send_request_from(.user, cmd, args, reply_to);
+        if (creates_buffer and self.track != .none) {
+            var buf: [16]u8 = undefined;
+            try self.send_request_from(.user, "track_active_buffer", .{ .bytes = cbor.fmt(&buf, .{self.track}) }, null);
+        }
     }
 
     fn send_focus_request(self: *@This(), cmd: []const u8, args: anytype) !void {
@@ -298,6 +303,9 @@ const Process = struct {
             if (!try add_track_field(&tracked_args.writer, args, self.track)) break :blk args;
             try self.tracked_requests.put(self.allocator, request_id, {});
             break :blk cbor.Raw{ .bytes = tracked_args.written() };
+        } else if (std.mem.eql(u8, cmd, "track_active_buffer")) blk: {
+            try self.tracked_requests.put(self.allocator, request_id, {});
+            break :blk args;
         } else args;
         const m = tp.message.fmt(.{ "request", request_id, cmd, request_args });
         const hold = origin == .user and self.focus.state == .querying;

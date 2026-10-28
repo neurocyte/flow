@@ -466,10 +466,12 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         try main_proc.send(.{ "cmd", "show_home" });
     }
 
-    if (args.new_file) {
-        try main_proc.send(.{ "cmd", "create_new_file", .{} });
-    } else if (args.scratch) {
-        try main_proc.send(.{ "cmd", "create_scratch_buffer", .{} });
+    if (args.new_file or args.scratch) {
+        const cmd = if (args.new_file) "create_new_file" else "create_scratch_buffer";
+        if (connect != null)
+            try main_proc.send(.{ "request", cmd, .{} })
+        else
+            try main_proc.send(.{ "cmd", cmd, .{} });
     }
 
     if (args.dark or args.light) {
