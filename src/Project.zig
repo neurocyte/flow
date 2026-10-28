@@ -1336,6 +1336,7 @@ fn send_diagnostic(self: *Self, to: tp.pid_ref, file_path: []const u8, diagnosti
     var severity: i64 = 1;
     var range: ?LSPClient.Range = null;
     var rendered: []const u8 = "";
+    var code_href: []const u8 = "";
     var related: std.Io.Writer.Allocating = .init(self.allocator);
     defer related.deinit();
     try cbor.writeArrayHeader(&related.writer, 0);
@@ -1369,7 +1370,11 @@ fn send_diagnostic(self: *Self, to: tp.pid_ref, file_path: []const u8, diagnosti
         } else if (std.mem.eql(u8, field_name, "data")) {
             var data: []const u8 = undefined;
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&data)))) return error.InvalidDiagnosticField;
-            rendered = read_rendered(data) catch "";
+            rendered = read_string_field(data, "rendered") catch "";
+        } else if (std.mem.eql(u8, field_name, "codeDescription")) {
+            var code_description: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&code_description)))) return error.InvalidDiagnosticField;
+            code_href = read_string_field(code_description, "href") catch "";
         } else {
             try cbor.skipValue(&iter);
         }
@@ -1387,6 +1392,7 @@ fn send_diagnostic(self: *Self, to: tp.pid_ref, file_path: []const u8, diagnosti
         range.?.end.character,
         rendered,
         cbor.Raw{ .bytes = related.written() },
+        code_href,
     } }) catch |e| {
         std.log.err("send add_diagnostic failed: {t}", .{e});
     };
@@ -1439,17 +1445,18 @@ fn write_related_information(writer: *std.Io.Writer, related: []const u8) Diagno
 }
 
 /// the full compiler output rust-analyzer sends in data.rendered
-fn read_rendered(data: []const u8) cbor.Error![]const u8 {
-    var iter = data;
+/// the string field `name` of a cbor map, or "" if it has none
+fn read_string_field(map: []const u8, name: []const u8) cbor.Error![]const u8 {
+    var iter = map;
     var len = cbor.decodeMapHeader(&iter) catch return "";
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return "";
         var value: []const u8 = undefined;
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return "";
-        var rendered: []const u8 = undefined;
-        if (std.mem.eql(u8, field_name, "rendered") and try cbor.matchValue(&value, cbor.extract(&rendered)))
-            return rendered;
+        var string: []const u8 = undefined;
+        if (std.mem.eql(u8, field_name, name) and try cbor.matchValue(&value, cbor.extract(&string)))
+            return string;
     }
     return "";
 }

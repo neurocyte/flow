@@ -327,6 +327,7 @@ pub const Diagnostic = struct {
     sel: Selection,
     rendered: []const u8,
     related: []const u8,
+    code_href: []const u8,
 
     fn deinit(self: *Diagnostic, allocator: std.mem.Allocator) void {
         allocator.free(self.source);
@@ -334,6 +335,7 @@ pub const Diagnostic = struct {
         allocator.free(self.message);
         allocator.free(self.rendered);
         allocator.free(self.related);
+        allocator.free(self.code_href);
     }
 
     fn contains(self: *const Diagnostic, pos: Cursor) bool {
@@ -2560,7 +2562,12 @@ pub const Editor = struct {
         var md: std.Io.Writer.Allocating = .init(self.allocator);
         defer md.deinit();
         try md.writer.print("**{t}** `{s}`", .{ diag.get_severity(), diag.source });
-        if (!std.mem.eql(u8, diag.code, "none")) try md.writer.print(" `{s}`", .{diag.code});
+        if (!std.mem.eql(u8, diag.code, "none")) {
+            if (diag.code_href.len > 0)
+                try md.writer.print(" [`{s}`](<{s}>)", .{ diag.code, diag.code_href })
+            else
+                try md.writer.print(" `{s}`", .{diag.code});
+        }
         if (diag.rendered.len > 0) {
             try md.writer.writeAll("\n\n");
             try project_manager.write_code_fence(&md.writer, "", std.mem.trimEnd(u8, diag.rendered, "\n"));
@@ -8531,6 +8538,7 @@ pub const Editor = struct {
         sel_: Selection,
         rendered: []const u8,
         related: []const u8,
+        code_href: []const u8,
     ) Result {
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
 
@@ -8544,6 +8552,7 @@ pub const Editor = struct {
             .sel = sel_.from_pos(root, self.metrics),
             .rendered = try self.allocator.dupe(u8, rendered),
             .related = try self.allocator.dupe(u8, related),
+            .code_href = try self.allocator.dupe(u8, code_href),
         };
 
         switch (Diagnostic.to_severity(severity)) {
