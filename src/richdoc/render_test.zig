@@ -118,6 +118,10 @@ test "code links split highlight spans" {
     try expect("```zig\nconst x = 1;\n```", .{ .linkify = test_linkify_across.linkify }, "(blocks (block :wrap \"cells\" :width 12 \"const x = 1;\" (span 0 5 :fg 0x000007 :bold true) (span 5 6 :fg 0x000003) (span 6 10 :fg 0x000003 :link \"h\") (span 10 11 :fg 0x000008 :link \"h\") (span 11 12 :fg 0x000003)))");
 }
 
+test "links in text, inline code, list items and table cells, not in markdown links" {
+    try expect("ab `ab` [ab](x)\n\n- ab\n\n| ab |\n| -- |\n| ab |", .{ .linkify = test_linkify.linkify }, "(blocks (block :wrap \"words\" :width 8 \"ab ab ab\" (span 0 2 :link \"h\") (span 2 3) (span 3 5 :fg 0x000003 :link \"h\") (span 5 6) (span 6 8 :fg 0x000004 :link \"x\")) (block :wrap \"words\" :space_before 1 :width 0 \"\" (block :first_prefix \"• \" :prefix \"  \" :prefix_style { :fg 0x000005 } :wrap \"words\" :width 2 \"ab\" (span 0 2 :link \"h\"))) (block :prefix_style { :fg 0x000005 } :wrap \"cells\" :space_before 1 :table [\"\"] :width 0 \"\" (block :wrap \"cells\" :row \"head\" :width 0 \"\" (block :wrap \"cells\" :width 2 \"ab\" (span 0 2 :bold true :link \"h\"))) (block :wrap \"cells\" :row \"body\" :width 0 \"\" (block :wrap \"cells\" :width 2 \"ab\" (span 0 2 :link \"h\")))))");
+}
+
 test "code links only with linkify" {
     try expect("```\nab\n```", .{}, "(blocks (block :wrap \"cells\" :width 2 \"ab\" (span 0 2 :fg 0x000003)))");
 }

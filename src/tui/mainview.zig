@@ -1261,6 +1261,17 @@ const cmds = struct {
     }
     pub const info_open_in_editor_meta: Meta = .{ .description = "Open in editor" };
 
+    pub fn toggle_markdown_preview_file_links(_: *Self, _: Ctx) Result {
+        const config = tui.config_mut();
+        config.markdown_preview_file_links = !config.markdown_preview_file_links;
+        const logger = log.logger("markdown_preview");
+        defer logger.deinit();
+        defer logger.print("file links {s}", .{if (config.markdown_preview_file_links) "on" else "off"});
+        try tui.save_config();
+        try tp.self_pid().send(.{ "cmd", "markdown_preview_sync" });
+    }
+    pub const toggle_markdown_preview_file_links_meta: Meta = .{ .description = "Toggle file links in markdown previews" };
+
     pub fn markdown_preview_sync_disk(self: *Self, _: Ctx) Result {
         self.bottom_area.each_tagged(info_view, info_view.preview_tag, self, sync_preview_disk);
     }
@@ -3969,7 +3980,7 @@ fn sync_preview(self: *Self, preview: *info_view) void {
     const buffer_manager = tui.get_buffer_manager() orelse return;
     const buffer = buffer_manager.get_buffer_for_file(preview.source orelse return) orelse return;
     const editor = if (self.get_active_editor()) |editor| if (editor.buffer == buffer) editor else null else null;
-    const changed = preview.source_version != buffer.version();
+    const changed = preview.source_version != buffer.version() or preview.markdown_links() != preview_links();
     if (changed) {
         const position = preview.source_position();
         self.refresh_preview(preview, buffer) catch |e|
@@ -4006,12 +4017,16 @@ fn show_preview(self: *Self, source: []const u8) !*info_view {
 }
 
 fn refresh_preview(self: *Self, preview: *info_view, buffer: *Buffer) !void {
-    if (preview.source_version == buffer.version()) return;
+    if (preview.source_version == buffer.version() and preview.markdown_links() == preview_links()) return;
     var content: std.Io.Writer.Allocating = .init(self.allocator);
     defer content.deinit();
     try write_buffer_as_markdown(&content.writer, buffer);
-    try preview.set_content(.markdown, content.written());
+    try preview.set_markdown(content.written(), preview_links());
     preview.source_version = buffer.version();
+}
+
+fn preview_links() info_view.Links {
+    return if (tui.config().markdown_preview_file_links) .locations else .markup;
 }
 
 fn preview_anchor(editor: *ed.Editor, buffer: *const Buffer) info_view.SourceAnchor {

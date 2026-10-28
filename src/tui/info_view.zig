@@ -6,6 +6,7 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
+const Menu = @import("Menu.zig");
 const Scroller = @import("Scroller.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const tp = @import("thespian");
@@ -105,6 +106,10 @@ const box_slack_cols = 3;
 pub const panel_tag = "info";
 pub const panel_singleton = true;
 pub const preview_tag = "preview";
+
+pub const panel_menu: Menu = .{ .label = "Info", .items = &.{
+    .{ .command = .{ .command = "toggle_markdown_preview_file_links", .on_activate = .keep_open } },
+} };
 
 pub fn panel_title(self: *Self) []const u8 {
     return self.title orelse "Info";
@@ -465,6 +470,20 @@ pub fn set_content(self: *Self, kind: Kind, content: []const u8) !void {
     return self.append_content(kind, content);
 }
 
+pub fn set_markdown(self: *Self, content: []const u8, links: Links) !void {
+    self.clear();
+    self.scroller.scroll(.top);
+    return self.append_markdown(content, links);
+}
+
+pub fn markdown_links(self: *const Self) ?Links {
+    for (self.sections.items) |section| switch (section) {
+        .markdown => |md| return md.links,
+        .plaintext => {},
+    };
+    return null;
+}
+
 pub fn bar_cols_for(self: *const Self, rows: usize) usize {
     return if (self.scroller.scrollbar != null and self.layout.lines.items.len > rows) 1 else 0;
 }
@@ -542,7 +561,7 @@ fn find_location(context: *const anyopaque, allocator: Allocator, line: []const 
     switch (file_link.parse(line[range.start..range.end]) catch return link) {
         .url => |url| link.href = url.url,
         .file => |file| {
-            const path = try std.fs.path.resolveAlloc(allocator, &.{ self.base_dir(), file.path });
+            const path = try std.fs.path.resolveAlloc(allocator, &.{ tp.env.get().str("project"), self.base_dir(), file.path });
             link_dispatch.write_file_href(&href.writer, path, file.line, file.column) catch return error.OutOfMemory;
             link.href = href.written();
         },

@@ -1559,6 +1559,7 @@ fn reload_config(self: *Self) void {
                 self.logger.print_err("config", "reload of {s} failed: {t}", .{ field_name, e });
         }
     }
+    self.run_commands("idle", self.config_.idle_commands);
 }
 
 fn reload_theme(self: *Self, color_scheme: Widget.Theme.Type, name: []const u8) void {

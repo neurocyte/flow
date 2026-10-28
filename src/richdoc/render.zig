@@ -216,6 +216,7 @@ const Builder = struct {
                 b.* = .{ .space_before = if (parent.children.items.len > 0 and spacing == .container) 1 else 0 };
                 try parent.children.append(self.arena, b);
                 try self.add_text(b, t, .{ .style = .{} });
+                try self.add_links(b);
             },
         };
     }
@@ -248,6 +249,7 @@ const Builder = struct {
         } else {
             const b = try self.new_block(parent, elem, spacing);
             try self.inlines(b, elem, .{ .style = self.apply_tag(.{}, tag), .sloc = elem.sloc() });
+            try self.add_links(b);
         }
     }
 
@@ -273,6 +275,7 @@ const Builder = struct {
             item.prefix = try self.spaces(RDoc.display_width(marker));
             item.prefix_style = prefix_style;
             try self.item_content(item, li, loose);
+            try self.add_links(item);
         }
     }
 
@@ -309,6 +312,7 @@ const Builder = struct {
                     const c = try self.new_block(row, cell, .tight);
                     c.wrap = .cells;
                     try self.inlines(c, cell, .{ .style = self.apply_tag(.{}, cell.tag), .sloc = cell.sloc() });
+                    try self.add_links(c);
                 }
             }
         }
@@ -392,11 +396,12 @@ const Builder = struct {
             else => false,
         } else false;
         if (!highlighted) try b.spans.append(self.arena, .{ .start = 0, .end = text.len, .attrs = .{ .style = base, .sloc = sloc } });
-        try self.add_links(b, text);
+        try self.add_links(b);
     }
 
-    fn add_links(self: *@This(), b: *BlockBuilder, text: []const u8) error{OutOfMemory}!void {
+    fn add_links(self: *@This(), b: *BlockBuilder) error{OutOfMemory}!void {
         const linkify = self.opts.linkify orelse return;
+        const text = b.text.items;
         var links: std.ArrayList(Link) = .empty;
         var lines = std.mem.splitScalar(u8, text, '\n');
         while (lines.next()) |line| {
@@ -405,11 +410,10 @@ const Builder = struct {
             while (pos < line.len) {
                 const link = try linkify.find(linkify.context, self.arena, line[pos..]) orelse break;
                 if (link.end == 0) break;
-                if (link.href.len > 0) try links.append(self.arena, .{
-                    .start = line_start + pos + link.start,
-                    .end = line_start + pos + link.end,
-                    .href = link.href,
-                });
+                const start = line_start + pos + link.start;
+                const end = line_start + pos + link.end;
+                if (link.href.len > 0 and !has_link(b, start, end))
+                    try links.append(self.arena, .{ .start = start, .end = end, .href = link.href });
                 pos += link.end;
             }
         }
@@ -433,6 +437,11 @@ const Builder = struct {
             }
         }
         b.spans = spans;
+    }
+
+    fn has_link(b: *const BlockBuilder, start: usize, end: usize) bool {
+        for (b.spans.items) |span| if (span.attrs.link.len > 0 and span.start < end and start < span.end) return true;
+        return false;
     }
 
     /// add highlight spans for `text`, false if the language is unknown

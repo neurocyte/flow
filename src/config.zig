@@ -128,6 +128,7 @@ info_box_style: WidgetStyle = .bar_left_spacious,
 info_box_width_limit: usize = 80,
 info_box_height_limit: usize = 20,
 info_code_overflow: CodeOverflow = .wrap,
+markdown_preview_file_links: bool = false,
 
 palette_placement: PalettePlacement = .top_center,
 vcs_status_placement: PalettePlacement = .top_right,
