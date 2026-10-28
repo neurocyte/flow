@@ -1859,6 +1859,19 @@ const cmds = struct {
         .description = if (builtin.mode == .debug) "Force a crash dump" else &.{},
     };
 
+    pub fn show_crash_dialog(_: *Self, _: Ctx) Result {
+        var buf: [64]u8 = undefined;
+        return open_confirm(.{
+            .message = crash_dialog_message,
+            .choices = &.{.{
+                .label = "Keep crash log in a buffer",
+                .action = .{ .bytes = cbor.fmt(&buf, .{ "cmd", "cleanup_crash_log", .{} }) },
+            }},
+            .cancel_label = "Keep crash.log on disk",
+        });
+    }
+    pub const show_crash_dialog_meta: Meta = .{};
+
     pub fn inject_input(self: *Self, ctx: Ctx) Result {
         var buf: [tp.max_message_size]u8 = undefined;
         const m = try copy_input_event(&buf, ctx.args);
@@ -3007,6 +3020,16 @@ pub const Confirm = @import("mode/overlay/confirm.zig");
 pub const VcsRevert = enum { file, hunk, untracked };
 
 pub const apply_single_file_operation = MainView.apply_single_file_operation;
+
+const crash_dialog_message =
+    \\┌─╮ ╭─╮ ╭╮╷ ╷ ╶┬╴   ╭─╮ ╭─╮ ╭╮╷ ╷ ╭─╴
+    \\│ │ │ │ │││    │    ├─╯ ├─┤ │││ │ │
+    \\└─╯ ╰─╯ ╵╰╯    ╵    ╵   ╵ ╵ ╵╰╯ ╵ ╰─╴
+    \\
+    \\Flow crashed and was restarted.
+    \\
+    \\We apologise for the inconvenience.
+;
 
 pub fn open_confirm(options: Confirm.Options) command.Result {
     return open_overlay_create(Confirm, .empty(), .{options}) catch |e| {

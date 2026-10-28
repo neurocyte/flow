@@ -218,6 +218,11 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     if (init.environ_map.get("JITDEBUG")) |_| crash.set_jit_debugger(true);
     crash.set_gui_crash_dialog(build_options.gui and !console_attached);
     crash.install();
+    if (build_options.gui and builtin.os.tag != .windows and init.environ_map.get("JITDEBUG") == null)
+        crash.set_restart_on_crash(
+            bin_path.resolve_executable(init.arena.allocator(), current_argv0()),
+            @ptrCast(init.minimal.environ.block.slice.ptr),
+        );
 
     if (args.debug_wait) {
         std.debug.print("press return to start", .{});

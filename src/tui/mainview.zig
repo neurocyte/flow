@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const tracy = @import("tracy");
 const ripgrep = @import("ripgrep");
 const root = @import("soft_root").root;
+const crash = @import("crash");
 const location_history = @import("location_history");
 const project_manager = @import("project_manager");
 const log = @import("log");
@@ -1404,6 +1405,23 @@ const cmds = struct {
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
     pub const open_lsp_settings_project_meta: Meta = .{ .description = "Edit LSP settings (project)" };
+
+    pub fn cleanup_crash_log(self: *Self, _: Ctx) Result {
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const path = try crash.log_file_path(&path_buf);
+        std.Io.Dir.deleteFileAbsolute(root.get_io(), path) catch |e| switch (e) {
+            error.FileNotFound => {},
+            else => return e,
+        };
+        const buffer = self.buffer_manager.get_buffer_for_file(path) orelse return;
+        buffer_lsp.close(buffer);
+        buffer.ephemeral = .generated;
+        try self.buffer_manager.rename_buffer(buffer, "*crash log*");
+        if (self.get_editor_for_buffer(buffer)) |editor| try editor.buffer_renamed(buffer.get_file_path());
+        _ = self.widgets_widget.msg(.{"splits_updated"}) catch {};
+        tui.need_render(@src());
+    }
+    pub const cleanup_crash_log_meta: Meta = .{};
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         const args = try ctx.args.clone(self.allocator);

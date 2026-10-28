@@ -44,6 +44,12 @@ var cleanups_len: usize = 0;
 var jit_debugger: bool = false;
 var gui_crash_dialog: bool = false;
 var in_progress: std.atomic.Value(bool) = .init(false);
+var restart_executable: ?[*:0]const u8 = null;
+var restart_environ: [*:null]const ?[*:0]const u8 = undefined;
+var restart_not_before: i64 = 0;
+
+/// short runs do not restart to avoid crash loops
+const restart_min_uptime_s = 10;
 
 pub fn crash_in_progress() bool {
     return in_progress.load(.acquire);
@@ -56,6 +62,14 @@ pub fn set_jit_debugger(enabled: bool) void {
 /// Show error dialog on crash (win32 GUI only)
 pub fn set_gui_crash_dialog(enabled: bool) void {
     gui_crash_dialog = enabled;
+}
+
+/// Re-execute after a crash (POSIX only)
+pub fn set_restart_on_crash(executable: [*:0]const u8, environ: [*:null]const ?[*:0]const u8) void {
+    if (builtin.os.tag == .windows) return;
+    restart_executable = executable;
+    restart_environ = environ;
+    restart_not_before = monotonic_seconds() + restart_min_uptime_s;
 }
 
 /// Install crash handler
@@ -89,7 +103,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
     const addr = ret_addr orelse @returnAddress();
     if (!in_progress.swap(true, .acq_rel)) {
         run_cleanup();
-        if (sink == .file)
+        if (sink == .file or restart_executable != null)
             write_crash_log_file("panic", msg, .{ .first_address = addr });
     }
     return std.debug.defaultPanic(msg, addr);
@@ -162,14 +176,17 @@ fn report_fault(name: []const u8, addr: ?usize, ctx: ?std.debug.CpuContextPtr) v
         std.fmt.bufPrint(&buf, "at address 0x{x}", .{a}) catch ""
     else
         "";
-    switch (sink) {
-        .tty => {
-            const term = std.debug.lockStderr(&.{}).terminal();
-            defer std.debug.unlockStderr();
-            write_report(term, name, msg, unwind);
-        },
-        .file => write_crash_log_file(name, msg, unwind),
+    if (sink == .tty) {
+        const term = std.debug.lockStderr(&.{}).terminal();
+        defer std.debug.unlockStderr();
+        write_report(term, name, msg, unwind);
     }
+    if (sink == .file or restart_executable != null)
+        write_crash_log_file(name, msg, unwind);
+}
+
+pub fn log_file_path(buf: []u8) ![]const u8 {
+    return std.fmt.bufPrint(buf, "{s}{c}crash.log", .{ try root.get_state_dir(), std.fs.path.sep });
 }
 
 fn write_crash_log_file(kind: []const u8, msg: []const u8, unwind: std.debug.StackUnwindOptions) void {
@@ -182,11 +199,41 @@ fn write_crash_log_file(kind: []const u8, msg: []const u8, unwind: std.debug.Sta
         }, 0)) |z| OutputDebugStringA(z.ptr) else |_| {}
     }
 
-    const dir = root.get_state_dir() catch return;
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = std.fmt.bufPrint(&path_buf, "{s}{c}crash.log", .{ dir, std.fs.path.sep }) catch return;
+    const path = log_file_path(&path_buf) catch return;
     write_crash_log_to_path(path, kind, msg, unwind);
     show_crash_dialog(kind, msg, path);
+    restart_after_crash(path);
+}
+
+fn restart_after_crash(log_path: []const u8) void {
+    if (builtin.os.tag == .windows) return;
+    const executable = restart_executable orelse return;
+    if (monotonic_seconds() < restart_not_before) return;
+    var path_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+    const path = std.fmt.bufPrintSentinel(&path_buf, "{s}", .{log_path}, 0) catch return;
+    // the crashing signal is blocked in its handler and the mask survives execve
+    const all = std.posix.sigfillset();
+    std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &all, null);
+    set_close_on_exec_all();
+    const argv = [_:null]?[*:0]const u8{ executable, "--restore-session", "--exec", "show_crash_dialog", path.ptr };
+    _ = std.c.execve(executable, &argv, restart_environ);
+}
+
+fn set_close_on_exec_all() void {
+    const limit = std.posix.getrlimit(.NOFILE) catch return;
+    const max: std.posix.fd_t = @intCast(@min(limit.cur, 1 << 16));
+    var fd: std.posix.fd_t = 3;
+    while (fd < max) : (fd += 1) {
+        const flags = std.c.fcntl(fd, std.posix.F.GETFD);
+        if (flags >= 0) _ = std.c.fcntl(fd, std.posix.F.SETFD, flags | std.posix.FD_CLOEXEC);
+    }
+}
+
+fn monotonic_seconds() i64 {
+    var ts: std.c.timespec = undefined;
+    if (std.c.clock_gettime(.MONOTONIC, &ts) != 0) return 0;
+    return @intCast(ts.sec);
 }
 
 fn write_crash_log_to_path(path: []const u8, kind: []const u8, msg: []const u8, unwind: std.debug.StackUnwindOptions) void {
