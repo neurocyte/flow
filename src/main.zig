@@ -218,9 +218,11 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     if (init.environ_map.get("JITDEBUG")) |_| crash.set_jit_debugger(true);
     crash.set_gui_crash_dialog(build_options.gui and !console_attached);
     crash.install();
+    restart_args = try get_restart_args(init.arena.allocator(), args.server, args.connect);
     if (build_options.gui and builtin.os.tag != .windows and init.environ_map.get("JITDEBUG") == null)
         crash.set_restart_on_crash(
             bin_path.resolve_executable(init.arena.allocator(), current_argv0()),
+            restart_args,
             @ptrCast(init.minimal.environ.block.slice.ptr),
         );
 
@@ -520,6 +522,26 @@ fn run_context(ctx: *thespian.context) void {
 var final_exit_status: u8 = 0;
 var debug_console: ?thespian.pid = null;
 var want_restart: bool = false;
+var restart_args: []const [:0]const u8 = &.{};
+
+/// command line arguments a restart carries over
+fn get_restart_args(allocator: std.mem.Allocator, server: ?[]const u8, connect: ?[]const u8) error{OutOfMemory}![]const [:0]const u8 {
+    var list: std.ArrayList([:0]const u8) = .empty;
+    if (server) |name| try list.appendSlice(allocator, &.{ "--server", try allocator.dupeSentinel(u8, name, 0) });
+    if (connect) |name| if (std.mem.eql(u8, name, "disable"))
+        try list.appendSlice(allocator, &.{ "--connect", "disable" });
+    return list.items;
+}
+
+fn append_restart_args(argv: *std.ArrayList(?[*:0]const u8)) error{OutOfMemory}!void {
+    const allocator = get_init().gpa;
+    if (pending_restart_session_file()) |path|
+        try argv.appendSlice(allocator, &.{ "--restore-session-file", path.ptr, "--remove-session-file" })
+    else
+        try argv.append(allocator, "--restore-session");
+    for (restart_args) |arg| try argv.append(allocator, arg.ptr);
+    try argv.append(allocator, null);
+}
 var want_restart_with_sudo: bool = false;
 var have_global_init = false;
 var global_init: std.process.Init = undefined;
@@ -1563,19 +1585,10 @@ fn restart() noreturn {
     if (builtin.os.tag == .windows) return restart_win32();
     const executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
     const environ: [*:null]const ?[*:0]const u8 = @ptrCast(get_init().minimal.environ.block.slice.ptr);
-    if (pending_restart_session_file()) |path| {
-        const argv = [_]?[*:0]const u8{
-            executable,
-            "--restore-session-file",
-            path.ptr,
-            "--remove-session-file",
-            null,
-        };
-        restart_failed(std.c.execve(executable, @ptrCast(&argv), environ));
-    } else {
-        const argv = [_]?[*:0]const u8{ executable, "--restore-session", null };
-        restart_failed(std.c.execve(executable, @ptrCast(&argv), environ));
-    }
+    var argv: std.ArrayList(?[*:0]const u8) = .empty;
+    argv.append(get_init().gpa, executable) catch restart_failed(-1);
+    append_restart_args(&argv) catch restart_failed(-1);
+    restart_failed(std.c.execve(executable, @ptrCast(argv.items.ptr), environ));
 }
 
 fn restart_with_sudo() noreturn {
@@ -1588,27 +1601,10 @@ fn restart_with_sudo() noreturn {
     const sudo_executable = resolve_executable("sudo");
     const flow_executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
     const environ: [*:null]const ?[*:0]const u8 = @ptrCast(get_init().minimal.environ.block.slice.ptr);
-    if (pending_restart_session_file()) |path| {
-        const argv = [_]?[*:0]const u8{
-            sudo_executable,
-            "--preserve-env",
-            flow_executable,
-            "--restore-session-file",
-            path.ptr,
-            "--remove-session-file",
-            null,
-        };
-        restart_failed(std.c.execve(sudo_executable, @ptrCast(&argv), environ));
-    } else {
-        const argv = [_]?[*:0]const u8{
-            sudo_executable,
-            "--preserve-env",
-            flow_executable,
-            "--restore-session",
-            null,
-        };
-        restart_failed(std.c.execve(sudo_executable, @ptrCast(&argv), environ));
-    }
+    var argv: std.ArrayList(?[*:0]const u8) = .empty;
+    argv.appendSlice(get_init().gpa, &.{ sudo_executable, "--preserve-env", flow_executable }) catch restart_failed(-1);
+    append_restart_args(&argv) catch restart_failed(-1);
+    restart_failed(std.c.execve(sudo_executable, @ptrCast(argv.items.ptr), environ));
 }
 
 fn restart_with_pkexec() noreturn {
@@ -1623,13 +1619,7 @@ fn restart_with_pkexec() noreturn {
     for (preserved_gui_environment) |name| append_environment_value(&argv, name);
     append_xauthority(&argv);
     argv.append(allocator, flow_executable.ptr) catch restart_failed(-1);
-    if (pending_restart_session_file()) |path| {
-        argv.appendSlice(allocator, &.{ "--restore-session-file", path.ptr, "--remove-session-file" }) catch
-            restart_failed(-1);
-    } else {
-        argv.append(allocator, "--restore-session") catch restart_failed(-1);
-    }
-    argv.append(allocator, null) catch restart_failed(-1);
+    append_restart_args(&argv) catch restart_failed(-1);
 
     const environ: [*:null]const ?[*:0]const u8 = @ptrCast(get_init().minimal.environ.block.slice.ptr);
     restart_failed(std.c.execve(pkexec_executable, @ptrCast(argv.items.ptr), environ));
@@ -1670,20 +1660,21 @@ fn restart_win32() noreturn {
 
     if (!build_options.gui) return restart_manual();
     const executable = resolve_executable(argv0);
-    const spawned = if (pending_restart_session_file()) |path|
-        std.process.spawn(get_io(), .{
-            .argv = &[_][]const u8{ executable, "--restore-session-file", path, "--remove-session-file" },
-            .stdin = .inherit,
-            .stdout = .inherit,
-            .stderr = .inherit,
-        })
+    const a = std.heap.c_allocator;
+    var argv: std.ArrayList([]const u8) = .empty;
+    argv.append(a, executable) catch std.os.windows.ntdll.RtlExitUserProcess(1);
+    if (pending_restart_session_file()) |path|
+        argv.appendSlice(a, &.{ "--restore-session-file", path, "--remove-session-file" }) catch
+            std.os.windows.ntdll.RtlExitUserProcess(1)
     else
-        std.process.spawn(get_io(), .{
-            .argv = &[_][]const u8{ executable, "--restore-session" },
-            .stdin = .inherit,
-            .stdout = .inherit,
-            .stderr = .inherit,
-        });
+        argv.append(a, "--restore-session") catch std.os.windows.ntdll.RtlExitUserProcess(1);
+    for (restart_args) |arg| argv.append(a, arg) catch std.os.windows.ntdll.RtlExitUserProcess(1);
+    const spawned = std.process.spawn(get_io(), .{
+        .argv = argv.items,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
     _ = spawned catch {
         std.os.windows.ntdll.RtlExitUserProcess(1);
     };

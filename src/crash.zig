@@ -45,6 +45,7 @@ var jit_debugger: bool = false;
 var gui_crash_dialog: bool = false;
 var in_progress: std.atomic.Value(bool) = .init(false);
 var restart_executable: ?[*:0]const u8 = null;
+var restart_args: []const [:0]const u8 = &.{};
 var restart_environ: [*:null]const ?[*:0]const u8 = undefined;
 var restart_not_before: i64 = 0;
 
@@ -65,9 +66,11 @@ pub fn set_gui_crash_dialog(enabled: bool) void {
 }
 
 /// Re-execute after a crash (POSIX only)
-pub fn set_restart_on_crash(executable: [*:0]const u8, environ: [*:null]const ?[*:0]const u8) void {
+/// `args` are extra command line arguments and must outlive the process
+pub fn set_restart_on_crash(executable: [*:0]const u8, args: []const [:0]const u8, environ: [*:null]const ?[*:0]const u8) void {
     if (builtin.os.tag == .windows) return;
     restart_executable = executable;
+    restart_args = args;
     restart_environ = environ;
     restart_not_before = monotonic_seconds() + restart_min_uptime_s;
 }
@@ -216,7 +219,19 @@ fn restart_after_crash(log_path: []const u8) void {
     const all = std.posix.sigfillset();
     std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &all, null);
     set_close_on_exec_all();
-    const argv = [_:null]?[*:0]const u8{ executable, "--restore-session", "--exec", "show_crash_dialog", path.ptr };
+    const head = [_][*:0]const u8{ executable, "--restore-session", "--exec", "show_crash_dialog" };
+    var argv: [16:null]?[*:0]const u8 = @splat(null);
+    if (head.len + restart_args.len + 1 > argv.len) return;
+    var argc: usize = 0;
+    for (head) |arg| {
+        argv[argc] = arg;
+        argc += 1;
+    }
+    for (restart_args) |arg| {
+        argv[argc] = arg.ptr;
+        argc += 1;
+    }
+    argv[argc] = path.ptr;
     _ = std.c.execve(executable, &argv, restart_environ);
 }
 
