@@ -38,17 +38,17 @@ The selected find mode is persisted between sessions.
 
 ## Messages and logs
 
-Messages of issues regarding tasks that are not accomplished, like trying
-to close flow with unsaved files, as well as other information are shown
+Messages of issues regarding tasks that are not accomplished, like trying to
+close flow with unsaved files, as well as other information are shown
 briefly in the bottom status bar; most recent messages can be seen in the
 log view too, to open it, use ctrl+shift+p > `View log`; it's possible to
 make it taller dragging the toolbar with the mouse up or downwards.
 
 ## Input Modes
 
-Flow Control supports multiple input modes that may be changed
-interactively at runtime. The current input mode (and some other settings)
-is persisted in the configuration file automatically.
+Flow Control supports multiple input modes that may be changed interactively
+at runtime. The current input mode (and some other settings) is persisted in
+the configuration file automatically.
 
 - f4 => Cycle major input modes (flow, emacs, vim, helix,...)
 
@@ -67,20 +67,19 @@ normally only executed via a keybinding. Selecting a command in this view
 will insert the command name into the current document instead of executing
 it. This is very useful for editing keybinding definition files.
 
-Run the `Edit keybindings` command to customize the current keybinding
-mode. It will write a customization file for the current mode into the
-`keys` directory, under the same name as the current mode, and open it for
-editing. This file inherits everything from the built-in mode of the same
-name. So keybindings that are added or changed by future updates of Flow
-Control are picked up automatically. Each sub-mode is an empty section you
-can fill in: add new keybindings or override one by binding the same key to
-another command. Delete the file from the `keys` directory to revert
-entirely to the built-in mode. Changes to keybinding files take effect on
-restart.
+Run the `Edit keybindings` command to customize the current keybinding mode.
+It will write a customization file for the current mode into the `keys`
+directory, under the same name as the current mode, and open it for editing.
+This file inherits everything from the built-in mode of the same name. So
+keybindings that are added or changed by future updates of Flow Control are
+picked up automatically. Each sub-mode is an empty section you can fill in:
+add new keybindings or override one by binding the same key to another
+command. Delete the file from the `keys` directory to revert entirely to the
+built-in mode. Changes to keybinding files take effect on restart.
 
-You can also create additional, independently named keybinding modes by saving a
-file under a new name in the same directory. You can select the new mode
-with `f4`.
+You can also create additional, independently named keybinding modes by
+saving a file under a new name in the same directory. You can select the new
+mode with `f4`.
 
 Keybinding modes may inherit all non-conflicting keybindings from another
 mode by adding an `inherit` option to the `settings` section of the keybind
@@ -99,8 +98,8 @@ This allows you to make only minor additions/changes to an existing builtin
 mode without copying the whole mode and is easier to keep up-to-date.
 
 Use the special value `<<builtin>>` to inherit from the built-in mode with
-the same name as your file. This lets a file customize a built-in mode
-while still inheriting from it, and is what `Edit keybindings` writes:
+the same name as your file. This lets a file customize a built-in mode while
+still inheriting from it, and is what `Edit keybindings` writes:
 
 ```json
 {
@@ -110,9 +109,9 @@ while still inheriting from it, and is what `Edit keybindings` writes:
     ...
 ```
 
-A sub-mode that is left out of your file entirely is inherited whole from the
-mode you inherit from, so you only need to include the sub-modes you actually
-want to change.
+A sub-mode that is left out of your file entirely is inherited whole from
+the mode you inherit from, so you only need to include the sub-modes you
+actually want to change.
 
 Additionally, individual sub-modes may inherit all non-conflicting
 keybindings from another sub-mode of the same mode by adding an `inherit`
@@ -161,14 +160,13 @@ supported.
 
 ### Flow mode
 
-The default input mode, called just flow, is based on common GUI
-programming editors. It most closely resembles Visual Studio Code, but also
-takes some inspiration from Emacs and others. This mode focuses on powerful
-multi cursor support with a find -> select -> modify cycle style of
-editing.
+The default input mode, called just flow, is based on common GUI programming
+editors. It most closely resembles Visual Studio Code, but also takes some
+inspiration from Emacs and others. This mode focuses on powerful multi
+cursor support with a find -> select -> modify cycle style of editing.
 
-See the `ctrl+f2` palette when flow mode is selected to see the full list
-of keybindings for this mode.
+See the `ctrl+f2` palette when flow mode is selected to see the full list of
+keybindings for this mode.
 
 ### Vim mode
 
@@ -197,65 +195,50 @@ modes inherit them.
 
 Editor tabs:
 
-- ctrl+page_down, ctrl+page_up =>
-  Switch to the next/previous tab
+- ctrl+page_down, ctrl+page_up => Switch to the next/previous tab
 
-- ctrl+shift+page_down, ctrl+shift+page_up =>
-  Move the tab to the next/previous position. At the end of a split, the
-  tab moves into the next/previous split. At the end of the last split,
-  the tab moves into a new split.
+- ctrl+shift+page_down, ctrl+shift+page_up => Move the tab to the
+  next/previous position. At the end of a split, the tab moves into the
+  next/previous split. At the end of the last split, the tab moves into a
+  new split.
 
-- ctrl+alt+shift+page_down, ctrl+alt+shift+page_up =>
-  Move the tab to the next/previous split. In the last split, the tab moves
-  into a new split.
+- ctrl+alt+shift+page_down, ctrl+alt+shift+page_up => Move the tab to the
+  next/previous split. In the last split, the tab moves into a new split.
 
-- ctrl+alt+tab, ctrl+alt+shift+tab =>
-  Switch to the next/previous panel tab without focusing it.
+- ctrl+alt+tab, ctrl+alt+shift+tab => Switch to the next/previous panel tab
+  without focusing it.
 
 ## Mouse Commands
 
-Mouse commands are NOT rebindable and are not listed in the command
-palette.
+Mouse commands are NOT rebindable and are not listed in the command palette.
 
-- Left Click =>
-  Clear all cursors and selections and the place cursor at the mouse
-  pointer
+- Left Click => Clear all cursors and selections and the place cursor at the
+  mouse pointer
 
-- Double Left Click =>
-  Select word at mouse pointer
+- Double Left Click => Select word at mouse pointer
 
-- Triple Left Click =>
-  Select line at mouse pointer
+- Triple Left Click => Select line at mouse pointer
 
-- Drag Left Click =>
-  Extend selection to mouse pointer
+- Drag Left Click => Extend selection to mouse pointer
 
-- Alt + Left Click =>
-  Add cursor at mouse click
+- Alt + Left Click => Add cursor at mouse click
 
-- Ctrl + Left Click =>
-  Goto definition of symbol at click
+- Ctrl + Left Click => Goto definition of symbol at click
 
-- hold Alt =>
-  Enable jump/hover mouse mode
+- hold Alt => Enable jump/hover mouse mode
 
-- Right Click =>
-  Extend selection to mouse pointer
+- Right Click => Extend selection to mouse pointer
 
-- Middle Click =>
-  Close tab
+- Middle Click => Close tab
 
-- Back Button, Forward Button =>
-  Jump to previous/next location in the location history
+- Back Button, Forward Button => Jump to previous/next location in the
+  location history
 
-- Scroll Wheel =>
-  Scroll
+- Scroll Wheel => Scroll
 
-- Alt + Scroll Wheel =>
-  Fast scroll
+- Alt + Scroll Wheel => Fast scroll
 
-- Ctrl + Scroll Wheel =>
-  Zoom (GUI only)
+- Ctrl + Scroll Wheel => Zoom (GUI only)
 
 ## Configuration
 
@@ -281,8 +264,8 @@ animation_max_lag 150
 
 Most of these options are fairly self explanatory.
 
-`theme`, `input_mode` and `show_whitespace` are automatically persisted
-when changed interactively with keybindings.
+`theme`, `input_mode` and `show_whitespace` are automatically persisted when
+changed interactively with keybindings.
 
 `frame_rate` can be tuned to control the maximum number of frames rendered.
 
@@ -293,28 +276,28 @@ altogether.
 `background_syntax` controls where Flow Control does parsing for syntax
 highlighting.
 
-- `"auto"`: parse files with more than `background_syntax_threshold`
-  lines in the background. This is the default.
+- `"auto"`: parse files with more than `background_syntax_threshold` lines
+  in the background. This is the default.
 - `"always"`: parse all files in the background.
 - `"never"`: parse all files before they are shown.
 
 `background_syntax_threshold` is a number of lines. The default is 20000.
 
 `syntax_injection_depth` sets how deep Flow Control highlights embedded
-languages, for example Rust code in a Rust macro in another Rust macro.
-The default is 6. With 1, only languages that are embedded directly in the
-file get highlights. With 0, embedded languages get no highlights.
+languages, for example Rust code in a Rust macro in another Rust macro. The
+default is 6. With 1, only languages that are embedded directly in the file
+get highlights. With 0, embedded languages get no highlights.
 
 File types may be configured with the `Edit file type configuration`
-command. You can also create a new file type by adding a new `.conf` file
-to the `file_type` directory. Have a look at an existing file type to see
-what options are available.
+command. You can also create a new file type by adding a new `.conf` file to
+the `file_type` directory. Have a look at an existing file type to see what
+options are available.
 
 ### Language servers
 
 The file type configuration names the language server of a file type in its
-`language_server` option. When you open a file of that type, flow starts
-the server.
+`language_server` option. When you open a file of that type, flow starts the
+server.
 
 You can give a language server two JSON files. Each file exists in a global
 form and in a project form. If the project file exists, flow uses it and
@@ -380,8 +363,8 @@ Example, `~/.config/flow/lsp/nixd.settings.json`:
 ```
 
 When you save a settings file, flow tells the running server of the current
-project (`workspace/didChangeConfiguration`). You do not need to restart
-the server. If a server does not react, use the command
+project (`workspace/didChangeConfiguration`). You do not need to restart the
+server. If a server does not react, use the command
 `Language: Send settings to language server`, or restart the server.
 
 Some servers accept the same values in both files, but in different shapes.
@@ -389,6 +372,6 @@ Read the documentation of the server to find out which file it uses.
 
 ## Flags and options
 
-As every respectable terminal program, flow provide various invoking
-options that among others, will allow you to inspect various aspects of the
-running session. Feel free to run `flow --help` to explore them.
+As every respectable terminal program, flow provide various invoking options
+that among others, will allow you to inspect various aspects of the running
+session. Feel free to run `flow --help` to explore them.
