@@ -89,6 +89,39 @@ test "code with the default language" {
     try expect("```\nconst y = 2;\n```", .{ .default_lang = "zig" }, "(blocks (block :wrap \"cells\" :width 12 \"const y = 2;\" (span 0 5 :fg 0x000007 :bold true) (span 5 10 :fg 0x000003) (span 10 11 :fg 0x000008) (span 11 12 :fg 0x000003)))");
 }
 
+/// links "ab" to "h" and skips "zz"
+const test_linkify = struct {
+    fn find(_: *const anyopaque, _: std.mem.Allocator, line: []const u8) error{OutOfMemory}!?render.Link {
+        const ab = std.mem.indexOf(u8, line, "ab");
+        const zz = std.mem.indexOf(u8, line, "zz");
+        if (zz) |i| if (ab == null or i < ab.?) return .{ .start = i, .end = i + 2, .href = "" };
+        const i = ab orelse return null;
+        return .{ .start = i, .end = i + 2, .href = "h" };
+    }
+    const linkify: render.Linkify = .{ .context = undefined, .find = find };
+};
+
+test "code links on every line, past skipped ranges" {
+    try expect("```\nab zz ab\nab\n```", .{ .linkify = test_linkify.linkify }, "(blocks (block :wrap \"cells\" :width 8 \"ab zz ab\\nab\" (span 0 2 :fg 0x000003 :link \"h\") (span 2 6 :fg 0x000003) (span 6 8 :fg 0x000003 :link \"h\") (span 8 9 :fg 0x000003) (span 9 11 :fg 0x000003 :link \"h\")))");
+}
+
+/// links "x = 1" to "h"
+const test_linkify_across = struct {
+    fn find(_: *const anyopaque, _: std.mem.Allocator, line: []const u8) error{OutOfMemory}!?render.Link {
+        const i = std.mem.indexOf(u8, line, "x = 1") orelse return null;
+        return .{ .start = i, .end = i + 5, .href = "h" };
+    }
+    const linkify: render.Linkify = .{ .context = undefined, .find = find };
+};
+
+test "code links split highlight spans" {
+    try expect("```zig\nconst x = 1;\n```", .{ .linkify = test_linkify_across.linkify }, "(blocks (block :wrap \"cells\" :width 12 \"const x = 1;\" (span 0 5 :fg 0x000007 :bold true) (span 5 6 :fg 0x000003) (span 6 10 :fg 0x000003 :link \"h\") (span 10 11 :fg 0x000008 :link \"h\") (span 11 12 :fg 0x000003)))");
+}
+
+test "code links only with linkify" {
+    try expect("```\nab\n```", .{}, "(blocks (block :wrap \"cells\" :width 2 \"ab\" (span 0 2 :fg 0x000003)))");
+}
+
 test "rdoc reader" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     const gpa = std.testing.allocator;

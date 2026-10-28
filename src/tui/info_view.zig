@@ -18,6 +18,7 @@ const richdoc = @import("richdoc");
 const placement = @import("info_box_placement.zig");
 const OverlayLine = @import("OverlayLine.zig");
 const link_dispatch = @import("link_dispatch.zig");
+const file_link = @import("file_link");
 
 pub const name = @typeName(Self);
 
@@ -46,9 +47,11 @@ pub const Kind = enum {
     }
 };
 
+pub const Links = enum { markup, locations };
+
 const Section = union(Kind) {
     plaintext: []const u8,
-    markdown: struct { text: []const u8, sdoc: richdoc.SDoc, rdoc: richdoc.RDoc },
+    markdown: struct { text: []const u8, links: Links, sdoc: richdoc.SDoc, rdoc: richdoc.RDoc },
 
     fn deinit(self: Section, allocator: Allocator) void {
         switch (self) {
@@ -143,7 +146,10 @@ pub fn panel_write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}
     try cbor.writeArrayHeader(writer, self.sections.items.len);
     for (self.sections.items) |section| switch (section) {
         .plaintext => |text| try cbor.writeValue(writer, .{ @tagName(Kind.plaintext), text }),
-        .markdown => |md| try cbor.writeValue(writer, .{ @tagName(Kind.markdown), md.text }),
+        .markdown => |md| switch (md.links) {
+            .markup => try cbor.writeValue(writer, .{ @tagName(Kind.markdown), md.text }),
+            .locations => try cbor.writeValue(writer, .{ @tagName(Kind.markdown), md.text, @tagName(md.links) }),
+        },
     };
 }
 
@@ -171,9 +177,16 @@ pub fn restore_detached(allocator: Allocator, parent: Plane, state: []const u8) 
     while (n > 0) : (n -= 1) {
         var kind: []const u8 = undefined;
         var text: []const u8 = undefined;
-        if (!try cbor.matchValue(&iter, .{ cbor.extract(&kind), cbor.extract(&text) }))
+        var links: []const u8 = @tagName(Links.markup);
+        var section = iter;
+        if (try cbor.matchValue(&section, .{ cbor.extract(&kind), cbor.extract(&text), cbor.extract(&links) }))
+            iter = section
+        else if (!try cbor.matchValue(&iter, .{ cbor.extract(&kind), cbor.extract(&text) }))
             return error.InvalidInfoPanelState;
-        try self.append_content(std.meta.stringToEnum(Kind, kind) orelse return error.InvalidInfoPanelState, text);
+        switch (std.meta.stringToEnum(Kind, kind) orelse return error.InvalidInfoPanelState) {
+            .plaintext => try self.append_content(.plaintext, text),
+            .markdown => try self.append_markdown(text, std.meta.stringToEnum(Links, links) orelse return error.InvalidInfoPanelState),
+        }
     }
     return panel;
 }
@@ -196,11 +209,12 @@ pub fn from_layer(layer: *tui.WidgetLayerBox) ?*Self {
 
 pub const Content = union(Kind) {
     plaintext: []const u8,
-    markdown: []const u8,
+    markdown: struct { text: []const u8, links: Links },
 
     fn deinit(self: Content, allocator: Allocator) void {
         switch (self) {
-            inline else => |text| allocator.free(text),
+            .plaintext => |text| allocator.free(text),
+            .markdown => |md| allocator.free(md.text),
         }
     }
 };
@@ -213,7 +227,7 @@ pub fn dupe_content(self: *const Self, allocator: Allocator) ![]Content {
     for (self.sections.items) |section| {
         content[n] = switch (section) {
             .plaintext => |text| .{ .plaintext = try allocator.dupe(u8, text) },
-            .markdown => |md| .{ .markdown = try allocator.dupe(u8, md.text) },
+            .markdown => |md| .{ .markdown = .{ .text = try allocator.dupe(u8, md.text), .links = md.links } },
         };
         n += 1;
     }
@@ -229,7 +243,8 @@ pub fn set_contents(self: *Self, content: []const Content) !void {
     self.clear();
     self.scroller.scroll(.top);
     for (content) |c| switch (c) {
-        inline else => |text, kind| try self.append_content(kind, text),
+        .plaintext => |text| try self.append_content(.plaintext, text),
+        .markdown => |md| try self.append_markdown(md.text, md.links),
     };
 }
 
@@ -417,17 +432,20 @@ pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
                 self.allocator.free(text);
                 return e;
             };
+            try self.relayout();
         },
-        .markdown => {
-            const text = try self.allocator.dupe(u8, content);
-            errdefer self.allocator.free(text);
-            const sdoc = try richdoc.markdown.parse(self.allocator, text, tui.query_cache());
-            errdefer self.allocator.free(sdoc.raw.bytes);
-            const rdoc = try self.render_sdoc(sdoc);
-            errdefer self.allocator.free(rdoc.raw.bytes);
-            try self.sections.append(self.allocator, .{ .markdown = .{ .text = text, .sdoc = sdoc, .rdoc = rdoc } });
-        },
+        .markdown => try self.append_markdown(content, .markup),
     }
+}
+
+pub fn append_markdown(self: *Self, content: []const u8, links: Links) !void {
+    const text = try self.allocator.dupe(u8, content);
+    errdefer self.allocator.free(text);
+    const sdoc = try richdoc.markdown.parse(self.allocator, text, tui.query_cache());
+    errdefer self.allocator.free(sdoc.raw.bytes);
+    const rdoc = try self.render_sdoc(sdoc, links);
+    errdefer self.allocator.free(rdoc.raw.bytes);
+    try self.sections.append(self.allocator, .{ .markdown = .{ .text = text, .links = links, .sdoc = sdoc, .rdoc = rdoc } });
     try self.relayout();
 }
 
@@ -502,21 +520,47 @@ fn set_box_text_width(self: *Self, width: ?usize) !void {
     if (self.text_width() != self.layout_width) try self.relayout();
 }
 
-fn render_sdoc(self: *Self, sdoc: richdoc.SDoc) !richdoc.RDoc {
+fn render_sdoc(self: *Self, sdoc: richdoc.SDoc, links: Links) !richdoc.RDoc {
     const theme = tui.theme();
     self.theme_name = theme.name;
     const default_lang = if (tui.get_active_editor()) |editor| if (editor.file_type) |ft| ft.parser orelse ft.name else null else null;
     return richdoc.render.from_sdoc(self.allocator, sdoc, render_theme(theme), tui.query_cache(), .{
         .default_lang = default_lang,
         .injection_depth = @intCast(@min(tui.config().syntax_injection_depth, 255)),
+        .linkify = switch (links) {
+            .markup => null,
+            .locations => .{ .context = self, .find = find_location },
+        },
     });
+}
+
+fn find_location(context: *const anyopaque, allocator: Allocator, line: []const u8) error{OutOfMemory}!?richdoc.render.Link {
+    const self: *const Self = @ptrCast(@alignCast(context));
+    const range = file_link.find_in_line(line) orelse return null;
+    var link: richdoc.render.Link = .{ .start = range.start, .end = range.end, .href = "" };
+    var href: std.Io.Writer.Allocating = .init(allocator);
+    switch (file_link.parse(line[range.start..range.end]) catch return link) {
+        .url => |url| link.href = url.url,
+        .file => |file| {
+            const path = try std.fs.path.resolveAlloc(allocator, &.{ self.base_dir(), file.path });
+            link_dispatch.write_file_href(&href.writer, path, file.line, file.column) catch return error.OutOfMemory;
+            link.href = href.written();
+        },
+        .dir => {},
+    }
+    return link;
+}
+
+fn base_dir(self: *const Self) []const u8 {
+    if (self.source) |source| return std.fs.path.dirname(source) orelse "";
+    return tp.env.get().str("project");
 }
 
 fn restyle(self: *Self) !void {
     for (self.sections.items) |*section| switch (section.*) {
         .plaintext => {},
         .markdown => |*md| {
-            const rdoc = try self.render_sdoc(md.sdoc);
+            const rdoc = try self.render_sdoc(md.sdoc, md.links);
             self.allocator.free(md.rdoc.raw.bytes);
             md.rdoc = rdoc;
         },
@@ -608,8 +652,7 @@ fn open_link(self: *Self, href: []const u8, click: link_dispatch.Click) void {
     self.clear_link_hover();
     var arena: std.heap.ArenaAllocator = .init(self.allocator);
     defer arena.deinit();
-    const base_dir = if (self.source) |source| std.fs.path.dirname(source) orelse "" else "";
-    const action = link_dispatch.classify(arena.allocator(), href, .{ .base_dir = base_dir }) catch return;
+    const action = link_dispatch.classify(arena.allocator(), href, .{ .base_dir = self.base_dir() }) catch return;
     switch (action) {
         .anchor => |anchor| _ = self.scroll_to_heading(anchor),
         else => link_dispatch.dispatch(action, click),

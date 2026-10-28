@@ -2564,7 +2564,7 @@ pub const Editor = struct {
         if (diag.rendered.len > 0) {
             try md.writer.writeAll("\n\n");
             try project_manager.write_code_fence(&md.writer, "", std.mem.trimEnd(u8, diag.rendered, "\n"));
-            try info.append_content(.markdown, md.written());
+            try info.append_markdown(md.written(), .locations);
         } else {
             try info.append_content(.markdown, md.written());
             try info.append_content(.plaintext, diag.message);

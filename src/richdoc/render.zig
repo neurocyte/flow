@@ -30,9 +30,21 @@ pub const Theme = struct {
     }
 };
 
+pub const Link = struct {
+    start: usize,
+    end: usize,
+    href: []const u8,
+};
+
+pub const Linkify = struct {
+    context: *const anyopaque,
+    find: *const fn (context: *const anyopaque, allocator: Allocator, line: []const u8) error{OutOfMemory}!?Link,
+};
+
 pub const Options = struct {
     default_lang: ?[]const u8 = null,
     injection_depth: u8 = 2,
+    linkify: ?Linkify = null,
 };
 
 pub const Error = error{ OutOfMemory, InvalidSDoc };
@@ -375,11 +387,52 @@ const Builder = struct {
         const lang = elem.attr_string("lang") orelse self.opts.default_lang;
         try b.text.appendSlice(self.arena, text);
         if (text.len == 0) return;
-        if (lang) |l| if (self.highlight(b, text, l, base, sloc) catch |e| switch (e) {
+        const highlighted = if (lang) |l| self.highlight(b, text, l, base, sloc) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
             else => false,
-        }) return;
-        try b.spans.append(self.arena, .{ .start = 0, .end = text.len, .attrs = .{ .style = base, .sloc = sloc } });
+        } else false;
+        if (!highlighted) try b.spans.append(self.arena, .{ .start = 0, .end = text.len, .attrs = .{ .style = base, .sloc = sloc } });
+        try self.add_links(b, text);
+    }
+
+    fn add_links(self: *@This(), b: *BlockBuilder, text: []const u8) error{OutOfMemory}!void {
+        const linkify = self.opts.linkify orelse return;
+        var links: std.ArrayList(Link) = .empty;
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |line| {
+            const line_start = line.ptr - text.ptr;
+            var pos: usize = 0;
+            while (pos < line.len) {
+                const link = try linkify.find(linkify.context, self.arena, line[pos..]) orelse break;
+                if (link.end == 0) break;
+                if (link.href.len > 0) try links.append(self.arena, .{
+                    .start = line_start + pos + link.start,
+                    .end = line_start + pos + link.end,
+                    .href = link.href,
+                });
+                pos += link.end;
+            }
+        }
+        if (links.items.len == 0) return;
+        var spans: std.ArrayList(RDoc.Span) = .empty;
+        var next: usize = 0;
+        for (b.spans.items) |span| {
+            var start = span.start;
+            while (start < span.end) {
+                while (next < links.items.len and links.items[next].end <= start) next += 1;
+                var piece = span;
+                piece.start = start;
+                if (next < links.items.len and links.items[next].start <= start) {
+                    piece.end = @min(span.end, links.items[next].end);
+                    piece.attrs.link = links.items[next].href;
+                } else if (next < links.items.len) {
+                    piece.end = @min(span.end, links.items[next].start);
+                }
+                try spans.append(self.arena, piece);
+                start = piece.end;
+            }
+        }
+        b.spans = spans;
     }
 
     /// add highlight spans for `text`, false if the language is unknown

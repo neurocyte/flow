@@ -45,6 +45,14 @@ test "link_dispatch file hrefs read back" {
     try expect(href.written(), "docs", .{ .markdown = .{ .path = "/a dir/(x)#1\\y.md", .line = 12, .column = 5 } });
 }
 
+test "link_dispatch file hrefs without a line or column" {
+    var href: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer href.deinit();
+    try link_dispatch.write_file_href(&href.writer, "/a/b.zig", null, null);
+    try link_dispatch.write_file_href(&href.writer, " /a/c.zig", 3, null);
+    try std.testing.expectEqualStrings("/a/b.zig%20/a/c.zig:3", href.written());
+}
+
 test "link_dispatch absolute paths and file uris ignore the base directory" {
     try expect("/abs/a.zig", "docs", .{ .file = .{ .path = "/abs/a.zig" } });
     try expect("file:///tmp/x.md", "docs", .{ .markdown = .{ .path = "/tmp/x.md" } });

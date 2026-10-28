@@ -89,9 +89,10 @@ fn navigate(target: Target) !void {
 }
 
 /// write an href for `path` at `line` and `column` that `classify` reads back
-pub fn write_file_href(writer: *std.Io.Writer, path: []const u8, line: usize, column: usize) std.Io.Writer.Error!void {
+pub fn write_file_href(writer: *std.Io.Writer, path: []const u8, line: ?usize, column: ?usize) std.Io.Writer.Error!void {
     try std.Uri.Component.percentEncode(writer, path, is_href_path_char);
-    try writer.print(":{d}:{d}", .{ line, column });
+    if (line) |l| try writer.print(":{d}", .{l});
+    if (line != null) if (column) |c| try writer.print(":{d}", .{c});
 }
 
 fn is_href_path_char(c: u8) bool {
