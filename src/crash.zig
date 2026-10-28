@@ -4,7 +4,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const root = @import("soft_root").root;
 const thespian = @import("thespian");
-const build_options = @import("build_options");
 
 const Sink = enum { tty, file };
 
@@ -42,12 +41,14 @@ var sink: Sink = .tty;
 var cleanups: [max_cleanups]?Cleanup = @splat(null);
 var cleanups_len: usize = 0;
 var jit_debugger: bool = false;
-var gui_crash_dialog: bool = false;
 var in_progress: std.atomic.Value(bool) = .init(false);
 var restart_executable: ?[*:0]const u8 = null;
 var restart_args: []const [:0]const u8 = &.{};
-var restart_environ: [*:null]const ?[*:0]const u8 = undefined;
+var restart_environ: Environ = undefined;
+var restart_command_line: ?[:0]u16 = null;
 var restart_started: i64 = 0;
+
+pub const Environ = if (builtin.os.tag == .windows) void else [*:null]const ?[*:0]const u8;
 
 /// short runs do not restart to avoid crash loops
 const restart_min_uptime_s = 3;
@@ -60,19 +61,51 @@ pub fn set_jit_debugger(enabled: bool) void {
     jit_debugger = enabled;
 }
 
-/// Show error dialog on crash (win32 GUI only)
-pub fn set_gui_crash_dialog(enabled: bool) void {
-    gui_crash_dialog = enabled;
-}
-
-/// Re-execute after a crash (POSIX only)
-/// `args` are extra command line arguments and must outlive the process
-pub fn set_restart_on_crash(executable: [*:0]const u8, args: []const [:0]const u8, environ: [*:null]const ?[*:0]const u8) void {
-    if (builtin.os.tag == .windows) return;
-    restart_executable = executable;
+/// Restart after a crash
+/// `executable` and `args` must outlive the process
+pub fn set_restart_on_crash(allocator: std.mem.Allocator, executable: [:0]const u8, args: []const [:0]const u8, environ: Environ) !void {
+    if (builtin.os.tag == .windows)
+        restart_command_line = try windows_command_line(allocator, executable, args);
+    restart_executable = executable.ptr;
     restart_args = args;
     restart_environ = environ;
     restart_started = monotonic_seconds();
+}
+
+fn windows_command_line(allocator: std.mem.Allocator, executable: []const u8, args: []const [:0]const u8) ![:0]u16 {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const log_path = try log_file_path(&path_buf);
+    var line: std.ArrayList(u8) = .empty;
+    defer line.deinit(allocator);
+    try line.print(allocator, "\"{s}\" --restore-session --exec show_crash_dialog", .{executable});
+    for (args) |arg| try append_windows_arg(allocator, &line, arg);
+    try append_windows_arg(allocator, &line, log_path);
+    return std.unicode.utf8ToUtf16LeAllocZ(allocator, line.items);
+}
+
+fn append_windows_arg(allocator: std.mem.Allocator, line: *std.ArrayList(u8), arg: []const u8) !void {
+    try line.append(allocator, ' ');
+    const needs_quotes = for (arg) |c| {
+        if (c <= ' ' or c == '"') break true;
+    } else arg.len == 0;
+    if (!needs_quotes) return line.appendSlice(allocator, arg);
+    try line.append(allocator, '"');
+    var backslashes: usize = 0;
+    for (arg) |c| switch (c) {
+        '\\' => backslashes += 1,
+        '"' => {
+            try line.appendNTimes(allocator, '\\', backslashes * 2 + 1);
+            try line.append(allocator, '"');
+            backslashes = 0;
+        },
+        else => {
+            try line.appendNTimes(allocator, '\\', backslashes);
+            try line.append(allocator, c);
+            backslashes = 0;
+        },
+    };
+    try line.appendNTimes(allocator, '\\', backslashes * 2);
+    try line.append(allocator, '"');
 }
 
 /// Install crash handler
@@ -205,18 +238,17 @@ fn write_crash_log_file(kind: []const u8, msg: []const u8, unwind: std.debug.Sta
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = log_file_path(&path_buf) catch return;
     write_crash_log_to_path(path, kind, msg, unwind);
-    show_crash_dialog(kind, msg, path);
     restart_after_crash(path);
 }
 
 fn restart_after_crash(log_path: []const u8) void {
-    if (builtin.os.tag == .windows) return;
     const executable = restart_executable orelse return;
     var path_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
     const path = std.fmt.bufPrintSentinel(&path_buf, "{s}", .{log_path}, 0) catch return;
     const uptime = monotonic_seconds() - restart_started;
     if (uptime < restart_min_uptime_s)
         return report_no_restart(path, "crashed {d}s after start, restarting needs {d}s", .{ uptime, restart_min_uptime_s });
+    if (builtin.os.tag == .windows) return restart_windows(path, executable);
     // the crashing signal is blocked in its handler and the mask survives execve
     const all = std.posix.sigfillset();
     std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &all, null);
@@ -239,9 +271,21 @@ fn restart_after_crash(log_path: []const u8) void {
     report_no_restart(path, "executing {s} failed: E{t}", .{ executable, std.posix.errno(ret) });
 }
 
-fn report_no_restart(log_path: [*:0]const u8, comptime fmt: []const u8, args: anytype) void {
+fn restart_windows(log_path: [:0]const u8, executable: [*:0]const u8) void {
+    const windows = std.os.windows;
+    const command_line = restart_command_line orelse return;
+    var startup_info = std.mem.zeroes(windows.STARTUPINFOW);
+    startup_info.cb = @sizeOf(windows.STARTUPINFOW);
+    var process_info: windows.PROCESS.INFORMATION = undefined;
+    if (!windows.kernel32.CreateProcessW(null, command_line.ptr, null, null, .FALSE, .{}, null, null, &startup_info, &process_info).toBool())
+        return report_no_restart(log_path, "starting {s} failed: error {d}", .{ executable, @backingInt(windows.GetLastError()) });
+    windows.ntdll.RtlExitUserProcess(3);
+}
+
+fn report_no_restart(log_path: [:0]const u8, comptime fmt: []const u8, args: anytype) void {
     var buf: [std.fs.max_path_bytes + 128]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, "flow did not restart after the crash: " ++ fmt ++ "\n", args) catch return;
+    if (builtin.os.tag == .windows) return append_crash_log_windows(log_path, msg);
     _ = std.c.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
     const fd = std.c.open(log_path, .{ .ACCMODE = .WRONLY, .APPEND = true });
     if (fd < 0) return;
@@ -259,7 +303,20 @@ fn set_close_on_exec_all() void {
     }
 }
 
+fn append_crash_log_windows(log_path: []const u8, msg: []const u8) void {
+    var note_buf: [std.fs.max_path_bytes + 128]u8 = undefined;
+    if (std.fmt.bufPrintSentinel(&note_buf, "{s}", .{msg}, 0)) |note| OutputDebugStringA(note.ptr) else |_| {}
+    const io = root.get_io();
+    const file = std.Io.Dir.openFileAbsolute(io, log_path, .{ .mode = .write_only }) catch return;
+    defer file.close(io);
+    const end = file.length(io) catch return;
+    var writer = file.writer(io, &.{});
+    writer.seekTo(end) catch return;
+    writer.interface.writeAll(msg) catch {};
+}
+
 fn monotonic_seconds() i64 {
+    if (builtin.os.tag == .windows) return @intCast(GetTickCount64() / std.time.ms_per_s);
     var ts: std.c.timespec = undefined;
     if (std.c.clock_gettime(.MONOTONIC, &ts) != 0) return 0;
     return @intCast(ts.sec);
@@ -275,25 +332,6 @@ fn write_crash_log_to_path(path: []const u8, kind: []const u8, msg: []const u8, 
     write_report(.{ .writer = &fw.interface, .mode = .no_color }, kind, msg, unwind);
 }
 
-fn show_crash_dialog(kind: []const u8, msg: []const u8, path: []const u8) void {
-    if (build_options.gui and builtin.os.tag == .windows) show_crash_dialog_win32(kind, msg, path);
-}
-
-fn show_crash_dialog_win32(kind: []const u8, msg: []const u8, path: []const u8) void {
-    if (!gui_crash_dialog) return;
-    var buf: [std.fs.max_path_bytes + 256]u8 = undefined;
-    const text = std.fmt.bufPrintSentinel(
-        &buf,
-        "flow crashed: {s}{s}{s}\n\nA crash report was written to:\n{s}",
-        .{ kind, if (msg.len > 0) ": " else "", msg, path },
-        0,
-    ) catch return;
-    const MB_ICONERROR: u32 = 0x00000010;
-    const MB_SETFOREGROUND: u32 = 0x00010000;
-    const MB_TOPMOST: u32 = 0x00040000;
-    _ = MessageBoxA(null, text.ptr, "Flow Control", MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST);
-}
-
 fn write_report(term: std.Io.Terminal, kind: []const u8, msg: []const u8, unwind: std.debug.StackUnwindOptions) void {
     const w = term.writer;
     w.print("flow {s} crashed: {s}", .{ root.version, kind }) catch {};
@@ -303,4 +341,4 @@ fn write_report(term: std.Io.Terminal, kind: []const u8, msg: []const u8, unwind
 }
 
 extern "kernel32" fn OutputDebugStringA(lpOutputString: [*:0]const u8) callconv(.winapi) void;
-extern "user32" fn MessageBoxA(hWnd: ?*anyopaque, lpText: [*:0]const u8, lpCaption: [*:0]const u8, uType: u32) callconv(.winapi) i32;
+extern "kernel32" fn GetTickCount64() callconv(.winapi) u64;

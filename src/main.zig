@@ -50,7 +50,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     const io = init.io;
     const a = init.gpa;
 
-    const console_attached = attach_parent_console();
+    _ = attach_parent_console();
 
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
@@ -216,15 +216,15 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         launch_gui();
 
     if (init.environ_map.get("JITDEBUG")) |_| crash.set_jit_debugger(true);
-    crash.set_gui_crash_dialog(build_options.gui and !console_attached);
     crash.install();
     restart_args = try get_restart_args(init.arena.allocator(), args.server, args.connect);
-    if (build_options.gui and builtin.os.tag != .windows and init.environ_map.get("JITDEBUG") == null)
+    if (build_options.gui and init.environ_map.get("JITDEBUG") == null)
         crash.set_restart_on_crash(
-            bin_path.resolve_executable(init.arena.allocator(), current_argv0()),
+            init.arena.allocator(),
+            try crash_restart_executable(init.arena.allocator()),
             restart_args,
-            @ptrCast(init.minimal.environ.block.slice.ptr),
-        );
+            if (builtin.os.tag == .windows) {} else @ptrCast(init.minimal.environ.block.slice.ptr),
+        ) catch |e| std.log.err("restart after crash unavailable: {t}", .{e});
 
     if (args.debug_wait) {
         std.debug.print("press return to start", .{});
@@ -531,6 +531,13 @@ fn get_restart_args(allocator: std.mem.Allocator, server: ?[]const u8, connect: 
     if (connect) |name| if (std.mem.eql(u8, name, "disable"))
         try list.appendSlice(allocator, &.{ "--connect", "disable" });
     return list.items;
+}
+
+fn crash_restart_executable(allocator: std.mem.Allocator) ![:0]const u8 {
+    if (builtin.os.tag != .windows) return bin_path.resolve_executable(allocator, current_argv0());
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const len = try std.process.executablePath(get_io(), &buf);
+    return allocator.dupeSentinel(u8, buf[0..len], 0);
 }
 
 fn append_restart_args(argv: *std.ArrayList(?[*:0]const u8)) error{OutOfMemory}!void {
