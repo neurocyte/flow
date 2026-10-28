@@ -50,7 +50,7 @@ var restart_environ: [*:null]const ?[*:0]const u8 = undefined;
 var restart_started: i64 = 0;
 
 /// short runs do not restart to avoid crash loops
-const restart_min_uptime_s = 10;
+const restart_min_uptime_s = 3;
 
 pub fn crash_in_progress() bool {
     return in_progress.load(.acquire);
