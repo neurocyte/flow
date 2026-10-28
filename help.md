@@ -190,6 +190,28 @@ helix keybindings also work in helix mode.
 
 (work in progress)
 
+## Tabs and panel tabs
+
+These are the default flow mode keybindings for tabs. The vim and helix
+modes inherit them.
+
+Editor tabs:
+
+- ctrl+page_down, ctrl+page_up =>
+  Switch to the next/previous tab
+
+- ctrl+shift+page_down, ctrl+shift+page_up =>
+  Move the tab to the next/previous position. At the end of a split, the
+  tab moves into the next/previous split. At the end of the last split,
+  the tab moves into a new split.
+
+- ctrl+alt+shift+page_down, ctrl+alt+shift+page_up =>
+  Move the tab to the next/previous split. In the last split, the tab moves
+  into a new split.
+
+- ctrl+alt+tab, ctrl+alt+shift+tab =>
+  Switch to the next/previous panel tab without focusing it.
+
 ## Mouse Commands
 
 Mouse commands are NOT rebindable and are not listed in the command
