@@ -95,6 +95,8 @@ lsp_info: LspInfo,
 quit_on_terminal_exit: bool = false,
 quit_on_document_close: bool = false,
 navigate_render_block: ?tui.RenderBlock = null,
+pending_navigations: usize = 0,
+after_navigations: std.ArrayList([]const u8) = .empty,
 startup_render_block: ?tui.RenderBlock = null,
 quit_render_block: ?tui.RenderBlock = null,
 
@@ -195,6 +197,8 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.hide_link_line();
     self.link_line_overlay.deinit(allocator);
     if (self.panel_layout_state) |state| allocator.free(state);
+    for (self.after_navigations.items) |m| self.allocator.free(m);
+    self.after_navigations.deinit(self.allocator);
     var vcs_commits = self.vcs_commits.iterator();
     while (vcs_commits.next()) |p| {
         allocator.free(p.key_ptr.*);
@@ -270,15 +274,19 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         }
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column), tp.extract(&offset) })) {
+        defer self.navigation_done();
         cmds.navigate_complete(self, null, path, goto_args, line, column, offset, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column), tp.extract(&offset), tp.extract(&listener.track), tp.extract(&listener.piid), tp.extract(&listener.id) })) {
+        defer self.navigation_done();
         cmds.navigate_complete(self, null, path, goto_args, line, column, offset, listener, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{"navigate_failed"})) {
+        defer self.navigation_done();
         self.unblock_navigate_render();
         return true;
     } else if (try m.match(.{ "navigate_failed", tp.extract(&path), tp.extract(&listener.track), tp.extract(&listener.piid), tp.extract(&listener.id) })) {
+        defer self.navigation_done();
         self.unblock_navigate_render();
         _ = listener.send(.{ "navigation", "failed", path });
         return true;
@@ -1036,6 +1044,7 @@ const cmds = struct {
             };
 
             try project_manager.get_mru_position(self.allocator, f, ctx_);
+            self.pending_navigations += 1;
             return;
         }
 
@@ -1070,7 +1079,9 @@ const cmds = struct {
                     .{ .bytes = cbor.fmt(&then_buf, .{ "navigate_complete", f, goto_args, line, column, offset }) },
                     .{ .bytes = cbor.fmt(&on_error_buf, .{"navigate_failed"}) },
                 };
-                return self.buffer_manager.load(f, .{ .then = then, .on_error = on_error });
+                try self.buffer_manager.load(f, .{ .then = then, .on_error = on_error });
+                self.pending_navigations += 1;
+                return;
             }
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
@@ -1484,25 +1495,54 @@ const cmds = struct {
     pub const replace_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
 
     pub fn create_new_file(self: *Self, ctx: Ctx) Result {
-        var n: usize = 1;
-        var found_unique = false;
         var name: std.Io.Writer.Allocating = .init(self.allocator);
         defer name.deinit();
-        while (!found_unique) {
-            name.clearRetainingCapacity();
-            name.writer.print("Untitled-{d}", .{n}) catch {};
-            if (self.buffer_manager.get_buffer_for_file(name.written())) |_| {
-                n += 1;
-            } else {
-                found_unique = true;
-            }
-        }
-        try command.executeName("create_scratch_buffer", command.fmt(.{name.written()}));
+        try command.executeName("create_scratch_buffer", command.fmt(.{try self.unique_buffer_name(&name, .new_file)}));
         self.mark_active_buffer_user_created();
         if (tp.env.get().str("language").len == 0)
             try command.executeName("change_file_type", .empty_from(ctx));
     }
     pub const create_new_file_meta: Meta = .{ .description = "New file" };
+
+    pub fn create_buffer(self: *Self, ctx: Ctx) Result {
+        if (try self.create_buffer_after_navigations(ctx)) return;
+        var kind: BufferKind = .scratch;
+        var name: ?[]const u8 = null;
+        var language: ?[]const u8 = null;
+        if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&name), tp.extract(&language) }))
+            return error.InvalidCreateBufferArgument;
+
+        tui.reset_drag_context();
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var default_name: std.Io.Writer.Allocating = .init(self.allocator);
+        defer default_name.deinit();
+        const file_path = if (name) |name_| blk: {
+            const file_path = project_manager.normalize_file_path(name_, &file_path_buf);
+            if (self.buffer_manager.get_buffer_for_file(file_path)) |_| return error.BufferAlreadyOpen;
+            break :blk file_path;
+        } else try self.unique_buffer_name(&default_name, kind);
+
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", if (language) |lang|
+            command.fmt(.{ file_path, "", lang })
+        else
+            command.fmt(.{ file_path, "" }));
+        const editor = self.get_active_editor() orelse return error.Stop;
+        const buffer = editor.buffer orelse return error.Stop;
+        if (name) |_| {
+            buffer.file_exists = if (std.Io.Dir.cwd().access(ctx.io, file_path, .{})) |_| true else |_| false;
+            self.buffer_manager.mark_not_ephemeral(buffer);
+        } else {
+            self.buffer_manager.mark_user_created(buffer);
+        }
+        buffer.mark_dirty();
+        tui.need_render(@src());
+        self.location_update_from_editor();
+        if (ctx.reply) |reply| try reply.send(.{ "buffer", buffer.to_ref() });
+        if (kind == .new_file and language == null)
+            try command.executeName("change_file_type", .empty_from(ctx));
+    }
+    pub const create_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
 
     pub fn save_buffer(self: *Self, ctx: Ctx) Result {
         var auto_save: bool = false;
@@ -4177,6 +4217,48 @@ pub fn vcs_blame_update(self: *Self, m: tp.message) void {
 pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.lsp_info.add_from_event(m.buf) catch return;
     self.foreach_editor(ed.Editor.update_completion_triggers);
+}
+
+const BufferKind = enum { new_file, scratch, stdin };
+
+fn create_buffer_after_navigations(self: *Self, ctx: command.Context) error{ OutOfMemory, WriteFailed }!bool {
+    if (self.pending_navigations == 0) return false;
+    var m: std.Io.Writer.Allocating = .init(self.allocator);
+    defer m.deinit();
+    const args: cbor.Raw = .{ .bytes = ctx.args.buf };
+    if (ctx.reply) |reply|
+        try cbor.writeValue(&m.writer, .{ "cmd", "create_buffer", args, .{ "reply", reply.piid, reply.id } })
+    else
+        try cbor.writeValue(&m.writer, .{ "cmd", "create_buffer", args });
+    const owned = try m.toOwnedSlice();
+    errdefer self.allocator.free(owned);
+    try self.after_navigations.append(self.allocator, owned);
+    return true;
+}
+
+fn navigation_done(self: *Self) void {
+    self.pending_navigations -|= 1;
+    if (self.pending_navigations > 0) return;
+    for (self.after_navigations.items) |m| {
+        tp.self_pid().send_raw(.{ .buf = m }) catch {};
+        self.allocator.free(m);
+    }
+    self.after_navigations.clearRetainingCapacity();
+}
+
+fn unique_buffer_name(self: *Self, name: *std.Io.Writer.Allocating, kind: BufferKind) error{WriteFailed}![]const u8 {
+    var n: usize = 1;
+    while (true) : (n += 1) {
+        name.clearRetainingCapacity();
+        switch (kind) {
+            .new_file => try name.writer.print("Untitled-{d}", .{n}),
+            .scratch, .stdin => if (n == 1)
+                try name.writer.print("*{t}*", .{kind})
+            else
+                try name.writer.print("*{t}-{d}*", .{ kind, n }),
+        }
+        if (self.buffer_manager.get_buffer_for_file(name.written()) == null) return name.written();
+    }
 }
 
 fn mark_active_buffer_user_created(self: *Self) void {

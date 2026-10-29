@@ -13,6 +13,13 @@ pub fn spawn(allocator: std.mem.Allocator, ctx: *tp.context, eh: anytype, env: ?
     pid.deinit();
 }
 
+pub fn create(allocator: std.mem.Allocator, target: tp.pid_ref, script: Script, then: ?tp.message) !void {
+    const args = try Process.Args.init(allocator, target, script, then);
+    errdefer args.deinit();
+    const pid = try tp.spawn_link(allocator, args, Process.start, module_name);
+    pid.deinit();
+}
+
 const Command = struct {
     name: []const u8,
     args: []const u8,

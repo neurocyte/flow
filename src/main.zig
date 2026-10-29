@@ -11,6 +11,7 @@ const sep = std.fs.path.sep;
 
 const list_languages = @import("list_languages.zig");
 const ScriptExecutor = @import("ScriptExecutor.zig");
+const StdinReader = @import("StdinReader.zig");
 const file_link = @import("file_link");
 
 const c = @import("c");
@@ -100,13 +101,14 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .literal = "Disable :LINE and +LINE syntax",
             .scratch = "Open a scratch (temporary) buffer on start",
             .new_file = "Create a new untitled file on start",
+            .file_name = "File name of buffer",
             .dark = "Use dark color scheme",
             .light = "Use light color scheme",
             .version = "Show build version and exit",
             .class = "Set window class",
         };
 
-        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .exec_file = "file", .class = "name", .debug_socket = "path", .server = "path", .connect = "path" };
+        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .exec_file = "file", .class = "name", .file_name = "name", .debug_socket = "path", .server = "path", .connect = "path" };
 
         pub const switches = .{
             .project = 'p',
@@ -154,6 +156,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         literal: bool,
         scratch: bool,
         new_file: bool,
+        file_name: ?[]const u8,
         dark: bool,
         light: bool,
         version: bool,
@@ -323,7 +326,6 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     env.set("dump-stack-trace", args.debug_dump_on_error);
     if (args.frame_rate) |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
-    if (args.language) |s| env.str_set("language", s);
     if (args.class) |s| env.str_set("window-class", s);
     var rc_socket_buf: [std.posix.PATH_MAX]u8 = undefined;
     if (get_rc_socket_path(args.server, &rc_socket_buf)) |rc_socket| {
@@ -347,6 +349,9 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     const connect = if (args.connect) |name|
         if (std.mem.eql(u8, name, "disable")) null else name
     else if (init.environ_map.get("FLOW_SOCKET")) |v| if (v.len > 0) v else null else null;
+    const stdin_input = if (connect == null) StdinReader.detect(io) else null;
+    const create_buffer = connect == null and (stdin_input != null or args.new_file or args.scratch or args.file_name != null);
+    if (args.language) |s| if (!create_buffer) env.str_set("language", s);
     const connect_path = if (connect) |name| resolve_rc_socket_name(name, &rc_connect_buf) catch |e| {
         std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
         exit(1);
@@ -473,13 +478,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         try main_proc.send(.{ "cmd", "show_home" });
     }
 
-    if (args.new_file or args.scratch) {
-        const cmd = if (args.new_file) "create_new_file" else "create_scratch_buffer";
-        if (connect != null)
-            try main_proc.send(.{ "request", cmd, .{} })
-        else
-            try main_proc.send(.{ "cmd", cmd, .{} });
-    }
+    if (connect != null and (args.new_file or args.scratch))
+        try main_proc.send(.{ "request", if (args.new_file) "create_new_file" else "create_scratch_buffer", .{} });
 
     if (args.dark or args.light) {
         const scheme = if (args.dark) "dark" else "light";
@@ -491,11 +491,37 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     var exec_eh = thespian.make_exit_handler({}, ignore_exit_status);
     const then_disconnect: ?thespian.message = if (connect != null) thespian.message.fmt(.{"disconnect"}) else null;
-    if (script) |s| {
+    const kind: enum { new_file, scratch, stdin } = if (args.new_file)
+        .new_file
+    else if (args.scratch or stdin_input == null)
+        .scratch
+    else
+        .stdin;
+    const language: ?[]const u8 = if (args.language) |language|
+        language
+    else if (args.new_file and stdin_input != null)
+        "conf"
+    else
+        null;
+
+    if (stdin_input) |input| {
+        const s = script;
         script = null;
-        try ScriptExecutor.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), s, then_disconnect);
-    } else if (then_disconnect) |m|
-        try main_proc.send_raw(m);
+        var buf: [thespian.max_message_size]u8 = undefined;
+        try StdinReader.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), input, try thespian.message.fmtbuf(&buf, .{
+            kind,
+            args.file_name,
+            language,
+        }), s, then_disconnect);
+    } else {
+        if (create_buffer)
+            try main_proc.send(.{ "cmd", "create_buffer", .{ kind, args.file_name, language } });
+        if (script) |s| {
+            script = null;
+            try ScriptExecutor.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), s, then_disconnect);
+        } else if (then_disconnect) |m|
+            try main_proc.send_raw(m);
+    }
 
     if (renderer.needs_main_thread and connect == null) {
         const ctx_thread = try std.Thread.spawn(.{}, run_context, .{&ctx});
