@@ -43,7 +43,7 @@ hover_pos: ?Position = null,
 last_hover_pos: ?Position = null,
 mouse_pos: ?Position = null,
 hover_active: bool = false,
-link_click_pending: bool = false,
+link_click_pending: ?Position = null,
 file_link_highlight: ?FileLinkHighlight = null,
 file_link_: ?file_link.Dest = null,
 
@@ -213,14 +213,15 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             const is_press = try m.match(.{ MouseEvent.Type.press, tp.more });
 
             const jump = tui.mouse_actions(mods).jump;
-            if (jump and is_press and !self.hover_active) {
-                // no hover link to open, look up the link under the click
+            if (jump and is_press) {
+                // look up the link under the click, hover may be armed without having resolved it
                 const cell = coord.to_cell(self.plane.mouse_geometry());
                 if (cell.row >= 0 and cell.col >= 0) {
-                    self.hover_pos = .{ .row = @intCast(cell.row), .col = @intCast(cell.col) };
+                    const pos: Position = .{ .row = @intCast(cell.row), .col = @intCast(cell.col) };
+                    self.hover_pos = pos;
                     self.last_hover_pos = null;
                     if (self.update_file_link_highlight(true) and self.file_link_ == null) {
-                        self.link_click_pending = true;
+                        self.link_click_pending = pos;
                         return true;
                     }
                 }
@@ -517,7 +518,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         }
     }
 
-    if (self.link_click_pending) self.open_pending_link_click();
+    if (self.link_click_pending) |pos| self.open_pending_link_click(pos);
     _ = self.update_file_link_highlight(false);
     self.render_file_link_highlight(theme);
     self.render_selection(theme);
@@ -647,14 +648,16 @@ fn probe_file_links(self: *Self, range: Vt.Terminal.CommandOutputRange) bool {
 }
 
 /// Opens the link under a jump click once its file probe is done
-fn open_pending_link_click(self: *Self) void {
+fn open_pending_link_click(self: *Self, pos: Position) void {
+    self.hover_pos = pos;
+    self.last_hover_pos = null;
     const retry = self.update_file_link_highlight(true);
     if (self.file_link_) |*link| switch (link.*) {
         .file => |*fl| navigate_to_file_link(fl),
         .url => |url| tui.open_url(url.url),
         .dir => {},
     };
-    if (self.file_link_ != null or !retry) self.link_click_pending = false;
+    if (self.file_link_ != null or !retry) self.link_click_pending = null;
 }
 
 /// Returns true if the link under the hover position is waiting for a file probe
