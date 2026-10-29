@@ -104,7 +104,7 @@ const Process = struct {
     }
 
     fn deinit(self: *@This()) void {
-        if (self.fd_watcher) |fd_watcher| fd_watcher.deinit();
+        if (builtin.os.tag != .windows) if (self.fd_watcher) |fd_watcher| fd_watcher.deinit();
         if (self.buffer_ref) |buffer_ref| self.allocator.free(buffer_ref);
         self.target.deinit();
         if (self.script) |s| s.deinit();
@@ -195,9 +195,9 @@ const Process = struct {
     }
 
     fn close_stdin(self: *@This()) void {
+        if (builtin.os.tag == .windows) return;
         if (self.fd_watcher) |fd_watcher| fd_watcher.deinit();
         self.fd_watcher = null;
-        if (builtin.os.tag == .windows) return;
         const null_fd = std.c.open("/dev/null", .{ .ACCMODE = .RDONLY });
         if (null_fd < 0) return;
         _ = std.c.dup2(null_fd, std.posix.STDIN_FILENO);

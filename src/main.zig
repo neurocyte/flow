@@ -423,6 +423,17 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         }
     }
 
+    var file_name = args.file_name;
+    if (connect != null) {
+        var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const cwd = real_dir_path(".", &cwd_buf);
+        for (links.items) |*link| switch (link.*) {
+            .file => |*file| file.path = try std.fs.path.resolve(init.arena.allocator(), &.{ cwd, file.path }),
+            else => {},
+        };
+        if (file_name) |name| file_name = try std.fs.path.resolve(init.arena.allocator(), &.{ cwd, name });
+    }
+
     if (connect != null and args.project == null and links.items.len == 0 and script == null and
         !create_buffer and !args.dark and !args.light)
     {
@@ -515,16 +526,16 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         var buf: [thespian.max_message_size]u8 = undefined;
         try StdinReader.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), input, try thespian.message.fmtbuf(&buf, .{
             kind,
-            args.file_name,
+            file_name,
             language,
         }), s, then_release);
         if (then_disconnect) |m| try main_proc.send_raw(m);
     } else {
         if (create_buffer) {
             if (connect != null)
-                try main_proc.send(.{ "request", "create_buffer", .{ kind, args.file_name, language } })
+                try main_proc.send(.{ "request", "create_buffer", .{ kind, file_name, language } })
             else
-                try main_proc.send(.{ "cmd", "create_buffer", .{ kind, args.file_name, language } });
+                try main_proc.send(.{ "cmd", "create_buffer", .{ kind, file_name, language } });
         }
         if (script) |s| {
             script = null;
