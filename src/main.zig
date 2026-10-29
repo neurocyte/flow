@@ -76,6 +76,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .debug_socket = "Enable debug console on a unix socket",
             .server = "Remote control socket: absolute path, name in the default directory or 'disable'",
             .connect = "Remote control socket to connect to: absolute path, name or 'disable' (overrides FLOW_SOCKET)",
+            .no_connect = "Do not connect to a remote instance (same as --connect disable)",
             .wait = "Wait for remote instance (default)",
             .no_wait = "Do not wait for remote instance",
             .focus = "Unfocus the terminal and unmaximize the panel (default when opening files)",
@@ -121,6 +122,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .scratch = 'S',
             .new_file = 'n',
             .version = 'v',
+            .no_connect = 'X',
         };
 
         project: ?[]const u8,
@@ -131,6 +133,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         debug_socket: ?[]const u8,
         server: ?[]const u8,
         connect: ?[]const u8,
+        no_connect: bool,
         wait: bool,
         no_wait: bool,
         focus: bool,
@@ -168,7 +171,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     };
 
     const args_alloc = try init.minimal.args.toSlice(init.arena.allocator());
-    const args = flags.parse(io, init.environ_map, args_alloc, "flow", Flags, .{});
+    var args = flags.parse(io, init.environ_map, args_alloc, "flow", Flags, .{});
 
     if (args.wait and args.no_wait) {
         std.debug.print("--wait and --no-wait cannot be used together\n", .{});
@@ -181,6 +184,13 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     if (args.exec != null and args.exec_file != null) {
         std.debug.print("--exec and --exec-file cannot be used together\n", .{});
         exit(1);
+    }
+    if (args.no_connect) {
+        if (args.connect != null) {
+            std.debug.print("--connect and --no-connect cannot be used together\n", .{});
+            exit(1);
+        }
+        args.connect = "disable";
     }
     var script: ?ScriptExecutor.Script = if (args.exec_file) |file_name|
         load_script_file(a, file_name)
