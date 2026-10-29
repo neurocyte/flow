@@ -11,6 +11,7 @@ pub const mini_buffer = @import("tests_mini_buffer.zig");
 pub const project_manager = @import("tests_project_manager.zig");
 pub const scroll_animation = @import("tests_scroll_animation.zig");
 pub const snippet = @import("tests_snippet.zig");
+pub const soft_root = @import("tests_soft_root.zig");
 pub const text_manip = @import("tests_text_manip.zig");
 
 test {

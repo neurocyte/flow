@@ -76,7 +76,18 @@ const dummy = struct {
     pub const ConfigWriteError = error{};
 
     pub fn get_init() std.process.Init {
-        @panic("dummy get_init call");
+        const static = struct {
+            var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+            var environ_map: std.process.Environ.Map = .init(std.heap.page_allocator);
+        };
+        return if (@import("builtin").is_test) .{
+            .minimal = .{ .environ = std.testing.environ, .args = .{ .vector = &.{} } },
+            .arena = &static.arena,
+            .gpa = std.testing.allocator,
+            .io = std.testing.io,
+            .environ_map = &static.environ_map,
+            .preopens = .empty,
+        } else @panic("dummy get_init call");
     }
 
     pub fn get_io() std.Io {
