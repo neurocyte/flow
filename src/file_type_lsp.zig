@@ -337,7 +337,7 @@ pub const typescript = .{
 
 pub const typst = .{
     .language_server = .{"tinymist"},
-    .formatter = .{"typstyle"},
+    .formatter = .{ "typstyle", "--tab-width", "{{indent_size}}", "--line-width", "{{reflow_width}}", "--wrap-text=fill" },
 };
 
 pub const uxntal = .{};
