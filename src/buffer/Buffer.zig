@@ -165,12 +165,14 @@ pub const Weights = struct {
     bols: u32 = 0,
     eols: u32 = 0,
     len: u32 = 0,
+    leaves: u32 = 0,
     depth: u32 = 1,
 
     fn add(self: *Weights, other: Weights) void {
         self.bols += other.bols;
         self.eols += other.eols;
         self.len += other.len;
+        self.leaves += other.leaves;
         self.depth = @max(self.depth, other.depth);
     }
 };
@@ -234,7 +236,7 @@ pub const Leaf = struct {
         var len = self.buf.len;
         if (self.eol)
             len += 1;
-        return .{ .bols = if (self.bol) 1 else 0, .eols = if (self.eol) 1 else 0, .len = @intCast(len) };
+        return .{ .bols = if (self.bol) 1 else 0, .eols = if (self.eol) 1 else 0, .len = @intCast(len), .leaves = 1 };
     }
 
     inline fn is_empty(self: *const Leaf) bool {
@@ -415,7 +417,7 @@ const Node = union(enum) {
 
     fn collect_leaves(self: *const Node, allocator: Allocator) ![]*const Node {
         var leaves: ArrayList(*const Node) = .empty;
-        try leaves.ensureTotalCapacity(allocator, self.lines());
+        try leaves.ensureTotalCapacity(allocator, self.weights_sum().leaves);
         try self.collect(allocator, &leaves);
         return leaves.toOwnedSlice(allocator);
     }

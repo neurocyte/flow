@@ -1159,3 +1159,36 @@ test "nudge: replacing a selection keeps a cursor at its begin and moves a curso
     try std.testing.expect(at_end.nudge_delete(delete));
     try std.testing.expectEqual(2, at_end.col);
 }
+
+fn count_leaves(node: Buffer.Root) u32 {
+    return switch (node.*) {
+        .node => |*n| count_leaves(n.left) + count_leaves(n.right),
+        .leaf => 1,
+    };
+}
+
+test "weights: leaves counts the leaves of the tree" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const doc: []const u8 =
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+    ;
+    var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    var root = try buffer.load_from_string(doc, &eol_mode, &sanitized);
+    try std.testing.expectEqual(count_leaves(root), root.weights_sum().leaves);
+
+    _, _, root = try root.insert_chars(1, 2, "one\ntwo\nthree", buffer.allocator, metrics());
+    try std.testing.expectEqual(count_leaves(root), root.weights_sum().leaves);
+    _, _, root = try root.insert_chars(0, 0, "x", buffer.allocator, metrics());
+    try std.testing.expectEqual(count_leaves(root), root.weights_sum().leaves);
+
+    root = try root.delete_range(.{ .begin = .{ .row = 1, .col = 1 }, .end = .{ .row = 3, .col = 2 } }, buffer.allocator, null, metrics());
+    try std.testing.expectEqual(count_leaves(root), root.weights_sum().leaves);
+    root = try root.delete_bytes(0, 0, 4, buffer.allocator, metrics());
+    try std.testing.expectEqual(count_leaves(root), root.weights_sum().leaves);
+}
