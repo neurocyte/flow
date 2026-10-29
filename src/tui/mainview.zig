@@ -1538,7 +1538,10 @@ const cmds = struct {
         buffer.mark_dirty();
         tui.need_render(@src());
         self.location_update_from_editor();
-        if (ctx.reply) |reply| try reply.send(.{ "buffer", buffer.to_ref() });
+        if (ctx.reply) |reply| {
+            try self.buffer_manager.add_listener(buffer, .{ .piid = reply.piid, .id = reply.id, .track = .full });
+            try reply.send(.{ "buffer", buffer.to_ref() });
+        }
         if (kind == .new_file and language == null)
             try command.executeName("change_file_type", .empty_from(ctx));
     }

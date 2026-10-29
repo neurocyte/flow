@@ -127,7 +127,12 @@ const Process = struct {
         var err_code: i64 = 0;
         var err_msg: []const u8 = "";
 
-        if (try m.match(.{ "reply", tp.extract(&id), .{ "buffer", tp.extract(&buffer_ref) } })) {
+        if (try m.match(.{ "reply", 1, .{ "buffer", "hidden", tp.more } }) or
+            try m.match(.{ "reply", 1, .{ "buffer", "deleted", tp.more } }))
+        {
+            self.close_stdin();
+            return self.finish();
+        } else if (try m.match(.{ "reply", tp.extract(&id), .{ "buffer", tp.extract(&buffer_ref) } })) {
             if (id != 1 or self.buffer_ref != null) return;
             self.buffer_ref = try self.allocator.dupe(u8, buffer_ref.bytes);
             try self.buffer_created();
@@ -190,6 +195,16 @@ const Process = struct {
         const id = self.next_id;
         self.next_id += 1;
         try self.target.send(.{ "cmd", name, args, .{ "reply", tp.self_pid().instance_id(), id } });
+    }
+
+    fn close_stdin(self: *@This()) void {
+        if (self.fd_watcher) |fd_watcher| fd_watcher.deinit();
+        self.fd_watcher = null;
+        if (builtin.os.tag == .windows) return;
+        const null_fd = std.c.open("/dev/null", .{ .ACCMODE = .RDONLY });
+        if (null_fd < 0) return;
+        _ = std.c.dup2(null_fd, std.posix.STDIN_FILENO);
+        _ = std.c.close(null_fd);
     }
 
     fn finish(self: *@This()) error{Exit} {
