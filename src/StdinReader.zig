@@ -65,6 +65,8 @@ const Process = struct {
     buffer_ref: ?[]const u8 = null,
     next_id: u64 = 1,
     read_buf: [chunk_size]u8 = undefined,
+    join_buf: [chunk_size + 3]u8 = undefined,
+    partial_len: usize = 0,
     args_buf: [chunk_size + 64]u8 = undefined,
     receiver: tp.Receiver(*@This()),
 
@@ -177,6 +179,8 @@ const Process = struct {
                 reason = (tp.message{ .buf = exit_msg.bytes }).to_json(&buf) catch "(unknown)";
             log.err("{s} failed: {s}", .{ if (id == 1) "create_buffer" else "append", reason });
             return self.finish();
+        } else if (try m.match(.{"read_next"})) {
+            return self.read_next();
         } else if (try m.match(.{ "fd", "stdin", "read_ready" })) {
             return self.read_chunk();
         } else if (try m.match(.{ "fd", "stdin", "read_error", tp.extract(&err_code), tp.extract(&err_msg) }) or
@@ -185,7 +189,7 @@ const Process = struct {
             log.err("read failed: {s}", .{err_msg});
             return self.finish();
         } else if (try m.match(.{ "stream", "stdin", "read_complete", tp.extract(&bytes) })) {
-            if (bytes.len == 0) return self.finish();
+            if (bytes.len == 0) return self.finish_input();
             return self.append(bytes);
         } else if (try m.match(.{ "exit", tp.more })) {
             if (from.instance_id() == self.target.instance_id()) return tp.exit_normal();
@@ -220,12 +224,38 @@ const Process = struct {
             log.err("read failed: {t}", .{e});
             return self.finish();
         };
-        if (n == 0) return self.finish();
+        if (n == 0) return self.finish_input();
         return self.append(self.read_buf[0..n]);
     }
 
     fn append(self: *@This(), data: []const u8) !void {
+        @memcpy(self.join_buf[self.partial_len..][0..data.len], data);
+        const joined = self.join_buf[0 .. self.partial_len + data.len];
+        const complete = joined[0 .. joined.len - partial_utf8_suffix_len(joined)];
+        self.partial_len = joined.len - complete.len;
+        if (complete.len == 0) return tp.self_pid().send(.{"read_next"});
+        try self.send_data(complete);
+        std.mem.copyForwards(u8, self.join_buf[0..self.partial_len], joined[complete.len..]);
+    }
+
+    fn send_data(self: *@This(), data: []const u8) !void {
         try self.send_command("shell_execute_stream_output", .{ .bytes = cbor.fmt(&self.args_buf, .{ cbor.Raw{ .bytes = self.buffer_ref.? }, data }) });
+    }
+
+    fn finish_input(self: *@This()) !void {
+        if (self.partial_len > 0) try self.send_data(self.join_buf[0..self.partial_len]);
+        return self.finish();
+    }
+
+    fn partial_utf8_suffix_len(data: []const u8) usize {
+        var i: usize = 1;
+        while (i <= @min(3, data.len)) : (i += 1) {
+            const byte = data[data.len - i];
+            if (byte & 0xC0 == 0x80) continue;
+            const seq_len = std.unicode.utf8ByteSequenceLength(byte) catch return 0;
+            return if (seq_len > i) i else 0;
+        }
+        return 0;
     }
 
     fn send_command(self: *@This(), name: []const u8, args: cbor.Raw) !void {
