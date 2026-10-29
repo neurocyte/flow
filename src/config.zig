@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const build_options = @import("build_options");
 const cbor = @import("cbor");
 
 frame_rate: usize = 60,
@@ -98,9 +97,9 @@ scroll_step_vertical: usize = 3,
 scroll_step_horizontal: usize = 5,
 scroll_cursor_min_border_distance: usize = 5,
 
-mouse_click_jump: MouseModifier = if (macos_gui) .super else .ctrl,
+mouse_click_jump: MouseModifier = if (macos) .super else .ctrl,
 mouse_click_alternate: MouseModifier = .alt,
-mouse_hover: MouseHover = if (macos_gui) .super else .ctrl,
+mouse_hover: MouseHover = if (macos) .super else .ctrl,
 mouse_scroll_fast: MouseModifier = .alt,
 mouse_scroll_alternate: MouseModifier = .shift,
 
@@ -188,7 +187,7 @@ watch_non_indexed_projects: bool = false,
 
 include_files: []const u8 = "",
 
-const macos_gui = build_options.gui and builtin.os.tag == .macos;
+const macos = builtin.os.tag == .macos;
 
 pub const MouseModifier = enum { none, shift, alt, ctrl, super };
 pub const MouseHover = enum { none, shift, alt, ctrl, super, always };
