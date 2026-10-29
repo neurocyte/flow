@@ -83,6 +83,8 @@ const Process = struct {
     focus: Focus = .{},
     tracked_requests: std.AutoHashMapUnmanaged(u64, void) = .empty,
     tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    creates: std.AutoHashMapUnmanaged(u64, ?LocalReply) = .empty,
+    holds: usize = 0,
     receiver: tp.Receiver(*@This()),
 
     const Request = struct {
@@ -163,6 +165,7 @@ const Process = struct {
         self.outstanding.deinit(self.allocator);
         self.tracked_requests.deinit(self.allocator);
         self.tracked_buffers.deinit(self.allocator);
+        self.creates.deinit(self.allocator);
         if (self.server) |p| p.deinit();
         if (self.connection) |p| p.deinit();
         if (self.connector) |p| p.deinit();
@@ -199,6 +202,11 @@ const Process = struct {
             try self.connected(conn_id);
         } else if (try m.match(.{ "hello", tp.extract(&server_version) })) {
             try self.hello(from, server_version);
+        } else if (try m.match(.{"hold"})) {
+            self.holds += 1;
+        } else if (try m.match(.{"release"})) {
+            self.holds -|= 1;
+            return self.disconnect_when_done();
         } else if (try m.match(.{"disconnect"})) {
             self.disconnecting = true;
             return self.disconnect_when_done();
@@ -233,18 +241,13 @@ const Process = struct {
     }
 
     fn send_request(self: *@This(), cmd: []const u8, args: cbor.Raw, reply_to: ?LocalReply) !void {
-        const creates_buffer = std.mem.eql(u8, cmd, "create_new_file") or std.mem.eql(u8, cmd, "create_scratch_buffer");
         const manage_focus = switch (self.focus_mode) {
-            .auto => creates_buffer or std.mem.eql(u8, cmd, "navigate"),
+            .auto => std.mem.eql(u8, cmd, "create_buffer") or std.mem.eql(u8, cmd, "navigate"),
             .always => true,
             .never => false,
         };
         if (manage_focus) try self.query_terminal_state();
-        try self.send_request_from(.user, cmd, args, reply_to);
-        if (creates_buffer and self.track != .none) {
-            var buf: [16]u8 = undefined;
-            try self.send_request_from(.user, "track_active_buffer", .{ .bytes = cbor.fmt(&buf, .{self.track}) }, null);
-        }
+        return self.send_request_from(.user, cmd, args, reply_to);
     }
 
     fn send_focus_request(self: *@This(), cmd: []const u8, args: anytype) !void {
@@ -303,10 +306,9 @@ const Process = struct {
             if (!try add_track_field(&tracked_args.writer, args, self.track)) break :blk args;
             try self.tracked_requests.put(self.allocator, request_id, {});
             break :blk cbor.Raw{ .bytes = tracked_args.written() };
-        } else if (std.mem.eql(u8, cmd, "track_active_buffer")) blk: {
-            try self.tracked_requests.put(self.allocator, request_id, {});
-            break :blk args;
         } else args;
+        if (origin == .user and std.mem.eql(u8, cmd, "create_buffer"))
+            try self.creates.put(self.allocator, request_id, reply_to);
         const m = tp.message.fmt(.{ "request", request_id, cmd, request_args });
         const hold = origin == .user and self.focus.state == .querying;
         if (!hold) if (self.server) |server| return server.send_raw(m);
@@ -326,6 +328,7 @@ const Process = struct {
     }
 
     fn handle_reply(self: *@This(), request_id: u64, payload: cbor.Raw) !void {
+        if (self.creates.get(request_id)) |reply_to| return self.handle_create_reply(request_id, reply_to, payload);
         if (self.outstanding.get(request_id)) |pending_request| if (pending_request.reply_to) |reply_to| reply_to.send(payload);
         if (try self.handle_event(request_id, payload)) return self.disconnect_when_done();
         const entry = self.outstanding.fetchRemove(request_id) orelse {
@@ -355,6 +358,25 @@ const Process = struct {
                 log.err("{s} failed: {f}", .{ cmd, tp.message{ .buf = exit_msg.bytes } });
         } else {
             log.info("{s}: {f}", .{ cmd, tp.message{ .buf = payload.bytes } });
+        }
+        return self.disconnect_when_done();
+    }
+
+    /// a created buffer replies {"buffer", ref}, acks (maybe more than once) and then sends buffer events until it is closed
+    fn handle_create_reply(self: *@This(), request_id: u64, reply_to: ?LocalReply, payload: cbor.Raw) !void {
+        if (reply_to) |local| local.send(payload);
+        if (self.outstanding.fetchRemove(request_id)) |entry| self.allocator.free(entry.value.cmd);
+        var exit_msg: cbor.Raw = .empty;
+        var event: []const u8 = "";
+        var path: []const u8 = "";
+        if (try cbor.match(payload.bytes, .{ "error", cbor.extract(&exit_msg) })) {
+            _ = self.creates.remove(request_id);
+            self.failed += 1;
+            if (reply_to == null) log.err("create_buffer failed: {f}", .{tp.message{ .buf = exit_msg.bytes }});
+        } else if (try cbor.match(payload.bytes, .{ "buffer", cbor.extract(&event), cbor.any, cbor.extract(&path), cbor.more })) {
+            if (std.mem.eql(u8, event, "hidden") or std.mem.eql(u8, event, "deleted")) {
+                if (self.creates.remove(request_id)) self.log_verbose("closed {s}", .{path});
+            }
         }
         return self.disconnect_when_done();
     }
@@ -400,6 +422,7 @@ const Process = struct {
     fn disconnect_when_done(self: *@This()) !void {
         if (!self.disconnecting or self.server == null) return;
         if (self.outstanding.count() > 0 or self.tracked_requests.count() > 0 or self.tracked_buffers.count() > 0) return;
+        if (self.holds > 0 or (self.track != .none and self.creates.count() > 0)) return;
         if (try self.restore_terminal_state()) return;
         self.shutdown();
         return self.exit_done();

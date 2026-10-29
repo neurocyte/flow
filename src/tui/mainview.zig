@@ -1111,18 +1111,6 @@ const cmds = struct {
         };
     }
 
-    pub fn track_active_buffer(self: *Self, ctx: Ctx) Result {
-        var track: BufferManager.Track = .full;
-        _ = try ctx.args.match(.{tp.extract(&track)});
-        const reply = ctx.reply orelse return;
-        const editor = self.get_active_editor() orelse return error.NoActiveEditor;
-        const buffer = editor.buffer orelse return error.NoActiveBuffer;
-        const l: BufferManager.Listener = .{ .piid = reply.piid, .id = reply.id, .track = track };
-        try self.buffer_manager.add_listener(buffer, l);
-        _ = l.send(.{ "navigation", "complete", buffer.id, buffer.get_file_path() });
-    }
-    pub const track_active_buffer_meta: Meta = .{ .arguments = &.{.string} };
-
     pub fn open_help(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
         try self.create_editor(ctx.now);

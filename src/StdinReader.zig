@@ -161,10 +161,7 @@ const Process = struct {
     fn buffer_created(self: *@This()) !void {
         const script = self.script orelse return;
         self.script = null;
-        const then = self.then;
-        self.then = null;
-        defer if (then) |m| self.allocator.free(m);
-        try ScriptExecutor.create(self.allocator, self.target.ref(), script, if (then) |m| .{ .buf = m } else null);
+        try ScriptExecutor.create(self.allocator, self.target.ref(), script, if (self.then) |m| .{ .buf = m } else null);
     }
 
     fn read_next(self: *@This()) !void {
@@ -217,5 +214,6 @@ const Process = struct {
         self.then = null;
         defer self.allocator.free(then);
         self.target.send_raw(.{ .buf = then }) catch {};
+        if (self.script != null) self.target.send_raw(.{ .buf = then }) catch {};
     }
 };

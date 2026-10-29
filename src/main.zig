@@ -349,8 +349,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     const connect = if (args.connect) |name|
         if (std.mem.eql(u8, name, "disable")) null else name
     else if (init.environ_map.get("FLOW_SOCKET")) |v| if (v.len > 0) v else null else null;
-    const stdin_input = if (connect == null) StdinReader.detect(io) else null;
-    const create_buffer = connect == null and (stdin_input != null or args.new_file or args.scratch or args.file_name != null);
+    const stdin_input = StdinReader.detect(io);
+    const create_buffer = stdin_input != null or args.new_file or args.scratch or args.file_name != null;
     if (args.language) |s| if (!create_buffer) env.str_set("language", s);
     const connect_path = if (connect) |name| resolve_rc_socket_name(name, &rc_connect_buf) catch |e| {
         std.debug.print("invalid {s} value: '{s}': {t}\n", .{ if (args.connect != null) "--connect" else "FLOW_SOCKET", name, e });
@@ -424,7 +424,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
 
     if (connect != null and args.project == null and links.items.len == 0 and script == null and
-        !args.new_file and !args.scratch and !args.dark and !args.light)
+        !create_buffer and !args.dark and !args.light)
     {
         std.debug.print("nothing to do\n", .{});
         exit(1);
@@ -478,9 +478,6 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         try main_proc.send(.{ "cmd", "show_home" });
     }
 
-    if (connect != null and (args.new_file or args.scratch))
-        try main_proc.send(.{ "request", if (args.new_file) "create_new_file" else "create_scratch_buffer", .{} });
-
     if (args.dark or args.light) {
         const scheme = if (args.dark) "dark" else "light";
         if (connect != null)
@@ -490,7 +487,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
 
     var exec_eh = thespian.make_exit_handler({}, ignore_exit_status);
-    const then_disconnect: ?thespian.message = if (connect != null) thespian.message.fmt(.{"disconnect"}) else null;
+    var disconnect_buf: [16]u8 = undefined;
+    const then_disconnect: ?thespian.message = if (connect != null) try thespian.message.fmtbuf(&disconnect_buf, .{"disconnect"}) else null;
     const kind: enum { new_file, scratch, stdin } = if (args.new_file)
         .new_file
     else if (args.scratch or stdin_input == null)
@@ -507,15 +505,27 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     if (stdin_input) |input| {
         const s = script;
         script = null;
+        // the remote client stays connected until the reader and the script release it
+        var release_buf: [16]u8 = undefined;
+        const then_release: ?thespian.message = if (connect != null) try thespian.message.fmtbuf(&release_buf, .{"release"}) else null;
+        if (then_release != null) {
+            try main_proc.send(.{"hold"});
+            if (s != null) try main_proc.send(.{"hold"});
+        }
         var buf: [thespian.max_message_size]u8 = undefined;
         try StdinReader.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), input, try thespian.message.fmtbuf(&buf, .{
             kind,
             args.file_name,
             language,
-        }), s, then_disconnect);
+        }), s, then_release);
+        if (then_disconnect) |m| try main_proc.send_raw(m);
     } else {
-        if (create_buffer)
-            try main_proc.send(.{ "cmd", "create_buffer", .{ kind, args.file_name, language } });
+        if (create_buffer) {
+            if (connect != null)
+                try main_proc.send(.{ "request", "create_buffer", .{ kind, args.file_name, language } })
+            else
+                try main_proc.send(.{ "cmd", "create_buffer", .{ kind, args.file_name, language } });
+        }
         if (script) |s| {
             script = null;
             try ScriptExecutor.spawn(a, &ctx, &exec_eh, env, main_proc.ref(), s, then_disconnect);
