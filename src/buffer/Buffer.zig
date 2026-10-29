@@ -11,12 +11,26 @@ const Regex = @import("regex");
 const tracy = @import("tracy");
 const FileStore = @import("FileStore");
 const get_now = @import("soft_root").root.get_now;
+const get_init = @import("soft_root").root.get_init;
 
 const perf_log = std.log.scoped(.buffer_io);
 
 const Self = @This();
 
 const max_imbalance = 7;
+const max_depth_slack = 4;
+const rebuild_buffer_size = 4096;
+
+pub const RebuildStats = struct {
+    branches: usize = 0,
+    rebuilds: usize = 0,
+    rebuilt_leaves: usize = 0,
+};
+pub var rebuild_stats: RebuildStats = .{};
+
+pub fn max_depth(leaves: u32) u32 {
+    return 2 * @as(u32, std.math.log2_int_ceil(u32, leaves)) + max_depth_slack;
+}
 pub const Root = *const Node;
 pub const unicode = @import("unicode.zig");
 pub const reflow = @import("reflow.zig").reflow;
@@ -210,7 +224,7 @@ pub const Branch = struct {
             else if (new_right.is_empty())
                 new_left
             else
-                Node.new(allocator, new_left, new_right) catch |e| return .{ .err = e };
+                Node.new_checked(allocator, new_left, new_right) catch |e| return .{ .err = e };
         }
         result.keep_walking_ = left.keep_walking_ and right.keep_walking_;
         result.found_ = left.found_ or right.found_;
@@ -341,6 +355,7 @@ const Node = union(enum) {
     }
 
     fn new(allocator: Allocator, l: *const Node, r: *const Node) !*const Node {
+        if (builtin.is_test) rebuild_stats.branches += 1;
         const node = try allocator.create(Node);
         errdefer allocator.destroy(node);
         const l_weights_sum = l.weights_sum();
@@ -350,6 +365,29 @@ const Node = union(enum) {
         weights_sum_.depth += 1;
         node.* = .{ .node = .{ .left = l, .right = r, .weights = l_weights_sum, .weights_sum = weights_sum_ } };
         return node;
+    }
+
+    fn new_checked(allocator: Allocator, l: *const Node, r: *const Node) !*const Node {
+        const l_weights = l.weights_sum();
+        const r_weights = r.weights_sum();
+        if (@max(l_weights.depth, r_weights.depth) + 1 <= max_depth(l_weights.leaves + r_weights.leaves))
+            return Node.new(allocator, l, r);
+        return rebuild(allocator, l, r, l_weights.leaves + r_weights.leaves);
+    }
+
+    fn rebuild(allocator: Allocator, l: *const Node, r: *const Node, leaves: u32) !*const Node {
+        if (builtin.is_test) {
+            rebuild_stats.rebuilds += 1;
+            rebuild_stats.rebuilt_leaves += leaves;
+        }
+        var buf: [rebuild_buffer_size]u8 = undefined;
+        var tmp_allocator_state: std.heap.BufferFirstAllocator = .init(&buf, get_init().gpa);
+        const tmp_allocator = tmp_allocator_state.allocator();
+        var list: ArrayList(*const Node) = try .initCapacity(tmp_allocator, leaves);
+        defer list.deinit(tmp_allocator);
+        try l.collect(tmp_allocator, &list);
+        try r.collect(tmp_allocator, &list);
+        return l.merge(list.items, allocator);
     }
 
     pub fn weights_sum(self: *const Node) Weights {
@@ -448,7 +486,7 @@ const Node = union(enum) {
                     result.err = left.err;
                     result.found_ = left.found_;
                     if (left.replace) |p| {
-                        result.replace = Node.new(allocator, p, node.right) catch |e| return .{ .err = e };
+                        result.replace = Node.new_checked(allocator, p, node.right) catch |e| return .{ .err = e };
                     }
                     return result;
                 }
@@ -501,7 +539,7 @@ const Node = union(enum) {
                         result.replace = if (p.is_empty())
                             node.left
                         else
-                            Node.new(allocator, node.left, p) catch |e| return .{ .err = e };
+                            Node.new_checked(allocator, node.left, p) catch |e| return .{ .err = e };
                         return result;
                     } else {
                         return right_result;

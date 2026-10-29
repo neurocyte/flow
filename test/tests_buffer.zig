@@ -1192,3 +1192,127 @@ test "weights: leaves counts the leaves of the tree" {
     root = try root.delete_bytes(0, 0, 4, buffer.allocator, metrics());
     try std.testing.expectEqual(count_leaves(root), root.weights_sum().leaves);
 }
+
+fn expect_depth_bound(node: Buffer.Root) !void {
+    switch (node.*) {
+        .node => |*n| {
+            try std.testing.expect(n.weights_sum.depth <= Buffer.max_depth(n.weights_sum.leaves));
+            try expect_depth_bound(n.left);
+            try expect_depth_bound(n.right);
+        },
+        .leaf => {},
+    }
+}
+
+fn expect_text(root: Buffer.Root, expected: []const u8) !void {
+    var text: std.Io.Writer.Allocating = .init(a);
+    defer text.deinit();
+    try root.store_node(&text.writer, .lf);
+    try std.testing.expectEqualStrings(expected, text.written());
+}
+
+test "rebuild: many lines inserted at one place in one call" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    try buffer.load_from_string_and_update("test", "first\nlast", now);
+
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(a);
+    for (0..100_000) |i| try text.print(a, "{d}\n", .{i});
+    _, _, const root = try buffer.root.insert_chars(1, 0, text.items, buffer.allocator, metrics());
+
+    try expect_depth_bound(root);
+    try std.testing.expectEqual(100_002, root.lines());
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(a);
+    try expected.print(a, "first\n{s}last", .{text.items});
+    try expect_text(root, expected.items);
+}
+
+test "rebuild: lines appended at the end one at a time" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    try buffer.load_from_string_and_update("test", "", now);
+
+    const n = 20_000;
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(a);
+    var root = buffer.root;
+    const stats_before = Buffer.rebuild_stats;
+    for (0..n) |i| {
+        var line_buf: [32]u8 = undefined;
+        const line = try std.fmt.bufPrint(&line_buf, "line {d}\n", .{i});
+        _, _, root = try root.insert_chars(root.lines() - 1, 0, line, buffer.allocator, metrics());
+        try expected.appendSlice(a, line);
+    }
+    const rebuilt_leaves = Buffer.rebuild_stats.rebuilt_leaves - stats_before.rebuilt_leaves;
+
+    try expect_depth_bound(root);
+    try expect_text(root, expected.items);
+    try std.testing.expect(rebuilt_leaves < 4 * n * @as(usize, std.math.log2_int_ceil(usize, n)));
+}
+
+test "rebuild: characters typed one at a time at one place" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    try buffer.load_from_string_and_update("test", "begin end", now);
+
+    var root = buffer.root;
+    for (0..10_000) |i| {
+        _, _, root = try root.insert_chars(0, 6 + i, "x", buffer.allocator, metrics());
+    }
+
+    try expect_depth_bound(root);
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(a);
+    try expected.appendSlice(a, "begin ");
+    try expected.appendNTimes(a, 'x', 10_000);
+    try expected.appendSlice(a, "end");
+    try expect_text(root, expected.items);
+}
+
+fn model_offset(text: []const u8, row: usize, col: usize) usize {
+    var offset: usize = 0;
+    for (0..row) |_| offset += (std.mem.indexOfScalar(u8, text[offset..], '\n') orelse unreachable) + 1;
+    return offset + col;
+}
+
+test "rebuild: random inserts and deletes match a string model" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const pieces = [_][]const u8{ "a", "bb", "\n", "\n\n", "some text ", "x\ny\nz\n", "end" };
+    var prng: std.Random.DefaultPrng = .init(0x7ee5);
+    const random = prng.random();
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    var model: std.ArrayList(u8) = .empty;
+    defer model.deinit(a);
+    for (0..50) |i| try model.print(a, "line {d}\n", .{i});
+    try buffer.load_from_string_and_update("test", model.items, now);
+
+    var root = buffer.root;
+    for (0..3000) |_| {
+        const row = random.uintLessThan(usize, root.lines());
+        const width = try root.line_width(row, metrics());
+        if (random.uintLessThan(u8, 3) == 0) {
+            const end_row = @min(root.lines() - 1, row + random.uintLessThan(usize, 3));
+            const col = random.uintLessThan(usize, width + 1);
+            const end_width = try root.line_width(end_row, metrics());
+            const end_col = if (end_row == row) col + random.uintLessThan(usize, width - col + 1) else random.uintLessThan(usize, end_width + 1);
+            const begin = model_offset(model.items, row, col);
+            const end = model_offset(model.items, end_row, end_col);
+            if (begin == end) continue;
+            root = try root.delete_range(.{ .begin = .{ .row = row, .col = col }, .end = .{ .row = end_row, .col = end_col } }, buffer.allocator, null, metrics());
+            try model.replaceRange(a, begin, end - begin, "");
+        } else {
+            const col = random.uintLessThan(usize, width + 1);
+            const piece = pieces[random.uintLessThan(usize, pieces.len)];
+            _, _, root = try root.insert_chars(row, col, piece, buffer.allocator, metrics());
+            try model.insertSlice(a, model_offset(model.items, row, col), piece);
+        }
+        try expect_depth_bound(root);
+    }
+    try expect_text(root, model.items);
+}
