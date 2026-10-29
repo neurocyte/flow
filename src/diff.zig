@@ -28,14 +28,15 @@ pub const AsyncDiffer = struct {
 
     pub const CallBack = fn (from: tp.pid_ref, data: usize, edits: []Diff) void;
 
-    pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *Buffer) tp.result {
-        const pid = self.pid orelse return;
+    pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *Buffer) error{Exit}!bool {
+        const pid = self.pid orelse return false;
         const eol_mode = buffer.file_eol_mode;
-        const text_src = (buffer.share_diff_base(eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace())) orelse return;
+        const text_src = (buffer.share_diff_base(eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace())) orelse return false;
         errdefer text_src.release();
         const text_dst = buffer.share_text(eol_mode);
         errdefer text_dst.release();
         try pid.send(.{ "D", @intFromPtr(cb), cb_data, @intFromPtr(text_dst), @intFromPtr(text_src) });
+        return true;
     }
 };
 

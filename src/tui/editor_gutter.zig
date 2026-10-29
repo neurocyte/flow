@@ -557,12 +557,15 @@ fn diff_update(self: *Self, clear: bool) !void {
         self.diff_symbols_clear();
         return;
     }
+    const buffer = self.editor.buffer orelse return;
     const ctx = try self.allocator.create(DiffContext);
+    errdefer self.allocator.destroy(ctx);
     ctx.* = .{
         .allocator = self.allocator,
         .file_path = try self.allocator.dupe(u8, self.editor.file_path orelse ""),
     };
-    return self.differ.diff_buffer(diff_result, @intFromPtr(ctx), self.editor.buffer orelse return);
+    errdefer self.allocator.free(ctx.file_path);
+    if (!try self.differ.diff_buffer(diff_result, @intFromPtr(ctx), buffer)) ctx.deinit();
 }
 
 const DiffContext = struct {
