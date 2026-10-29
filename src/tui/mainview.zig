@@ -1466,6 +1466,7 @@ const cmds = struct {
         if (!(try ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content), tp.string }) or
             try ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) })))
             return error.InvalidReplaceScratchBufferArgument;
+        self.leave_maximized_panel();
         const existing = self.buffer_manager.get_buffer_for_file(file_path) != null;
         try create_scratch_buffer(self, ctx);
         if (!existing) return;
