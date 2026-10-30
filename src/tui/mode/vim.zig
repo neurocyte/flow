@@ -1,4 +1,6 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const tp = @import("thespian");
 const command = @import("command");
 const cmd = command.executeName;
 
@@ -6,9 +8,10 @@ const tui = @import("../tui.zig");
 
 const Buffer = @import("Buffer");
 const Cursor = Buffer.Cursor;
+const Selection = Buffer.Selection;
 const CurSel = @import("../editor.zig").CurSel;
 const Editor = @import("../editor.zig").Editor;
-const bracket_search_radius = @import("../editor.zig").bracket_search_radius;
+const surround = @import("../surround.zig");
 
 var commands: Commands = undefined;
 
@@ -621,6 +624,33 @@ const cmds_ = struct {
         try ed.copy_internal_vim(ctx);
     }
     pub const copy_around_backticks_meta: Meta = .{ .description = "Copy around ``" };
+
+    pub fn surround_add_vim(_: *void, ctx: Ctx) Result {
+        if (!surround.has_key_args(ctx)) {
+            const mv = tui.mainview() orelse return;
+            const ed = mv.get_active_editor() orelse return;
+            if (ed.get_primary().selection == null) return cmd("surround", .fmt(.{"add"}));
+            try cmd("enter_mode", .fmt(.{"normal"}));
+            return cmd("surround", .fmt(.{"selection"}));
+        }
+        try surround.edit(ctx, surround_add_cursel);
+    }
+    pub const surround_add_vim_meta: Meta = .{
+        .description = "Surround motion (or selection) with character",
+        .arguments = &.{ .string, .string },
+    };
+
+    pub fn surround_delete_vim(_: *void, ctx: Ctx) Result {
+        if (!surround.has_key_args(ctx)) return cmd("surround", .fmt(.{"delete"}));
+        try surround.edit(ctx, surround_delete_cursel);
+    }
+    pub const surround_delete_vim_meta: Meta = .{ .description = "Delete surrounding pair", .arguments = &.{.string} };
+
+    pub fn surround_change_vim(_: *void, ctx: Ctx) Result {
+        if (!surround.has_key_args(ctx)) return cmd("surround", .fmt(.{"change"}));
+        try surround.edit(ctx, surround_change_cursel);
+    }
+    pub const surround_change_vim_meta: Meta = .{ .description = "Change surrounding pair", .arguments = &.{ .string, .string } };
 };
 
 fn is_tab_or_space(c: []const u8) bool {
@@ -749,48 +779,7 @@ fn select_scope_textobject(
     closing_char: []const u8,
     scope: enum { inside, around },
 ) !void {
-    const current = cursel.cursor;
-    var prev = cursel.cursor;
-    var next = cursel.cursor;
-
-    if (std.mem.eql(u8, opening_char, closing_char)) {
-        const opening_pos, const closing_pos =
-            try Editor.find_quote_pair(root, current, metrics, opening_char);
-
-        prev.row = opening_pos[0];
-        prev.col = opening_pos[1];
-        next.row = closing_pos[0];
-        next.col = closing_pos[1];
-    } else {
-        const bracket_egc, _, _ = root.egc_at(current.row, current.col, metrics) catch {
-            return error.Stop;
-        };
-
-        if (std.mem.eql(u8, bracket_egc, opening_char)) {
-            const closing_row, const closing_col =
-                try Editor.match_bracket(root, current, metrics);
-
-            prev = current;
-            next.row = closing_row;
-            next.col = closing_col;
-        } else if (std.mem.eql(u8, bracket_egc, closing_char)) {
-            const opening_row, const opening_col =
-                try Editor.match_bracket(root, current, metrics);
-
-            prev.row = opening_row;
-            prev.col = opening_col;
-            next = current;
-        } else {
-            const pair = find_bracket_pair(root, cursel, metrics, .left, opening_char) catch blk: {
-                break :blk try find_bracket_pair(root, cursel, metrics, .right, opening_char);
-            };
-
-            prev.row = pair[0][0];
-            prev.col = pair[0][1];
-            next.row = pair[1][0];
-            next.col = pair[1][1];
-        }
-    }
+    var prev, var next = try surround.find_scope_pair(root, cursel.cursor, metrics, opening_char, closing_char);
 
     prev.move_right(root, metrics) catch {};
 
@@ -805,35 +794,109 @@ fn select_scope_textobject(
     cursel.*.cursor = next;
 }
 
-fn find_bracket_pair(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, direction: enum { left, right }, char: []const u8) error{Stop}!struct { struct { usize, usize }, struct { usize, usize } } {
-    const start = cursel.cursor;
-    var moving_cursor = cursel.cursor;
+fn is_blank_or_eol_at(root: Buffer.Root, cursor: Cursor, metrics: Buffer.Metrics) bool {
+    return cursor.test_at(root, Editor.is_whitespace_or_eol, metrics);
+}
 
-    var i: usize = 0;
-    while (i < bracket_search_radius) : (i += 1) {
-        switch (direction) {
-            .left => try moving_cursor.move_left(root, metrics),
-            .right => try moving_cursor.move_right(root, metrics),
-        }
+fn line_end(root: Buffer.Root, cursor: Cursor, metrics: Buffer.Metrics) Cursor {
+    var end = cursor;
+    end.move_end(root, metrics);
+    return end;
+}
 
-        const curr_egc, _, _ = root.egc_at(moving_cursor.row, moving_cursor.col, metrics) catch {
-            return error.Stop;
-        };
-        if (std.mem.eql(u8, char, curr_egc)) {
-            const closing_row, const closing_col = try Editor.match_bracket(root, moving_cursor, metrics);
-
-            switch (direction) {
-                .left => if (closing_row > start.row or (closing_row == start.row and closing_col > start.col)) {
-                    return .{ .{ moving_cursor.row, moving_cursor.col }, .{ closing_row, closing_col } };
-                } else {
-                    continue;
-                },
-                .right => {
-                    return .{ .{ moving_cursor.row, moving_cursor.col }, .{ closing_row, closing_col } };
-                },
-            }
+fn select_long_word(root: Buffer.Root, cursor: Cursor, metrics: Buffer.Metrics, scope: enum { inside, around }) error{Stop}!Selection {
+    if (is_blank_or_eol_at(root, cursor, metrics)) return error.Stop;
+    var begin = cursor;
+    while (begin.col > 0) {
+        var prev = begin;
+        prev.move_left(root, metrics) catch break;
+        if (is_blank_or_eol_at(root, prev, metrics)) break;
+        begin = prev;
+    }
+    var end = cursor;
+    while (!is_blank_or_eol_at(root, end, metrics)) end.move_right(root, metrics) catch break;
+    if (scope == .around) {
+        if (surround.is_blank_at(root, end, metrics)) {
+            while (surround.is_blank_at(root, end, metrics)) end.move_right(root, metrics) catch break;
+        } else while (begin.col > 0) {
+            var prev = begin;
+            prev.move_left(root, metrics) catch break;
+            if (!surround.is_blank_at(root, prev, metrics)) break;
+            begin = prev;
         }
     }
+    return .{ .begin = begin, .end = end };
+}
 
-    return error.Stop;
+fn select_surround_motion(root: Buffer.Root, cursor: Cursor, motion: []const u8, metrics: Buffer.Metrics) error{Stop}!Selection {
+    var begin = cursor;
+    var end = cursor;
+    if (motion.len == 1) switch (motion[0]) {
+        'w', 'e' => {
+            if (motion[0] == 'w')
+                try Editor.move_cursor_word_right_vim(root, &end, metrics)
+            else {
+                try Editor.move_cursor_word_right_end_vim(root, &end, metrics);
+                end.move_right(root, metrics) catch {};
+            }
+            if (end.row != begin.row) end = line_end(root, begin, metrics);
+            surround.trim_end(root, begin, &end, metrics);
+        },
+        'W' => while (!is_blank_or_eol_at(root, end, metrics)) end.move_right(root, metrics) catch break,
+        '$' => end = line_end(root, begin, metrics),
+        's' => {
+            begin.move_begin();
+            while (surround.is_blank_at(root, begin, metrics)) try begin.move_right(root, metrics);
+            end = line_end(root, begin, metrics);
+            surround.trim_end(root, begin, &end, metrics);
+        },
+        else => return error.Stop,
+    } else if (motion.len == 2 and (motion[0] == 'i' or motion[0] == 'a')) {
+        const object = motion[1..];
+        if (std.mem.eql(u8, object, "W"))
+            return select_long_word(root, cursor, metrics, if (motion[0] == 'i') .inside else .around);
+        if (std.mem.eql(u8, object, "w")) {
+            var cursel: CurSel = .{ .cursor = cursor };
+            try select_word_textobject(root, &cursel, metrics, if (motion[0] == 'i') .inside else .around);
+            return cursel.selection orelse error.Stop;
+        }
+        if (!surround.is_pair_char(object)) return error.Stop;
+        begin, end = try surround.find(root, cursor, object, metrics);
+        if (motion[0] == 'i') try begin.move_right(root, metrics) else try end.move_right(root, metrics);
+    } else return error.Stop;
+    if (!end.right_of(begin)) return error.Stop;
+    return .{ .begin = begin, .end = end };
+}
+
+fn surround_add_cursel(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: command.Context) error{Stop}!Buffer.Root {
+    var char: []const u8 = undefined;
+    var motion: []const u8 = undefined;
+    var range: Selection = undefined;
+    if (ctx.args.match(.{ tp.extract(&char), tp.extract(&motion) }) catch false) {
+        range = try select_surround_motion(root, cursel.cursor, motion, ed.metrics);
+    } else if (ctx.args.match(.{tp.extract(&char)}) catch false) {
+        range = cursel.selection orelse return error.Stop;
+        range.normalize();
+    } else return error.Stop;
+    const delimiters = surround.padded_delimiters(char);
+    const root_, _, const nudges = try surround.add(root, range, delimiters[0], delimiters[1], allocator, ed.metrics);
+    for (nudges) |nudge| ed.nudge_insert(nudge, cursel, 1);
+    cursel.cursor = range.begin;
+    cursel.selection = null;
+    return root_;
+}
+
+fn surround_delete_cursel(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: command.Context) error{Stop}!Buffer.Root {
+    var target: []const u8 = undefined;
+    if (!(ctx.args.match(.{tp.extract(&target)}) catch return error.Stop))
+        return error.Stop;
+    return surround.change(ed, root, cursel, cursel.cursor, target, surround.is_opening_bracket(target), .{ "", "" }, allocator);
+}
+
+fn surround_change_cursel(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: command.Context) error{Stop}!Buffer.Root {
+    var target: []const u8 = undefined;
+    var replacement: []const u8 = undefined;
+    if (!(ctx.args.match(.{ tp.extract(&target), tp.extract(&replacement) }) catch return error.Stop))
+        return error.Stop;
+    return surround.change(ed, root, cursel, cursel.cursor, target, surround.is_opening_bracket(target), surround.padded_delimiters(replacement), allocator);
 }
