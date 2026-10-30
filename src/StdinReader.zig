@@ -19,6 +19,7 @@ pub const Input = struct {
 
 pub fn detect(io: std.Io) ?Input {
     if (builtin.os.tag == .windows) return detect_windows();
+    if (std.c.fcntl(std.posix.STDIN_FILENO, std.posix.F.GETFD) < 0) return null;
     const stat = std.Io.File.stdin().stat(io) catch return null;
     return .{
         .kind = switch (stat.kind) {
