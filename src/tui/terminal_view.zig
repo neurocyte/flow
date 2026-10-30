@@ -42,8 +42,9 @@ close_requested_ms: i64 = 0,
 hover_pos: ?Position = null,
 last_hover_pos: ?Position = null,
 mouse_pos: ?Position = null,
-hover_active: bool = false,
+hover_mods: MouseEvent.Modifiers = .{},
 link_click_pending: ?Position = null,
+link_press: bool = false,
 file_link_highlight: ?FileLinkHighlight = null,
 file_link_: ?file_link.Dest = null,
 
@@ -194,7 +195,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         self.apply_mouse_cursor();
         if (!self.hover) {
-            self.hover_active = false;
+            self.hover_mods = .{};
             self.mouse_pos = null;
             self.reset_hover_pos();
         }
@@ -212,7 +213,11 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             const button = btn.to_vaxis();
             const is_press = try m.match(.{ MouseEvent.Type.press, tp.more });
 
-            const jump = tui.mouse_actions(mods).jump;
+            const jump = button == .left and self.link_actions(mods).jump;
+            if (button == .left and !is_press and self.link_press) {
+                self.link_press = false;
+                return true;
+            }
             if (jump and is_press) {
                 // look up the link under the click, hover may be armed without having resolved it
                 const cell = coord.to_cell(self.plane.mouse_geometry());
@@ -220,18 +225,22 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                     const pos: Position = .{ .row = @intCast(cell.row), .col = @intCast(cell.col) };
                     self.hover_pos = pos;
                     self.last_hover_pos = null;
+                    self.reset_file_link();
                     if (self.update_file_link_highlight(true) and self.file_link_ == null) {
                         self.link_click_pending = pos;
+                        self.link_press = true;
                         return true;
                     }
                 }
             }
             if (jump) if (self.file_link_) |*link| switch (link.*) {
                 .file => |*fl| {
+                    self.link_press = is_press;
                     if (is_press) navigate_to_file_link(fl);
                     return true;
                 },
                 .url => |url| {
+                    self.link_press = is_press;
                     if (is_press) tui.open_url(url.url);
                     return true;
                 },
@@ -331,7 +340,10 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
             self.scroller.overlay_edge_hover(coord, self.plane);
             const cell = coord.to_cell(self.plane.mouse_geometry());
-            if (self.panel_input.focused and self.vt.vt.mode.mouse == .any_event) {
+            const hover = self.link_actions(mods).hover;
+            if (self.panel_input.focused and self.vt.vt.mode.mouse == .any_event and !(hover and self.vt.vt.isAltScreen())) {
+                self.hover_mods = .{};
+                self.reset_hover_pos();
                 const mouse_event: vaxis.Mouse = .{
                     .col = @intCast(cell.col),
                     .row = @intCast(cell.row),
@@ -352,8 +364,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             // a modifier change without mouse motion only arms hover
             const moved = !std.meta.eql(pos, self.mouse_pos);
             self.mouse_pos = pos;
-            self.hover_active = tui.mouse_actions(mods).hover;
-            if (self.hover_active) {
+            self.hover_mods = mods;
+            if (hover) {
                 if (moved and pos != null)
                     self.update_hover_pos(@intCast(cell.row), @intCast(cell.col));
             } else {
@@ -664,7 +676,7 @@ fn open_pending_link_click(self: *Self, pos: Position) void {
 fn update_file_link_highlight(self: *Self, force: bool) bool {
     var retry = false;
     defer self.last_hover_pos = if (retry) null else self.hover_pos;
-    if (!(self.hover_active or force) or self.vt.vt.back_screen != &self.vt.vt.back_screen_pri) {
+    if (!(self.link_actions(self.hover_mods).hover or force)) {
         self.reset_file_link();
         return false;
     }
@@ -682,7 +694,7 @@ fn update_file_link_highlight(self: *Self, force: bool) bool {
         self.reset_file_link();
     }
 
-    if (pos.row >= self.vt.vt.back_screen_pri.height) return false;
+    if (pos.row >= self.vt.vt.back_screen.height) return false;
     var row_iter = self.row_at(self.vt.vt.viewTop() + pos.row);
     defer row_iter.deinit();
     const row = row_iter.next() orelse return false;
@@ -809,6 +821,17 @@ inline fn render_selection_cell(self: *Self, theme: *const Widget.Theme) void {
     cell.set_style_bg(theme.terminal_selection);
     cell.set_style_fg(theme.terminal_selection);
     _ = self.plane.putc(&cell) catch {};
+}
+
+const LinkActions = struct { jump: bool, hover: bool };
+
+fn link_actions(self: *const Self, mods: MouseEvent.Modifiers) LinkActions {
+    if (self.vt.vt.isAltScreen()) {
+        const armed = mods.ctrl and mods.shift;
+        return .{ .jump = armed, .hover = armed };
+    }
+    const actions = tui.mouse_actions(mods);
+    return .{ .jump = actions.jump, .hover = actions.hover };
 }
 
 fn want_selection(self: *Self, mods: MouseEvent.Modifiers) bool {
