@@ -730,7 +730,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
             return .{ .lines = lines.items, .width = max };
         }
 
-        /// columns sized to their widest cell, or one wrapped line per row line if that does not fit
+        /// columns sized to their widest cell
         fn table(self: *@This(), b: RDoc.BlockReader) !void {
             var rows: std.ArrayList(TableRow) = .empty;
             var widths: std.ArrayList(usize) = .empty;
@@ -750,10 +750,6 @@ fn LayoutBuilder(comptime Metrics: type) type {
             }
             const separator = " │ ";
             const border: RDoc.Attrs = .{ .style = b.prefix_style() };
-            var total: usize = 0;
-            for (widths.items) |w| total += w;
-            total += (widths.items.len -| 1) * self.text_width(separator, 0);
-            const fits = total <= self.avail();
 
             for (rows.items) |row| {
                 for (0..row.height) |k| {
@@ -765,7 +761,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
                             row.cells[i].lines[k]
                         else
                             .{ .segs = &.{}, .width = 0 };
-                        const pad = if (fits) width -| cell_line.width else 0;
+                        const pad = width -| cell_line.width;
                         const left = switch (b.column_align(i)) {
                             .right => pad,
                             .center => pad / 2,
@@ -775,12 +771,9 @@ fn LayoutBuilder(comptime Metrics: type) type {
                         for (cell_line.segs) |seg| try line.add(self.arena, seg.text, seg.attrs);
                         if (i + 1 < widths.items.len) try line.add(self.arena, try self.spaces(pad - left), .{});
                     }
-                    if (fits)
-                        try self.emit(line.text.items, line.segs.items, 0, line.text.items.len)
-                    else
-                        try self.wrap_words(line.text.items, line.segs.items, 0, line.text.items.len);
+                    try self.emit(line.text.items, line.segs.items, 0, line.text.items.len);
                 }
-                if (row.head and fits) {
+                if (row.head) {
                     self.src_row = null;
                     var rule: LineText = .{};
                     for (widths.items, 0..) |width, i| {

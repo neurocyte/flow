@@ -228,6 +228,16 @@ test "layout source rows of a table" {
     try expect_rows("| a |\n|---|\n| 1 |\n| 2 |\n", 40, &.{ 0, null, 2, 3 });
 }
 
+test "layout of a table wider than the layout keeps natural column widths" {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    var t = try layout_of("| a | b |\n|---|---|\n| long cell | x |\n|  | y |\n", 8);
+    defer t.deinit();
+    const lines = t.layout.lines.items;
+    try std.testing.expectEqual(4, lines.len);
+    for (lines) |line| try std.testing.expectEqual(13, line.width);
+    try std.testing.expectEqualStrings(" │ ", lines[3].runs[1].text);
+}
+
 test "layout line of a source row" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     // lines: Head 0, blank, para 2, blank, a 5, b 6

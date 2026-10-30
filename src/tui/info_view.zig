@@ -490,7 +490,7 @@ pub fn bar_cols_for(self: *const Self, rows: usize) usize {
 }
 
 pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
-    return .{ .rows = self.layout.lines.items.len, .cols = self.layout.max_width() };
+    return .{ .rows = self.layout.lines.items.len, .cols = @min(self.layout.max_width(), self.text_width()) };
 }
 
 pub const BoxAnchor = struct {
