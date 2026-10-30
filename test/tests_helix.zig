@@ -246,6 +246,54 @@ test "to_char_right_beyond_eol" {
 // is made, then trying to move to the right, the
 // first movement is swallowed
 
+test "maW selects around the WORD, including trailing whitespace" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string("Test here,   next", &eol_mode, &sanitized), now);
+    const root: Buffer.Root = buffer.root;
+
+    // cursor on a word char (the 'h' of "here"); the original functions
+    // deliberately do nothing when the cursor is on whitespace
+    var inner: @import("tui").exports.editor.CurSel = .{ .cursor = .{ .row = 0, .col = 5 } };
+    try helix.test_internal.textobject_for(.inside, "W").?(root, &inner, metrics());
+    const inner_sel = inner.selection orelse return error.TestExpectedEqual;
+    try std.testing.expectEqual(5, inner_sel.begin.col);
+    try std.testing.expectEqual(10, inner_sel.end.col);
+
+    var around: @import("tui").exports.editor.CurSel = .{ .cursor = .{ .row = 0, .col = 5 } };
+    try helix.test_internal.textobject_for(.around, "W").?(root, &around, metrics());
+    const around_sel = around.selection orelse return error.TestExpectedEqual;
+    try std.testing.expectEqual(5, around_sel.begin.col);
+    try std.testing.expectEqual(13, around_sel.end.col);
+    try std.testing.expect(around_sel.end.col > inner_sel.end.col);
+}
+
+test "maW and miW: the scope type is usable by name" {
+    // The same expectation as the test above, but driven off the exported
+    // TextobjectScope type by name, so a test that wants to iterate over the
+    // scopes can do the same.
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string("Test here,   next", &eol_mode, &sanitized), now);
+    const root: Buffer.Root = buffer.root;
+
+    const Expected = struct { begin: usize, end: usize };
+    const expectations = [_]struct { scope: helix.test_internal.TextobjectScope, expected: Expected }{
+        .{ .scope = .inside, .expected = .{ .begin = 5, .end = 10 } },
+        .{ .scope = .around, .expected = .{ .begin = 5, .end = 13 } },
+    };
+
+    for (expectations) |e| {
+        var cursel: @import("tui").exports.editor.CurSel = .{ .cursor = .{ .row = 0, .col = 5 } };
+        try helix.test_internal.textobject_for(e.scope, "W").?(root, &cursel, metrics());
+        const sel = cursel.selection orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(e.expected.begin, sel.begin.col);
+        try std.testing.expectEqual(e.expected.end, sel.end.col);
+    }
+}
+
 test "insert_line_vim nudges other cursors" {
     const now = std.Io.Clock.real.now(std.testing.io);
     const buffer = try Buffer.create(a, now);
