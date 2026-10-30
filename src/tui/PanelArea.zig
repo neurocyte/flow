@@ -111,6 +111,11 @@ pub fn show(self: *Self) void {
 fn unmaximize_for_mini_mode(self: *Self) void {
     if (!self.maximized or tui.mini_mode() == null) return;
     if (self.attached) return self.set_maximized(false);
+    self.unmaximize_hidden();
+}
+
+pub fn unmaximize_hidden(self: *Self) void {
+    if (self.attached) return;
     self.maximized = false;
     self.maximized_by_snap = false;
 }

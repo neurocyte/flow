@@ -2376,6 +2376,7 @@ const cmds = struct {
         if (!self.has_panel_view(filelist_view) and !tui.config().auto_open_panel_for_diagnostics) {
             return;
         }
+        self.bottom_area.unmaximize_hidden();
         const list = try self.filelists.get_or_create_singleton(.diagnostics);
         try self.add_filelist_entry(
             list.list_id,
