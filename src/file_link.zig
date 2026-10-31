@@ -389,6 +389,18 @@ pub fn find_at_point(line: []const u8, point: usize) ?Range {
     return null;
 }
 
+/// Write a file link back as text that `parse` reads to the same position.
+pub fn write_file_link(writer: *std.Io.Writer, file: FileDest) std.Io.Writer.Error!void {
+    try writer.writeAll(file.path);
+    if (file.offset) |offset| return writer.print(":b{d}", .{offset});
+    const line = file.line orelse return;
+    try writer.print(":{d}", .{line});
+    const column = file.column orelse return;
+    try writer.print(":{d}", .{column});
+    if (file.end_line) |end_line| try writer.print(":{d}", .{end_line});
+    if (file.end_column) |end_column| try writer.print(":{d}", .{end_column});
+}
+
 pub fn navigate(to: tp.pid_ref, link: *const Dest) anyerror!void {
     switch (link.*) {
         .file => |file| {

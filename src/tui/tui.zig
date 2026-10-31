@@ -2709,7 +2709,13 @@ const cmds = struct {
                 const link, _ = result;
                 defer link.deinit(self.allocator);
                 switch (link) {
-                    .file => |file| return probe_file_link(file.path, file.path),
+                    .file => |file| {
+                        // keep the line and column, navigate_file_link parses this text again
+                        var buf: [std.fs.max_path_bytes + 64]u8 = undefined;
+                        var writer: std.Io.Writer = .fixed(&buf);
+                        file_link.write_file_link(&writer, file) catch return probe_file_link(file.path, file.path);
+                        return probe_file_link(file.path, writer.buffered());
+                    },
                     .url => |url| return Self.open_url(url.url),
                     .dir => return,
                 }

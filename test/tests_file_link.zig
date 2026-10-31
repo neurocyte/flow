@@ -522,3 +522,13 @@ test "find_in_line: host:port without scheme is still a colon link" {
     try std.testing.expect(dest == .file);
     try std.testing.expectEqual(@as(?usize, 8080), dest.file.line);
 }
+
+test "write_file_link: parse reads the same position back" {
+    const links = [_][]const u8{ "/tmp/foo.zig", "/tmp/foo.zig:12", "/tmp/foo.zig:12:5", "/tmp/foo.zig:12:5:9", "/tmp/foo.zig:12:5:14:3", "/tmp/foo.zig:b42" };
+    for (links) |link| {
+        var buf: [256]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try fl.write_file_link(&writer, (try fl.parse(link)).file);
+        try std.testing.expectEqualStrings(link, writer.buffered());
+    }
+}
