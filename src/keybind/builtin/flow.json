@@ -509,8 +509,8 @@
         "press": [
             ["ctrl+space", "toggle_completion_info"],
             ["ctrl+k ctrl+o", "completion_info_to_panel"],
-            ["space", "completion_info_scroll_down"],
-            ["shift+space", "completion_info_scroll_up"],
+            ["alt+shift+page_down", "completion_info_scroll_down"],
+            ["alt+shift+page_up", "completion_info_scroll_up"],
             ["alt+f9", "dropdown_next_widget_style"],
             ["shift+alt+f9", "info_box_next_widget_style"],
             ["ctrl+p", "palette_menu_up"],
