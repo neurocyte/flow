@@ -13,6 +13,7 @@ pub const scroll_animation = @import("tests_scroll_animation.zig");
 pub const snippet = @import("tests_snippet.zig");
 pub const soft_root = @import("tests_soft_root.zig");
 pub const text_manip = @import("tests_text_manip.zig");
+pub const vim = @import("tests_vim.zig");
 
 test {
     std.testing.refAllDecls(@This());
