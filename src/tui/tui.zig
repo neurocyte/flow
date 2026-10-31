@@ -985,12 +985,6 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
-    if (try m.match(.{ "FW", "change", tp.more })) // project file watcher events
-        return;
-
-    if (try m.match(.{ "FW", "rename", tp.more })) // project file watcher events
-        return;
-
     var changed_path: []const u8 = undefined;
     if (try m.match(.{ "CFG", "change", tp.extract(&changed_path), tp.more })) {
         self.config_file_changed(changed_path);

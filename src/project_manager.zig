@@ -4,7 +4,6 @@ const cbor = @import("cbor");
 const EditSet = @import("EditSet");
 const log = @import("log");
 const tracy = @import("tracy");
-const file_watcher = @import("file_watcher");
 const FileStore = @import("FileStore");
 const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
@@ -13,6 +12,8 @@ const config = @import("config");
 const Buffer = @import("Buffer");
 const file_link = @import("file_link");
 const builtin = @import("builtin");
+
+const file_finder = @import("file_finder");
 
 const Project = @import("Project.zig");
 const Repo = @import("Repo.zig");
@@ -719,17 +720,20 @@ const Process = struct {
         var code_action_trigger: CodeActionTrigger = undefined;
         var range: Project.Range = undefined;
 
-        var event_type: file_watcher.EventType = undefined;
-        var object_type: file_watcher.ObjectType = undefined;
         var from_path: []const u8 = undefined;
-        var mtime_high: i64 = 0;
         var exit_code: i64 = 0;
-        var mtime_low: i64 = 0;
+        var longest: usize = 0;
+        var count: usize = 0;
 
-        if (try cbor.match(m.buf, .{ "FW", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) })) {
-            self.handle_file_watch_rename(from_path, path, object_type);
-        } else if (try cbor.match(m.buf, .{ "FW", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) })) {
-            self.handle_file_watch_event(path, event_type, object_type);
+        if (try cbor.match(m.buf, .{ "FF", "renamed", tp.extract(&from_path), tp.extract(&path) })) {
+            if (self.project_for_file_finder(from)) |project|
+                project.file_renamed(from_path, path) catch |e| self.logger.err("file_finder.renamed", e);
+        } else if (try cbor.match(m.buf, .{ "FF", "deleted", tp.extract(&path) })) {
+            if (self.project_for_file_finder(from)) |project|
+                project.file_deleted(path);
+        } else if (try cbor.match(m.buf, .{ "FF", "ready", tp.extract(&longest), tp.extract(&count) })) {
+            if (self.project_for_file_finder(from)) |project|
+                project.file_finder_ready(self.parent.ref(), longest, count) catch |e| self.logger.err("file_finder.ready", e);
         } else if (try cbor.match(m.buf, .{ "VW", "rename", tp.extract(&from_path), tp.extract(&path), tp.any })) {
             self.handle_vcs_watch_event(from_path);
             self.handle_vcs_watch_event(path);
@@ -744,14 +748,6 @@ const Process = struct {
             if (self.repos.get(path)) |repo| repo.idle_timeout();
         } else if (try cbor.match(m.buf, .{ "vcs_changed_timeout", tp.extract(&path) })) {
             if (self.repos.get(path)) |repo| repo.vcs_changed_timeout();
-        } else if (try cbor.match(m.buf, .{ "FS", "stat", tp.any, tp.extract(&path), tp.extract(&mtime_high), tp.extract(&mtime_low) })) {
-            self.handle_file_store_mtime(path, mtime_high, mtime_low);
-        } else if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.more })) {
-            if (self.projects.get(project_directory)) |project|
-                project.walk_tree_entry(m) catch |e| self.logger.err("walk_tree_entry", e);
-        } else if (try cbor.match(m.buf, .{ "walk_tree_done", tp.extract(&project_directory) })) {
-            if (self.projects.get(project_directory)) |project|
-                project.walk_tree_done(self.parent.ref()) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "rev_parse", tp.more })) {
             const request: *Repo.VcsIdRequest = @ptrFromInt(context);
             self.process_repo_response(request.repo, m);
@@ -791,13 +787,6 @@ const Process = struct {
             };
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "discover", tp.extract(&exit_code) })) {
             self.repo_discovery_done(@ptrFromInt(context), exit_code);
-        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
-            const project: *Project = @ptrFromInt(context);
-            project.process_git(self.parent.ref(), m) catch {};
-            if (try cbor.match(m.buf, .{ "git", tp.any, "workspace_path", tp.string }))
-                self.discover_project_repo(project)
-            else if (try cbor.match(m.buf, .{ "git", tp.any, "workspace_path", tp.null_ }))
-                self.link_repo(context, null);
         } else if (try cbor.match(m.buf, .{ "update_mru", tp.extract(&project_directory), tp.extract(&source_location) })) {
             self.update_mru(project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
@@ -937,6 +926,8 @@ const Process = struct {
             self.persist_projects();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
             return error.ExitNormal;
+        } else if ((try cbor.match(m.buf, .{ "exit", tp.more })) and self.handle_file_finder_exit(from, m)) {
+            return;
         } else if (try cbor.match(m.buf, .{ "exit", "normal" })) {
             return;
         } else if (try cbor.match(m.buf, .{ "exit", "DEADSEND", tp.more })) {
@@ -997,22 +988,11 @@ const Process = struct {
         file_store.deinit();
     }
 
-    fn project_for_path(self: *Process, abs_path: []const u8) ?struct { project: *Project, rel_path: []const u8 } {
-        var it = self.projects.iterator();
-        while (it.next()) |entry| {
-            const dir = entry.key_ptr.*;
-            if (!std.mem.startsWith(u8, abs_path, dir)) continue;
-            if (abs_path.len <= dir.len or abs_path[dir.len] != std.fs.path.sep) continue;
-            return .{ .project = entry.value_ptr.*, .rel_path = abs_path[dir.len + 1 ..] };
-        }
+    fn project_for_file_finder(self: *Process, finder: tp.pid_ref) ?*Project {
+        var i = self.projects.valueIterator();
+        while (i.next()) |project|
+            if (project.*.finder.is(finder)) return project.*;
         return null;
-    }
-
-    fn handle_file_store_mtime(self: *Process, abs_path: []const u8, mtime_high: i64, mtime_low: i64) void {
-        if (mtime_high == 0 and mtime_low == 0) return;
-        const match = self.project_for_path(abs_path) orelse return;
-        const mtime = (@as(i128, @intCast(mtime_high)) << 64) | @as(i128, @intCast(mtime_low));
-        match.project.set_fs_mtime(match.rel_path, mtime);
     }
 
     fn handle_vcs_watch_event(self: *Process, abs_path: []const u8) void {
@@ -1041,14 +1021,7 @@ const Process = struct {
     }
 
     fn should_watch_worktree(self: *Process, repo_root: []const u8) bool {
-        if (self.is_non_indexed(repo_root) and !self.watch_non_indexed) return false;
-        return !self.is_watched_by_project(repo_root);
-    }
-
-    fn is_watched_by_project(self: *Process, dir: []const u8) bool {
-        var it = self.projects.valueIterator();
-        while (it.next()) |project| if (project.*.watcher != null and is_in_dir(dir, project.*.name)) return true;
-        return false;
+        return !self.is_non_indexed(repo_root) or self.watch_non_indexed;
     }
 
     fn is_in_dir(path: []const u8, dir: []const u8) bool {
@@ -1177,88 +1150,26 @@ const Process = struct {
         return repo;
     }
 
-    fn handle_file_watch_rename(self: *Process, abs_from: []const u8, abs_to: []const u8, object_type: file_watcher.ObjectType) void {
-        const src = self.project_for_path(abs_from);
-        const dst = self.project_for_path(abs_to);
-        self.repo_path_changed(abs_from);
-        self.repo_path_changed(abs_to);
-
-        if (object_type == .dir) {
-            if (src) |s| s.project.ignore_subtree_removed(s.rel_path);
-            if (dst) |d| d.project.ignore_subtree_removed(d.rel_path);
-            if (src) |s| if (dst) |d| if (s.project == d.project) {
-                s.project.subtree_renamed(s.rel_path, d.rel_path) catch |e|
-                    self.logger.err("file_watcher.subtree_renamed", e);
-            };
-            if (src == null and dst == null)
-                self.parent.send(.{ "FW", "rename", abs_from, abs_to, object_type }) catch {};
-            return;
-        }
-
-        // before any ignore test: an ignore file may itself be ignored
-        if (src) |s| if (s.project.is_ignore_file(s.rel_path)) ignore_changed(s);
-        if (dst) |d| if (d.project.is_ignore_file(d.rel_path)) ignore_changed(d);
-
-        if (src) |s| {
-            if (dst) |d| {
-                if (s.project == d.project) {
-                    if (d.project.is_ignored(d.rel_path, .file)) {
-                        s.project.file_deleted(s.rel_path);
-                    } else {
-                        s.project.file_renamed(s.rel_path, d.rel_path) catch |e| self.logger.err("file_watcher.file_renamed", e);
-                    }
-                } else {
-                    s.project.file_deleted(s.rel_path);
-                    if (!d.project.is_ignored(d.rel_path, .file))
-                        d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
-                }
-            } else {
-                s.project.file_deleted(s.rel_path);
-            }
-        } else if (dst) |d| {
-            if (!d.project.is_ignored(d.rel_path, .file))
-                d.project.file_added(d.rel_path) catch |e| self.logger.err("file_watcher.file_added", e);
-        } else {
-            self.parent.send(.{ "FW", "rename", abs_from, abs_to, object_type }) catch {};
-        }
+    /// Handles the exit of a project's file finder. A finder only exits
+    /// on its own if it failed. Returns false if `from` is no file finder.
+    fn handle_file_finder_exit(self: *Process, from: tp.pid_ref, m: tp.message) bool {
+        const project = self.project_for_file_finder(from) orelse return false;
+        self.logger.print_err("file_finder", "{s}: {f}", .{ project.name, m });
+        project.file_finder_exited(self.parent.ref()) catch |e| self.logger.err("file_finder", e);
+        return true;
     }
 
-    fn handle_file_watch_event(self: *Process, abs_path: []const u8, event_type: file_watcher.EventType, object_type: file_watcher.ObjectType) void {
-        const match = self.project_for_path(abs_path) orelse {
-            self.parent.send(.{ "FW", "change", abs_path, event_type, object_type }) catch {};
-            return;
+    /// The one place that decides which file finder a project uses.
+    fn spawn_file_finder(self: *Process, project_directory: []const u8, no_index: bool) SpawnError!file_finder.Handle {
+        const file_store: ?tp.pid_ref = self.ensure_file_store() catch |e| blk: {
+            self.logger.err("file_store", e);
+            break :blk null;
         };
-        self.repo_path_changed(abs_path);
-
-        if (object_type == .dir) {
-            if (event_type == .deleted) {
-                match.project.ignore_subtree_removed(match.rel_path);
-                match.project.subtree_deleted(match.rel_path);
-            }
-            return;
-        }
-
-        // an ignore file still invalidates the ruleset even when it is itself
-        // excluded, as .git/info/exclude always is
-        if (match.project.is_ignore_file(match.rel_path))
-            ignore_changed(match);
-        if (event_type == .created and match.project.is_ignored(match.rel_path, .file))
-            return;
-
-        switch (event_type) {
-            .created => match.project.file_added(match.rel_path) catch |e| self.logger.err("file_watcher.file_added", e),
-            .modified => match.project.file_modified(match.rel_path),
-            .deleted => match.project.file_deleted(match.rel_path),
-            .closed => {}, // filtered by the file_watcher actor
-        }
-    }
-
-    fn ignore_changed(match: anytype) void {
-        match.project.ignore_changed(match.rel_path);
-        if (match.project.watcher) |watcher| watcher.ignore_changed(
-            match.project.name,
-            std.fs.path.dirname(match.rel_path) orelse "",
-        ) catch {};
+        return .{ .pid = try file_finder.builtin_finder.spawn(self.allocator, project_directory, .{
+            .no_index = no_index,
+            .watch_non_indexed = self.watch_non_indexed,
+            .file_store = file_store,
+        }) };
     }
 
     fn open(self: *Process, project_directory: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {
@@ -1275,17 +1186,15 @@ const Process = struct {
             else
                 self.logger.print("opening: {s}", .{project_directory});
             const project = try self.allocator.create(Project);
-            project.* = try Project.init(self.allocator, project_directory, self.parent.ref(), .{
-                .no_index = no_index,
-                .watch_non_indexed = self.watch_non_indexed,
-            });
+            errdefer self.allocator.destroy(project);
+            var finder = try self.spawn_file_finder(project_directory, no_index);
+            errdefer finder.deinit();
+            project.* = try Project.init(self.allocator, project_directory, self.parent.ref(), finder);
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
-            if (self.ensure_file_store()) |file_store| {
-                project.file_store = file_store.clone();
-            } else |e| self.logger.err("file_store", e);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.active = true;
-            project.query_git();
+            project.sync_file_finder();
+            self.discover_project_repo(project);
         }
     }
 
@@ -1342,20 +1251,21 @@ const Process = struct {
         try project.restart_language_server_for_file(file_path);
     }
 
-    fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) (ProjectError || Project.RequestError)!void {
+    fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) ProjectError!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.request_n_most_recent_file(from, n);
+        project.request_n_most_recent_file(from, n);
     }
 
-    fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.RequestError)!void {
+    fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) ProjectError!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.request_recent_files(from, max);
+        project.request_recent_files(from, max);
     }
 
-    fn request_sync_with_vcs(self: *Process, _: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {
+    fn request_sync_with_vcs(self: *Process, _: tp.pid_ref, project_directory: []const u8) ProjectError!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         self.uncache_repo_dir(project.name);
-        return project.query_git();
+        project.sync_file_finder();
+        self.discover_project_repo(project);
     }
 
     fn request_vcs_status_files(self: *Process, from: tp.pid_ref, repo_root: []const u8) (RepoError || Project.RequestError)!void {
@@ -1413,13 +1323,9 @@ const Process = struct {
         self.logger.print("{d} projects found", .{recent_projects.items.len});
     }
 
-    fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.RequestError)!void {
+    fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) ProjectError!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        const start_time = root.get_now().toMilliseconds();
-        const matched = try project.query_recent_files(from, max, query);
-        const query_time = root.get_now().toMilliseconds() - start_time;
-        if (query_time > 250)
-            self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
+        project.query_recent_files(from, max, query);
     }
 
     fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) (ProjectError || SpawnError || std.Io.Dir.OpenError)!void {
@@ -1434,7 +1340,7 @@ const Process = struct {
         defer message.deinit();
         try cbor.writeArrayHeader(&message.writer, self.repos.count());
         var i = self.repos.valueIterator();
-        while (i.next()) |repo| try repo.*.write_info(&message.writer, self.is_watched_by_project(repo.*.root));
+        while (i.next()) |repo| try repo.*.write_info(&message.writer, false);
         try from.send_raw(.{ .buf = message.written() });
     }
 
@@ -1956,7 +1862,7 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
                 const default = file_type_config.default;
                 const file_type, const icon, const color = switch (entry.kind) {
                     .directory => .{ "directory", file_type_config.folder_icon, default.color },
-                    .sym_link, .file => Project.guess_path_file_type(self.path, entry.name),
+                    .sym_link, .file => file_finder.guess_path_file_type(self.path, entry.name),
                     else => .{ default.name, default.icon, default.color },
                 };
                 try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, event_type, entry.name, file_type, icon, color });

@@ -380,6 +380,7 @@ const Process = struct {
             self.handlers.exit(self.handlers.context, self.parent.ref(), self.arg0, "exited", 0);
         } else if (try m.match(.{ tp.any, tp.any, "error.FileNotFound", 1 })) {
             self.logger.print_err(self.arg0, "'{s}' executable not found", .{self.arg0});
+            self.handlers.exit(self.handlers.context, self.parent.ref(), self.arg0, "error.FileNotFound", 1);
         } else if (try m.match(.{ tp.any, tp.any, tp.extract(&err_msg), tp.extract(&exit_code) })) {
             self.handlers.exit(self.handlers.context, self.parent.ref(), self.arg0, err_msg, exit_code);
         }

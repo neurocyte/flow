@@ -1430,10 +1430,59 @@ pub fn build_exe(
         },
     });
 
+    const file_finder_imports: []const std.Build.Module.Import = &.{
+        .{ .name = "soft_root", .module = soft_root_mod },
+        .{ .name = "log", .module = log_mod },
+        .{ .name = "cbor", .module = cbor_mod },
+        .{ .name = "thespian", .module = thespian_mod },
+        .{ .name = "tracy", .module = tracy_mod },
+        .{ .name = "file_type_config", .module = file_type_config_mod },
+        .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
+        .{ .name = "git", .module = git_mod },
+        .{ .name = "file_watcher", .module = file_watcher_mod },
+        .{ .name = "gitignore", .module = gitignore_mod },
+    };
+
+    const file_finder_mod = b.createModule(.{
+        .root_source_file = b.path("src/file_finder/file_finder.zig"),
+        .imports = file_finder_imports,
+    });
+
+    const file_finder_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-file_finder",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/file_finder/file_finder.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = file_finder_imports,
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
+    const recent_files_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-RecentFiles",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/RecentFiles.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{.{ .name = "file_finder", .module = file_finder_mod }},
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const project_manager_mod = b.createModule(.{
         .root_source_file = b.path("src/project_manager.zig"),
         .imports = &.{
             .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "file_finder", .module = file_finder_mod },
             .{ .name = "config", .module = config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
@@ -1443,14 +1492,13 @@ pub fn build_exe(
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "lsp_config", .module = lsp_config_mod },
-            .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "git", .module = git_mod },
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
+            .{ .name = "gitignore", .module = gitignore_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "EditSet", .module = EditSet_mod },
-            .{ .name = "gitignore", .module = gitignore_mod },
         },
     });
 
@@ -1727,6 +1775,8 @@ pub fn build_exe(
     test_step.dependOn(&dbus_test_run_cmd.step);
     test_step.dependOn(&rc_test_run_cmd.step);
     test_step.dependOn(&file_store_test_run_cmd.step);
+    test_step.dependOn(&file_finder_test_run_cmd.step);
+    test_step.dependOn(&recent_files_test_run_cmd.step);
     test_step.dependOn(&gitignore_differential_test_run_cmd.step);
     test_step.dependOn(&glyph_constraint_test_run_cmd.step);
     test_step.dependOn(&glyph_atlas_test_run_cmd.step);

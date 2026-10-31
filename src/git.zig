@@ -20,21 +20,8 @@ pub fn workspace_path(context_: usize, dir: []const u8) Error!void {
     }.result, exit_null_on_error(fn_name));
 }
 
-pub fn current_branch(context_: usize, dir: []const u8) Error!void {
-    const fn_name = @src().fn_name;
-    try git(context_, dir, .{ "rev-parse", "--abbrev-ref", "HEAD" }, struct {
-        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
-            var it = std.mem.splitScalar(u8, output, '\n');
-            while (it.next()) |value| if (value.len > 0) {
-                parent.send(.{ module_name, context, fn_name, value }) catch {};
-                return;
-            };
-        }
-    }.result, exit_null_on_error(fn_name));
-}
-
 pub fn workspace_files(context: usize, dir: []const u8) Error!void {
-    return if (is_file(dir, ".gitmodules"))
+    return if (workspace_files_need_full_stat(dir))
         git_chunk_output(
             context,
             dir,
@@ -48,6 +35,17 @@ pub fn workspace_files(context: usize, dir: []const u8) Error!void {
             @src().fn_name,
             .{ "ls-files", "--cached", "--others", "--exclude-standard" },
         );
+}
+
+/// Recursive submodule listings include missing files inside submodules,
+/// which the top-level deleted-files listing cannot identify.
+pub fn workspace_files_need_full_stat(dir: []const u8) bool {
+    return is_file(dir, ".gitmodules");
+}
+
+/// Tracked files that are missing from the workspace.
+pub fn workspace_deleted_files(context: usize, dir: []const u8) Error!void {
+    return git_chunk_output(context, dir, @src().fn_name, .{ "ls-files", "--deleted" });
 }
 
 pub fn workspace_ignored_files(context: usize, dir: []const u8) Error!void {
@@ -366,7 +364,7 @@ fn git_chunk_output(context_: usize, dir: []const u8, comptime tag: []const u8, 
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             parent.send(.{ module_name, context, tag, output }) catch {};
         }
-    }.result, log_err, exit_null(tag));
+    }.result, log_err, exit_status(tag));
 }
 
 fn git(
@@ -454,6 +452,14 @@ fn exit_null(comptime tag: []const u8) shell.ExitHandler {
     }.exit;
 }
 
+fn exit_status(comptime tag: []const u8) shell.ExitHandler {
+    return struct {
+        fn exit(context: usize, parent: tp.pid_ref, _: []const u8, _: []const u8, exit_code: i64) void {
+            parent.send(.{ module_name, context, tag, null, exit_code }) catch {};
+        }
+    }.exit;
+}
+
 fn exit_null_on_error(comptime tag: []const u8) shell.ExitHandler {
     return struct {
         fn exit(context: usize, parent: tp.pid_ref, _: []const u8, _: []const u8, exit_code: i64) void {
@@ -502,13 +508,19 @@ fn log_err(_: usize, _: tp.pid_ref, output: []const u8) void {
 
 fn noop(_: usize, _: tp.pid_ref, _: []const u8) void {}
 
+/// The git binary, found on first use. File finders run git on their own
+/// threads, so the lookup is serialized.
 var git_path: ?struct {
     path: ?[:0]const u8 = null,
 } = null;
+var git_path_mutex: std.Io.Mutex = .init;
 
 const allocator = std.heap.c_allocator;
 
 fn get_git() ?[]const u8 {
+    const io = root.get_io();
+    git_path_mutex.lockUncancelable(io);
+    defer git_path_mutex.unlock(io);
     if (git_path) |p| return p.path;
     const path = bin_path.find_binary_in_path(allocator, module_name) catch null;
     git_path = .{ .path = path };
@@ -545,4 +557,5 @@ fn is_file(dir: []const u8, rel_path: []const u8) bool {
     return true;
 }
 
-const module_name = @typeName(@This());
+/// The first field of the messages that git commands send to their caller.
+pub const module_name = @typeName(@This());

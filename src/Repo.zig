@@ -8,8 +8,8 @@ const git = @import("git");
 const VcsStatus = @import("VcsStatus");
 const file_watcher = @import("file_watcher");
 const gitignore = @import("gitignore");
+const file_finder = @import("file_finder");
 
-const Project = @import("Project.zig");
 const LSPClient = @import("LSPClient.zig");
 const convert_path = LSPClient.convert_path;
 
@@ -120,7 +120,7 @@ pub fn deinit(self: *Self) void {
 pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) error{InvalidRequestVcsStatusFilesRequest}!void {
     defer from.send(.{ "PRJ", "vcs_status_files_done", self.root }) catch {};
     for (self.vcs_status_files.items) |*file| {
-        resolve_meta(file);
+        self.resolve_meta(file);
         from.send(.{ "PRJ", "vcs_status_files", self.root, file.path, file.type, file.icon, file.color, &[_]u8{file.x}, &[_]u8{file.y}, file.orig_path, file.kind }) catch |e| {
             std.log.err("send vcs_status_files failed: {t}", .{e});
             return error.InvalidRequestVcsStatusFilesRequest;
@@ -128,9 +128,9 @@ pub fn request_vcs_status_files(self: *Self, from: tp.pid_ref) error{InvalidRequ
     }
 }
 
-fn resolve_meta(file: *VcsStatusFile) void {
+fn resolve_meta(self: *const Self, file: *VcsStatusFile) void {
     if (file.meta_resolved) return;
-    file.type, file.icon, file.color = Project.guess_file_type(file.path);
+    file.type, file.icon, file.color = file_finder.guess_path_file_type(self.root, file.path);
     file.meta_resolved = true;
 }
 
