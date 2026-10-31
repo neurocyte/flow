@@ -33,6 +33,7 @@ pub const Entry = struct {
 pub const ValueType = struct {
     start: ed.CurSel = .{},
     query: ?Buffer.Selection = null,
+    commands: command.Collection(cmds) = undefined,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -43,6 +44,8 @@ pub fn load_entries(palette: *Type) !usize {
     var max_label_len: usize = 0;
 
     const editor = tui.get_active_editor() orelse return error.NotFound;
+    try palette.value.commands.init(palette);
+    errdefer palette.value.commands.deinit();
     palette.value.start = editor.get_primary().*;
     var iter: []const u8 = editor.completions.data.items;
     while (iter.len > 0) {
@@ -87,6 +90,10 @@ pub fn initial_query(palette: *Type, allocator: std.mem.Allocator) error{OutOfMe
         const sel: Buffer.Selection = .{ .begin = query.begin, .end = palette.value.start.cursor };
         break :blk editor.get_selection(sel, allocator) catch break :blk allocator.dupe(u8, "");
     } else allocator.dupe(u8, "");
+}
+
+pub fn deinit(palette: *Type) void {
+    palette.value.commands.deinit();
 }
 
 pub fn clear_entries(palette: *Type) void {
@@ -171,3 +178,16 @@ pub fn cancel(palette: *Type, _: command.Context) !void {
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
 }
+
+const cmds = struct {
+    pub const Target = Type;
+    const Ctx = command.Context;
+    const Meta = command.Metadata;
+    const Result = command.Result;
+
+    pub fn completion_overlay_cancel(palette: *Type, ctx: Ctx) Result {
+        try cancel(palette, ctx);
+        try command.executeName("exit_overlay_mode", .empty_from(ctx));
+    }
+    pub const completion_overlay_cancel_meta: Meta = .{};
+};

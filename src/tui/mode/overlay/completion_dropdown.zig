@@ -520,6 +520,12 @@ const cmds = struct {
     }
     pub const update_completion_meta: Meta = .{};
 
+    pub fn completion_overlay_cancel(self: *Type, ctx: Ctx) Result {
+        try cancel(self, ctx);
+        try command.executeName("exit_overlay_mode", ctx);
+    }
+    pub const completion_overlay_cancel_meta: Meta = .{};
+
     pub fn completion_info_to_panel(self: *Type, _: Ctx) Result {
         const layer = self.value.info_box_layer orelse return;
         const info = info_view.from_layer(layer) orelse return;

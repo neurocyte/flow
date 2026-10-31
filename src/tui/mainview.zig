@@ -3419,6 +3419,7 @@ fn remove_view(self: *Self, view: usize) void {
         _ = self.widgets_widget.msg(.{"splits_updated"}) catch {};
         tui.resize();
     }
+    if (view == self.active_view) if (self.views.get_at(view)) |widget| widget.unfocus();
     self.views.delete(view);
     if (view < self.view_layer_ids.items.len) _ = self.view_layer_ids.orderedRemove(view);
     if (self.active_view >= self.views.widgets.items.len)

@@ -9299,6 +9299,7 @@ pub const EditorWidget = struct {
     }
 
     pub fn unfocus(self: *Self) void {
+        command.executeName("completion_overlay_cancel", .empty()) catch {};
         self.editor.cursor_focus_override = false;
         if (self.focused) self.commands.unregister();
         self.focused = false;

@@ -260,6 +260,7 @@ pub fn get_icon(id: ID) ?[]const u8 {
 
 const suppressed_errors = std.StaticStringMap(void).initComptime(.{
     .{ "clear_diagnostics", void },
+    .{ "completion_overlay_cancel", void },
     .{ "palette_menu_cancel", void },
 });
 
