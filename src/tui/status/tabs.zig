@@ -901,6 +901,7 @@ const Tab = struct {
             .on_layout = Tab.layout,
             .on_render = Tab.render,
             .on_event = EventHandler.bind(tabbar, TabBar.handle_event),
+            .drag_tolerance = .one_cell,
         });
     }
 

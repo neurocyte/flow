@@ -9,12 +9,15 @@ const MouseEvent = @import("MouseEvent");
 const Widget = @import("Widget.zig");
 const tui = @import("tui.zig");
 
+pub const DragTolerance = enum { none, one_cell };
+
 pub fn Options(context: type) type {
     return struct {
         label: []const u8 = "button",
         pos: Widget.Box = .{ .y = 0, .x = 0, .w = 8, .h = 1 },
         ctx: Context,
         cursor: tui.renderer.MouseCursorShape = .pointer,
+        drag_tolerance: DragTolerance = .none,
 
         before_click: ClickHandler = do_nothing,
         on_click: ClickHandler = do_nothing,
@@ -84,6 +87,7 @@ fn State(ctx_type: type) type {
         drag_anchor_offset: ?Widget.Pos = null,
         drag_pos: ?Widget.Pos = null,
         drag_pos_offset: ?Widget.Pos = null,
+        left_press: ?MouseEvent.Coord = null,
         middle_press: ?MouseEvent.Coord = null,
         middle_dragged: bool = false,
         opts: Options(ctx_type),
@@ -127,6 +131,7 @@ fn State(ctx_type: type) type {
                 switch (btn) {
                     .left => {
                         self.active = true;
+                        self.left_press = coord;
                         self.drag_anchor = self.to_rel_cursor(coord);
                         self.drag_anchor_offset = self.sub_cell_offset(coord);
                         tui.need_render(@src());
@@ -147,6 +152,7 @@ fn State(ctx_type: type) type {
                 self.drag_anchor_offset = null;
                 self.drag_pos = null;
                 self.drag_pos_offset = null;
+                self.left_press = null;
                 self.middle_press = null;
                 const on_event = self.opts.on_event;
                 self.call_click_handler(btn, self.to_rel_cursor(coord));
@@ -156,15 +162,12 @@ fn State(ctx_type: type) type {
             } else if (try m.match(.{ MouseEvent.Type.drag, tp.extract(&btn), tp.extract(&coord), tp.any })) {
                 switch (btn) {
                     .left => {
+                        if (self.drag_pos == null and self.within_drag_tolerance(coord)) return true;
                         self.drag_pos = self.to_abs_cursor(coord);
                         self.drag_pos_offset = self.sub_cell_offset(coord);
                     },
                     .middle => if (self.middle_press) |press| {
-                        const dx = coord.x - press.x;
-                        const dy = coord.y - press.y;
-                        const cw: i32 = self.plane.cell_x();
-                        const ch: i32 = self.plane.cell_y();
-                        if (dx <= -cw or dx >= cw or dy <= -ch or dy >= ch)
+                        if (self.moved_one_cell(press, coord))
                             self.middle_dragged = true;
                     },
                     else => {},
@@ -183,7 +186,22 @@ fn State(ctx_type: type) type {
             self.drag_anchor_offset = null;
             self.drag_pos = null;
             self.drag_pos_offset = null;
+            self.left_press = null;
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
+        }
+
+        fn within_drag_tolerance(self: *const Self, coord: MouseEvent.Coord) bool {
+            if (self.opts.drag_tolerance == .none) return false;
+            const press = self.left_press orelse return false;
+            return !self.moved_one_cell(press, coord);
+        }
+
+        fn moved_one_cell(self: *const Self, press: MouseEvent.Coord, coord: MouseEvent.Coord) bool {
+            const dx = coord.x - press.x;
+            const dy = coord.y - press.y;
+            const cw: i32 = self.plane.cell_x();
+            const ch: i32 = self.plane.cell_y();
+            return dx <= -cw or dx >= cw or dy <= -ch or dy >= ch;
         }
 
         fn to_rel_cursor(self: *const Self, coord: MouseEvent.Coord) Widget.Pos {
