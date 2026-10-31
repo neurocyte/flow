@@ -112,6 +112,7 @@ const Handler = struct {
         mode_.allocator = allocator;
 
         mode_.input_handler = EventHandler.to_owned(self);
+        mode_.bindings = self.bindings;
         mode_.keybind_hints = self.bindings.hints();
         mode_.name = self.bindings.name;
         mode_.line_numbers = self.bindings.line_numbers;

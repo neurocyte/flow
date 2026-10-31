@@ -590,6 +590,132 @@
             ["backspace", "mini_mode_cancel"]
         ]
     },
+    "mini/surround_motion": {
+        "inherit": "mini/get_char",
+        "press": [
+            [["i", "Inside a text object"], "mini_mode_insert_bytes", "i"],
+            [["a", "Around a text object"], "mini_mode_insert_bytes", "a"],
+            [["w", "To the next word"], "mini_mode_insert_bytes", "w"],
+            [["W", "To the next WORD"], "mini_mode_insert_bytes", "W"],
+            [["e", "To the end of the word"], "mini_mode_insert_bytes", "e"],
+            [["$", "To the end of the line"], "mini_mode_insert_bytes", "$"],
+            [["s", "The whole line"], "mini_mode_insert_bytes", "s"]
+        ]
+    },
+    "mini/surround_object": {
+        "inherit": "mini/get_char",
+        "press": [
+            [["w", "Word"], "mini_mode_insert_bytes", "w"],
+            [["W", "WORD"], "mini_mode_insert_bytes", "W"],
+            [["(", "( )"], "mini_mode_insert_bytes", "("],
+            [[")", "( )"], "mini_mode_insert_bytes", ")"],
+            [["[", "[ ]"], "mini_mode_insert_bytes", "["],
+            [["]", "[ ]"], "mini_mode_insert_bytes", "]"],
+            [["{", "{ }"], "mini_mode_insert_bytes", "{"],
+            [["}", "{ }"], "mini_mode_insert_bytes", "}"],
+            [["<", "< >"], "mini_mode_insert_bytes", "<"],
+            [[">", "< >"], "mini_mode_insert_bytes", ">"],
+            [["\"", "Double quotes"], "mini_mode_insert_bytes", "\""],
+            [["'", "Single quotes"], "mini_mode_insert_bytes", "'"],
+            [["`", "Backticks"], "mini_mode_insert_bytes", "`"],
+            [["b", "( )"], "mini_mode_insert_bytes", "b"],
+            [["B", "{ }"], "mini_mode_insert_bytes", "B"]
+        ]
+    },
+    "mini/surround_with": {
+        "inherit": "mini/get_char",
+        "press": [
+            [["(", "( text )"], "mini_mode_insert_bytes", "("],
+            [[")", "(text)"], "mini_mode_insert_bytes", ")"],
+            [["b", "(text)"], "mini_mode_insert_bytes", "b"],
+            [["[", "[ text ]"], "mini_mode_insert_bytes", "["],
+            [["]", "[text]"], "mini_mode_insert_bytes", "]"],
+            [["r", "[text]"], "mini_mode_insert_bytes", "r"],
+            [["{", "{ text }"], "mini_mode_insert_bytes", "{"],
+            [["}", "{text}"], "mini_mode_insert_bytes", "}"],
+            [["B", "{text}"], "mini_mode_insert_bytes", "B"],
+            [["<", "< text >"], "mini_mode_insert_bytes", "<"],
+            [[">", "<text>"], "mini_mode_insert_bytes", ">"],
+            [["a", "<text>"], "mini_mode_insert_bytes", "a"],
+            [["\"", "\"text\""], "mini_mode_insert_bytes", "\""],
+            [["'", "'text'"], "mini_mode_insert_bytes", "'"],
+            [["`", "`text`"], "mini_mode_insert_bytes", "`"]
+        ]
+    },
+    "mini/surround_target": {
+        "inherit": "mini/get_char",
+        "press": [
+            [["(", "( ) and the spaces inside"], "mini_mode_insert_bytes", "("],
+            [[")", "( )"], "mini_mode_insert_bytes", ")"],
+            [["b", "( )"], "mini_mode_insert_bytes", "b"],
+            [["[", "[ ] and the spaces inside"], "mini_mode_insert_bytes", "["],
+            [["]", "[ ]"], "mini_mode_insert_bytes", "]"],
+            [["r", "[ ]"], "mini_mode_insert_bytes", "r"],
+            [["{", "{ } and the spaces inside"], "mini_mode_insert_bytes", "{"],
+            [["}", "{ }"], "mini_mode_insert_bytes", "}"],
+            [["B", "{ }"], "mini_mode_insert_bytes", "B"],
+            [["<", "< > and the spaces inside"], "mini_mode_insert_bytes", "<"],
+            [[">", "< >"], "mini_mode_insert_bytes", ">"],
+            [["a", "< >"], "mini_mode_insert_bytes", "a"],
+            [["\"", "Double quotes"], "mini_mode_insert_bytes", "\""],
+            [["'", "Single quotes"], "mini_mode_insert_bytes", "'"],
+            [["`", "Backticks"], "mini_mode_insert_bytes", "`"],
+            [["q", "The nearest quotes"], "mini_mode_insert_bytes", "q"],
+            [["s", "The nearest pair"], "mini_mode_insert_bytes", "s"]
+        ]
+    },
+    "mini/match_object": {
+        "inherit": "mini/get_char",
+        "press": [
+            [["w", "Word"], "mini_mode_insert_bytes", "w"],
+            [["W", "WORD"], "mini_mode_insert_bytes", "W"],
+            [["(", "( )"], "mini_mode_insert_bytes", "("],
+            [[")", "( )"], "mini_mode_insert_bytes", ")"],
+            [["[", "[ ]"], "mini_mode_insert_bytes", "["],
+            [["]", "[ ]"], "mini_mode_insert_bytes", "]"],
+            [["{", "{ }"], "mini_mode_insert_bytes", "{"],
+            [["}", "{ }"], "mini_mode_insert_bytes", "}"],
+            [["<", "< >"], "mini_mode_insert_bytes", "<"],
+            [[">", "< >"], "mini_mode_insert_bytes", ">"],
+            [["\"", "Double quotes"], "mini_mode_insert_bytes", "\""],
+            [["'", "Single quotes"], "mini_mode_insert_bytes", "'"],
+            [["`", "Backticks"], "mini_mode_insert_bytes", "`"],
+            [["m", "The closest pair"], "mini_mode_insert_bytes", "m"]
+        ]
+    },
+    "mini/match_pair": {
+        "inherit": "mini/get_char",
+        "press": [
+            [["(", "( )"], "mini_mode_insert_bytes", "("],
+            [[")", "( )"], "mini_mode_insert_bytes", ")"],
+            [["[", "[ ]"], "mini_mode_insert_bytes", "["],
+            [["]", "[ ]"], "mini_mode_insert_bytes", "]"],
+            [["{", "{ }"], "mini_mode_insert_bytes", "{"],
+            [["}", "{ }"], "mini_mode_insert_bytes", "}"],
+            [["<", "< >"], "mini_mode_insert_bytes", "<"],
+            [[">", "< >"], "mini_mode_insert_bytes", ">"],
+            [["\"", "Double quotes"], "mini_mode_insert_bytes", "\""],
+            [["'", "Single quotes"], "mini_mode_insert_bytes", "'"],
+            [["`", "Backticks"], "mini_mode_insert_bytes", "`"],
+            [["m", "The closest pair"], "mini_mode_insert_bytes", "m"]
+        ]
+    },
+    "mini/match_with": {
+        "inherit": "mini/get_char",
+        "press": [
+            [["(", "( )"], "mini_mode_insert_bytes", "("],
+            [[")", "( )"], "mini_mode_insert_bytes", ")"],
+            [["[", "[ ]"], "mini_mode_insert_bytes", "["],
+            [["]", "[ ]"], "mini_mode_insert_bytes", "]"],
+            [["{", "{ }"], "mini_mode_insert_bytes", "{"],
+            [["}", "{ }"], "mini_mode_insert_bytes", "}"],
+            [["<", "< >"], "mini_mode_insert_bytes", "<"],
+            [[">", "< >"], "mini_mode_insert_bytes", ">"],
+            [["\"", "Double quotes"], "mini_mode_insert_bytes", "\""],
+            [["'", "Single quotes"], "mini_mode_insert_bytes", "'"],
+            [["`", "Backticks"], "mini_mode_insert_bytes", "`"]
+        ]
+    },
     "mini/text_input": {
         "inherit": "mini_editor",
         "press": [

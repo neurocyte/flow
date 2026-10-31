@@ -43,6 +43,7 @@ pub const exports = struct {
         pub const helix = @import("mode/helix.zig");
     };
     pub const editor = @import("editor.zig");
+    pub const surround = @import("surround.zig");
     pub const jump_labels = @import("jump_labels.zig");
     pub const MiniBuffer = @import("MiniBuffer.zig");
     pub const ScrollAnimation = @import("ScrollAnimation.zig");
@@ -2676,6 +2677,11 @@ const cmds = struct {
         return enter_mini_mode(self, @import("mode/mini/match.zig"), ctx);
     }
     pub const match_meta: Meta = .{ .description = "Match mode" };
+
+    pub fn surround(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/surround.zig"), ctx);
+    }
+    pub const surround_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn goto_word(self: *Self, ctx: Ctx) Result {
         const editor = get_active_editor() orelse return;

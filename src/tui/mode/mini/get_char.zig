@@ -41,7 +41,7 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "show_input"))
                 self.mini_editor = try tui.MiniEditor.create(allocator);
             try self.commands.init(self);
-            var mode = try keybind.mode("mini/get_char", allocator, .{
+            var mode = try keybind.mode(if (@hasDecl(options, "keybind_mode")) options.keybind_mode(self) else "mini/get_char", allocator, .{
                 .insert_command = "mini_mode_insert_bytes",
             });
             mode.event_handler = EventHandler.to_owned(self);

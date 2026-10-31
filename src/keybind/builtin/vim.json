@@ -118,6 +118,7 @@
             ["dd", "cut_internal_vim"],
             ["dG", "cut_buffer_end"],
             ["dgg", "cut_buffer_begin"],
+            [["ds", "Delete surrounding pair"], "surround", "delete"],
             ["\"_dd", "delete_line"],
 
             ["diw", "cut_inside_word"],
@@ -150,6 +151,7 @@
             ["cc", ["enter_mode", "insert"], ["cut_internal_vim"]],
             ["cw", ["enter_mode", "insert"], ["cut_word_right_vim"]],
             ["cb", ["enter_mode", "insert"], ["cut_word_left_vim"]],
+            [["cs", "Change surrounding pair"], "surround", "change"],
 
             ["ciw", ["enter_mode", "insert"], ["cut_inside_word"]],
             ["ci(", ["enter_mode", "insert"], ["cut_inside_parentheses"]],
@@ -180,6 +182,7 @@
             ["D", "cut_to_end_vim"],
             ["Y", ["copy_line_internal_vim"], ["cancel"]],
             ["yy", ["copy_line_internal_vim"], ["cancel"]],
+            [["ys", "Surround a motion"], "surround", "add"],
             ["p", "paste_internal_vim"],
             ["P", "paste_internal_vim"],
 
@@ -347,6 +350,7 @@
             ["x", ["cut_forward_internal"], ["enter_mode", "normal"]],
             ["d", ["cut_forward_internal"], ["enter_mode", "normal"]],
             ["s", ["enter_mode", "insert"], ["cut_forward_internal"]],
+            [["S", "Surround selection"], ["enter_mode", "normal"], ["surround", "selection"]],
             ["c", ["enter_mode", "insert"], ["cut_forward_internal"]],
             ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
             ["D", "cut_to_end_vim"],
