@@ -17,7 +17,7 @@ pub fn Options(context: type) type {
         pos: Widget.Box = .{ .y = 0, .x = 0, .w = 8, .h = 1 },
         ctx: Context,
         cursor: tui.renderer.MouseCursorShape = .pointer,
-        drag_tolerance: DragTolerance = .none,
+        drag_tolerance: DragTolerance = .one_cell,
 
         before_click: ClickHandler = do_nothing,
         on_click: ClickHandler = do_nothing,
@@ -162,7 +162,7 @@ fn State(ctx_type: type) type {
             } else if (try m.match(.{ MouseEvent.Type.drag, tp.extract(&btn), tp.extract(&coord), tp.any })) {
                 switch (btn) {
                     .left => {
-                        if (self.drag_pos == null and self.within_drag_tolerance(coord)) return true;
+                        if (self.active and self.within_drag_tolerance(coord)) return true;
                         self.drag_pos = self.to_abs_cursor(coord);
                         self.drag_pos_offset = self.sub_cell_offset(coord);
                     },
@@ -186,7 +186,6 @@ fn State(ctx_type: type) type {
             self.drag_anchor_offset = null;
             self.drag_pos = null;
             self.drag_pos_offset = null;
-            self.left_press = null;
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
         }
 

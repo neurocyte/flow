@@ -487,9 +487,10 @@ fn bottom_bar_primary_drag(self: *Self, y: i32) void {
     const drag = self.bottom_bar_drag orelse blk: {
         _, const top = bar.plane.global_origin_px();
         const height: i32 = @intCast(self.bottom_area.current_height());
+        const press_y = if (tui.get_drag_press_coord()) |press| press.y else y;
         self.bottom_bar_drag = .{
             .bottom = top + (height + 1) * ch,
-            .offset = std.math.clamp(y - top, 0, ch - 1),
+            .offset = std.math.clamp(press_y - top, 0, ch - 1),
         };
         break :blk self.bottom_bar_drag.?;
     };

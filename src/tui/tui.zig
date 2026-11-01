@@ -3232,6 +3232,11 @@ pub fn get_drag_source() struct { ?Widget, MouseEvent.Button } {
     return .{ self.drag_source, self.drag_button };
 }
 
+pub fn get_drag_press_coord() ?MouseEvent.Coord {
+    const press = current().drag_press orelse return null;
+    return press.coord;
+}
+
 pub fn reset_drag_context() void {
     const self = current();
     self.drag_source = null;
