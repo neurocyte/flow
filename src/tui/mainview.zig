@@ -3655,6 +3655,10 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     self.filelists.write_state(writer) catch return error.WriteFailed;
 
     try self.bottom_area.write_state(writer);
+
+    try cbor.writeArrayHeader(writer, 2);
+    try cbor.writeValue(writer, self.top_bar_hidden);
+    try cbor.writeValue(writer, self.bottom_bar_hidden);
 }
 
 fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp, file_name: []const u8) !void {
@@ -3763,6 +3767,10 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
         tui.post_on_ui_ready(.{ "cmd", "restore_filelist_tabs", .{self.filelists.legacy_panel_open} });
     }
 
+    if (iter.len > 0)
+        self.extract_bars_state(iter) catch |e|
+            logger.print_err("mainview", "failed to restore bars: {}", .{e});
+
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
     for (buffers) |buffer| if (!buffer.is_ephemeral())
@@ -3779,6 +3787,19 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     } else if (editor_file_path) |file_path|
         if (self.buffer_manager.get_buffer_for_file(file_path)) |_|
             try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
+}
+
+fn extract_bars_state(self: *Self, iter: *[]const u8) !void {
+    if (try cbor.decodeArrayHeader(iter) < 2) return error.InvalidBarsState;
+    var top_bar_hidden: bool = false;
+    var bottom_bar_hidden: bool = false;
+    if (!try cbor.matchValue(iter, cbor.extract(&top_bar_hidden)) or
+        !try cbor.matchValue(iter, cbor.extract(&bottom_bar_hidden)))
+        return error.InvalidBarsState;
+    self.top_bar_hidden = top_bar_hidden;
+    self.bottom_bar_hidden = bottom_bar_hidden;
+    self.update_bars_visibility();
+    tui.resize();
 }
 
 fn send_buffer_did_open(buffer: *Buffer) !void {
