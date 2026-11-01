@@ -6415,22 +6415,32 @@ pub const Editor = struct {
         return if (self.is_event_trigger(char, .insert)) char else null;
     }
 
+    /// VS Code's default word separators, used for completions without a server provided range
+    const lsp_default_word_separators = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+
+    fn is_lsp_default_word_separator(egc: []const u8) bool {
+        if (egc.len == 0) return true;
+        return switch (egc[0]) {
+            ' ', '\t', '\r', '\n' => true,
+            else => |c| std.mem.indexOfScalar(u8, lsp_default_word_separators, c) != null,
+        };
+    }
+
     fn is_completion_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics, triggers: []const TriggerSymbol) bool {
         if (cursor.col == 0) return true;
         var next = cursor.*;
         next.move_left(root, metrics) catch return true;
         const egc_left, _, _ = next.egc_at(root, metrics) catch return true;
-        switch (egc_left[0]) {
-            ' ', '\t' => return true,
-            else => |c| for (triggers) |t| if (c == t.char) return true,
-        }
+        if (is_lsp_default_word_separator(egc_left)) return true;
+        const c = egc_left[0];
+        for (triggers) |t| if (c == t.char) return true;
         return false;
     }
 
     fn is_completion_boundary_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics, triggers: []const TriggerSymbol) bool {
         var pos = cursor.*;
         const egc, _, _ = pos.egc_at(root, metrics) catch return true;
-        if (is_non_word_char(egc)) return true;
+        if (is_lsp_default_word_separator(egc)) return true;
         const c = egc[0];
         for (triggers) |t| if (c == t.char) return true;
         return false;
