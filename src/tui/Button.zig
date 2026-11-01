@@ -28,6 +28,7 @@ pub fn Options(context: type) type {
         on_render: *const fn (ctx: *context, button: *ButtonType, theme: *const Widget.Theme) bool = on_render_default,
         on_layout: *const fn (ctx: *context, button: *ButtonType) Widget.Layout = on_layout_default,
         on_receive: *const fn (ctx: *context, button: *ButtonType, from: tp.pid_ref, m: tp.message) error{Exit}!bool = on_receive_default,
+        on_mouse: *const fn (ctx: *context, button: *ButtonType, m: tp.message) error{Exit}!bool = on_mouse_default,
         on_event: ?EventHandler = null,
 
         pub const ButtonType = State(Context);
@@ -49,6 +50,10 @@ pub fn Options(context: type) type {
         }
 
         pub fn on_receive_default(_: *context, _: *ButtonType, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
+            return false;
+        }
+
+        pub fn on_mouse_default(_: *context, _: *ButtonType, _: tp.message) error{Exit}!bool {
             return false;
         }
     };
@@ -125,6 +130,7 @@ fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+            if (try self.opts.on_mouse(&self.opts.ctx, self, m)) return true;
             var btn: MouseEvent.Button = .none;
             var coord: MouseEvent.Coord = undefined;
             if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.extract(&coord), tp.any })) {

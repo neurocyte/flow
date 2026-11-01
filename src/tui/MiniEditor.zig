@@ -1,5 +1,7 @@
 const std = @import("std");
+const tp = @import("thespian");
 const command = @import("command");
+const MouseEvent = @import("MouseEvent");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("Widget.zig");
@@ -12,6 +14,7 @@ allocator: Allocator,
 buffer: MiniBuffer,
 prefix: std.ArrayList(u8) = .empty,
 view_col: usize = 0,
+text_x: c_int = 0,
 on_change: ?OnChange = null,
 commands: Commands = undefined,
 
@@ -73,6 +76,7 @@ pub fn render(self: *Self, plane: *Plane, opts: RenderOptions) void {
     if (opts.width <= prefix_width) return;
     const view_width = opts.width - prefix_width;
     const x = opts.x + @as(c_int, @intCast(prefix_width));
+    self.text_x = x;
     plane.set_style(opts.style);
     plane.cursor_move_yx(opts.y, opts.x);
     _ = plane.putstr_unicode(self.prefix.items) catch {};
@@ -103,6 +107,37 @@ pub fn render(self: *Self, plane: *Plane, opts: RenderOptions) void {
     }
     plane.set_style(opts.style);
     plane.cursor_enable(opts.y, x + @as(c_int, @intCast(cursor_col - self.view_col)), tui.get_cursor_shape());
+}
+
+pub fn receive_mouse(self: *Self, plane: Plane, m: tp.message) error{Exit}!bool {
+    var coord: MouseEvent.Coord = undefined;
+    const select: MiniBuffer.Select = if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
+        .move
+    else if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
+        .select
+    else
+        return m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any });
+    self.buffer.move_to(self.offset_at(plane, coord), select);
+    self.moved();
+    return true;
+}
+
+fn offset_at(self: *const Self, plane_: Plane, coord: MouseEvent.Coord) usize {
+    var plane = plane_;
+    const cell = coord.to_cell(plane.mouse_geometry());
+    const target = @as(i64, cell.col) - self.text_x + @as(i64, @intCast(self.view_col));
+    if (target <= 0) return 0;
+    const text = self.buffer.bytes();
+    var pos: usize = 0;
+    var col: usize = 0;
+    while (pos < text.len) {
+        var cols: usize = 0;
+        const len = plane.egc_length(text[pos..], &cols, col, 1);
+        if (target < col + cols) return pos;
+        pos += len;
+        col += cols;
+    }
+    return text.len;
 }
 
 fn moved(_: *Self) void {

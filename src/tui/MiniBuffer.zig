@@ -182,7 +182,7 @@ pub fn redo(self: *Self) !void {
     return self.restore(&self.redo_stack, &self.undo_stack);
 }
 
-fn move_to(self: *Self, pos: usize, select: Select) void {
+pub fn move_to(self: *Self, pos: usize, select: Select) void {
     self.last_edit = .none;
     switch (select) {
         .move => self.anchor = null,

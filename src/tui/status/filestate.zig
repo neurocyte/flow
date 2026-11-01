@@ -69,6 +69,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
         .on_layout = layout,
         .on_render = render,
         .on_receive = receive,
+        .on_mouse = on_mouse,
         .on_event = event_handler,
     });
     return Widget.to(btn);
@@ -79,6 +80,13 @@ pub fn ctx_deinit(self: *Self) void {
         layer.deinit(self.allocator);
         self.mini_layer = null;
     }
+}
+
+fn on_mouse(self: *Self, btn: *ButtonType, m: tp.message) error{Exit}!bool {
+    const mini_mode = tui.mini_mode() orelse return false;
+    const mini_editor = mini_mode.mini_editor orelse return false;
+    if (!self.shows_mini_mode(btn)) return false;
+    return mini_editor.receive_mouse(btn.plane, m);
 }
 
 fn on_click(_: *Self, btn: *ButtonType, _: Widget.Pos) void {
