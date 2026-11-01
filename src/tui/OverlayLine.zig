@@ -33,13 +33,26 @@ pub fn area_of(plane: Plane) Widget.Box {
 
 /// draw ` text ` in the bottom row of `area`, cut with "…" to the width of `area`
 pub fn render(self: *Self, allocator: std.mem.Allocator, theme: *const Widget.Theme, area: Widget.Box, alignment: Align, text: []const u8, style: Widget.Theme.Style) error{ NoSpace, OutOfMemory }!void {
+    const needed = 1 + tui.egc_chunk_width(text, 0, 8) + 1;
+    var plane, const clipped = try self.begin(allocator, theme, area, alignment, needed);
+    plane.set_style(style);
+    _ = plane.print(" {s} ", .{text}) catch {};
+    if (clipped) {
+        plane.cursor_move_yx(0, @intCast(plane.dim_x() -| 2));
+        _ = plane.print("… ", .{}) catch {};
+    }
+    self.end(theme);
+}
+
+/// place a line of `needed` cells in the bottom row of `area` and return its cleared
+/// plane, and whether the line is cut by the width of `area`. Call `end` to show it.
+pub fn begin(self: *Self, allocator: std.mem.Allocator, theme: *const Widget.Theme, area: Widget.Box, alignment: Align, needed: usize) error{ NoSpace, OutOfMemory }!struct { Plane, bool } {
     const screen_plane = tui.plane();
     const cw: i32 = screen_plane.cell_x();
     const ch: i32 = screen_plane.cell_y();
     const frame = area.resolve_frame(cw, ch);
     if (frame.y < 0 or frame.h < ch or frame.w <= 0) return error.NoSpace;
 
-    const needed = 1 + tui.egc_chunk_width(text, 0, 8) + 1;
     const text_width_px: i32 = @as(i32, @intCast(needed)) * cw;
     const width_px = @min(text_width_px, frame.w);
     const x_px = switch (alignment) {
@@ -48,12 +61,7 @@ pub fn render(self: *Self, allocator: std.mem.Allocator, theme: *const Widget.Th
     };
     const w_cells: usize = @intCast(@max(1, @divFloor(width_px + cw - 1, cw)));
 
-    const layer = self.layer orelse blk: {
-        const layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = self.name });
-        layer.shadow = .{ .edges = .{ .bottom = false, .right = false } };
-        self.layer = layer;
-        break :blk layer;
-    };
+    const layer = try self.get_layer(allocator);
     // a line that touches the right window edge gets no shadow on that edge
     if (layer.shadow) |*shadow| shadow.edges.right = x_px + width_px < tui.window_frame().w;
     layer.handle_resize(.{
@@ -69,11 +77,18 @@ pub fn render(self: *Self, allocator: std.mem.Allocator, theme: *const Widget.Th
     plane.set_style(theme.statusbar);
     plane.fill(" ");
     plane.home();
-    plane.set_style(style);
-    _ = plane.print(" {s} ", .{text}) catch {};
-    if (text_width_px > width_px) {
-        plane.cursor_move_yx(0, @intCast(w_cells -| 2));
-        _ = plane.print("… ", .{}) catch {};
-    }
-    _ = layer.widget().render(theme);
+    return .{ plane, text_width_px > width_px };
+}
+
+pub fn get_layer(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}!*tui.WidgetLayerBox {
+    return self.layer orelse blk: {
+        const layer = try tui.WidgetLayerBox.create(allocator, tui.plane(), .{ .name = self.name });
+        layer.shadow = .{ .edges = .{ .bottom = false, .right = false } };
+        self.layer = layer;
+        break :blk layer;
+    };
+}
+
+pub fn end(self: *Self, theme: *const Widget.Theme) void {
+    if (self.layer) |layer| _ = layer.widget().render(theme);
 }

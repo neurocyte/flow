@@ -43,6 +43,10 @@ const logview = @import("logview.zig");
 const filelist_view = @import("filelist_view.zig");
 const FileList = @import("FileList.zig");
 const OverlayLine = @import("OverlayLine.zig");
+const Minilog = @import("status/minilog.zig");
+const Filestate = @import("status/filestate.zig");
+const Modestate = @import("status/modestate.zig");
+const MiniModeOverlay = @import("MiniModeOverlay.zig");
 const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
@@ -67,7 +71,9 @@ menu_bar: ?*MenuBar = null,
 menu_bar_layer: ?Widget = null,
 bars_hidden: bool = false,
 top_bar: ?Widget = null,
+top_bar_hidden: bool = false,
 bottom_bar: ?Widget = null,
+bottom_bar_hidden: bool = false,
 bottom_bar_drag: ?struct { bottom: i32, offset: i32 } = null,
 views: *WidgetList,
 views_widget: Widget,
@@ -80,6 +86,7 @@ bottom_area: *PanelArea = undefined,
 panel_layout_state: ?[]const u8 = null,
 link_line: ?struct { text: []const u8, area: Box } = null,
 link_line_overlay: OverlayLine = .{ .name = "link_line.layer" },
+mini_mode_overlay: MiniModeOverlay = .{},
 vcs_commits: std.StringHashMapUnmanaged([]const u8) = .empty,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
@@ -196,6 +203,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.bottom_area.deinit();
     self.hide_link_line();
     self.link_line_overlay.deinit(allocator);
+    self.mini_mode_overlay.deinit(allocator);
     if (self.panel_layout_state) |state| allocator.free(state);
     for (self.after_navigations.items) |m| self.allocator.free(m);
     self.after_navigations.deinit(self.allocator);
@@ -372,27 +380,47 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    if (tui.mini_mode() == null) self.mini_mode_overlay.release_cursor();
     const views_more = self.floating_views.render(theme);
     const widgets_more = self.widgets.render(theme);
     if (self.link_line) |line|
         self.link_line_overlay.render(self.allocator, theme, line.area, .right, line.text, theme.statusbar) catch {};
-    if (self.bars_hidden) self.render_hidden_minilog(theme);
+    if (self.find_in_hidden_bar(Minilog)) |minilog| _ = minilog.render(theme);
+    if (self.find_in_hidden_bar(Filestate.ButtonType)) |filestate| _ = filestate.render(theme);
+    self.render_mini_mode_overlay(theme);
     return widgets_more or views_more;
 }
 
-fn render_hidden_minilog(self: *Self, theme: *const Widget.Theme) void {
+fn render_mini_mode_overlay(self: *Self, theme: *const Widget.Theme) void {
+    if (tui.mini_mode()) |mini_mode| if (self.mini_mode_needs_overlay()) {
+        return self.mini_mode_overlay.render(self.allocator, theme, self.hidden_bar_area(), mini_mode) catch
+            self.mini_mode_overlay.hide();
+    };
+    self.mini_mode_overlay.hide();
+}
+
+pub fn mini_mode_needs_overlay(self: *const Self) bool {
+    return self.find_in_bars(Filestate.ButtonType, .visible) == null or
+        self.find_in_bars(Modestate.ButtonType, .visible) == null;
+}
+
+pub fn find_in_hidden_bar(self: *const Self, T: type) ?*T {
+    return self.find_in_bars(T, .hidden);
+}
+
+fn find_in_bars(self: *const Self, T: type, state: enum { hidden, visible }) ?*T {
     const Ctx = struct {
-        theme: *const Widget.Theme,
-        fn render(ctx_: *anyopaque, w: Widget, _: Widget.WalkEvent) bool {
+        found: ?*T = null,
+        fn find(ctx_: *anyopaque, w: Widget, _: Widget.WalkEvent) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            const minilog = w.dynamic_cast(@import("status/minilog.zig")) orelse return false;
-            _ = minilog.render(ctx.theme);
+            ctx.found = w.dynamic_cast(T) orelse return false;
             return true;
         }
     };
-    var ctx: Ctx = .{ .theme = theme };
+    var ctx: Ctx = .{};
     for ([_]?Widget{ self.top_bar, self.bottom_bar }) |bar|
-        if (bar) |w| if (w.walk(&ctx, Ctx.render)) return;
+        if (bar) |w| if (is_bar_hidden(w) == (state == .hidden)) if (w.walk(&ctx, Ctx.find)) break;
+    return ctx.found;
 }
 
 pub fn show_link_line(self: *Self, text: []const u8, area: Box) void {
@@ -400,6 +428,17 @@ pub fn show_link_line(self: *Self, text: []const u8, area: Box) void {
     self.hide_link_line();
     self.link_line = .{ .text = owned, .area = area };
     tui.need_render(@src());
+}
+
+pub fn hidden_bar_area(self: *const Self) Box {
+    var area: Box = .from(tui.plane());
+    const window = tui.window_frame();
+    const editors = self.editor_area_frame();
+    area.frame = if (editors.h >= self.plane.cell_y())
+        .{ .x = window.x, .y = window.y, .w = window.w, .h = editors.y + editors.h - window.y }
+    else
+        window;
+    return area;
 }
 
 pub fn editor_area_of(self: *const Self, plane: Plane) Box {
@@ -454,12 +493,22 @@ fn panel_maximized(ctx: *anyopaque, maximized: bool) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     self.bars_hidden = maximized;
     self.update_menu_bar_visibility();
-    set_bar_hidden(self.top_bar, maximized);
-    set_bar_hidden(self.bottom_bar, maximized);
+    self.update_bars_visibility();
 }
 
 pub fn update_menu_bar_visibility(self: *Self) void {
     set_bar_hidden(self.menu_bar_layer, self.bars_hidden or tui.config().show_menu != .bar);
+}
+
+fn update_bars_visibility(self: *Self) void {
+    set_bar_hidden(self.top_bar, self.bars_hidden or self.top_bar_hidden);
+    set_bar_hidden(self.bottom_bar, self.bars_hidden or self.bottom_bar_hidden);
+}
+
+fn is_bar_hidden(bar: ?Widget) bool {
+    const bar_ = bar orelse return false;
+    const layer = bar_.dynamic_cast(tui.WidgetLayerBox) orelse return false;
+    return layer.layout_override != null;
 }
 
 fn set_bar_hidden(bar: ?Widget, hidden: bool) void {
@@ -516,7 +565,8 @@ pub fn get_panel_height(self: *Self) usize {
 pub fn panel_top_row(self: *const Self) ?usize {
     if (!self.bottom_area.visible()) return null;
     const area = self.editor_area_frame();
-    return @intCast(@divFloor(area.y + area.h, @max(1, self.plane.cell_y())) + 1);
+    const bar_rows: i32 = if (self.bottom_bar == null or is_bar_hidden(self.bottom_bar)) 0 else 1;
+    return @intCast(@divFloor(area.y + area.h, @max(1, self.plane.cell_y())) + bar_rows);
 }
 
 pub fn is_panel_maximized(self: *const Self) bool {
@@ -1736,6 +1786,20 @@ const cmds = struct {
         .description = "Toggle maximize panel",
         .icon = "",
     };
+
+    pub fn toggle_top_bar(self: *Self, _: Ctx) Result {
+        self.top_bar_hidden = !self.top_bar_hidden;
+        self.update_bars_visibility();
+        tui.resize();
+    }
+    pub const toggle_top_bar_meta: Meta = .{ .description = "Toggle tab bar" };
+
+    pub fn toggle_bottom_bar(self: *Self, _: Ctx) Result {
+        self.bottom_bar_hidden = !self.bottom_bar_hidden;
+        self.update_bars_visibility();
+        tui.resize();
+    }
+    pub const toggle_bottom_bar_meta: Meta = .{ .description = "Toggle status bar" };
 
     pub fn grow_panel(self: *Self, ctx: Ctx) Result {
         var n: usize = 1;
@@ -3356,7 +3420,7 @@ pub fn find_view_for_buffer(self: *Self, buffer_ref: Buffer.Ref) ?usize {
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
     if (f(ctx, Widget.to(self), .begin)) return true;
-    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self), .end);
+    return self.mini_mode_overlay.walk(ctx, f) or self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self), .end);
 }
 
 fn close_all_editors(self: *Self, ctx: command.Context) !void {

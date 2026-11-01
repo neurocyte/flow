@@ -128,6 +128,8 @@ const view: Menu = .{ .label = "View", .items = &.{
     .{ .submenu = &display },
     .{ .submenu = &window },
     .{ .command = .{ .command = "toggle_menu" } },
+    .{ .command = .{ .command = "toggle_top_bar" } },
+    .{ .command = .{ .command = "toggle_bottom_bar" } },
     .separator,
     .{ .command = .{ .command = "toggle_keybind_hints", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_prefix_keyhints", .on_activate = .keep_open } },

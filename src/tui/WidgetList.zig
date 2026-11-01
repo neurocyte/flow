@@ -545,6 +545,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
         const avail_px: usize = main_px -| trailing_px;
         avail = (avail_px + cell_a - 1) / cell_a; // ceil
     }
+    const main_cells = @max(total, avail);
     var dynamics: usize = 0;
     const main_end_for_count = if (use_layer) main_count else widget_count;
     for (self.widgets.items[0..main_end_for_count]) |*w| switch (w.layout) {
@@ -581,7 +582,7 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     }) - trailing_px;
     const main_last_idx: usize = if (main_end_for_count == 0) 0 else main_end_for_count - 1;
 
-    const main_limit_a: usize = self.get_loc_a_const(&client_box) + total;
+    const main_limit_a: usize = self.get_loc_a_const(&client_box) + main_cells;
 
     for (self.widgets.items[0..main_end_for_count], 0..) |*w, idx| {
         var w_pos: Box = .{};

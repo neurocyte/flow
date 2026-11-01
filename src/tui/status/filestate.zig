@@ -17,6 +17,7 @@ const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
 const tui = @import("../tui.zig");
 const MenuButton = @import("../MenuButton.zig");
+const MiniModeOverlay = @import("../MiniModeOverlay.zig");
 
 const changed_on_disk_glyph = "󰳻";
 const deleted_on_disk_glyph = "󱂥";
@@ -48,7 +49,7 @@ mini_layer: ?*tui.WidgetLayerBox = null,
 
 const project_icon = "";
 const Self = @This();
-const ButtonType = Button.Options(Self).ButtonType;
+pub const ButtonType = Button.Options(Self).ButtonType;
 
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const btn = try Button.create(Self, allocator, parent, .{
@@ -116,7 +117,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.home();
     }
 
-    if (tui.mini_mode()) |_|
+    if (tui.mini_mode() != null and self.shows_mini_mode(btn))
         self.render_mini_mode(btn, theme)
     else if (self.detailed)
         self.render_detailed(&btn.plane, theme, auto_save)
@@ -133,6 +134,11 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     return false;
 }
 
+fn shows_mini_mode(_: *const Self, btn: *ButtonType) bool {
+    const mv = tui.mainview() orelse return true;
+    return !mv.mini_mode_needs_overlay() and mv.find_in_hidden_bar(ButtonType) != btn;
+}
+
 fn render_mini_mode(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) void {
     const mini_mode = tui.mini_mode() orelse return;
     const needed = 1 + (if (mini_mode.mini_editor) |mini_editor| mini_editor.width() else 0) + 1;
@@ -145,15 +151,7 @@ fn render_mini_mode(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) v
 }
 
 fn draw_mini_mode(self: *Self, plane: *Plane, theme: *const Widget.Theme, mini_mode: *const tui.MiniMode) void {
-    plane.off_styles(styles.italic);
-    const mini_editor = mini_mode.mini_editor orelse return;
-    const width: usize = plane.dim_x();
-    mini_editor.render(plane, .{
-        .x = 1,
-        .width = if (width > 1) width - 1 else 0,
-        .style = theme.statusbar,
-        .style_selection = theme.editor_selection,
-    });
+    MiniModeOverlay.draw(plane, theme, mini_mode, 1);
     self.have_mini_mode_cursor = true;
 }
 
