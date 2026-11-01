@@ -144,6 +144,24 @@ pub fn select_range(self: *Self, begin: usize, end: usize) void {
     self.cursor = @min(end, self.text.items.len);
 }
 
+pub fn word_at(self: *const Self, pos: usize) Selection {
+    if (pos >= self.text.items.len) return .{ .begin = pos, .end = pos };
+    const is_word = self.is_word_at(pos);
+    var begin = pos;
+    while (begin > 0 and self.is_word_at(self.prev(begin)) == is_word) begin = self.prev(begin);
+    var end = pos;
+    while (end < self.text.items.len and self.is_word_at(end) == is_word) end = self.next(end);
+    return .{ .begin = begin, .end = end };
+}
+
+pub fn select_words_to(self: *Self, initial: Selection, pos: usize) void {
+    const word = self.word_at(pos);
+    if (word.begin < initial.begin)
+        self.select_range(initial.end, word.begin)
+    else
+        self.select_range(initial.begin, @max(initial.end, word.end));
+}
+
 pub fn delete_backward(self: *Self) !void {
     return self.delete_to(self.prev(self.cursor));
 }

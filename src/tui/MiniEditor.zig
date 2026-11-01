@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const command = @import("command");
 const MouseEvent = @import("MouseEvent");
 const Plane = @import("renderer").Plane;
+const root = @import("soft_root").root;
 
 const Widget = @import("Widget.zig");
 const MiniBuffer = @import("MiniBuffer.zig");
@@ -15,11 +16,16 @@ buffer: MiniBuffer,
 prefix: std.ArrayList(u8) = .empty,
 view_col: usize = 0,
 text_x: c_int = 0,
+last_click_ms: i64 = 0,
+last_click_pos: ?usize = null,
+word_drag: ?MiniBuffer.Selection = null,
 on_change: ?OnChange = null,
 commands: Commands = undefined,
 
 const Self = @This();
 const Commands = command.Collection(cmds);
+
+const double_click_time_ms = 350;
 
 pub const OnChange = struct {
     ctx: *anyopaque,
@@ -111,15 +117,36 @@ pub fn render(self: *Self, plane: *Plane, opts: RenderOptions) void {
 
 pub fn receive_mouse(self: *Self, plane: Plane, m: tp.message) error{Exit}!bool {
     var coord: MouseEvent.Coord = undefined;
-    const select: MiniBuffer.Select = if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
-        .move
-    else if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
-        .select
-    else
-        return m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any });
-    self.buffer.move_to(self.offset_at(plane, coord), select);
+    if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+        self.click(self.offset_at(plane, coord));
+    } else if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
+        const pos = self.offset_at(plane, coord);
+        if (self.word_drag) |initial|
+            self.buffer.select_words_to(initial, pos)
+        else
+            self.buffer.move_to(pos, .select);
+    } else {
+        if (!try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) return false;
+        self.word_drag = null;
+        return true;
+    }
     self.moved();
     return true;
+}
+
+fn click(self: *Self, pos: usize) void {
+    const now = root.get_now().toMilliseconds();
+    const double = self.last_click_pos == pos and now - self.last_click_ms <= double_click_time_ms;
+    self.last_click_ms = now;
+    self.last_click_pos = if (double) null else pos;
+    if (double) {
+        const word = self.buffer.word_at(pos);
+        self.word_drag = word;
+        self.buffer.select_range(word.begin, word.end);
+    } else {
+        self.word_drag = null;
+        self.buffer.move_to(pos, .move);
+    }
 }
 
 fn offset_at(self: *const Self, plane_: Plane, coord: MouseEvent.Coord) usize {

@@ -123,3 +123,38 @@ test "mini_buffer select_range" {
     try mb.insert("main");
     try eq("dir/main.zig", mb.bytes());
 }
+
+test "mini_buffer word_at" {
+    var mb: MiniBuffer = .init(a);
+    defer mb.deinit();
+    try mb.insert("foo/bar  baz");
+    try std.testing.expectEqual(MiniBuffer.Selection{ .begin = 0, .end = 3 }, mb.word_at(0));
+    try std.testing.expectEqual(MiniBuffer.Selection{ .begin = 0, .end = 3 }, mb.word_at(2));
+    try std.testing.expectEqual(MiniBuffer.Selection{ .begin = 3, .end = 4 }, mb.word_at(3));
+    try std.testing.expectEqual(MiniBuffer.Selection{ .begin = 7, .end = 9 }, mb.word_at(8));
+    try std.testing.expectEqual(MiniBuffer.Selection{ .begin = 9, .end = 12 }, mb.word_at(11));
+    try std.testing.expectEqual(MiniBuffer.Selection{ .begin = 12, .end = 12 }, mb.word_at(12));
+}
+
+test "mini_buffer word_at graphemes" {
+    var mb: MiniBuffer = .init(a);
+    defer mb.deinit();
+    try mb.insert("a caf\u{e9} b");
+    try std.testing.expectEqual(MiniBuffer.Selection{ .begin = 2, .end = 7 }, mb.word_at(5));
+}
+
+test "mini_buffer select_words_to" {
+    var mb: MiniBuffer = .init(a);
+    defer mb.deinit();
+    try mb.insert("one two three");
+    const initial = mb.word_at(5);
+    mb.select_words_to(initial, 5);
+    try eq("two", mb.selected_text().?);
+    mb.select_words_to(initial, 9);
+    try eq("two three", mb.selected_text().?);
+    mb.select_words_to(initial, 1);
+    try eq("one two", mb.selected_text().?);
+    try std.testing.expectEqual(0, mb.cursor);
+    mb.select_words_to(initial, 13);
+    try eq("two three", mb.selected_text().?);
+}

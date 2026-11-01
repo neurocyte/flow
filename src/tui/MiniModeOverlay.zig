@@ -6,6 +6,7 @@ const styles = @import("renderer").styles;
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const OverlayLine = @import("OverlayLine.zig");
+const MiniEditor = @import("MiniEditor.zig");
 const modestate = @import("status/modestate.zig");
 
 const Self = @This();
@@ -26,6 +27,11 @@ const TextArea = struct {
         return Widget.to(self);
     }
 
+    fn mini_editor() ?*MiniEditor {
+        const mini_mode = tui.mini_mode() orelse return null;
+        return mini_mode.mini_editor;
+    }
+
     pub fn deinit(self: *TextArea, allocator: std.mem.Allocator) void {
         self.plane.deinit();
         allocator.destroy(self);
@@ -34,12 +40,11 @@ const TextArea = struct {
     pub fn receive(self: *TextArea, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var hover: bool = false;
         if (try m.match(.{ "H", tp.extract(&hover) })) {
-            tui.rdr().request_mouse_cursor(.text, hover);
+            tui.rdr().request_mouse_cursor(.text, hover and mini_editor() != null);
             return true;
         }
-        const mini_mode = tui.mini_mode() orelse return false;
-        const mini_editor = mini_mode.mini_editor orelse return false;
-        return mini_editor.receive_mouse(self.plane, m);
+        const editor = mini_editor() orelse return false;
+        return editor.receive_mouse(self.plane, m);
     }
 };
 
@@ -70,10 +75,12 @@ pub fn render(self: *Self, allocator: std.mem.Allocator, theme: *const Widget.Th
     var plane, _ = try self.line.begin(allocator, theme, area, .left, label_width + editor_width);
     label.resize(.{ .w = @min(label_width, plane.dim_x()), .h = 1 });
     if (self.text_area) |text_area| text_area.resize(.{ .w = plane.dim_x(), .h = 1 });
+    const was_shown = self.shown;
     self.shown = true;
     draw(&plane, theme, mini_mode, label_width + 1);
     self.have_cursor = mini_mode.mini_editor != null;
     self.line.end(theme);
+    if (!was_shown) tui.refresh_hover(@src());
 }
 
 pub fn hide(self: *Self) void {
@@ -81,6 +88,7 @@ pub fn hide(self: *Self) void {
     self.shown = false;
     if (self.label) |*label| label.resize(.{});
     if (self.text_area) |*text_area| text_area.resize(.{});
+    tui.refresh_hover(@src());
 }
 
 pub fn is_label(self: *const Self, ptr: *const anyopaque) bool {

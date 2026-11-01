@@ -18,6 +18,7 @@ const Button = @import("../Button.zig");
 const tui = @import("../tui.zig");
 const MenuButton = @import("../MenuButton.zig");
 const MiniModeOverlay = @import("../MiniModeOverlay.zig");
+const MiniEditor = @import("../MiniEditor.zig");
 
 const changed_on_disk_glyph = "󰳻";
 const deleted_on_disk_glyph = "󱂥";
@@ -83,9 +84,7 @@ pub fn ctx_deinit(self: *Self) void {
 }
 
 fn on_mouse(self: *Self, btn: *ButtonType, m: tp.message) error{Exit}!bool {
-    const mini_mode = tui.mini_mode() orelse return false;
-    const mini_editor = mini_mode.mini_editor orelse return false;
-    if (!self.shows_mini_mode(btn)) return false;
+    const mini_editor = self.shown_mini_editor(btn) orelse return false;
     return mini_editor.receive_mouse(btn.plane, m);
 }
 
@@ -125,6 +124,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
         btn.plane.home();
     }
 
+    self.update_mouse_cursor(btn);
     if (tui.mini_mode() != null and self.shows_mini_mode(btn))
         self.render_mini_mode(btn, theme)
     else if (self.detailed)
@@ -140,6 +140,18 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     const terminal_status = if (tui.mainview()) |mv| mv.active_terminal_title() else null;
     self.render_terminal_title(if (terminal_status) |ts| ts.title else null);
     return false;
+}
+
+fn shown_mini_editor(self: *const Self, btn: *ButtonType) ?*MiniEditor {
+    const mini_mode = tui.mini_mode() orelse return null;
+    return if (self.shows_mini_mode(btn)) mini_mode.mini_editor else null;
+}
+
+fn update_mouse_cursor(self: *const Self, btn: *ButtonType) void {
+    const cursor: tui.renderer.MouseCursorShape = if (self.shown_mini_editor(btn) != null) .text else .pointer;
+    if (btn.opts.cursor == cursor) return;
+    btn.opts.cursor = cursor;
+    if (btn.hover) tui.rdr().request_mouse_cursor(cursor, true);
 }
 
 fn shows_mini_mode(_: *const Self, btn: *ButtonType) bool {
