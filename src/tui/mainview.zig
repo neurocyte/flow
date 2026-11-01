@@ -115,6 +115,8 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     self.* = .{
         .allocator = allocator,
         .plane = tui.plane(),
+        .top_bar_hidden = !tui.config().top_bar_enabled,
+        .bottom_bar_hidden = !tui.config().bottom_bar_enabled,
         .widgets = undefined,
         .widgets_widget = undefined,
         .floating_views = WidgetStack.init(allocator),
@@ -187,6 +189,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         bar_layer.set(bar);
         self.bottom_bar = (try widgets.addP(bar_layer.widget())).*;
     }
+    self.update_bars_visibility();
     self.bottom_area = try PanelArea.create(allocator, widgets, .bottom);
     self.bottom_area.on_maximize = .{ .ctx = self, .f = panel_maximized };
     if (tp.env.get().is("show-input")) {

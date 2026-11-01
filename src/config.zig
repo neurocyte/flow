@@ -84,7 +84,9 @@ background_syntax_threshold: usize = 20000, // lines
 syntax_injection_depth: u8 = 6,
 
 top_bar: []const u8 = "tabs",
+top_bar_enabled: bool = true,
 bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch lsp linenumber clock spacer",
+bottom_bar_enabled: bool = true,
 show_bottom_bar_grip: bool = true,
 show_scrollbars: bool = true,
 show_fileicons: bool = true,
