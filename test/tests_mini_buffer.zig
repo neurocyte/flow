@@ -158,3 +158,15 @@ test "mini_buffer select_words_to" {
     mb.select_words_to(initial, 13);
     try eq("two three", mb.selected_text().?);
 }
+
+test "mini_buffer select_words_to keeps a full selection" {
+    var mb: MiniBuffer = .init(a);
+    defer mb.deinit();
+    try mb.insert("one two three");
+    mb.select_all();
+    const all = mb.selection().?;
+    mb.select_words_to(all, 5);
+    try eq("one two three", mb.selected_text().?);
+    mb.select_words_to(all, 0);
+    try eq("one two three", mb.selected_text().?);
+}

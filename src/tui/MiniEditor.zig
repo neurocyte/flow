@@ -17,8 +17,9 @@ prefix: std.ArrayList(u8) = .empty,
 view_col: usize = 0,
 text_x: c_int = 0,
 last_click_ms: i64 = 0,
-last_click_pos: ?usize = null,
-word_drag: ?MiniBuffer.Selection = null,
+last_click_col: ?i32 = null,
+click_count: u8 = 0,
+drag_initial: ?MiniBuffer.Selection = null,
 on_change: ?OnChange = null,
 commands: Commands = undefined,
 
@@ -118,35 +119,40 @@ pub fn render(self: *Self, plane: *Plane, opts: RenderOptions) void {
 pub fn receive_mouse(self: *Self, plane: Plane, m: tp.message) error{Exit}!bool {
     var coord: MouseEvent.Coord = undefined;
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
-        self.click(self.offset_at(plane, coord));
+        self.click(plane, coord);
     } else if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         const pos = self.offset_at(plane, coord);
-        if (self.word_drag) |initial|
+        if (self.drag_initial) |initial|
             self.buffer.select_words_to(initial, pos)
         else
             self.buffer.move_to(pos, .select);
     } else {
         if (!try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.any, tp.any })) return false;
-        self.word_drag = null;
+        self.drag_initial = null;
         return true;
     }
     self.moved();
     return true;
 }
 
-fn click(self: *Self, pos: usize) void {
+fn click(self: *Self, plane_: Plane, coord: MouseEvent.Coord) void {
+    var plane = plane_;
+    const col = coord.to_cell(plane.mouse_geometry()).col;
+    const pos = self.offset_at(plane, coord);
     const now = root.get_now().toMilliseconds();
-    const double = self.last_click_pos == pos and now - self.last_click_ms <= double_click_time_ms;
+    const repeated = self.last_click_col == col and now - self.last_click_ms <= double_click_time_ms;
+    self.click_count = if (repeated and self.click_count < 3) self.click_count + 1 else 1;
     self.last_click_ms = now;
-    self.last_click_pos = if (double) null else pos;
-    if (double) {
-        const word = self.buffer.word_at(pos);
-        self.word_drag = word;
-        self.buffer.select_range(word.begin, word.end);
-    } else {
-        self.word_drag = null;
+    self.last_click_col = col;
+    self.drag_initial = switch (self.click_count) {
+        1 => null,
+        2 => self.buffer.word_at(pos),
+        else => .{ .begin = 0, .end = self.buffer.bytes().len },
+    };
+    if (self.drag_initial) |initial|
+        self.buffer.select_range(initial.begin, initial.end)
+    else
         self.buffer.move_to(pos, .move);
-    }
 }
 
 fn offset_at(self: *const Self, plane_: Plane, coord: MouseEvent.Coord) usize {
