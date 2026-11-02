@@ -55,7 +55,7 @@ const Reload = struct {
     reason: Reason = .user,
     state: State = .current,
 
-    const Reason = enum { user, external, open };
+    const Reason = enum { user, external, open, compare };
     const State = enum { current, superseded };
 };
 
@@ -226,10 +226,12 @@ pub fn load(self: *Self, file_path: []const u8, options: LoadOptions) LoadError!
     errdefer if (then) |t| self.allocator.free(t.bytes);
     const on_error: ?cbor.Raw = if (options.on_error) |t| .{ .bytes = try self.allocator.dupe(u8, t.bytes) } else null;
     errdefer if (on_error) |t| self.allocator.free(t.bytes);
-    const pending = if (self.get_buffer(file_path)) |buffer|
-        self.find_reload(buffer.to_ref()) orelse try self.add_load(file_path, .{ .buffer = buffer.to_ref(), .root = buffer.root, .reason = .open })
-    else
-        self.find_load(file_path) orelse try self.add_load(file_path, null);
+    const pending = if (self.get_buffer(file_path)) |buffer| blk: {
+        const pending = self.find_reload(buffer.to_ref()) orelse
+            break :blk try self.add_load(file_path, .{ .buffer = buffer.to_ref(), .root = buffer.root, .reason = .open });
+        if (pending.reload.?.reason == .compare) pending.reload.?.reason = .open;
+        break :blk pending;
+    } else self.find_load(file_path) orelse try self.add_load(file_path, null);
     try pending.thens.ensureUnusedCapacity(self.allocator, 1);
     try pending.on_errors.ensureUnusedCapacity(self.allocator, 1);
     if (then) |t| pending.thens.appendAssumeCapacity(t);
@@ -327,7 +329,7 @@ fn load_progress(self: *Self, id: usize, m: tp.message) LoadResult {
         return .nochange;
     };
     if (result == .pending) return .nochange;
-    const reloaded = pending.reload != null;
+    const reloaded = if (pending.reload) |reload_of| reload_of.reason != .compare else false;
     self.finish_load(id, true);
     return if (reloaded) .reloaded else .modified;
 }
@@ -340,7 +342,7 @@ fn finish_load(self: *Self, id: usize, ok: bool) void {
         for (pending.on_errors.items) |on_error| tp.self_pid().send_raw(.{ .buf = on_error.bytes }) catch {};
     if (pending.reload) |reload_of| if (reload_of.state == .superseded)
         if (self.buffer_from_ref(reload_of.buffer)) |buffer|
-            self.reload(buffer, .external) catch {};
+            self.reload(buffer, if (buffer.is_dirty()) .compare else .external) catch {};
 }
 
 fn complete_load(self: *Self, pending: *PendingLoad, ok: bool) error{LoadFailed}!void {
@@ -385,6 +387,12 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
     const reload_of = pending.reload orelse return error.LoadFailed;
     const applier = self.edit_set_applier orelse return error.LoadFailed;
     const buffer = self.buffer_from_ref(reload_of.buffer) orelse return;
+    const eol_mode: Buffer.EolMode = switch (eol) {
+        .lf => .lf,
+        .crlf => .crlf,
+    };
+    if (reload_of.reason == .compare)
+        return self.compare_done(buffer, reload_of, EditSet.is_empty(.{ .bytes = edit_set }) and eol_mode == buffer.file_eol_mode);
     if (reload_of.reason == .open) buffer.hidden = false;
     self.update_shown(buffer);
     if (buffer.root != reload_of.root)
@@ -397,14 +405,22 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
                 return error.LoadFailed;
             },
         };
-    buffer.reloaded(switch (eol) {
-        .lf => .lf,
-        .crlf => .crlf,
-    }, now);
+    buffer.reloaded(eol_mode, now);
     buffer.update_last_used_time(now);
     self.notify(buffer, "reloaded", .{});
     if (reload_of.reason == .external)
         log.info("reloaded {s} from disk", .{pending.file_path});
+}
+
+fn compare_done(_: *Self, buffer: *Buffer, reload_of: Reload, same: bool) void {
+    if (reload_of.state == .superseded) return; // finish_load compares again
+    if (same and buffer.root == reload_of.root) {
+        buffer.reloaded(buffer.file_eol_mode, get_now());
+        log.info("{s} matches the file on disk", .{buffer.get_file_path()});
+        return;
+    }
+    buffer.file_state = .changed_on_disk;
+    log.warn("{s} changed on disk; reload_file to discard your edits or force_save_file to overwrite", .{buffer.get_file_path()});
 }
 
 fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*Buffer {
@@ -414,6 +430,12 @@ fn apply_load(self: *Self, pending: *PendingLoad, bytes: []u8, exists: bool) !?*
             self.allocator.free(bytes);
             return null;
         };
+        if (reload_of.reason == .compare) {
+            defer self.allocator.free(bytes);
+            self.compare_done(buffer, reload_of, exists and buffer.root == reload_of.root and
+                std.mem.eql(u8, bytes, buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode)));
+            return null;
+        }
         if (reload_of.reason == .open) buffer.hidden = false;
         self.update_shown(buffer);
         if (buffer.root != reload_of.root) {
@@ -1060,7 +1082,8 @@ fn file_replaced(self: *Self, buffer: *Buffer) LoadResult {
     }
     buffer.file_state = .changed_on_disk;
     if (buffer.is_dirty()) {
-        log.warn("{s} changed on disk; reload_file to discard your edits or force_save_file to overwrite", .{buffer.get_file_path()});
+        self.reload(buffer, .compare) catch |e|
+            log.err("compare {s} failed: {t}", .{ buffer.get_file_path(), e });
         return .modified;
     }
     if (buffer.hidden) return .changed_on_disk;
