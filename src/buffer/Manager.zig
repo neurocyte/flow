@@ -1,7 +1,9 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
+const editorconfig = @import("editorconfig");
 const get_now = @import("soft_root").root.get_now;
+const get_io = @import("soft_root").root.get_io;
 const FileStore = @import("FileStore");
 const EditSet = @import("EditSet");
 const Buffer = @import("Buffer.zig");
@@ -13,6 +15,7 @@ buffers: std.StringHashMapUnmanaged(*Buffer),
 file_store: ?FileStore = null,
 edit_set_applier: ?EditSetApplier = null,
 watched: std.AutoHashMapUnmanaged(*Buffer, []const u8) = .empty,
+editorconfig_watch: std.StringHashMapUnmanaged(void) = .empty,
 next_request_id: usize = 1,
 saves: std.AutoHashMapUnmanaged(usize, PendingSave) = .empty,
 save_groups: std.AutoHashMapUnmanaged(usize, SaveGroup) = .empty,
@@ -141,6 +144,9 @@ pub fn deinit(self: *Self) void {
     }
     self.buffers.deinit(self.allocator);
     self.watched.deinit(self.allocator);
+    var editorconfig_keys = self.editorconfig_watch.keyIterator();
+    while (editorconfig_keys.next()) |key| self.allocator.free(key.*);
+    self.editorconfig_watch.deinit(self.allocator);
     self.shown.deinit(self.allocator);
     var listeners = self.listeners.valueIterator();
     while (listeners.next()) |list| list.deinit(self.allocator);
@@ -678,7 +684,22 @@ fn save_in_group(self: *Self, buffer: *Buffer, options: SaveOptions, group: ?usi
 
     const root = buffer.root;
     const eol_mode = buffer.file_eol_mode;
-    const content = buffer.store_to_string_cached(root, eol_mode);
+    var content: []const u8 = buffer.store_to_string_cached(root, eol_mode);
+    const editorconfig_out = if (buffer.editorconfig_trim_trailing_whitespace orelse buffer.editorconfig_insert_final_newline != null)
+        try editorconfig.transform(
+            self.allocator,
+            content,
+            switch (eol_mode) {
+                .lf => .lf,
+                .crlf => .crlf,
+            },
+            buffer.editorconfig_trim_trailing_whitespace orelse false,
+            buffer.editorconfig_insert_final_newline,
+        )
+    else
+        null;
+    defer if (editorconfig_out) |x| self.allocator.free(x);
+    if (editorconfig_out) |x| content = x;
     const prepare_us = started.durationTo(get_now()).toMicroseconds();
 
     const file_path = try self.allocator.dupe(u8, buffer.get_file_path());
@@ -951,6 +972,7 @@ fn resolve_path(self: *Self, file_path: []const u8) error{OutOfMemory}!?[]const 
 
 fn watch_buffer(self: *Self, buffer: *Buffer) void {
     if (buffer.is_ephemeral()) return;
+    self.watch_editorconfig(buffer);
     const file_store = self.file_store orelse return;
     if (self.watched.contains(buffer)) return;
 
@@ -960,6 +982,34 @@ fn watch_buffer(self: *Self, buffer: *Buffer) void {
         return;
     };
     file_store.watch(abs_path) catch |e| std.log.err("file_store.watch: {s} -> {}", .{ abs_path, e });
+}
+
+fn watch_editorconfig(self: *Self, buffer: *Buffer) void {
+    const file_store = self.file_store orelse return;
+    const ec_paths = editorconfig.config_paths(get_io(), self.allocator, buffer.get_file_path()) catch return;
+    defer {
+        for (ec_paths) |p| self.allocator.free(p);
+        self.allocator.free(ec_paths);
+    }
+    for (ec_paths) |p| {
+        if (self.editorconfig_watch.contains(p)) continue;
+        const owned = self.allocator.dupe(u8, p) catch continue;
+        self.editorconfig_watch.put(self.allocator, owned, {}) catch {
+            self.allocator.free(owned);
+            continue;
+        };
+        file_store.watch(owned) catch |e| std.log.err("file_store.watch: {s} -> {}", .{ owned, e });
+    }
+}
+
+fn refresh_editorconfig(self: *Self) void {
+    var it = self.buffers.valueIterator();
+    while (it.next()) |p| {
+        const buffer = p.*;
+        if (buffer.is_ephemeral()) continue;
+        const ec = editorconfig.query(get_io(), self.allocator, buffer.get_file_path()) catch continue;
+        buffer.apply_editorconfig(ec orelse .{});
+    }
 }
 
 fn check_file_exists(self: *Self, buffer: *Buffer) void {
@@ -1041,6 +1091,11 @@ fn file_exists_checked(self: *Self, abs_path: []const u8, exists: bool) LoadResu
 
 fn file_changed(self: *Self, abs_path: []const u8, event_type: FileStore.EventType, object_type: FileStore.ObjectType) LoadResult {
     if (object_type == .dir) return .nochange;
+    if (self.editorconfig_watch.contains(abs_path)) {
+        self.refresh_editorconfig();
+        tp.self_pid().send(.{ "EDC", "change", abs_path }) catch {};
+        return .modified;
+    }
     const buffer = self.buffer_for_watched_path(abs_path) orelse return .nochange;
     return switch (event_type) {
         .deleted => self.file_gone(buffer, null),

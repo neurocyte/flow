@@ -370,6 +370,27 @@ server. If a server does not react, use the command
 Some servers accept the same values in both files, but in different shapes.
 Read the documentation of the server to find out which file it uses.
 
+## EditorConfig
+
+Flow Control supports the [EditorConfig](https://editorconfig.org) standard.
+When a file is opened `.editorconfig` is searched for in the file's directory
+and in each parent directory up the tree. The search stops at the first
+`.editorconfig` that declares `root = true`.
+
+Supported properties:
+
+- `indent_style`
+- `indent_size`
+- `tab_width`
+- `end_of_line`
+- `trim_trailing_whitespace`
+- `insert_final_newline`
+
+Unsupported properties, such as `charset` and `max_line_length`, are ignored.
+`end_of_line = cr` is also ignored since the editor does not support it.
+
+EditorConfig handling can be disabled with the `enable_editorconfig` option.
+
 ## Flags and options
 
 As every respectable terminal program, flow provide various invoking options

@@ -5,6 +5,7 @@ const EditSet = @import("EditSet");
 const TypedInt = @import("TypedInt");
 pub const VcsBlame = @import("VcsBlame");
 const file_type_config = @import("file_type_config");
+const editorconfig = @import("editorconfig");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Regex = @import("regex");
@@ -131,6 +132,8 @@ utime: i64,
 file_type_name: ?[]const u8 = null,
 file_type_icon: ?[]const u8 = null,
 file_type_color: ?u24 = null,
+editorconfig_trim_trailing_whitespace: ?bool = null,
+editorconfig_insert_final_newline: ?bool = null,
 
 pub const FileState = enum { in_sync, changed_on_disk, deleted_on_disk };
 pub const EolMode = enum { lf, crlf };
@@ -1453,6 +1456,22 @@ pub fn set_file_path(self: *Self, file_path: []const u8) void {
 
 pub inline fn get_file_path(self: *const Self) []const u8 {
     return self.file_path_buf.items;
+}
+
+pub fn apply_editorconfig(self: *Self, ec: editorconfig.Settings) void {
+    if (ec.end_of_line) |eol| switch (eol) {
+        .lf => {
+            if (self.file_eol_mode != .lf)
+                self.file_eol_mode = .lf;
+        },
+        .crlf => {
+            if (self.file_eol_mode != .crlf)
+                self.file_eol_mode = .crlf;
+        },
+        .cr => {},
+    };
+    self.editorconfig_trim_trailing_whitespace = ec.trim_trailing_whitespace;
+    self.editorconfig_insert_final_newline = ec.insert_final_newline;
 }
 
 pub fn set_last_view(self: *Self, last_view: ?usize) void {

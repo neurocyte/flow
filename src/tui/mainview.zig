@@ -3388,6 +3388,14 @@ pub fn foreach_editor(self: *Self, func: ForEachEditorFunc) void {
     }
 }
 
+pub fn editorconfig_changed(self: *Self, path: []const u8) void {
+    for (self.views.widgets.items) |*view| {
+        const editor = view.widget.get("editor") orelse continue;
+        if (editor.dynamic_cast(ed.EditorWidget)) |p|
+            p.editor.refresh_editorconfig(path);
+    }
+}
+
 fn find_buffer(self: *Self, file_path: []const u8) ?*Buffer {
     if (self.buffer_manager.get_buffer_for_file(file_path)) |buffer| return buffer;
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;

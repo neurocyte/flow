@@ -12,6 +12,7 @@ const tracy = @import("tracy");
 const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const file_type_config = @import("file_type_config");
+const editorconfig = @import("editorconfig");
 const project_manager = @import("project_manager");
 const root_mod = @import("soft_root").root;
 const file_link = @import("file_link");
@@ -872,8 +873,6 @@ pub const Editor = struct {
         const buffer_meta = if (self.buffer) |buffer| buffer.get_meta() else null;
 
         const content = new_buf.store_to_string_cached(new_buf.root, new_buf.file_eol_mode);
-        if (self.indent_mode == .auto)
-            self.detect_indent_mode(content);
 
         self.syntax = syntax: {
             const lang_override = file_type orelse tp.env.get().str("language");
@@ -924,6 +923,11 @@ pub const Editor = struct {
             try self.extract_state(&iter, .none, now);
         }
 
+        if (tui.config().enable_editorconfig)
+            self.apply_editorconfig_settings(new_buf, file_path) catch |e| self.logger.print_err("editorconfig", "{s}", .{@errorName(e)});
+        if (self.indent_mode == .auto)
+            self.detect_indent_mode(content);
+
         const auto_save = if (self.buffer) |b|
             self.maybe_enable_buffer_auto_save(b)
         else
@@ -931,6 +935,39 @@ pub const Editor = struct {
 
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc, auto_save);
         project_manager.resend_diagnostics(file_path) catch {};
+    }
+
+    fn apply_editorconfig_settings(self: *Self, buffer: *Buffer, file_path: []const u8) error{OutOfMemory}!void {
+        const ec = (try editorconfig.query(root_mod.get_io(), self.allocator, file_path)) orelse return;
+        if (ec.indent_style) |style| switch (style) {
+            .space => self.indent_mode = .spaces,
+            .tab => self.indent_mode = .tabs,
+        };
+        if (ec.tab_width) |w| {
+            self.tab_width = w;
+            self.refresh_tab_width();
+        }
+        if (ec.indent_size) |size| switch (size) {
+            .tab => self.indent_size = self.tab_width,
+            .size => |n| self.indent_size = n,
+        };
+        if (ec.indent_size != null and ec.indent_style == null and self.indent_mode == .auto)
+            self.indent_mode = .spaces;
+        buffer.apply_editorconfig(ec);
+    }
+
+    pub fn refresh_editorconfig(self: *Self, changed_path: []const u8) void {
+        const b = self.buffer orelse return;
+        const fp = self.file_path orelse return;
+        var arena_impl = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena_impl.deinit();
+        const a = arena_impl.allocator();
+        const ec_paths = editorconfig.config_paths(root_mod.get_io(), a, fp) catch return;
+        for (ec_paths) |p|
+            if (std.mem.eql(u8, p, changed_path)) {
+                self.apply_editorconfig_settings(b, fp) catch |e| self.logger.print_err("editorconfig", "{s}", .{@errorName(e)});
+                return;
+            };
     }
 
     fn maybe_enable_buffer_auto_save(self: *Self, buffer: *Buffer) bool {
@@ -1020,10 +1057,83 @@ pub const Editor = struct {
             return;
         }
         if (self.file_path == null) return error.SaveNoFileName;
+        try self.apply_editorconfig_save_transform(b);
         self.buffer_manager.save(b, .{ .auto_save = b.is_auto_save(), .overwrite = overwrite, .then = then }) catch |e| switch (e) {
             error.FileChangedOnDisk => self.logger.print_err("save", "{s} changed on disk, use force_save_file to overwrite", .{b.get_file_path()}),
             else => return e,
         };
+    }
+
+    fn apply_editorconfig_save_transform(self: *Self, b: *Buffer) !void {
+        if (!(b.editorconfig_trim_trailing_whitespace orelse b.editorconfig_insert_final_newline != null)) return;
+        var root = b.root;
+        var changed = false;
+        if (b.editorconfig_trim_trailing_whitespace orelse false) {
+            const lines = root.lines();
+            var row: usize = 0;
+            while (row < lines) : (row += 1) {
+                const last = find_last_non_ws(root, row, self.metrics);
+                const w = root.line_width(row, self.metrics) catch break;
+                if (last < w) {
+                    root = self.collapse_trailing_ws_line(root, row, b.allocator);
+                    changed = true;
+                }
+            }
+        }
+        if (b.editorconfig_insert_final_newline) |want_final| {
+            const lines = root.lines();
+            const has_final = lines > 1 and (root.line_width(lines - 1, self.metrics) catch 0) == 0;
+            if (want_final != has_final) {
+                changed = true;
+                if (want_final) {
+                    const last_row = lines -| 1;
+                    const w = root.line_width(last_row, self.metrics) catch 0;
+                    _, _, root = try root.insert_chars(last_row, w, switch (b.file_eol_mode) {
+                        .lf => "\n",
+                        .crlf => "\r\n",
+                    }, b.allocator, self.metrics);
+                } else {
+                    const last_content_row = lines - 2;
+                    const w = root.line_width(last_content_row, self.metrics) catch 0;
+                    root = try root.delete_range(.{
+                        .begin = .{ .row = last_content_row, .col = w },
+                        .end = .{ .row = lines - 1, .col = 0 },
+                    }, b.allocator, null, self.metrics);
+                }
+            }
+        }
+        if (!changed) return;
+        try self.update_buf_and_eol_mode(root, b.file_eol_mode, b.file_utf8_sanitized, root_mod.get_now());
+        self.reconcile_cursors(root);
+        self.need_render();
+        self.clamp(root_mod.get_now());
+    }
+
+    fn reconcile_cursors(self: *Self, root: Buffer.Root) void {
+        const lines = root.lines();
+        if (lines == 0) return;
+        const last = lines - 1;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            self.clamp_cursor(root, last, &cursel.cursor);
+            if (cursel.selection) |*sel| {
+                self.clamp_cursor(root, last, &sel.begin);
+                self.clamp_cursor(root, last, &sel.end);
+            }
+        };
+    }
+
+    fn clamp_cursor(self: *Self, root: Buffer.Root, last_line: usize, cursor: *Cursor) void {
+        if (cursor.row > last_line) {
+            cursor.row = last_line;
+            cursor.col = 0;
+            cursor.target = 0;
+            return;
+        }
+        const w = root.line_width(cursor.row, self.metrics) catch return;
+        if (cursor.col > w) {
+            cursor.col = w;
+            cursor.target = w;
+        }
     }
 
     pub fn buffer_saved(self: *Self, file_path: []const u8, auto_save: bool) void {

@@ -1022,6 +1022,11 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{ "EDC", "change", tp.extract(&changed_path) })) {
+        if (mainview()) |mv| mv.editorconfig_changed(changed_path);
+        return;
+    }
+
     return tp.unexpected(m);
 }
 

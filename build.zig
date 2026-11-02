@@ -550,9 +550,17 @@ pub fn build_exe(
         },
     });
 
+    const editorconfig_mod = b.createModule(.{
+        .root_source_file = b.path("src/editorconfig.zig"),
+        .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
+        },
+    });
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
+            .{ .name = "editorconfig", .module = editorconfig_mod },
             .{ .name = "EditSet", .module = EditSet_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "tracy", .module = tracy_mod },
@@ -1092,6 +1100,23 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const editorconfig_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-editorconfig",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/editorconfig.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "soft_root", .module = soft_root_mod },
+                },
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const gitignore_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-gitignore",
@@ -1533,6 +1558,7 @@ pub fn build_exe(
             .{ .name = "log", .module = log_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
+            .{ .name = "editorconfig", .module = editorconfig_mod },
             .{ .name = "location_history", .module = location_history_mod },
             .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_mod },
@@ -1752,6 +1778,7 @@ pub fn build_exe(
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
     test_step.dependOn(&match_test_run_cmd.step);
+    test_step.dependOn(&editorconfig_test_run_cmd.step);
     test_step.dependOn(&edit_set_test_run_cmd.step);
     test_step.dependOn(&gitignore_test_run_cmd.step);
     test_step.dependOn(&dbus_test_run_cmd.step);
