@@ -1700,7 +1700,10 @@ const cmds = struct {
             const editor = self.get_active_editor() orelse return error.InvalidDeleteBufferArgument;
             file_path = editor.file_path orelse return error.InvalidDeleteBufferArgument;
         }
-        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        const logger = log.logger("buffer");
+        defer logger.deinit();
+        const buffer = self.find_buffer(file_path) orelse
+            return logger.print_err("delete_buffer", "no buffer for {s}", .{file_path});
         if (buffer.file_state == .deleted_on_disk)
             return self.confirm_close_deleted_buffers(&.{buffer}, .save_and_delete);
         if (buffer.is_dirty())
@@ -1709,8 +1712,6 @@ const cmds = struct {
             editor.close_file(.empty_from(ctx)) catch |e| return e;
         buffer_lsp.close(buffer);
         self.buffer_manager.delete_buffer(buffer);
-        const logger = log.logger("buffer");
-        defer logger.deinit();
         logger.print("deleted buffer {s}", .{file_path});
         tui.need_render(@src());
     }
@@ -1720,7 +1721,7 @@ const cmds = struct {
         var file_path: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
             return error.InvalidDeleteBufferArgument;
-        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        const buffer = self.find_buffer(file_path) orelse return;
         if (buffer.file_state == .deleted_on_disk)
             return self.confirm_close_deleted_buffers(&.{buffer}, .save_and_close);
         if (buffer.is_dirty())
@@ -3355,6 +3356,12 @@ pub fn foreach_editor(self: *Self, func: ForEachEditorFunc) void {
         if (editor.dynamic_cast(ed.EditorWidget)) |p|
             func(&p.editor);
     }
+}
+
+fn find_buffer(self: *Self, file_path: []const u8) ?*Buffer {
+    if (self.buffer_manager.get_buffer_for_file(file_path)) |buffer| return buffer;
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    return self.buffer_manager.get_buffer_for_file(project_manager.normalize_file_path(file_path, &file_path_buf));
 }
 
 pub fn get_editor_for_buffer(self: *Self, buffer: *Buffer) ?*ed.Editor {
