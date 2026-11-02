@@ -343,12 +343,15 @@ const Process = struct {
     parent: tp.pid,
     watcher: ?file_watcher.Owned = null,
     files: std.StringHashMapUnmanaged(File) = .empty,
-    dirs: std.StringHashMapUnmanaged(usize) = .empty,
+    dirs: std.StringHashMapUnmanaged(Dir) = .empty,
+    anchors: std.StringHashMapUnmanaged(void) = .empty, // nearest existing parents of missing dirs
     clients: std.AutoHashMapUnmanaged(tp.piid, usize) = .empty,
     streams: std.AutoHashMapUnmanaged(StreamKey, Stream) = .empty,
     own_writes: std.StringHashMapUnmanaged(Fingerprint) = .empty,
 
     const Receiver = tp.Receiver(*@This());
+
+    const Dir = struct { count: usize = 0, missing: bool = false, restoring: bool = false };
 
     const File = struct {
         subscribers: std.AutoHashMapUnmanaged(tp.piid, usize) = .empty,
@@ -443,6 +446,9 @@ const Process = struct {
         var dirs = self.dirs.keyIterator();
         while (dirs.next()) |dir| self.allocator.free(dir.*);
         self.dirs.deinit(self.allocator);
+        var anchors = self.anchors.keyIterator();
+        while (anchors.next()) |dir| self.allocator.free(dir.*);
+        self.anchors.deinit(self.allocator);
         self.parent.deinit();
         self.logger.deinit();
         self.allocator.destroy(self);
@@ -490,6 +496,8 @@ const Process = struct {
             self.handle_change(path, event_type, object_type);
         } else if (try cbor.match(m.buf, .{ "FSW", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) })) {
             self.handle_rename(from_path, path, object_type);
+        } else if (try cbor.match(m.buf, .{ "FSW", "watched", tp.extract(&path) })) {
+            self.handle_watched(path);
         } else if (try cbor.match(m.buf, .{ "read", tp.extract(&id), tp.extract(&path), tp.extract(&chunk_size), tp.extract(&window) })) {
             self.read_begin(from, id, path, chunk_size, window);
         } else if (try cbor.match(m.buf, .{ "read_diff", tp.extract(&id), tp.extract(&path), tp.extract(&chunk_size), tp.extract(&window), tp.extract(&bytes) })) {
@@ -1027,21 +1035,110 @@ const Process = struct {
                 self.dirs.removeByPtr(gop.key_ptr);
                 return;
             };
-            gop.value_ptr.* = 0;
+            gop.value_ptr.* = .{};
         }
-        gop.value_ptr.* += 1;
-        if (gop.value_ptr.* == 1) if (self.get_watcher()) |watcher|
+        gop.value_ptr.count += 1;
+        if (gop.value_ptr.count > 1) return;
+        const watcher = self.get_watcher() orelse return;
+        if (is_dir(gop.key_ptr.*)) {
             watcher.watch(gop.key_ptr.*) catch |e| self.logger.err("watch", e);
+        } else {
+            gop.value_ptr.missing = true;
+            self.check_dirs();
+        }
     }
 
     fn release_dir(self: *@This(), file_path: []const u8) void {
         const dir = std.fs.path.dirname(file_path) orelse return;
-        const count = self.dirs.getPtr(dir) orelse return;
-        count.* -= 1;
-        if (count.* > 0) return;
+        const entry = self.dirs.getPtr(dir) orelse return;
+        entry.count -= 1;
+        if (entry.count > 0) return;
         const kv = self.dirs.fetchRemove(dir) orelse return;
         defer self.allocator.free(kv.key);
-        if (self.watcher) |watcher| watcher.unwatch(kv.key) catch |e| self.logger.err("unwatch", e);
+        if (self.watcher) |watcher| if (!self.anchors.contains(kv.key))
+            watcher.unwatch(kv.key) catch |e| self.logger.err("unwatch", e);
+        if (kv.value.missing) self.check_dirs();
+    }
+
+    fn is_dir(path: []const u8) bool {
+        const stat_ = std.Io.Dir.cwd().statFile(root.get_io(), path, .{}) catch return false;
+        return stat_.kind == .directory;
+    }
+
+    fn nearest_existing_parent(path: []const u8) ?[]const u8 {
+        var dir = std.fs.path.dirname(path);
+        while (dir) |d| : (dir = std.fs.path.dirname(d)) if (is_dir(d)) return d;
+        return null;
+    }
+
+    fn mark_dirs_missing(self: *@This(), path: []const u8) void {
+        var it = self.dirs.iterator();
+        while (it.next()) |p| if (std.mem.eql(u8, p.key_ptr.*, path) or is_below(p.key_ptr.*, path)) {
+            p.value_ptr.missing = true;
+        };
+    }
+
+    fn check_dirs(self: *@This()) void {
+        const watcher = self.get_watcher() orelse return;
+        var anchors: std.StringHashMapUnmanaged(void) = .empty;
+        defer anchors.deinit(self.allocator);
+        var dirs = self.dirs.iterator();
+        while (dirs.next()) |p| {
+            if (!is_dir(p.key_ptr.*)) {
+                p.value_ptr.missing = true;
+                const anchor = nearest_existing_parent(p.key_ptr.*) orelse continue;
+                anchors.put(self.allocator, anchor, {}) catch {};
+            } else if (p.value_ptr.missing) {
+                p.value_ptr.missing = false;
+                p.value_ptr.restoring = true;
+                watcher.watch(p.key_ptr.*) catch |e| self.logger.err("watch", e);
+            }
+        }
+
+        var stale: std.ArrayList([]const u8) = .empty;
+        defer stale.deinit(self.allocator);
+        var old = self.anchors.keyIterator();
+        while (old.next()) |dir| if (!anchors.contains(dir.*)) stale.append(self.allocator, dir.*) catch {};
+        for (stale.items) |dir| {
+            _ = self.anchors.remove(dir);
+            if (!self.dirs.contains(dir)) watcher.unwatch(dir) catch |e| self.logger.err("unwatch", e);
+            self.allocator.free(dir);
+        }
+
+        var new = anchors.keyIterator();
+        while (new.next()) |dir| {
+            if (self.anchors.contains(dir.*)) continue;
+            const owned = self.allocator.dupe(u8, dir.*) catch continue;
+            self.anchors.put(self.allocator, owned, {}) catch {
+                self.allocator.free(owned);
+                continue;
+            };
+            watcher.watch(owned) catch |e| self.logger.err("watch", e);
+        }
+    }
+
+    fn handle_watched(self: *@This(), path: []const u8) void {
+        var expired = false;
+        if (self.dirs.getPtr(path)) |dir| if (dir.restoring) {
+            dir.restoring = false;
+            expired = self.notify_files_restored(path);
+        };
+        if (self.anchors.count() > 0) self.check_dirs();
+        if (expired) self.prune_expired();
+    }
+
+    fn notify_files_restored(self: *@This(), dir: []const u8) bool {
+        var expired = false;
+        var it = self.files.iterator();
+        while (it.next()) |p| {
+            const file_dir = std.fs.path.dirname(p.key_ptr.*) orelse continue;
+            if (!std.mem.eql(u8, file_dir, dir)) continue;
+            _ = std.Io.Dir.cwd().statFile(root.get_io(), p.key_ptr.*, .{}) catch continue;
+            if (self.is_own_write(p.key_ptr.*)) continue;
+            if (self.notify(p.value_ptr, null, .{ "FS", "change", p.key_ptr.*, EventType.created, ObjectType.file }))
+                expired = true;
+        }
+        return expired;
     }
 
     fn get_watcher(self: *@This()) ?*file_watcher.Owned {
@@ -1070,7 +1167,10 @@ const Process = struct {
                 if (self.notify(p.value_ptr, null, .{ "FS", "change", p.key_ptr.*, EventType.deleted, ObjectType.file }))
                     expired = true;
             }
+            self.mark_dirs_missing(path);
         }
+        if (object_type != .file and (event_type == .deleted or event_type == .created))
+            self.check_dirs();
         if (expired) self.prune_expired();
     }
 
@@ -1100,6 +1200,8 @@ const Process = struct {
                 if (self.notify(p.value_ptr, null, .{ "FS", "rename", p.key_ptr.*, new_path, ObjectType.file }))
                     expired = true;
             }
+            self.mark_dirs_missing(from_path);
+            self.check_dirs();
         }
         if (expired) self.prune_expired();
     }

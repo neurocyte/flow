@@ -41,9 +41,10 @@ pub const Instance = struct {
     filtered: bool = false,
     recursive: bool = true,
     quiet_missing: bool = false,
+    watch_acks: bool = false,
 
     pub const project_tree: Instance = .{ .name = module_name, .tag = "FW", .filtered = true };
-    pub const file_store: Instance = .{ .name = "file_store_watcher", .tag = "FSW", .recursive = false };
+    pub const file_store: Instance = .{ .name = "file_store_watcher", .tag = "FSW", .recursive = false, .quiet_missing = true, .watch_acks = true };
     pub const vcs_metadata: Instance = .{ .name = "vcs_metadata_watcher", .tag = "VW", .recursive = false, .quiet_missing = true };
     pub const repo_worktree: Instance = .{ .name = "repo_worktree_watcher", .tag = "RW", .filtered = true };
 
@@ -229,6 +230,7 @@ const Process = struct {
                     std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
                 else => std.log.err("{s} watch: {s} -> {}", .{ self.instance.name, path, e }),
             };
+            if (self.instance.watch_acks) self.parent.send(.{ self.instance.tag, "watched", path }) catch {};
         } else if (try cbor.match(m.buf, .{ "unwatch", tp.extract(&path) })) {
             self.nw.?.unwatch(path) catch |e| std.log.err("{s} unwatch: {s} -> {}", .{ self.instance.name, path, e });
             self.remove_root(path);

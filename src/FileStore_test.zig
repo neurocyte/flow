@@ -66,8 +66,12 @@ const Op = union(enum) {
     short_write: struct { name: []const u8 },
     dying_writer: struct { name: []const u8 },
     watch: struct { name: []const u8 },
+    settle: struct { ms: u64 },
     expect_no_events: struct { ms: u64 },
     external_append: struct { name: []const u8, content: []const u8 },
+    external_create: struct { name: []const u8, content: []const u8 },
+    external_make_dir: struct { name: []const u8 },
+    external_delete_tree: struct { name: []const u8 },
     expect_event: struct { ms: u64 },
 };
 
@@ -117,7 +121,9 @@ const Driver = struct {
     }
 
     fn path(self: *@This(), name: []const u8) []const u8 {
-        return std.fs.path.join(allocator, &.{ self.dir, name }) catch @panic("OOM");
+        const joined = std.fs.path.join(allocator, &.{ self.dir, name }) catch @panic("OOM");
+        if (builtin.os.tag == .windows) std.mem.replaceScalar(u8, joined, '/', '\\');
+        return joined;
     }
 
     fn new_id(self: *@This()) usize {
@@ -173,6 +179,7 @@ const Driver = struct {
                 try self.store.watch(self.watched);
                 try self.start_timer(300);
             },
+            .settle => |op| try self.start_timer(op.ms),
             .expect_no_events => |op| {
                 self.events = 0;
                 try self.start_timer(op.ms);
@@ -184,6 +191,22 @@ const Driver = struct {
                 const stat = try f.stat(io);
                 try f.writePositionalAll(io, op.content, stat.size);
                 self.events = 0;
+                return self.advance();
+            },
+            .external_create => |op| {
+                self.events = 0;
+                const io = std.testing.io;
+                try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(self.path(op.name)).?);
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = self.path(op.name), .data = op.content });
+                return self.advance();
+            },
+            .external_make_dir => |op| {
+                try std.Io.Dir.cwd().createDirPath(std.testing.io, self.path(op.name));
+                return self.advance();
+            },
+            .external_delete_tree => |op| {
+                self.events = 0;
+                try std.Io.Dir.cwd().deleteTree(std.testing.io, self.path(op.name));
                 return self.advance();
             },
             .expect_event => |op| {
@@ -222,7 +245,7 @@ const Driver = struct {
             self.timeout = null;
             if (self.index >= self.ops.len) return;
             return switch (self.ops[self.index]) {
-                .watch, .dying_writer => self.advance(),
+                .watch, .dying_writer, .settle => self.advance(),
                 .expect_no_events => if (self.events == 0) self.advance() else fail("{d} change events for our own write", .{self.events}),
                 .expect_event => fail("no change event for an external write", .{}),
                 else => {},
@@ -360,6 +383,8 @@ test "file store streams" {
     try write_fixture(tmp.dir, "big2.txt", big2);
     try write_fixture(tmp.dir, "binary.bin", "abc\x00def");
     try write_fixture(tmp.dir, "watched.txt", "first");
+    try tmp.dir.createDirPath(io, "gone/deep");
+    try write_fixture(tmp.dir, "gone/deep/file.txt", "before");
     if (posix) {
         try write_fixture(tmp.dir, "target.txt", "target");
         try tmp.dir.symLink(io, "target.txt", "link.txt", .{});
@@ -403,6 +428,18 @@ test "file store streams" {
         .{ .expect_no_events = .{ .ms = 300 } },
         .{ .external_append = .{ .name = "watched.txt", .content = " external" } },
         .{ .expect_event = .{ .ms = 3000 } },
+        .{ .watch = .{ .name = "gone/deep/file.txt" } },
+        .{ .external_delete_tree = .{ .name = "gone/deep" } },
+        .{ .expect_event = .{ .ms = 3000 } },
+        .{ .external_create = .{ .name = "gone/deep/file.txt", .content = "after" } },
+        .{ .expect_event = .{ .ms = 3000 } },
+        .{ .external_delete_tree = .{ .name = "gone" } },
+        .{ .expect_event = .{ .ms = 3000 } },
+        .{ .settle = .{ .ms = 200 } },
+        .{ .external_make_dir = .{ .name = "gone" } },
+        .{ .expect_no_events = .{ .ms = 300 } },
+        .{ .external_create = .{ .name = "gone/deep/file.txt", .content = "after" } },
+        .{ .expect_event = .{ .ms = 3000 } },
     });
 
     var ctx = try tp.context.init(std.testing.allocator, .{});
@@ -435,7 +472,7 @@ test "file store streams" {
         try std.testing.expectEqualStrings("via link", try read_fixture(tmp.dir, "target.txt"));
     }
 
-    const allowed = [_][]const u8{ "new.txt", "empty.txt", "exact.txt", "plus1.txt", "existing.txt", "nested", "big2.txt", "binary.bin", "watched.txt", "target.txt", "link.txt", "ro" };
+    const allowed = [_][]const u8{ "new.txt", "empty.txt", "exact.txt", "plus1.txt", "existing.txt", "nested", "big2.txt", "binary.bin", "watched.txt", "gone", "target.txt", "link.txt", "ro" };
     var it = tmp.dir.iterate();
     while (try it.next(io)) |entry| {
         for (allowed) |name| {
