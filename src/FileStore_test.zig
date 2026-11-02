@@ -62,6 +62,7 @@ const Op = union(enum) {
     read: struct { name: []const u8, content: ?[]const u8 },
     read_two: struct { a: []const u8, a_content: []const u8, b: []const u8, b_content: []const u8 },
     probe: struct { name: []const u8, kind: FileStore.ProbeKind, binary: bool = false },
+    exists: struct { name: []const u8, expected: bool },
     short_write: struct { name: []const u8 },
     dying_writer: struct { name: []const u8 },
     watch: struct { name: []const u8 },
@@ -154,6 +155,7 @@ const Driver = struct {
                 self.request_id = self.new_id();
                 try self.store.probe(self.request_id, self.path(op.name));
             },
+            .exists => |op| try self.store.exists(self.path(op.name)),
             .short_write => |op| {
                 self.request_id = self.new_id();
                 try self.store.pid.send(.{ "write_begin", self.request_id, self.path(op.name), @as(u64, 10), true, @as(usize, 4) });
@@ -233,6 +235,13 @@ const Driver = struct {
                 return self.start_timer(200);
             };
             return fail("unexpected exit: {f}", .{m});
+        }
+
+        var found = false;
+        if (try m.match(.{ "FS", "exists", tp.extract(&path_), tp.extract(&found) })) {
+            const op = self.ops[self.index].exists;
+            if (found != op.expected) return fail("exists {s}: expected {} got {}", .{ op.name, op.expected, found });
+            return self.advance();
         }
 
         const reply = FileStore.reply_id(m) orelse return fail("unexpected message: {f}", .{m});
@@ -381,6 +390,8 @@ test "file store streams" {
         .{ .probe = .{ .name = "nested", .kind = .dir } },
         .{ .probe = .{ .name = "binary.bin", .kind = .file, .binary = true } },
         .{ .probe = .{ .name = "nope", .kind = .none } },
+        .{ .exists = .{ .name = "new.txt", .expected = true } },
+        .{ .exists = .{ .name = "nope", .expected = false } },
         .{ .short_write = .{ .name = "short.txt" } },
         .{ .dying_writer = .{ .name = "dying.txt" } },
     });

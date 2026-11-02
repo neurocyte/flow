@@ -64,6 +64,11 @@ pub fn stat(self: *const Self, id: usize, abs_path: []const u8) Error!void {
     return self.send(.{ "stat", id, abs_path });
 }
 
+/// replies with {"FS", "exists", path, exists}
+pub fn exists(self: *const Self, abs_path: []const u8) Error!void {
+    return self.send(.{ "exists", abs_path });
+}
+
 pub const FileOp = enum { probe, rename, delete };
 pub const Conflict = enum { fail, overwrite, ignore };
 pub const Scope = enum { file, recursive };
@@ -501,6 +506,8 @@ const Process = struct {
             probe_path(from, id, path);
         } else if (try cbor.match(m.buf, .{ "stat", tp.extract(&id), tp.extract(&path) })) {
             stat_path(from, id, path);
+        } else if (try cbor.match(m.buf, .{ "exists", tp.extract(&path) })) {
+            exists_path(from, path);
         } else if (try cbor.match(m.buf, .{ "file_op", tp.extract(&id), tp.extract(&op), tp.extract(&from_path), tp.extract(&path), tp.extract(&conflict), tp.extract(&scope) })) {
             const result = self.file_op(op, from_path, path, conflict, scope) catch |e|
                 return send_error(from, id, "file_op", @errorName(e));
@@ -940,6 +947,11 @@ const Process = struct {
         const high: i64 = @intCast(mtime >> 64);
         const low: i64 = @truncate(mtime);
         from.send(.{ "FS", "stat", id, path, high, low }) catch {};
+    }
+
+    fn exists_path(from: tp.pid_ref, path: []const u8) void {
+        const found = if (std.Io.Dir.cwd().statFile(root.get_io(), path, .{})) |_| true else |_| false;
+        from.send(.{ "FS", "exists", path, found }) catch {};
     }
 
     /// sniff the first 1k of `path` for a NUL
