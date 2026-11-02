@@ -218,7 +218,7 @@ pub fn open_file(self: *Self, file_path: []const u8, now: std.Io.Timestamp) erro
 
 pub fn needs_load(self: *const Self, file_path: []const u8) bool {
     const buffer = self.get_buffer(file_path) orelse return true;
-    return !buffer.is_ephemeral() and buffer.hidden;
+    return !buffer.is_ephemeral() and buffer.hidden and buffer.file_state != .deleted_on_disk;
 }
 
 pub fn load(self: *Self, file_path: []const u8, options: LoadOptions) LoadError!void {
@@ -500,6 +500,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
         try buffer.extract_state(iter, now);
         try self.add_buffer(buffer);
         self.watch_buffer(buffer);
+        self.check_file_exists(buffer);
         self.update_shown(buffer);
         tp.trace(tp.channel.debug, .{ "buffer", "extract", buffer.get_file_path(), buffer.file_type_name });
     }
@@ -898,7 +899,10 @@ pub fn set_file_store(self: *Self, file_store: FileStore) void {
     if (self.file_store) |*old| old.deinit();
     self.file_store = file_store;
     var i = self.buffers.valueIterator();
-    while (i.next()) |buffer| self.watch_buffer(buffer.*);
+    while (i.next()) |buffer| {
+        self.watch_buffer(buffer.*);
+        self.check_file_exists(buffer.*);
+    }
     self.start_queued_loads();
 }
 
@@ -934,6 +938,12 @@ fn watch_buffer(self: *Self, buffer: *Buffer) void {
         return;
     };
     file_store.watch(abs_path) catch |e| std.log.err("file_store.watch: {s} -> {}", .{ abs_path, e });
+}
+
+fn check_file_exists(self: *Self, buffer: *Buffer) void {
+    const file_store = self.file_store orelse return;
+    const abs_path = self.watched.get(buffer) orelse return;
+    file_store.exists(abs_path) catch |e| std.log.err("file_store.exists: {s} -> {}", .{ abs_path, e });
 }
 
 fn unwatch_buffer(self: *Self, buffer: *Buffer) void {
@@ -987,13 +997,23 @@ pub fn receive_file_store_message(self: *Self, from: tp.pid_ref, m: tp.message) 
     var from_path: []const u8 = undefined;
     var event_type: FileStore.EventType = undefined;
     var object_type: FileStore.ObjectType = undefined;
-    if (m.match(.{ "FS", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) }) catch false) {
+    var exists: bool = false;
+    if (m.match(.{ "FS", "exists", tp.extract(&path), tp.extract(&exists) }) catch false) {
+        return self.file_exists_checked(path, exists);
+    } else if (m.match(.{ "FS", "change", tp.extract(&path), tp.extract(&event_type), tp.extract(&object_type) }) catch false) {
         return self.file_changed(path, event_type, object_type);
     } else if (m.match(.{ "FS", "rename", tp.extract(&from_path), tp.extract(&path), tp.extract(&object_type) }) catch false) {
         return self.file_renamed(from_path, path, object_type);
     } else if (m.match(.{ "FS", "ready" }) catch false) {
         self.set_file_store(.{ .pid = from.clone() });
     }
+    return .nochange;
+}
+
+fn file_exists_checked(self: *Self, abs_path: []const u8, exists: bool) LoadResult {
+    const buffer = self.buffer_for_watched_path(abs_path) orelse return .nochange;
+    if (buffer.file_exists and !exists) return self.file_gone(buffer, null);
+    if (exists and buffer.file_state == .deleted_on_disk) return self.file_replaced(buffer);
     return .nochange;
 }
 

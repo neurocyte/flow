@@ -4485,7 +4485,7 @@ fn apply_file_operation(self: *Self, op: FileOperation, step: WorkspaceEditStep,
                 return .pending;
             }
             if (self.buffer_manager.get_buffer_for_file(op.path)) |known| {
-                if (known.file_exists or (step != .loaded and !known.is_hidden())) switch (op.conflict) {
+                if (known.file_exists or known.file_state == .deleted_on_disk or (step != .loaded and !known.is_hidden())) switch (op.conflict) {
                     .overwrite => {},
                     .fail, .ignore => {
                         if (step == .loaded) self.buffer_manager.delete_buffer(known);

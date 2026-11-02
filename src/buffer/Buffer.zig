@@ -2150,6 +2150,7 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
         self.vcs_id,
         content.written(),
         self.ephemeral,
+        self.file_state,
     });
 }
 
@@ -2163,7 +2164,9 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
     var vcs_id: ?[]const u8 = null;
     var content: []const u8 = undefined;
     var ephemeral: bool = false;
+    var file_state: FileState = .in_sync;
     var state = iter.*;
+    var state_no_file_state = iter.*;
 
     if (try cbor.matchValue(iter, .{
         cbor.extract(&file_path),
@@ -2179,7 +2182,24 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
         cbor.extract(&vcs_id),
         cbor.extract(&content),
         cbor.extract(&self.ephemeral),
-    })) {} else if (try cbor.matchValue(&state, .{
+        cbor.extract(&file_state),
+    })) {} else if (try cbor.matchValue(&state_no_file_state, .{
+        cbor.extract(&file_path),
+        cbor.extract(&self.file_exists),
+        cbor.extract(&self.file_eol_mode),
+        cbor.extract(&self.hidden),
+        cbor.extract(&ephemeral),
+        cbor.extract(&self.auto_save),
+        cbor.extract(&self.last_view),
+        cbor.extract(&dirty),
+        cbor.extract(&meta),
+        cbor.extract(&file_type_name),
+        cbor.extract(&vcs_id),
+        cbor.extract(&content),
+        cbor.extract(&self.ephemeral),
+    })) {
+        iter.* = state_no_file_state;
+    } else if (try cbor.matchValue(&state, .{
         cbor.extract(&file_path),
         cbor.extract(&self.file_exists),
         cbor.extract(&self.file_eol_mode),
@@ -2214,6 +2234,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !voi
         self.meta = try self.external_allocator.dupe(u8, buf);
     }
     try self.reset_from_string_and_update(content, now);
+    self.file_state = file_state;
     if (dirty) self.mark_dirty();
 }
 
