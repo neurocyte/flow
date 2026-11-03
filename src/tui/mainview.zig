@@ -2891,6 +2891,34 @@ const cmds = struct {
     }
     pub const shell_execute_log_meta: Meta = .{ .arguments = &.{.string} };
 
+    pub fn shell_execute_detached(self: *Self, ctx: Ctx) Result {
+        if (!try ctx.args.match(.{ tp.string, tp.more }))
+            return error.InvalidShellArgument;
+        const cmd = @import("expansion.zig").expand_cbor(self.allocator, .{ .bytes = ctx.args.buf }) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer self.allocator.free(cmd.bytes);
+        var argv: std.ArrayList([]const u8) = .empty;
+        defer argv.deinit(self.allocator);
+        var iter = cmd.bytes;
+        var len = try cbor.decodeArrayHeader(&iter);
+        while (len > 0) : (len -= 1) {
+            var arg: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &arg)) return error.InvalidShellArgument;
+            try argv.append(self.allocator, arg);
+        }
+        shell.execute_detached(self.allocator, argv.items) catch |e| switch (e) {
+            error.ExecutableNotFound => {
+                const logger = log.logger("shell");
+                defer logger.deinit();
+                return logger.print_err("shell_execute_detached", "'{s}' executable not found", .{argv.items[0]});
+            },
+            else => |e_| return e_,
+        };
+    }
+    pub const shell_execute_detached_meta: Meta = .{ .arguments = &.{.string} };
+
     pub fn shell_execute_insert(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
             return error.InvalidShellArgument;
