@@ -253,7 +253,7 @@ pub fn init(
     for (argv, argv_owned) |src_arg, *dst| dst.* = try allocator.dupe(u8, src_arg);
 
     var pty = if (is_windows)
-        try Pty.init(allocator, opts.winsize)
+        try Pty.init(allocator, io, opts.winsize)
     else blk: {
         const p = try Pty.init();
         try p.setSize(opts.winsize);
@@ -372,7 +372,7 @@ pub fn respawn(
 
     const ws: Winsize = self.winsizeForScreen();
     var new_pty = if (is_windows)
-        try Pty.init(self.allocator, ws)
+        try Pty.init(self.allocator, self.io, ws)
     else blk: {
         const p = try Pty.init();
         try p.setSize(ws);

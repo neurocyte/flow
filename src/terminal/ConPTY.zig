@@ -92,6 +92,61 @@ extern "kernel32" fn DeleteProcThreadAttributeList(
     lpAttributeList: windows.LPVOID,
 ) callconv(.winapi) void;
 
+extern "kernel32" fn LoadLibraryW(lpLibFileName: [*:0]const u16) callconv(.winapi) ?*anyopaque;
+extern "kernel32" fn FreeLibrary(hLibModule: *anyopaque) callconv(.winapi) windows.BOOL;
+extern "kernel32" fn GetProcAddress(hModule: *anyopaque, lpProcName: [*:0]const u8) callconv(.winapi) ?*anyopaque;
+
+/// pseudo-console functions, from kernel32 or from a conpty.dll
+const Api = struct {
+    create: *const fn (COORD, windows.HANDLE, windows.HANDLE, windows.DWORD, *HPCON) callconv(.winapi) HRESULT,
+    resize: *const fn (HPCON, COORD) callconv(.winapi) HRESULT,
+    close: *const fn (HPCON) callconv(.winapi) void,
+};
+
+const builtin_api: Api = .{
+    .create = &CreatePseudoConsole,
+    .resize = &ResizePseudoConsole,
+    .close = &ClosePseudoConsole,
+};
+
+var api_: ?Api = null;
+
+fn api() Api {
+    return api_ orelse builtin_api;
+}
+
+fn load_api(allocator: std.mem.Allocator, io: std.Io) void {
+    if (api_ == null) api_ = load_bundled_api(allocator, io) orelse builtin_api;
+}
+
+fn load_bundled_api(allocator: std.mem.Allocator, io: std.Io) ?Api {
+    const log = std.log.scoped(.conpty);
+    const module = open_bundled_dll(allocator, io) catch |e| {
+        log.debug("conpty.dll not loaded ({t}), using the built-in ConPTY", .{e});
+        return null;
+    };
+    const create = GetProcAddress(module, "ConptyCreatePseudoConsole");
+    const resize = GetProcAddress(module, "ConptyResizePseudoConsole");
+    const close = GetProcAddress(module, "ConptyClosePseudoConsole");
+    if (create == null or resize == null or close == null) {
+        log.debug("conpty.dll lacks the Conpty functions, using the built-in ConPTY", .{});
+        _ = FreeLibrary(module);
+        return null;
+    }
+    log.debug("using the bundled conpty.dll", .{});
+    return .{ .create = @ptrCast(create), .resize = @ptrCast(resize), .close = @ptrCast(close) };
+}
+
+fn open_bundled_dll(allocator: std.mem.Allocator, io: std.Io) !*anyopaque {
+    const dir = try std.process.executableDirPathAlloc(io, allocator);
+    defer allocator.free(dir);
+    const path = try std.fs.path.join(allocator, &.{ dir, "conpty.dll" });
+    defer allocator.free(path);
+    const path_w = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, path);
+    defer allocator.free(path_w);
+    return LoadLibraryW(path_w) orelse error.FileNotFound;
+}
+
 const COORD = extern struct {
     X: i16,
     Y: i16,
@@ -118,7 +173,9 @@ pipe_in_read: windows.HANDLE,
 attr_list_buf: []u8,
 allocator: std.mem.Allocator,
 
-pub fn init(allocator: std.mem.Allocator, ws: Winsize) !ConPTY {
+pub fn init(allocator: std.mem.Allocator, io: std.Io, ws: Winsize) !ConPTY {
+    load_api(allocator, io);
+
     var saAttr = windows.SECURITY_ATTRIBUTES{
         .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
         .bInheritHandle = .TRUE,
@@ -157,9 +214,9 @@ pub fn init(allocator: std.mem.Allocator, ws: Winsize) !ConPTY {
         .Y = @intCast(ws.rows),
     };
     var hpc: HPCON = undefined;
-    const hr = CreatePseudoConsole(size, pipe_in_read, pipe_out_write, 0, &hpc);
+    const hr = api().create(size, pipe_in_read, pipe_out_write, 0, &hpc);
     if (hr != 0) return error.CreatePseudoConsoleFailed; // S_OK = 0
-    errdefer ClosePseudoConsole(hpc);
+    errdefer api().close(hpc);
 
     // Build the PROC_THREAD_ATTRIBUTE_LIST with one attribute (PSEUDOCONSOLE).
     var attr_list_size: usize = 0;
@@ -204,7 +261,7 @@ pub fn closChildSidePipes(self: *ConPTY) void {
 }
 
 pub fn deinit(self: *ConPTY, _: std.Io) void {
-    ClosePseudoConsole(self.hpc);
+    api().close(self.hpc);
     if (self.pipe_out_read != windows.INVALID_HANDLE_VALUE) windows.CloseHandle(self.pipe_out_read);
     if (self.pipe_in_write != windows.INVALID_HANDLE_VALUE) windows.CloseHandle(self.pipe_in_write);
     if (self.pipe_out_write != windows.INVALID_HANDLE_VALUE) windows.CloseHandle(self.pipe_out_write);
@@ -218,7 +275,7 @@ pub fn setSize(self: *ConPTY, ws: Winsize) !void {
         .X = @intCast(ws.cols),
         .Y = @intCast(ws.rows),
     };
-    const hr = ResizePseudoConsole(self.hpc, size);
+    const hr = api().resize(self.hpc, size);
     if (hr != 0) return error.ResizePseudoConsoleFailed;
 }
 
