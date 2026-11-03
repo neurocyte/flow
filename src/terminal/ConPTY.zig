@@ -3,8 +3,10 @@
 const ConPTY = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const windows = std.os.windows;
 const Winsize = @import("vaxis").Winsize;
+const root = @import("soft_root").root;
 
 // ConPTY API types and functions - not yet in Zig stdlib so declared as extern.
 // Available since Windows 1809 (build 17763).
@@ -109,6 +111,37 @@ const builtin_api: Api = .{
     .close = &ClosePseudoConsole,
 };
 
+pub const Package = struct {
+    version: []const u8,
+    url: []const u8,
+    sha256: [32]u8,
+    dll_entry: []const u8,
+    console_entry: []const u8,
+};
+
+pub const package: Package = blk: {
+    const version = "1.25.260930003";
+    const dll_arch, const console_arch = switch (builtin.cpu.arch) {
+        .x86_64 => .{ "win-x64", "x64" },
+        .aarch64 => .{ "win-arm64", "arm64" },
+        else => @compileError("no ConPTY package for this architecture"),
+    };
+    var buf: [32]u8 = undefined;
+    const sha256 = std.fmt.hexToBytes(&buf, "02b07b349af66d801159bdf9e440d4a1ce78bb951f37fc8609731665afdae7ee") catch unreachable;
+    break :blk .{
+        .version = version,
+        .url = "https://api.nuget.org/v3-flatcontainer/microsoft.windows.console.conpty/" ++ version ++
+            "/microsoft.windows.console.conpty." ++ version ++ ".nupkg",
+        .sha256 = sha256.*,
+        .dll_entry = "runtimes/" ++ dll_arch ++ "/native/conpty.dll",
+        .console_entry = "build/native/runtimes/" ++ console_arch ++ "/OpenConsole.exe",
+    };
+};
+
+pub fn download_dir(allocator: std.mem.Allocator) ![]u8 {
+    return std.fs.path.join(allocator, &.{ try root.get_state_dir(), "conpty", package.version });
+}
+
 var api_: ?Api = null;
 var api_path_buf: [std.fs.max_path_bytes]u8 = undefined;
 var api_path: ?[]const u8 = null;
@@ -119,6 +152,26 @@ fn api() Api {
 
 fn load_api(allocator: std.mem.Allocator, io: std.Io) void {
     if (api_ == null) api_ = load_bundled_api(allocator, io) orelse builtin_api;
+}
+
+pub fn is_loaded() bool {
+    return api_ != null;
+}
+
+pub fn bundled_available(allocator: std.mem.Allocator, io: std.Io) bool {
+    const exe_dir = std.process.executableDirPathAlloc(io, allocator) catch return false;
+    defer allocator.free(exe_dir);
+    if (dll_exists(allocator, io, exe_dir)) return true;
+    const dir = download_dir(allocator) catch return false;
+    defer allocator.free(dir);
+    return dll_exists(allocator, io, dir);
+}
+
+fn dll_exists(allocator: std.mem.Allocator, io: std.Io, dir: []const u8) bool {
+    const path = std.fs.path.join(allocator, &.{ dir, "conpty.dll" }) catch return false;
+    defer allocator.free(path);
+    std.Io.Dir.accessAbsolute(io, path, .{}) catch return false;
+    return true;
 }
 
 pub fn dll_path(allocator: std.mem.Allocator, io: std.Io) ?[]const u8 {
@@ -146,8 +199,19 @@ fn load_bundled_api(allocator: std.mem.Allocator, io: std.Io) ?Api {
 }
 
 fn open_bundled_dll(allocator: std.mem.Allocator, io: std.Io) !*anyopaque {
-    const dir = try std.process.executableDirPathAlloc(io, allocator);
-    defer allocator.free(dir);
+    const exe_dir = try std.process.executableDirPathAlloc(io, allocator);
+    defer allocator.free(exe_dir);
+    return open_dll_in(allocator, exe_dir) catch |e| switch (e) {
+        error.FileNotFound => {
+            const dir = try download_dir(allocator);
+            defer allocator.free(dir);
+            return open_dll_in(allocator, dir);
+        },
+        else => e,
+    };
+}
+
+fn open_dll_in(allocator: std.mem.Allocator, dir: []const u8) !*anyopaque {
     const path = try std.fs.path.join(allocator, &.{ dir, "conpty.dll" });
     defer allocator.free(path);
     if (path.len > api_path_buf.len) return error.NameTooLong;

@@ -571,6 +571,10 @@ pub fn build_exe(
         },
     });
 
+    const fetch_mod = b.createModule(.{
+        .root_source_file = b.path("src/fetch.zig"),
+    });
+
     const double_mapped_ring_buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/DoubleMappedRingBuffer.zig"),
     });
@@ -1317,6 +1321,20 @@ pub fn build_exe(
         break :blk b.addRunArtifact(tests);
     };
 
+    const fetch_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .name = "test-fetch",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/fetch.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        if (install_tests) b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+
     const mouse_event_test_run_cmd = blk: {
         const tests = b.addTest(.{
             .name = "test-mouse_event",
@@ -1530,6 +1548,7 @@ pub fn build_exe(
             .{ .name = "lsp_types", .module = lsp_types_mod },
             .{ .name = "time_fmt", .module = time_fmt_mod },
             .{ .name = "Terminal", .module = Terminal_mod },
+            .{ .name = "fetch", .module = fetch_mod },
             .{ .name = "dbus", .module = dbus_mod },
             .{ .name = "RcServer", .module = RcServer_mod },
         },
@@ -1737,6 +1756,7 @@ pub fn build_exe(
     test_step.dependOn(&terminal_icons_test_run_cmd.step);
     test_step.dependOn(&command_line_test_run_cmd.step);
     test_step.dependOn(&double_mapped_ring_buffer_test_run_cmd.step);
+    test_step.dependOn(&fetch_test_run_cmd.step);
     test_step.dependOn(&mouse_event_test_run_cmd.step);
     test_step.dependOn(&syntax_validator_test_run_cmd.step);
     test_step.dependOn(&richdoc_test_run_cmd.step);

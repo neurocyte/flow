@@ -14,6 +14,7 @@ const richdoc = @import("richdoc");
 const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
 const builtin = @import("builtin");
+const conpty_downloader = @import("conpty_download.zig");
 const build_options = @import("build_options");
 
 const Plane = @import("renderer").Plane;
@@ -625,12 +626,13 @@ fn open_terminal_panel(self: *Self, vt: *Vt, opts: PanelArea.OpenOptions) !*term
     return self.bottom_area.create_panel(terminal_view, .{vt}, opts);
 }
 
-fn run_in_terminal(self: *Self, ctx: command.Context) !*terminal_view {
+fn run_in_terminal(self: *Self, ctx: command.Context) !?*terminal_view {
+    if (!conpty_downloader.allow_new_terminal()) return null;
     const vt = try Vt.Manager.run(root.get_io(), self.allocator, ctx, 24, 80);
     return self.open_terminal_panel(vt, .{ .focus = true });
 }
 
-fn show_current_terminal(self: *Self) !*terminal_view {
+fn show_current_terminal(self: *Self) !?*terminal_view {
     if (self.current_terminal()) |tv| return self.open_terminal_panel(tv.vt, .{});
     return self.run_in_terminal(.empty());
 }
@@ -2069,6 +2071,7 @@ const cmds = struct {
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
 
     pub fn terminal_new(self: *Self, ctx: Ctx) Result {
+        if (!conpty_downloader.allow_new_terminal()) return;
         var profile_name: []const u8 = "";
         var target: PanelArea.Target = .focused_group;
         const have_name = (ctx.args.match(.{tp.extract(&profile_name)}) catch false) or
@@ -2141,7 +2144,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&text)}))
             return;
 
-        const tv = try self.show_current_terminal();
+        const tv = try self.show_current_terminal() orelse return;
         if (tui.config().terminal_focus_after_send)
             tv.focus();
         tv.send_text(text);

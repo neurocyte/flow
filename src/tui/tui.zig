@@ -7,6 +7,7 @@ const project_manager = @import("project_manager");
 const file_watcher = @import("file_watcher");
 const root = @import("soft_root").root;
 const vcs_repo = @import("vcs_repo.zig");
+const conpty_downloader = @import("conpty_download.zig");
 const tracy = @import("tracy");
 const builtin = @import("builtin");
 const file_link = @import("file_link");
@@ -746,6 +747,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "paste_reply", tp.more }))
         return self.handle_paste_reply(m);
+
+    if (try m.match(.{ "conpty_download", tp.more }))
+        return conpty_downloader.receive(m);
 
     if (try m.match(.{ "paste_reply_end", tp.more }))
         return self.handle_paste_reply_end(m);
@@ -1998,6 +2002,13 @@ const cmds = struct {
         });
     }
     pub const show_crash_dialog_meta: Meta = .{};
+
+    pub fn conpty_download(_: *Self, ctx: Ctx) Result {
+        var action: conpty_downloader.Action = undefined;
+        if (!try ctx.args.match(.{tp.extract(&action)})) return error.InvalidConptyDownloadArgument;
+        try conpty_downloader.run(action);
+    }
+    pub const conpty_download_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn inject_input(self: *Self, ctx: Ctx) Result {
         var buf: [tp.max_message_size]u8 = undefined;
