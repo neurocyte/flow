@@ -347,20 +347,9 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
             // Terminal app wrote to the primary selection via OSC 52.
             .primary => tui.primary_send_to_system(copy.text),
         },
+        // Terminal app requested the clipboard or the primary selection via OSC 52.
         .osc_paste_request => |selection| switch (selection) {
-            // Terminal app requested clipboard contents via OSC 52.
-            // Assemble from flow clipboard history and respond.
-            .clipboard => if (tui.clipboard_get_history()) |history| {
-                var buf: std.Io.Writer.Allocating = .init(self.vt.allocator);
-                defer buf.deinit();
-                var first = true;
-                for (history) |chunk| {
-                    if (first) first = false else buf.writer.writeByte('\n') catch break;
-                    buf.writer.writeAll(chunk.text) catch break;
-                }
-                self.vt.respondOsc52Paste(.clipboard, buf.written());
-            },
-            // Terminal app requested the primary selection via OSC 52.
+            .clipboard => tui.request_paste(.clipboard, .{ .vt = .{ .id = self.id, .selection = .clipboard } }),
             .primary => tui.request_paste(.primary_selection, .{ .vt = .{ .id = self.id, .selection = .primary } }),
         },
         .shell_state_change => |shell_state| {

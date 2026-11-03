@@ -1240,10 +1240,12 @@ pub fn request_paste(source_type: PasteEvent.SourceType, requester: PasteRequest
     self.next_paste_request_id += 1;
 
     if (builtin.os.tag == .windows) {
-        const text = @import("renderer").request_windows_clipboard(self.allocator) catch |e|
+        const text = @import("renderer").request_windows_clipboard(self.allocator) catch |e| {
+            end_paste(request);
             return self.logger.err("clipboard", e);
+        };
         defer self.allocator.free(text);
-        if (text.len == 0) return;
+        if (text.len == 0) return end_paste(request);
         return self.deliver_paste(request, .{ .source = .pull, .source_type = request.source_type, .content = text }) catch |e|
             self.logger.err("paste", e);
     }
@@ -1251,8 +1253,12 @@ pub fn request_paste(source_type: PasteEvent.SourceType, requester: PasteRequest
     if (self.paste_requests.items.len >= max_paste_requests) {
         const dropped = self.paste_requests.orderedRemove(0);
         paste_log.debug("request {d} dropped, queue full", .{dropped.id});
+        if (!dropped.replied) end_paste(dropped);
     }
-    self.paste_requests.append(self.allocator, request) catch |e| return self.logger.err("paste", e);
+    self.paste_requests.append(self.allocator, request) catch |e| {
+        end_paste(request);
+        return self.logger.err("paste", e);
+    };
     switch (request.source_type) {
         .clipboard => self.rdr_.request_system_clipboard(),
         .primary_selection => self.rdr_.request_primary_selection(),
@@ -1282,7 +1288,7 @@ fn handle_paste_reply(self: *Self, m: tp.message) !void {
     const request = self.paste_requests.items[idx];
     if (text.len == 0) {
         paste_log.debug("request {d} denied or empty", .{request.id});
-        return;
+        return end_paste(request);
     }
     try self.dispatch_flush_input_event();
     return self.deliver_paste(request, .{ .source = .pull, .source_type = request.source_type, .content = text });
@@ -1298,9 +1304,17 @@ fn handle_paste_reply_end(self: *Self, m: tp.message) !void {
     const request = self.paste_requests.orderedRemove(idx);
     if (request.replied) return;
     paste_log.debug("request {d} got no reply", .{request.id});
+    end_paste(request);
     if (self.expired_paste_requests.items.len >= max_paste_requests)
         _ = self.expired_paste_requests.orderedRemove(0);
     try self.expired_paste_requests.append(self.allocator, request);
+}
+
+fn end_paste(request: PasteRequest) void {
+    switch (request.requester) {
+        .focus => {},
+        .vt => |vt| @import("Vt.zig").Manager.end_osc52_read(vt.id),
+    }
 }
 
 fn deliver_paste(self: *Self, request: PasteRequest, event: PasteEvent) !void {

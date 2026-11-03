@@ -162,6 +162,13 @@ pub fn reap_ref(ref: usize) void {
     };
 }
 
+pub fn end_osc52_read(id: u64) void {
+    for (vts.items) |vt| if (vt.id == id) {
+        if (!vt.process_exited) vt.vt.endOsc52Read();
+        return;
+    };
+}
+
 pub fn respond_osc52_paste(id: u64, selection: Terminal.Selection, text: []const u8) void {
     for (vts.items) |vt| if (vt.id == id) {
         if (!vt.process_exited) vt.vt.respondOsc52Paste(selection, text);

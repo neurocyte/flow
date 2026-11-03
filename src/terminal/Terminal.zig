@@ -222,6 +222,10 @@ last_printed_buf: [Screen.Grapheme.inline_capacity]u8 = undefined, // for REP (C
 last_printed_len: u8 = 0,
 /// Scratch buffer for decoding OSC 52 base64 clipboard data.
 osc52_buf: std.ArrayListUnmanaged(u8) = .empty,
+/// Pending OSC 52 reads. Query eplies are held until a reads end so that
+/// the terminal gets replies in query order.
+osc52_reads: usize = 0,
+held_replies: std.Io.Writer.Allocating,
 
 /// Mouse pointer shape last requested by the app via OSC 22.
 pointer_shape: vaxis.Mouse.Shape = .default,
@@ -290,6 +294,7 @@ pub fn init(
         .tab_stops = tabs,
         .cell_pixel_w = cellPixelsOf(opts.winsize).w,
         .cell_pixel_h = cellPixelsOf(opts.winsize).h,
+        .held_replies = .init(allocator),
     };
 }
 
@@ -305,6 +310,7 @@ pub fn deinit(self: *Terminal) void {
     self.back_screen_pri.deinit(self.allocator);
     self.back_screen_alt.deinit(self.allocator);
     self.osc52_buf.deinit(self.allocator);
+    self.held_replies.deinit();
     self.tab_stops.deinit(self.allocator);
     self.title.deinit(self.allocator);
     for (self.title_stack.items) |t| self.allocator.free(t);
@@ -1103,6 +1109,10 @@ pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
     return &self.pty_writer.interface;
 }
 
+fn reply_writer(self: *Terminal) *std.Io.Writer {
+    return if (self.osc52_reads > 0) &self.held_replies.writer else self.get_pty_writer();
+}
+
 pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context: *Event.HandlerContext, handle_event: Event.Handler, held_lock: bool) error{
     ReadFailed,
     WriteFailed,
@@ -1425,7 +1435,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                     },
                     // Device Attributes
                     'c' => {
-                        const pty_writer = self.get_pty_writer();
+                        const pty_writer = self.reply_writer();
                         defer pty_writer.flush() catch {};
                         if (seq.private_marker) |pm| {
                             switch (pm) {
@@ -1511,7 +1521,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                 var iter = seq.iterator(u16);
                                 const pp = iter.next() orelse 0;
                                 const pv: u16 = if (pp == 4) self.modify_other_keys else 0;
-                                const pty_writer = self.get_pty_writer();
+                                const pty_writer = self.reply_writer();
                                 defer pty_writer.flush() catch {};
                                 try pty_writer.print("\x1b[>{d};{d}m", .{ pp, pv });
                             },
@@ -1524,7 +1534,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         var iter = seq.iterator(u16);
                         const ps = iter.next() orelse 0;
                         if (seq.intermediate == null and seq.private_marker == null) {
-                            const pty_writer = self.get_pty_writer();
+                            const pty_writer = self.reply_writer();
                             defer pty_writer.flush() catch {};
                             switch (ps) {
                                 5 => try pty_writer.writeAll("\x1b[0n"),
@@ -1569,7 +1579,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                             if (private) "?" else "",
                                             ps,
                                         });
-                                    const pty_writer = self.get_pty_writer();
+                                    const pty_writer = self.reply_writer();
                                     defer pty_writer.flush() catch {};
                                     try pty_writer.print("\x1b[{s}{d};{d}$y", .{
                                         if (private) "?" else "",
@@ -1596,7 +1606,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             }
                         }
                         if (seq.private_marker) |pm| {
-                            const pty_writer = self.get_pty_writer();
+                            const pty_writer = self.reply_writer();
                             defer pty_writer.flush() catch {};
                             switch (pm) {
                                 // XTVERSION - `<name> <version>` is the common form
@@ -1641,7 +1651,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         0 => self.restoreCursor(),
                         // CSI ? u - report the current kitty keyboard flags.
                         '?' => {
-                            const pty_writer = self.get_pty_writer();
+                            const pty_writer = self.reply_writer();
                             defer pty_writer.flush() catch {};
                             const f: u5 = @bitCast(self.back_screen.csi_u_flags);
                             try pty_writer.print("\x1b[?{d}u", .{f});
@@ -1682,7 +1692,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             14, 16, 18 => {
                                 const rows = self.back_screen.height;
                                 const cols = self.back_screen.width;
-                                const pty_writer = self.get_pty_writer();
+                                const pty_writer = self.reply_writer();
                                 defer pty_writer.flush() catch {};
                                 switch (ps) {
                                     // Text area size in pixels.
@@ -1821,7 +1831,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             const idx = std.fmt.parseUnsigned(u8, idx_str, 10) catch continue;
                             if (std.mem.eql(u8, spec, "?")) {
                                 const c = self.palette[idx];
-                                const pty_writer = self.get_pty_writer();
+                                const pty_writer = self.reply_writer();
                                 defer pty_writer.flush() catch {};
                                 try pty_writer.print(
                                     "\x1B]4;{d};rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
@@ -1851,7 +1861,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         const val = rest;
                         if (std.mem.eql(u8, val, "?")) {
                             const c = self.app_fg_color orelse self.fg_color;
-                            const pty_writer = self.get_pty_writer();
+                            const pty_writer = self.reply_writer();
                             defer pty_writer.flush() catch {};
                             try pty_writer.print(
                                 "\x1B]10;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
@@ -1871,7 +1881,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         const val = rest;
                         if (std.mem.eql(u8, val, "?")) {
                             const c = self.app_bg_color orelse self.bg_color;
-                            const pty_writer = self.get_pty_writer();
+                            const pty_writer = self.reply_writer();
                             defer pty_writer.flush() catch {};
                             try pty_writer.print(
                                 "\x1B]11;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
@@ -1891,7 +1901,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         const val = rest;
                         if (std.mem.eql(u8, val, "?")) {
                             if (self.app_cursor_color) |c| {
-                                const pty_writer = self.get_pty_writer();
+                                const pty_writer = self.reply_writer();
                                 defer pty_writer.flush() catch {};
                                 try pty_writer.print(
                                     "\x1B]12;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
@@ -2266,7 +2276,7 @@ fn reportRectChecksum(self: *Terminal, seq: ansi.CSI) void {
     }
     const checksum: u16 = @truncate(0 -% sum);
 
-    const pty_writer = self.get_pty_writer();
+    const pty_writer = self.reply_writer();
     defer pty_writer.flush() catch |e| log.warn("DECRQCRA reply flush failed: {t}", .{e});
     pty_writer.print("\x1bP{d}!~{X:0>4}\x1b\\", .{ pid, checksum }) catch |e|
         log.warn("DECRQCRA reply failed: {t}", .{e});
@@ -2293,7 +2303,7 @@ fn graphemeCodepointSum(bytes: []const u8) u32 {
 /// DSR color scheme report (CSI ? 997 ; Ps n): 1 = dark, 2 = light.
 /// See https://github.com/contour-terminal/contour/blob/master/docs/vt-extensions/color-palette-update-notifications.md
 fn reportColorScheme(self: *Terminal) !void {
-    const pty_writer = self.get_pty_writer();
+    const pty_writer = self.reply_writer();
     defer pty_writer.flush() catch |e| log.warn("color scheme report flush failed: {t}", .{e});
     try pty_writer.print("\x1b[?997;{d}n", .{@backingInt(self.color_scheme)});
 }
@@ -2518,6 +2528,7 @@ fn handleOsc52(self: *Terminal, rest: []const u8, context: anytype, handle_event
     const selection: Selection = .parse(rest[0..second_semi]);
     const data = rest[second_semi + 1 ..];
     if (std.mem.eql(u8, data, "?")) {
+        self.osc52_reads += 1;
         try handle_event(context, .{ .osc_paste_request = selection });
     } else {
         const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(data) catch return;
@@ -2536,9 +2547,19 @@ pub fn respondOsc52Paste(self: *Terminal, selection: Selection, text: []const u8
     const encoded_buf = self.allocator.alloc(u8, encoded_len) catch return;
     defer self.allocator.free(encoded_buf);
     const encoded = encoder.encode(encoded_buf, text);
+    self.get_pty_writer().print("\x1B]52;{c};{s}\x1B\\", .{ selection.char(), encoded }) catch {};
+    self.endOsc52Read();
+}
+
+/// End pending OSC 52 read and release held replies.
+pub fn endOsc52Read(self: *Terminal) void {
     const pty_writer = self.get_pty_writer();
     defer pty_writer.flush() catch {};
-    pty_writer.print("\x1B]52;{c};{s}\x1B\\", .{ selection.char(), encoded }) catch {};
+    if (self.osc52_reads == 0) return;
+    self.osc52_reads -= 1;
+    if (self.osc52_reads > 0) return;
+    pty_writer.writeAll(self.held_replies.written()) catch {};
+    self.held_replies.clearRetainingCapacity();
 }
 
 /// Translate a DEC Special Character and Line Drawing Set codepoint (0x60–0x7E)
