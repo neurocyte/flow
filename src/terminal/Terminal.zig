@@ -14,6 +14,7 @@ const root = @import("soft_root").root;
 const is_windows = builtin.os.tag == .windows;
 pub const Command = if (is_windows) @import("CommandWindows.zig") else @import("Command.zig");
 const Pty = if (is_windows) @import("ConPTY.zig") else @import("Pty.zig");
+pub const ConPTY = if (is_windows) Pty else void;
 const Winsize = vaxis.Winsize;
 pub const Screen = @import("Screen.zig");
 pub const WtProfiles = @import("WtProfiles.zig");

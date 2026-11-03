@@ -110,6 +110,8 @@ const builtin_api: Api = .{
 };
 
 var api_: ?Api = null;
+var api_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+var api_path: ?[]const u8 = null;
 
 fn api() Api {
     return api_ orelse builtin_api;
@@ -117,6 +119,11 @@ fn api() Api {
 
 fn load_api(allocator: std.mem.Allocator, io: std.Io) void {
     if (api_ == null) api_ = load_bundled_api(allocator, io) orelse builtin_api;
+}
+
+pub fn dll_path(allocator: std.mem.Allocator, io: std.Io) ?[]const u8 {
+    load_api(allocator, io);
+    return api_path;
 }
 
 fn load_bundled_api(allocator: std.mem.Allocator, io: std.Io) ?Api {
@@ -131,6 +138,7 @@ fn load_bundled_api(allocator: std.mem.Allocator, io: std.Io) ?Api {
     if (create == null or resize == null or close == null) {
         log.debug("conpty.dll lacks the Conpty functions, using the built-in ConPTY", .{});
         _ = FreeLibrary(module);
+        api_path = null;
         return null;
     }
     log.debug("using the bundled conpty.dll", .{});
@@ -142,9 +150,13 @@ fn open_bundled_dll(allocator: std.mem.Allocator, io: std.Io) !*anyopaque {
     defer allocator.free(dir);
     const path = try std.fs.path.join(allocator, &.{ dir, "conpty.dll" });
     defer allocator.free(path);
+    if (path.len > api_path_buf.len) return error.NameTooLong;
     const path_w = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, path);
     defer allocator.free(path_w);
-    return LoadLibraryW(path_w) orelse error.FileNotFound;
+    const module = LoadLibraryW(path_w) orelse return error.FileNotFound;
+    @memcpy(api_path_buf[0..path.len], path);
+    api_path = api_path_buf[0..path.len];
+    return module;
 }
 
 const COORD = extern struct {
