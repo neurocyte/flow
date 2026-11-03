@@ -30,8 +30,8 @@
             .hash = "fuzzig-0.1.3-Ji0xitBoAQDvK-B-lfTy87SnSYme0nXvAeFDX4K8eBxD",
         },
         .vaxis = .{
-            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#6d372a231fcfcab9b6fb6d2a3e34c9b115d9a7ad",
-            .hash = "vaxis-0.6.0-BWNV_EvmCQDVFGWistByAejA-b39bxMUINkbX094jXK9",
+            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#80160517a582dbc00335ee59579e2d6720520547",
+            .hash = "vaxis-0.6.0-BWNV_ITqCQD_xg8HyvxZzHof07Rd6DQGKZYGcwkUkx4w",
         },
         .zeit = .{
             .url = "git+https://github.com/neurocyte/zeit?ref=main#4ee32b9df7d2bbbd24656ea42101d84ccfb721b1",
@@ -43,8 +43,8 @@
             .lazy = true,
         },
         .wio = .{
-            .url = "git+https://github.com/neurocyte/wio?ref=master#ca19fed66f1d7be98dd94ca4f72e2bf117a37ed9",
-            .hash = "wio-0.0.0-8xHrr7TdCAA1phC52MYXND_p8tiitS0M8dKARXRHyzE-",
+            .url = "git+https://github.com/neurocyte/wio?ref=master#2f8c6b2bb09f7b3cc316baab5d354c9b36a9cea6",
+            .hash = "wio-0.0.0-8xHrr-vhCAAGOFbm0-zY333swrhGZM-PSIat9XwxovNe",
             .lazy = true,
         },
         .wio_unix_headers = .{

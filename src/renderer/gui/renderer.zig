@@ -605,7 +605,10 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             cbor.extract(&source_type),
             cbor.extract(&text),
         })) {
-            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply", source_type, text }));
+            if (self.dispatch_event) |f| {
+                f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply", source_type, text }));
+                f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply_end", source_type }));
+            }
             return;
         }
     }

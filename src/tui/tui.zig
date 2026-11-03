@@ -118,6 +118,7 @@ frames_rendered_: usize = 0,
 clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
 paste_requests: std.ArrayListUnmanaged(PasteRequest) = .empty,
+expired_paste_requests: std.ArrayListUnmanaged(PasteRequest) = .empty,
 next_paste_request_id: u64 = 1,
 color_scheme: Widget.Theme.Type = .dark,
 color_scheme_locked: bool = false,
@@ -213,6 +214,7 @@ const PasteRequest = struct {
     id: u64,
     source_type: PasteEvent.SourceType,
     requester: PasteRequester,
+    replied: bool = false,
 };
 
 const max_paste_requests = 16;
@@ -517,6 +519,7 @@ fn deinit(self: *Self) void {
     root.free_config(self.allocator, self.config_bufs);
     self.clipboard_deinit();
     self.paste_requests.deinit(self.allocator);
+    self.expired_paste_requests.deinit(self.allocator);
     if (builtin.mode == .debug) {
         Widget.deinit_themes(self.allocator);
         @import("logview.zig").deinit_persistent_buffer();
@@ -743,6 +746,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "paste_reply", tp.more }))
         return self.handle_paste_reply(m);
+
+    if (try m.match(.{ "paste_reply_end", tp.more }))
+        return self.handle_paste_reply_end(m);
 
     if (try m.match(.{"render"})) {
         self.render_pending = false;
@@ -1253,25 +1259,48 @@ pub fn request_paste(source_type: PasteEvent.SourceType, requester: PasteRequest
     }
 }
 
+fn oldest_paste_request(list: []PasteRequest, source_type: PasteEvent.SourceType, unreplied: bool) ?usize {
+    for (list, 0..) |request, i|
+        if (request.source_type == source_type and !(unreplied and request.replied)) return i;
+    return null;
+}
+
 fn handle_paste_reply(self: *Self, m: tp.message) !void {
     var source_type: PasteEvent.SourceType = undefined;
-    const typed = try m.match(.{ "paste_reply", tp.extract(&source_type), tp.more });
+    if (!try m.match(.{ "paste_reply", tp.extract(&source_type), tp.more })) return;
     var text: []const u8 = &.{};
     _ = try m.match(.{ "paste_reply", tp.any, tp.extract(&text) });
 
-    const idx = blk: {
-        for (self.paste_requests.items, 0..) |request, i|
-            if (!typed or request.source_type == source_type) break :blk i;
-        paste_log.debug("reply dropped, no pending request", .{});
+    const idx = oldest_paste_request(self.paste_requests.items, source_type, true) orelse {
+        if (oldest_paste_request(self.expired_paste_requests.items, source_type, false)) |i| {
+            const expired = self.expired_paste_requests.orderedRemove(i);
+            paste_log.debug("late reply to expired request {d} ignored", .{expired.id});
+        } else paste_log.debug("reply dropped, no pending request", .{});
         return;
     };
-    const request = self.paste_requests.orderedRemove(idx);
+    self.paste_requests.items[idx].replied = true;
+    const request = self.paste_requests.items[idx];
     if (text.len == 0) {
         paste_log.debug("request {d} denied or empty", .{request.id});
         return;
     }
     try self.dispatch_flush_input_event();
     return self.deliver_paste(request, .{ .source = .pull, .source_type = request.source_type, .content = text });
+}
+
+fn handle_paste_reply_end(self: *Self, m: tp.message) !void {
+    var source_type: PasteEvent.SourceType = undefined;
+    if (!try m.match(.{ "paste_reply_end", tp.extract(&source_type) })) return;
+    const idx = oldest_paste_request(self.paste_requests.items, source_type, false) orelse {
+        paste_log.debug("end dropped, no pending request", .{});
+        return;
+    };
+    const request = self.paste_requests.orderedRemove(idx);
+    if (request.replied) return;
+    paste_log.debug("request {d} got no reply", .{request.id});
+    if (self.expired_paste_requests.items.len >= max_paste_requests)
+        _ = self.expired_paste_requests.orderedRemove(0);
+    try self.expired_paste_requests.append(self.allocator, request);
 }
 
 fn deliver_paste(self: *Self, request: PasteRequest, event: PasteEvent) !void {

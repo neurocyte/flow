@@ -51,6 +51,7 @@ key_mods: MouseEvent.Modifiers = .{},
 last_mouse: ?MouseEvent.Event = null,
 held_button: MouseEvent.Button = .none,
 queries_done: bool,
+paste_queries: std.ArrayList(PasteQuery) = .empty,
 
 bracketed_paste: bool = false,
 bracketed_paste_buffer: std.Io.Writer.Allocating,
@@ -64,6 +65,9 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 logger: log.Logger,
 
 loop: Loop,
+
+const PasteQuery = enum { clipboard, primary_selection };
+const max_paste_queries = 16;
 
 pub const Error = error{
     UnexpectedRendererEvent,
@@ -134,6 +138,7 @@ pub fn deinit(self: *Self) void {
     self.tty.deinit();
     self.allocator.free(self.tty_buffer);
     self.bracketed_paste_buffer.deinit();
+    self.paste_queries.deinit(self.allocator);
     self.input_buffer.deinit();
     self.event_buffer.deinit();
     self.targets.deinit(self.allocator);
@@ -655,7 +660,10 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         .paste_start => try self.handle_bracketed_paste_start(),
         .paste_end => try self.handle_bracketed_paste_end(),
         .paste => {
-            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply", null, text }));
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply", PasteQuery.clipboard, text }));
+        },
+        .paste_primary => {
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply", PasteQuery.primary_selection, text }));
         },
         .color_report => {},
         .color_scheme => |scheme| {
@@ -679,6 +687,13 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             self.vx.caps.sgr_pixels = self.enable_sgr_pixel_mode_support;
         },
         .cap_da1 => {
+            // after startup, each DA1 reply ends one OSC 52 query
+            if (self.queries_done) {
+                if (self.paste_queries.items.len == 0) return;
+                const query = self.paste_queries.orderedRemove(0);
+                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply_end", query }));
+                return;
+            }
             self.queries_done = true;
             self.vx.enableDetectedFeatures(self.tty.writer()) catch |e| self.logger.err("enable features", e);
             self.vx.setMouseMode(self.tty.writer(), true) catch return error.TtyWriteError;
@@ -847,7 +862,8 @@ pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
 }
 
 pub fn request_system_clipboard(self: *Self) void {
-    self.vx.requestSystemClipboard(self.tty.writer()) catch |e| log.logger(log_name).err("request_system_clipboard", e);
+    self.vx.requestSystemClipboard(self.tty.writer()) catch |e| return log.logger(log_name).err("request_system_clipboard", e);
+    self.request_paste_query(.clipboard);
 }
 
 pub fn copy_to_primary_selection(self: *Self, text: []const u8) void {
@@ -857,7 +873,17 @@ pub fn copy_to_primary_selection(self: *Self, text: []const u8) void {
 }
 
 pub fn request_primary_selection(self: *Self) void {
-    self.vx.requestPrimarySelection(self.tty.writer()) catch |e| log.logger(log_name).err("request_primary_selection", e);
+    self.vx.requestPrimarySelection(self.tty.writer()) catch |e| return log.logger(log_name).err("request_primary_selection", e);
+    self.request_paste_query(.primary_selection);
+}
+
+fn request_paste_query(self: *Self, query: PasteQuery) void {
+    // a host that never answers DA1 never ends a query
+    if (self.paste_queries.items.len >= max_paste_queries) _ = self.paste_queries.orderedRemove(0);
+    self.paste_queries.append(self.allocator, query) catch |e| return log.logger(log_name).err("paste query", e);
+    const writer = self.tty.writer();
+    writer.writeAll(vaxis.ctlseqs.primary_device_attrs) catch |e| return log.logger(log_name).err("paste query", e);
+    writer.flush() catch |e| return log.logger(log_name).err("paste query", e);
 }
 
 const win32 = struct {
@@ -1068,7 +1094,7 @@ const Loop = struct {
             .key_release => |key_| {
                 if (key_.text) |text_| text = text_;
             },
-            .paste => |text_| {
+            .paste, .paste_primary => |text_| {
                 text = text_;
                 free_text = true;
             },
