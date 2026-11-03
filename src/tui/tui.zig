@@ -1231,15 +1231,12 @@ pub fn request_paste(source_type: PasteEvent.SourceType, requester: PasteRequest
     const self = current();
     const request: PasteRequest = .{
         .id = self.next_paste_request_id,
-        .source_type = switch (builtin.os.tag) {
-            .windows, .macos => .clipboard,
-            else => source_type,
-        },
+        .source_type = if (source_type == .primary_selection and primary_is_clipboard()) .clipboard else source_type,
         .requester = requester,
     };
     self.next_paste_request_id += 1;
 
-    if (builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows and request.source_type == .clipboard) {
         const text = @import("renderer").request_windows_clipboard(self.allocator) catch |e| {
             end_paste(request);
             return self.logger.err("clipboard", e);
@@ -4074,8 +4071,16 @@ fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {
     }
 }
 
+pub fn primary_is_clipboard() bool {
+    return switch (builtin.os.tag) {
+        .windows, .macos => !(build_options.gui and config().emulate_primary_selection),
+        else => false,
+    };
+}
+
 pub fn primary_send_to_system(text: []const u8) void {
     if (!build_options.gui and !config().enable_osc52_primary_selection) return;
+    if (build_options.gui and primary_is_clipboard()) return;
     current().rdr_.copy_to_primary_selection(text);
 }
 

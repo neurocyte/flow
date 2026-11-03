@@ -200,6 +200,12 @@ var clipboard_mutex: std.Io.Mutex = .init;
 var clipboard_write: ?[]u8 = null;
 // Primary selection write, guarded by clipboard_mutex.
 var primary_write: ?[]u8 = null;
+// Windows and macOS have no primary selection, so the wio thread keeps one for flow.
+const emulate_primary = switch (builtin.os.tag) {
+    .windows, .macos => true,
+    else => false,
+};
+var emulated_primary: ?[]u8 = null;
 
 // Clipboard read requests
 var clipboard_read_pending: std.atomic.Value(u32) = .init(0);
@@ -1207,6 +1213,7 @@ fn wioLoop() void {
         return;
     };
     defer window.destroy();
+    defer if (emulated_primary) |text| allocator.free(text);
 
     if (builtin.os.tag == .windows) {
         // FIXME: wio uses a different zigwin32 instance
@@ -1445,12 +1452,21 @@ fn wioLoop() void {
             primary_write = null;
             clipboard_mutex.unlock(io);
             if (pending) |text| {
-                defer allocator.free(text);
-                window.setPrimaryText(text);
+                if (emulate_primary) {
+                    if (emulated_primary) |old| allocator.free(old);
+                    emulated_primary = text;
+                } else {
+                    defer allocator.free(text);
+                    window.setPrimaryText(text);
+                }
             }
         }
-        for (0..primary_read_pending.swap(0, .acq_rel)) |_|
-            window.getPrimaryText(primaryText, null);
+        for (0..primary_read_pending.swap(0, .acq_rel)) |_| {
+            if (emulate_primary)
+                primaryText(null, emulated_primary orelse "")
+            else
+                window.getPrimaryText(primaryText, null);
+        }
         if (cursor_dirty.swap(false, .acq_rel)) {
             window.setCursor(@fromBackingInt(@intCast(pending_cursor.load(.acquire))));
         }

@@ -2824,7 +2824,7 @@ const cmds = struct {
     pub const system_paste_meta: Meta = .{ .description = "Paste from system clipboard" };
 
     pub fn system_paste_primary(_: *Self, _: Ctx) Result {
-        if (builtin.os.tag == .windows) return;
+        if (builtin.os.tag == .windows and tui.primary_is_clipboard()) return;
         tui.request_paste(.primary_selection, .focus);
     }
     pub const system_paste_primary_meta: Meta = .{ .description = "Paste from primary selection" };
