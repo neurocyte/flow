@@ -116,6 +116,7 @@ fn stack_above_parent(_: ?*anyopaque, layer: *tui.WidgetLayerBox, box: Widget.Bo
 
 pub const panel_menu: Menu = .{ .label = "Terminal", .items = &.{
     .{ .command = .{ .command = "terminal_copy_selection" } },
+    .{ .command = .{ .command = "system_paste", .label = "Terminal: Paste" } },
     .separator,
     .{ .command = .{ .command = "terminal_open_file_links" } },
     .{ .command = .{ .command = "terminal_open_last_command_output" } },
@@ -1106,7 +1107,7 @@ const cmds = struct {
         tui.clipboard_add_chunk(text);
         tui.clipboard_send_to_system() catch {};
     }
-    pub const terminal_copy_selection_meta: Meta = .{ .description = "Terminal: Copy selection" };
+    pub const terminal_copy_selection_meta: Meta = .{ .description = "Terminal: Copy" };
 
     pub fn terminal_scroll_up(self: *Self, _: Ctx) Result {
         self.scroller.scroll(.half_page_up);
