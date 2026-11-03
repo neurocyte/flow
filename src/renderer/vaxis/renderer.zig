@@ -901,9 +901,30 @@ const win32 = struct {
     const GMEM_MOVEABLE = @as(c_int, 2);
 };
 
+/// Windows apps expect CRLF line ends in clipboard text. An existing CRLF stays as it is.
+fn lf_to_crlf(allocator: std.mem.Allocator, text: []const u8) error{OutOfMemory}![]u8 {
+    var lone_lf: usize = 0;
+    for (text, 0..) |c, i| {
+        if (c == '\n' and (i == 0 or text[i - 1] != '\r')) lone_lf += 1;
+    }
+    const out = try allocator.alloc(u8, text.len + lone_lf);
+    var n: usize = 0;
+    for (text, 0..) |c, i| {
+        if (c == '\n' and (i == 0 or text[i - 1] != '\r')) {
+            out[n] = '\r';
+            n += 1;
+        }
+        out[n] = c;
+        n += 1;
+    }
+    return out;
+}
+
 pub fn copy_to_windows_clipboard(text: []const u8) !void {
     const a = root.get_init().gpa;
-    const utf16 = try std.unicode.utf8ToUtf16LeAllocZ(a, text);
+    const crlf_text = try lf_to_crlf(a, text);
+    defer a.free(crlf_text);
+    const utf16 = try std.unicode.utf8ToUtf16LeAllocZ(a, crlf_text);
     defer a.free(utf16[0 .. utf16.len + 1]);
 
     const bytes = (utf16.len + 1) * @sizeOf(u16);

@@ -2319,8 +2319,20 @@ pub fn paste(self: *Terminal, text: []const u8) void {
     const pty_writer = self.get_pty_writer();
     defer pty_writer.flush() catch {};
     if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[200~") catch {};
-    pty_writer.writeAll(text) catch {};
+    writePasteText(pty_writer, text) catch {};
     if (self.mode.bracketed_paste) pty_writer.writeAll("\x1b[201~") catch {};
+}
+
+/// Terminals send CR for a line end in pasted text, so convert CRLF and LF to CR.
+fn writePasteText(writer: *std.Io.Writer, text: []const u8) error{WriteFailed}!void {
+    var rest = text;
+    while (std.mem.indexOfScalar(u8, rest, '\n')) |pos| {
+        const line = if (pos > 0 and rest[pos - 1] == '\r') rest[0 .. pos - 1] else rest[0..pos];
+        try writer.writeAll(line);
+        try writer.writeByte('\r');
+        rest = rest[pos + 1 ..];
+    }
+    try writer.writeAll(rest);
 }
 
 fn setLastPrinted(self: *Terminal, bytes: []const u8) void {
