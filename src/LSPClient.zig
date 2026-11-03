@@ -1574,7 +1574,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
     var containerName: ?[]const u8 = "";
     var len_tags_: usize = 0;
     var descendant_count: usize = 0;
-    var symbolKind: SymbolType = undefined;
+    var symbolKind: ?SymbolType = null;
     const logger_t = log.logger("lsp");
     defer logger_t.deinit();
     var iter = item;
@@ -1593,12 +1593,14 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             var len_ = cbor.decodeArrayHeader(&iter) catch return 0;
             var idx: usize = 0;
             var this_tag: usize = undefined;
-            len_tags_ = len_;
             while (len_ > 0) : (len_ -= 1) {
                 if (!(try cbor.matchValue(&iter, cbor.extract(&this_tag)))) return invalid_symbol_information_field("tags");
-                tags[idx] = this_tag;
-                idx += 1;
+                if (idx < tags.len) {
+                    tags[idx] = this_tag;
+                    idx += 1;
+                }
             }
+            len_tags_ = idx;
         } else if (std.mem.eql(u8, field_name, "deprecated")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&deprecated)))) return invalid_symbol_information_field("deprecated");
         } else if (std.mem.eql(u8, field_name, "range")) {
@@ -1617,11 +1619,11 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
                 if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&descendant)))) return error.InvalidSymbolInformationField;
                 descendant_count += try send_symbol_information(to, file_path, descendant, name, depth + 1);
             }
-        } else if (std.mem.eql(u8, field_name, "location")) {} else if (std.mem.eql(u8, field_name, "location")) {
+        } else if (std.mem.eql(u8, field_name, "location")) {
             var location_: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&location_)))) return invalid_symbol_information_field("selectionRange");
-            location = try read_locationlink(iter);
-            symbolKind = SymbolType.document_symbol;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&location_)))) return invalid_symbol_information_field("location");
+            location = try read_locationlink(location_);
+            symbolKind = SymbolType.symbol_information;
         } else if (std.mem.eql(u8, field_name, "containerName")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&containerName)))) return invalid_symbol_information_field("containerName");
         } else {
@@ -1629,7 +1631,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
         }
     }
 
-    try switch (symbolKind) {
+    try switch (symbolKind orelse return invalid_symbol_information_field("range")) {
         SymbolType.document_symbol => {
             to.send(.{ "cmd", "add_document_symbol", .{
                 file_path,
@@ -1655,20 +1657,32 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             return descendant_count + 1;
         },
         SymbolType.symbol_information => {
-            var fp = file_path;
-            if (location) |location_| {
-                if (location_.targetUri == null or location_.targetRange == null) return error.InvalidSymbolInformationField;
-                var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                const file_path_ = try file_uri_to_path(location_.targetUri.?, &file_path_buf);
-                fp = file_path_;
-                to.send(.{ "cmd", "add_symbol_information", .{ fp, name, parent_name, kind, location_.targetRange.?.start.line, location_.targetRange.?.start.character, location_.targetRange.?.end.line, location_.targetRange.?.end.character, tags[0..len_tags_], location_.targetSelectionRange.?.start.line, location_.targetSelectionRange.?.start.character, location_.targetSelectionRange.?.end.line, location_.targetSelectionRange.?.end.character, deprecated, location_.targetUri } }) catch |e| {
-                    std.log.err("send add_symbol_information failed: {t}", .{e});
-                    return 0;
-                };
-                return 1;
-            } else {
-                return error.InvalidSymbolInformationField;
-            }
+            const location_ = location orelse return error.InvalidSymbolInformationField;
+            const target_range = location_.targetRange orelse return error.InvalidSymbolInformationField;
+            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const fp = try file_uri_to_path(location_.targetUri orelse return error.InvalidSymbolInformationField, &file_path_buf);
+            to.send(.{ "cmd", "add_document_symbol", .{
+                fp,
+                name,
+                containerName orelse "",
+                kind,
+                target_range.start.line,
+                target_range.start.character,
+                target_range.end.line,
+                target_range.end.character,
+                tags[0..len_tags_],
+                target_range.start.line,
+                target_range.start.character,
+                target_range.end.line,
+                target_range.end.character,
+                deprecated,
+                @as(?[]const u8, ""),
+                depth,
+            } }) catch |e| {
+                std.log.err("send add_document_symbol failed: {t}", .{e});
+                return 0;
+            };
+            return 1;
         },
     };
 }
