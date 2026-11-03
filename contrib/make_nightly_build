@@ -109,6 +109,9 @@ if [ -z "$NO_BUILD" ]; then
 
     cd "$DESTDIR/build"
 
+    echo verifying macos code signatures...
+    (cd "$BASEDIR" && zig run contrib/verify_macos_signatures.zig -- "$DESTDIR"/build/macos-*)
+
     TARGETS=$(/bin/ls)
 
     for target in $TARGETS; do
