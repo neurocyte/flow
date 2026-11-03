@@ -57,6 +57,12 @@ last_click_pos: Position = .{ .row = 0, .col = 0 },
 click_count: u8 = 0,
 selection_mode: SelectionMode = .char,
 selection_anchor: Position = .{ .row = 0, .col = 0 },
+right_press: ?RightPress = null,
+
+const RightPress = struct {
+    coord: MouseEvent.Coord,
+    dragging: bool = false,
+};
 
 const double_click_time_ms = 350;
 const CharClass = enum { space, word, other };
@@ -268,8 +274,16 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 }
             }
             if (self.selection != null and button == .right) {
-                self.selection_extend(coord);
-                if (!is_press) self.copy_selection_to_primary();
+                if (is_press) {
+                    self.right_press = .{ .coord = coord };
+                    return true;
+                }
+                const press = self.right_press orelse return true;
+                self.right_press = null;
+                if (press.dragging) {
+                    self.selection_extend(coord);
+                    self.copy_selection_to_primary();
+                } else PanelInput.open_context_menu(self, coord);
                 return true;
             }
             if (button == .middle and is_press and self.want_selection(mods)) {
@@ -319,6 +333,11 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 return true;
             }
             if (self.selection != null and btn.to_vaxis() == .right) {
+                const press = if (self.right_press) |*press| press else return true;
+                if (!press.dragging) {
+                    if (!self.beyond_drag_tolerance(press.coord, coord)) return true;
+                    press.dragging = true;
+                }
                 self.selection_extend(coord);
                 return true;
             }
@@ -960,6 +979,13 @@ fn selection_extend(self: *Self, coord: MouseEvent.Coord) void {
     tui.need_render(@src());
 }
 
+fn beyond_drag_tolerance(self: *Self, from: MouseEvent.Coord, to: MouseEvent.Coord) bool {
+    const geom = self.plane.mouse_geometry();
+    const a = from.to_cell(geom);
+    const b = to.to_cell(geom);
+    return @abs(a.col - b.col) > 1 or @abs(a.row - b.row) > 1;
+}
+
 fn selection_finish(self: *Self) void {
     self.selecting = false;
     if (self.selection_mode == .char) if (self.selection) |sel| {
@@ -983,6 +1009,7 @@ fn paste_from_primary(_: *Self) void {
 }
 
 fn clear_selection(self: *Self) void {
+    self.right_press = null;
     if (self.selection != null or self.selecting) {
         self.selection = null;
         self.selecting = false;
