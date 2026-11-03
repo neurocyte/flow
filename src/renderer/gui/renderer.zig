@@ -597,13 +597,15 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     }
 
     {
+        var source_type: []const u8 = undefined;
         var text: []const u8 = undefined;
         if (try cbor.match(msg, .{
             cbor.any,
-            "system_clipboard",
+            "paste_reply",
+            cbor.extract(&source_type),
             cbor.extract(&text),
         })) {
-            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply", source_type, text }));
             return;
         }
     }

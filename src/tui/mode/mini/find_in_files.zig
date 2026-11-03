@@ -102,13 +102,8 @@ fn find_mode_name(find_mode: Mode) []const u8 {
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var text: []const u8 = undefined;
-
-    if (try m.match(.{"F"})) {
+    if (try m.match(.{"F"}))
         self.start_query() catch |e| return tp.exit_error(e, @errorReturnTrace());
-    } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        self.mini_editor.buffer.paste(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
     return false;
 }
 

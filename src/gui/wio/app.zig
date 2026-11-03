@@ -201,13 +201,17 @@ var clipboard_write: ?[]u8 = null;
 // Primary selection write, guarded by clipboard_mutex.
 var primary_write: ?[]u8 = null;
 
-// Clipboard read request
-var clipboard_read_pending: std.atomic.Value(bool) = .init(false);
-// Primary selection read request
-var primary_read_pending: std.atomic.Value(bool) = .init(false);
+// Clipboard read requests
+var clipboard_read_pending: std.atomic.Value(u32) = .init(0);
+// Primary selection read requests
+var primary_read_pending: std.atomic.Value(u32) = .init(0);
 
 fn clipboardText(_: ?*anyopaque, text: []const u8) void {
-    tui_pid.send(.{ "RDR", "system_clipboard", text }) catch {};
+    tui_pid.send(.{ "RDR", "paste_reply", "clipboard", text }) catch {};
+}
+
+fn primaryText(_: ?*anyopaque, text: []const u8) void {
+    tui_pid.send(.{ "RDR", "paste_reply", "primary_selection", text }) catch {};
 }
 
 // Mouse cursor (stored as wio.Cursor tag value)
@@ -834,7 +838,7 @@ pub fn setClipboard(text: []const u8) void {
 }
 
 pub fn requestClipboard() void {
-    clipboard_read_pending.store(true, .release);
+    _ = clipboard_read_pending.fetchAdd(1, .acq_rel);
     wio.cancelWait();
 }
 
@@ -850,7 +854,7 @@ pub fn setPrimary(text: []const u8) void {
 }
 
 pub fn requestPrimary() void {
-    primary_read_pending.store(true, .release);
+    _ = primary_read_pending.fetchAdd(1, .acq_rel);
     wio.cancelWait();
 }
 
@@ -1433,9 +1437,8 @@ fn wioLoop() void {
                 window.setClipboardText(text);
             }
         }
-        if (clipboard_read_pending.swap(false, .acq_rel)) {
+        for (0..clipboard_read_pending.swap(0, .acq_rel)) |_|
             window.getClipboardText(clipboardText, null);
-        }
         {
             clipboard_mutex.lockUncancelable(io);
             const pending = primary_write;
@@ -1446,9 +1449,8 @@ fn wioLoop() void {
                 window.setPrimaryText(text);
             }
         }
-        if (primary_read_pending.swap(false, .acq_rel)) {
-            window.getPrimaryText(clipboardText, null);
-        }
+        for (0..primary_read_pending.swap(0, .acq_rel)) |_|
+            window.getPrimaryText(primaryText, null);
         if (cursor_dirty.swap(false, .acq_rel)) {
             window.setCursor(@fromBackingInt(@intCast(pending_cursor.load(.acquire))));
         }

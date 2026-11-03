@@ -91,7 +91,8 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
 
     const history = tui.clipboard_get_history() orelse return;
     if (history.len <= idx) return;
-    tp.self_pid().send(.{ "system_clipboard", history[idx].text }) catch {};
+    const event: tui.PasteEvent = .{ .source = .internal, .source_type = .clipboard, .content = history[idx].text };
+    event.send(tp.self_pid()) catch {};
 }
 
 pub fn delete_item(list_box: *Type.ListBoxType, button: *Type.ButtonType) bool {

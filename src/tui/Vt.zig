@@ -361,7 +361,7 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
                 self.vt.respondOsc52Paste(.clipboard, buf.written());
             },
             // Terminal app requested the primary selection via OSC 52.
-            .primary => tui.clipboard_forward_request(@intFromPtr(self), .primary),
+            .primary => tui.request_paste(.primary_selection, .{ .vt = .{ .id = self.id, .selection = .primary } }),
         },
         .shell_state_change => |shell_state| {
             self.shell_state = shell_state;

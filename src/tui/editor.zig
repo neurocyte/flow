@@ -3689,10 +3689,7 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
         if (actions.jump) try self.goto_definition(.empty());
         tui.reset_input_idle_timer();
-        switch (builtin.os.tag) {
-            .windows, .macos => tui.rdr().request_system_clipboard(),
-            else => tui.rdr().request_primary_selection(),
-        }
+        tui.request_paste(.primary_selection, .focus);
     }
 
     pub fn update_hover_pos(self: *Self, y: usize, x: usize) void {

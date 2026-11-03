@@ -15,7 +15,6 @@ const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
 const Scroller = @import("Scroller.zig");
 const Menu = @import("Menu.zig");
-const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const input = @import("input");
 const MouseEvent = @import("MouseEvent");
@@ -105,7 +104,6 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
     self.commands.init_unregistered(self);
     try self.scroller.attach_overlay(allocator, self.plane);
     errdefer self.scroller.deinit();
-    try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
 
     layer.set(Widget.to(self));
     return Panel.to_hosted(self, layer.widget());
@@ -192,6 +190,10 @@ pub fn panel_indicator(self: *Self, visibility: Panel.Visibility) Panel.Indicato
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try tui.PasteEvent.match(m)) |event| {
+        self.paste(event.content);
+        return true;
+    }
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         self.apply_mouse_cursor();
         if (!self.hover) {
@@ -471,7 +473,6 @@ fn reset_file_link(self: *Self) void {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
-    tui.message_filters().remove_ptr(self);
     self.reset_file_link();
     if (self.vt.process_exited or self.close_vt) self.vt.deinit(allocator);
     self.panel_input.deinit(Widget.to(self));
@@ -977,10 +978,7 @@ fn copy_selection_to_primary(self: *Self) void {
 }
 
 fn paste_from_primary(_: *Self) void {
-    switch (builtin.os.tag) {
-        .windows, .macos => tui.rdr().request_system_clipboard(),
-        else => tui.rdr().request_primary_selection(),
-    }
+    tui.request_paste(.primary_selection, .focus);
 }
 
 fn clear_selection(self: *Self) void {
@@ -1061,16 +1059,6 @@ fn navigate_to_file_link(dest: *const file_link.FileDest) void {
         std.log.err("send navigate failed: {t}", .{e});
         return;
     };
-}
-
-fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    // consume paste when focused
-    var text: []const u8 = undefined;
-    if (self.panel_input.focused and m.match(.{ "system_clipboard", tp.extract(&text) }) catch false) {
-        self.paste(text);
-        return true;
-    }
-    return false;
 }
 
 fn paste(self: *Self, text: []const u8) void {

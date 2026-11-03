@@ -530,6 +530,14 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_cancel_meta: Meta = .{ .description = "Cancel" };
 
+            pub fn mini_mode_paste(_: *Self, ctx: Ctx) Result {
+                var bytes: []const u8 = undefined;
+                if (!try ctx.args.match(.{tp.extract(&bytes)}))
+                    return error.InvalidDropdownPasteArgument;
+                try tui.paste_to_editor(bytes);
+            }
+            pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
+
             pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
                 tui.set_next_style(widget_type);
                 const padding = tui.get_widget_style(widget_type).padding;

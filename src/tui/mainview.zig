@@ -2818,19 +2818,14 @@ const cmds = struct {
     }
     pub const restore_closed_tab_meta: Meta = .{ .description = "Restore last closed tab" };
 
-    pub fn system_paste(self: *Self, _: Ctx) Result {
-        if (builtin.os.tag == .windows) {
-            const text = try @import("renderer").request_windows_clipboard(self.allocator);
-            defer self.allocator.free(text);
-            return command.executeName("paste", command.fmt(.{text})) catch {};
-        }
-        tui.rdr().request_system_clipboard();
+    pub fn system_paste(_: *Self, _: Ctx) Result {
+        tui.request_paste(.clipboard, .focus);
     }
     pub const system_paste_meta: Meta = .{ .description = "Paste from system clipboard" };
 
     pub fn system_paste_primary(_: *Self, _: Ctx) Result {
         if (builtin.os.tag == .windows) return;
-        tui.rdr().request_primary_selection();
+        tui.request_paste(.primary_selection, .focus);
     }
     pub const system_paste_primary_meta: Meta = .{ .description = "Paste from primary selection" };
 

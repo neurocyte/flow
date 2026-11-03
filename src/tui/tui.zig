@@ -31,6 +31,7 @@ const MainView = @import("mainview.zig");
 pub const Menu = @import("Menu.zig");
 pub const MiniEditor = @import("MiniEditor.zig");
 pub const MenuPopup = @import("mode/overlay/MenuPopup.zig");
+pub const PasteEvent = @import("PasteEvent.zig");
 const MenuButton = @import("MenuButton.zig");
 const IdleAction = @import("config").IdleAction;
 const DbusClient = @import("DbusClient.zig");
@@ -116,7 +117,8 @@ query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
 clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
-clipboard_forwards: std.ArrayListUnmanaged(ClipboardForward) = .empty,
+paste_requests: std.ArrayListUnmanaged(PasteRequest) = .empty,
+next_paste_request_id: u64 = 1,
 color_scheme: Widget.Theme.Type = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .none,
@@ -202,10 +204,18 @@ pub const ClipboardEntry = struct {
     group: usize = 0,
 };
 
-const ClipboardForward = struct {
-    vt_ref: usize,
-    selection: Terminal.Selection,
+pub const PasteRequester = union(enum) {
+    focus,
+    vt: struct { id: u64, selection: Terminal.Selection },
 };
+
+const PasteRequest = struct {
+    id: u64,
+    source_type: PasteEvent.SourceType,
+    requester: PasteRequester,
+};
+
+const max_paste_requests = 16;
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 2;
@@ -506,7 +516,7 @@ fn deinit(self: *Self) void {
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);
     self.clipboard_deinit();
-    self.clipboard_forwards.deinit(self.allocator);
+    self.paste_requests.deinit(self.allocator);
     if (builtin.mode == .debug) {
         Widget.deinit_themes(self.allocator);
         @import("logview.zig").deinit_persistent_buffer();
@@ -726,16 +736,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
-    var text: []const u8 = undefined;
-    if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+    if (try PasteEvent.match(m)) |event| {
         try self.dispatch_flush_input_event();
-        return self.handle_system_clipboard(text);
+        return self.dispatch_paste(event);
     }
 
-    if (try m.match(.{ "system_clipboard", tp.null_ })) {
-        if (self.clipboard_forward_pop()) |_| return;
-        return self.logger.err_msg("clipboard", "clipboard request denied/empty");
-    }
+    if (try m.match(.{ "paste_reply", tp.more }))
+        return self.handle_paste_reply(m);
 
     if (try m.match(.{"render"})) {
         self.render_pending = false;
@@ -1212,20 +1219,99 @@ fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
     tp.self_pid().send_raw(m) catch |e| self.logger.err("dispatch event", e);
 }
 
-fn handle_system_clipboard(self: *Self, text: []const u8) !void {
-    if (self.clipboard_forward_pop()) |fwd|
-        return @import("Vt.zig").Manager.respond_osc52_paste(fwd.vt_ref, fwd.selection, text);
+const paste_log = std.log.scoped(.paste);
 
-    if (command.get_id("mini_mode_paste")) |id|
-        return command.execute(id, "mini_mode_paste", command.fmt(.{text}));
+pub fn request_paste(source_type: PasteEvent.SourceType, requester: PasteRequester) void {
+    const self = current();
+    const request: PasteRequest = .{
+        .id = self.next_paste_request_id,
+        .source_type = switch (builtin.os.tag) {
+            .windows, .macos => .clipboard,
+            else => source_type,
+        },
+        .requester = requester,
+    };
+    self.next_paste_request_id += 1;
 
+    if (builtin.os.tag == .windows) {
+        const text = @import("renderer").request_windows_clipboard(self.allocator) catch |e|
+            return self.logger.err("clipboard", e);
+        defer self.allocator.free(text);
+        if (text.len == 0) return;
+        return self.deliver_paste(request, .{ .source = .pull, .source_type = request.source_type, .content = text }) catch |e|
+            self.logger.err("paste", e);
+    }
+
+    if (self.paste_requests.items.len >= max_paste_requests) {
+        const dropped = self.paste_requests.orderedRemove(0);
+        paste_log.debug("request {d} dropped, queue full", .{dropped.id});
+    }
+    self.paste_requests.append(self.allocator, request) catch |e| return self.logger.err("paste", e);
+    switch (request.source_type) {
+        .clipboard => self.rdr_.request_system_clipboard(),
+        .primary_selection => self.rdr_.request_primary_selection(),
+    }
+}
+
+fn handle_paste_reply(self: *Self, m: tp.message) !void {
+    var source_type: PasteEvent.SourceType = undefined;
+    const typed = try m.match(.{ "paste_reply", tp.extract(&source_type), tp.more });
+    var text: []const u8 = &.{};
+    _ = try m.match(.{ "paste_reply", tp.any, tp.extract(&text) });
+
+    const idx = blk: {
+        for (self.paste_requests.items, 0..) |request, i|
+            if (!typed or request.source_type == source_type) break :blk i;
+        paste_log.debug("reply dropped, no pending request", .{});
+        return;
+    };
+    const request = self.paste_requests.orderedRemove(idx);
+    if (text.len == 0) {
+        paste_log.debug("request {d} denied or empty", .{request.id});
+        return;
+    }
+    try self.dispatch_flush_input_event();
+    return self.deliver_paste(request, .{ .source = .pull, .source_type = request.source_type, .content = text });
+}
+
+fn deliver_paste(self: *Self, request: PasteRequest, event: PasteEvent) !void {
+    switch (request.requester) {
+        .focus => return self.dispatch_paste(event),
+        .vt => |vt| @import("Vt.zig").Manager.respond_osc52_paste(vt.id, vt.selection, event.content),
+    }
+}
+
+fn dispatch_paste(self: *Self, event: PasteEvent) !void {
+    if (self.keyboard_focus) |w| {
+        var buf: std.Io.Writer.Allocating = .init(self.allocator);
+        defer buf.deinit();
+        try event.write(&buf.writer);
+        if (!try w.send(tp.self_pid(), .{ .buf = buf.written() }))
+            paste_log.debug("dropped, focused widget does not accept paste", .{});
+        return;
+    }
+    if (self.input_mode_outer_ != null) {
+        const id = command.get_id("mini_mode_paste") orelse {
+            paste_log.debug("dropped, mode {s} does not accept paste", .{if (self.input_mode_) |mode| mode.mode else "(none)"});
+            return;
+        };
+        return command.execute(id, "mini_mode_paste", command.fmt(.{event.content}));
+    }
+    return paste_to_editor(event.content);
+}
+
+pub fn paste_to_editor(text: []const u8) !void {
+    const self = current();
+    if (command.get_id("paste") == null) {
+        paste_log.debug("dropped, no editor", .{});
+        return;
+    }
     {
         const text_ = try clipboard_system_clipboard_text(self.allocator);
         defer self.allocator.free(text_);
         if (std.mem.eql(u8, text_, text))
             return command.executeName("paste", command.fmt(.{0}));
     }
-
     return command.executeName("paste", command.fmt(.{text}));
 }
 
@@ -3948,20 +4034,6 @@ fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {
 pub fn primary_send_to_system(text: []const u8) void {
     if (!build_options.gui and !config().enable_osc52_primary_selection) return;
     current().rdr_.copy_to_primary_selection(text);
-}
-
-pub fn clipboard_forward_request(vt_ref: usize, selection: Terminal.Selection) void {
-    const self = current();
-    self.clipboard_forwards.append(self.allocator, .{ .vt_ref = vt_ref, .selection = selection }) catch return;
-    switch (selection) {
-        .clipboard => self.rdr_.request_system_clipboard(),
-        .primary => self.rdr_.request_primary_selection(),
-    }
-}
-
-fn clipboard_forward_pop(self: *Self) ?ClipboardForward {
-    if (self.clipboard_forwards.items.len == 0) return null;
-    return self.clipboard_forwards.orderedRemove(0);
 }
 
 pub fn set_last_palette(type_: PaletteType, ctx: command.Context) void {

@@ -85,13 +85,7 @@ pub fn Create(options: type) type {
             self.allocator.destroy(self);
         }
 
-        pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            var text: []const u8 = undefined;
-
-            if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-                self.complete_trigger_count = 0;
-                self.mini_editor.buffer.paste(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            }
+        pub fn receive(self: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
             self.update_mini_mode_prefix();
             return false;
         }

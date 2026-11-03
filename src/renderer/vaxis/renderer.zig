@@ -655,7 +655,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         .paste_start => try self.handle_bracketed_paste_start(),
         .paste_end => try self.handle_bracketed_paste_end(),
         .paste => {
-            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste_reply", null, text }));
         },
         .color_report => {},
         .color_scheme => |scheme| {
@@ -756,7 +756,7 @@ fn handle_bracketed_paste_end(self: *Self) !void {
         self.bracketed_paste = false;
     }
     if (!self.bracketed_paste) return;
-    if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.written() }));
+    if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "paste", "push", "clipboard", "plain_text_utf8", self.bracketed_paste_buffer.written() }));
 }
 
 fn handle_bracketed_paste_error(self: *Self, e: Error) !void {

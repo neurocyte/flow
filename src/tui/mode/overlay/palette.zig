@@ -491,12 +491,7 @@ pub fn Create(options: type) type {
             self.cmd("palette_menu_cancel", .empty()) catch {};
         }
 
-        pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            var text: []const u8 = undefined;
-
-            if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-                self.paste_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            }
+        pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
             return false;
         }
 

@@ -105,14 +105,9 @@ fn set_from_current_selection(self: *Self, editor: *ed.Editor) !void {
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var text: []const u8 = undefined;
-
     const ctx: command.Context = .empty();
-    if (try m.match(.{"F"})) {
+    if (try m.match(.{"F"}))
         self.flush_input(ctx.now) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        self.mini_editor.buffer.paste(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
     return false;
 }
 
