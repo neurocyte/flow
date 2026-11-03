@@ -195,7 +195,7 @@ fn load_bundled_api(allocator: std.mem.Allocator, io: std.Io) ?Api {
         return null;
     }
     log.debug("using the bundled conpty.dll", .{});
-    return .{ .create = @ptrCast(create), .resize = @ptrCast(resize), .close = @ptrCast(close) };
+    return .{ .create = @ptrCast(@alignCast(create)), .resize = @ptrCast(@alignCast(resize)), .close = @ptrCast(@alignCast(close)) };
 }
 
 fn open_bundled_dll(allocator: std.mem.Allocator, io: std.Io) !*anyopaque {
