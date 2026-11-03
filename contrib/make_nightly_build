@@ -3,6 +3,7 @@ set -e
 
 for arg in "$@"; do
     case "$arg" in
+    -j*) MAX_JOBS="$arg" ;;
     --dry-run) DRY_RUN=1 ;;
     --no-github) NO_GITHUB=1 ;;
     --no-codeberg) NO_CODEBERG=1 ;;
@@ -88,11 +89,11 @@ if [ -z "$NO_BUILD" ]; then
     echo
     echo running tests...
 
-    contrib/builder/build test
+    contrib/builder/build test $MAX_JOBS
 
     if [ -n "$DRY_RUN" ]; then
         echo 'building (dry-run)...'
-        contrib/builder/build -Dall-targets --release
+        contrib/builder/build $MAX_JOBS -Dall-targets --release
         exit 0
     fi
 
