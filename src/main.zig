@@ -53,6 +53,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     _ = attach_parent_console();
 
+    if (builtin.os.tag == .macos) macos_desktop_launch_cwd_home();
+
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
         _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
@@ -1743,6 +1745,16 @@ fn restart_win32() noreturn {
         std.os.windows.ntdll.RtlExitUserProcess(1);
     };
     std.os.windows.ntdll.RtlExitUserProcess(0);
+}
+
+/// macos apps started from the gui have ppid 1 and no cwd
+fn macos_desktop_launch_cwd_home() void {
+    if (std.c.getppid() != 1) return;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const len = std.Io.Dir.cwd().realPathFile(global_init.io, ".", &buf) catch return;
+    if (!std.mem.eql(u8, buf[0..len], "/")) return;
+    const home = global_init.environ_map.get("HOME") orelse return;
+    std.process.setCurrentPath(global_init.io, home) catch {};
 }
 
 /// Returns true if a parent console was adopted
