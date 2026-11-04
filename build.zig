@@ -164,44 +164,28 @@ fn build_release(
         };
     };
     const optimize = b.standardOptimizeOption(.{});
-    const optimize_release = optimize;
-    const optimize_debug = optimize;
 
     const write_file_step = b.addWriteFiles();
     const version_file = write_file_step.add("version", version);
     b.getInstallStep().dependOn(&b.addInstallFile(version_file, "version").step);
 
     for (targets) |t| {
-        var common_options = flow_options;
-        common_options.renderer = t.@"1";
+        var options = flow_options;
+        options.renderer = t.@"1";
+        options.strip = false;
         const target = b.resolveTargetQuery(t.@"0");
         var triple = std.mem.splitScalar(u8, t.@"0".zigTriple(b.allocator) catch unreachable, '-');
         const arch = triple.next() orelse unreachable;
         const os = triple.next() orelse unreachable;
         const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
-        const target_path_debug = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch, "debug" }) catch unreachable;
 
-        var release_options = common_options;
-        release_options.strip = true;
         build_exe(
             b,
             flow_steps,
-            release_options,
+            options,
             target,
-            optimize_release,
+            optimize,
             .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
-            version,
-        );
-
-        var debug_options = common_options;
-        debug_options.strip = false;
-        build_exe(
-            b,
-            flow_steps,
-            debug_options,
-            target,
-            optimize_debug,
-            .{ .dest_dir = .{ .override = .{ .custom = target_path_debug } } },
             version,
         );
     }
