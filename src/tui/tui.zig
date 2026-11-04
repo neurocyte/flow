@@ -1281,7 +1281,16 @@ fn handle_paste_reply(self: *Self, m: tp.message) !void {
     const idx = oldest_paste_request(self.paste_requests.items, source_type, true) orelse {
         if (oldest_paste_request(self.expired_paste_requests.items, source_type, false)) |i| {
             const expired = self.expired_paste_requests.orderedRemove(i);
-            paste_log.debug("late reply to expired request {d} ignored", .{expired.id});
+            switch (expired.requester) {
+                .focus => if (text.len > 0) {
+                    // some hosts (ghostty) answer DA1 before the clipboard read
+                    // for .focus requests the target is chosen on arrival anyway, so we just take the best bet
+                    paste_log.debug("late reply to expired request {d} delivered", .{expired.id});
+                    try self.dispatch_flush_input_event();
+                    return self.dispatch_paste(.{ .source = .pull, .source_type = source_type, .content = text });
+                },
+                .vt => paste_log.debug("late reply to expired request {d} ignored", .{expired.id}),
+            }
         } else paste_log.debug("reply dropped, no pending request", .{});
         return;
     };
