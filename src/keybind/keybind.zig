@@ -2234,6 +2234,34 @@ test "binding filters" {
     try std.testing.expectEqual(@as(usize, 11), (try test_find_binding(normal, "ctrl+b")).?.source_info.line);
 }
 
+test "builtin macOS bindings load only for os macos" {
+    const saved = filter_options;
+    defer filter_options = saved;
+    const keys = [_]struct { []const u8, []const u8, []const u8 }{
+        .{ "project", "super+v", "system_paste" },
+        .{ "normal", "super+c", "copy" },
+        .{ "normal", "super+shift+z", "redo" },
+        .{ "select", "super+x", "cut" },
+        .{ "mini_editor", "super+a", "mini_editor_select_all" },
+        .{ "panel", "super+w", "panel_tab_close" },
+        .{ "terminal", "super+alt+right", "panel_tab_next" },
+        .{ "terminal", "super+`", "terminal_next_vt" },
+    };
+    for ([_]std.Target.Os.Tag{ .macos, .linux }) |os| {
+        reset_namespaces_for_test();
+        filter_options = .{ .os = os, .ui = .gui };
+        const namespace = try get_or_load_builtin_namespace("flow");
+        for (keys) |e| {
+            const mode_bindings = namespace.get_mode(e[0]) orelse return error.TestModeNotFound;
+            const found = try test_command_for(mode_bindings, e[1]);
+            if (os == .macos)
+                try std.testing.expectEqualStrings(e[2], found orelse return error.TestBindingNotFound)
+            else
+                try std.testing.expect(found == null);
+        }
+    }
+}
+
 test "binding filters follow the filter options" {
     reset_namespaces_for_test();
     const saved = filter_options;

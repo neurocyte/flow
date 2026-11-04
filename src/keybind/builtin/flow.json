@@ -1,6 +1,8 @@
 {
     "project": {
         "press": [
+            [{"os": "macos"}, "super+v", "system_paste"],
+            [{"os": "macos"}, "super+t", "terminal_new"],
             ["f1", "open_help"],
             ["alt+f8", "dump_widget_tree"],
             ["alt+f1", "toggle_keybind_hints"],
@@ -135,6 +137,13 @@
     "normal": {
         "inherit": "project",
         "press": [
+            [{"os": "macos"}, "super+c", "copy"],
+            [{"os": "macos"}, "super+x", "cut"],
+            [{"os": "macos"}, "super+z", "undo"],
+            [{"os": "macos"}, "super+shift+z", "redo"],
+            [{"os": "macos"}, "super+a", "select_all"],
+            [{"os": "macos"}, "super+f", "find"],
+            [{"os": "macos"}, "super+w", "close_file"],
             ["ctrl+z", "undo"],
             ["ctrl+y", "redo"],
             ["ctrl+w", "close_file"],
@@ -322,6 +331,8 @@
         "inherit": "normal",
         "cursor": "block",
         "press": [
+            [{"os": "macos"}, "super+x", ["cut"], ["enter_mode", "normal"], ["cancel"]],
+            [{"os": "macos"}, "super+c", ["copy"], ["enter_mode", "normal"], ["cancel"]],
             ["ctrl+g", "goto", "select"],
             ["left", "select_left"],
             ["right", "select_right"],
@@ -384,6 +395,11 @@
     "mini_editor": {
         "inherit": "project",
         "press": [
+            [{"os": "macos"}, "super+c", "mini_editor_copy"],
+            [{"os": "macos"}, "super+x", "mini_editor_cut"],
+            [{"os": "macos"}, "super+z", "mini_editor_undo"],
+            [{"os": "macos"}, "super+shift+z", "mini_editor_redo"],
+            [{"os": "macos"}, "super+a", "mini_editor_select_all"],
             ["left", "mini_editor_move_left"],
             ["right", "mini_editor_move_right"],
             ["home", "mini_editor_move_begin"],
@@ -692,6 +708,8 @@
         "on_match_failure": "nothing",
         "inherit": "project",
         "press": [
+            [{"os": "macos"}, "super+c", "panel_copy"],
+            [{"os": "macos"}, "super+w", "panel_tab_close"],
             ["ctrl+w", "panel_tab_close"],
             ["escape", "panel_unfocus"],
             ["ctrl+alt+up", "panel_unfocus"],
@@ -786,6 +804,14 @@
         "on_match_failure": "nothing",
         "inherit_prefix": [["ctrl+alt+a", "project"]],
         "press": [
+            [{"os": "macos"}, "super+c", "terminal_copy_selection"],
+            [{"os": "macos"}, "super+v", "system_paste"],
+            [{"os": "macos"}, "super+t", "terminal_new"],
+            [{"os": "macos"}, "super+w", "close_terminal"],
+            [{"os": "macos"}, "super+alt+right", "panel_tab_next"],
+            [{"os": "macos"}, "super+alt+left", "panel_tab_prev"],
+            [{"os": "macos"}, "super+`", "terminal_next_vt"],
+            [{"os": "macos"}, "super+shift+`", "terminal_previous_vt"],
             ["alt+f1", "toggle_keybind_hints"],
             ["shift+alt+f1", "toggle_keybind_hints_details"],
             ["ctrl+?", "toggle_keybind_hints"],
