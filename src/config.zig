@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const cbor = @import("cbor");
 
 frame_rate: usize = 60,
@@ -146,6 +147,8 @@ centered_view_min_screen_width: usize = 145,
 lsp_output: enum { quiet, verbose } = .quiet,
 
 keybind_mode: KeybindMode = .normal,
+keybind_os: std.Target.Os.Tag = builtin.os.tag,
+keybind_ui: KeybindUi = if (build_options.gui) .gui else .tui,
 dropdown_keybinds: DropdownKeybindMode = .standard,
 dropdown_limit: usize = 12,
 
@@ -314,6 +317,8 @@ pub const PaneStyle = enum {
     panel,
     editor,
 };
+
+pub const KeybindUi = enum { tui, gui };
 
 pub const KeybindMode = enum {
     normal,
