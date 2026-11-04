@@ -79,7 +79,6 @@ pub const Tokens = []const Token;
 pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
     allocator.free(self.name);
     allocator.free(self.description);
-    for (self.tokens) |*tok| allocator.free(tok.scope);
     allocator.free(self.tokens);
 }
 
