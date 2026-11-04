@@ -2321,13 +2321,17 @@ const cmds = struct {
         const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch (mode) {
             .none => null,
             else => @fromBackingInt(@intCast(@backingInt(mode) + 1)),
-        } else .only_current;
+        } else .absolute;
 
         config.gutter_line_numbers_mode = mode;
         try tui.save_config();
         try tp.self_pid().send(.{ "line_number_mode", mode });
+        if (mode) |m|
+            std.log.info("line number mode {t}", .{m})
+        else
+            std.log.info("input mode determins line number mode", .{});
     }
-    pub const gutter_mode_next_meta: Meta = .{ .description = "Next gutter mode" };
+    pub const gutter_mode_next_meta: Meta = .{ .description = "Next line number mode" };
 
     pub fn gutter_style_next(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
