@@ -1741,7 +1741,7 @@ fn detect_indent_size(leaves: []const Node) ?usize {
 
     // find the 3 most frequently occurring indent levels
     var top = [3]usize{ 0, 0, 0 };
-    for (1..freq.len) |n| {
+    for (2..freq.len) |n| {
         if (freq[n] > freq[top[2]]) {
             top[2] = n;
             if (freq[top[2]] > freq[top[1]]) std.mem.swap(usize, &top[1], &top[2]);
@@ -1750,12 +1750,16 @@ fn detect_indent_size(leaves: []const Node) ?usize {
     }
 
     // GCD of the top indent levels gives the base indent unit
-    var gcd: usize = 0;
-    for (top) |n| {
-        if (n == 0) continue;
-        gcd = if (gcd == 0) n else std.math.gcd(gcd, n);
+    var count: usize = top.len;
+    while (count > 0) : (count -= 1) {
+        var gcd: usize = 0;
+        for (top[0..count]) |n| {
+            if (n == 0) continue;
+            gcd = if (gcd == 0) n else std.math.gcd(gcd, n);
+        }
+        if (gcd > 1) return gcd;
     }
-    return if (gcd > 0) gcd else null;
+    return if (freq[1] > 0) 1 else null;
 }
 
 pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {
