@@ -19,6 +19,7 @@ initial_window_y: u16 = 1014,
 gui_window_transparency: bool = default_window_transparency,
 gui_background_opacity: f32 = 0.95,
 gui_ignore_theme_alpha: bool = true,
+macos_option_as_alt: MacosOptionAsAlt = .left,
 
 include_files: []const u8 = "",
 
@@ -52,6 +53,9 @@ const default_window_transparency = switch (builtin.os.tag) {
     .macos, .windows => false,
     else => true,
 };
+
+/// Which option key is alt on macOS. The other one types the layout's option characters.
+pub const MacosOptionAsAlt = enum { left, right, none };
 
 pub const Hinting = enum {
     none,

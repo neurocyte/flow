@@ -97,6 +97,7 @@ pub fn codepointFromButton(b: wio.Button, mods: Mods) ?u21 {
         .left_bracket => if (isShifted(mods)) '{' else '[',
         .right_bracket => if (isShifted(mods)) '}' else ']',
         .backslash => if (isShifted(mods)) '|' else '\\',
+        .iso_backslash => if (isShifted(mods)) '|' else '\\',
         .semicolon => if (isShifted(mods)) ':' else ';',
         .apostrophe => if (isShifted(mods)) '"' else '\'',
         .grave => if (isShifted(mods)) '~' else '`',

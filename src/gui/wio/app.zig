@@ -32,6 +32,7 @@ const z2d = @import("z2d");
 const RGBA = @import("color").RGBA;
 
 const input_translate = @import("input.zig");
+const chord_key = @import("chord_key.zig");
 const root = @import("soft_root").root;
 const gui_config = @import("gui_config");
 const Layer = @import("tuirenderer").Layer;
@@ -122,6 +123,8 @@ var tui_pid: thespian.pid = undefined;
 var render_pid: ?thespian.pid = null;
 var last_mods: input_translate.Mods = .{};
 var wio_modifiers: wio.Modifiers = .{};
+var held_buttons = input_translate.ButtonSet{};
+var option_as_alt: std.atomic.Value(u8) = .init(@backingInt(gui_config.MacosOptionAsAlt.left));
 var last_mouse: ?MouseEvent.Event = null;
 var font_size_pt: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
@@ -898,6 +901,7 @@ pub fn loadConfig() void {
     block_and_line_symbols = conf.block_and_line_symbols;
     allow_color_glyphs = conf.allow_color_glyphs;
     window_transparency = conf.gui_window_transparency;
+    option_as_alt.store(@backingInt(conf.macos_option_as_alt), .release);
     initial_window_width = conf.initial_window_x;
     initial_window_height = conf.initial_window_y;
     background_opacity.store(@bitCast(std.math.clamp(conf.gui_background_opacity, 0.0, 1.0)), .release);
@@ -929,6 +933,7 @@ pub fn reloadConfig() void {
     if (conf.allow_color_glyphs != allow_color_glyphs) setAllowColorGlyphs(conf.allow_color_glyphs);
     if (!std.mem.eql(u8, conf.fontface, font_name_buf[0..font_name_len])) setFontFace(conf.fontface);
     if (conf.gui_ignore_theme_alpha != ignore_theme_alpha.load(.acquire)) toggleIgnoreThemeAlpha();
+    option_as_alt.store(@backingInt(conf.macos_option_as_alt), .release);
     if (conf.gui_background_opacity != getBackgroundOpacity()) setBackgroundOpacity(conf.gui_background_opacity);
     glyph_atlas_budget_bytes = @as(usize, conf.gui_glyph_atlas_budget_mb) << 20;
     gpu.setGlyphAtlasPageBytes(@as(usize, conf.gui_glyph_atlas_page_mb) << 20);
@@ -1104,8 +1109,20 @@ fn isDeferredKey(base_cp: u21, mods: input_translate.Mods) bool {
     return !mods.alt and !mods.ctrl and input_translate.isKeypadTextKey(base_cp);
 }
 
-// The kitty base layout key applies only to text keys.
+// The key of a chord on a text key, from the layout characters of the event.
+// Other keys (arrows, function keys) keep their own codepoint.
+fn chordKey(e: wio.Button.Event, base_cp: u21, mods: input_translate.Mods) chord_key.Key {
+    const physical_shifted = input_translate.codepointFromButton(e.button, .{ .shift = true }) orelse base_cp;
+    const key = if (isCharacterKey(base_cp, .{}))
+        chord_key.chord_key(e.char, e.shifted_char, base_cp, physical_shifted)
+    else
+        chord_key.Key{ .codepoint = base_cp, .shifted = physical_shifted };
+    return .{ .codepoint = key.codepoint, .shifted = if (mods.shift) key.shifted else key.codepoint };
+}
+
+// The kitty base layout key applies only to text keys, and the ISO key has no US PC-101 position.
 fn baseLayoutCodepoint(btn: wio.Button) u21 {
+    if (btn == .iso_backslash) return 0;
     const cp = input_translate.codepointFromButton(btn, .{}) orelse return 0;
     return if (isCharacterKey(cp, .{})) cp else 0;
 }
@@ -1127,19 +1144,27 @@ const ComposedKeys = struct {
     pending: ?wio.Button = null,
     pending_kind: u8 = press,
     pending_mods: input_translate.Mods = .{},
-    held: std.EnumMap(wio.Button, u21) = .{},
+    // A chord keeps its key and takes the .char that follows as its text.
+    pending_chord: ?chord_key.Key = null,
+    held: std.EnumMap(wio.Button, chord_key.Key) = .{},
 
     // A key whose event we deferred to the .char that follows.
     fn defer_to_char(self: *@This(), btn: wio.Button, kind: u8, mods: input_translate.Mods) void {
-        self.flush_keypad();
+        self.flush();
         self.pending = btn;
         self.pending_kind = kind;
         self.pending_mods = mods;
     }
 
+    fn defer_chord(self: *@This(), btn: wio.Button, kind: u8, mods: input_translate.Mods, key: chord_key.Key) void {
+        self.defer_to_char(btn, kind, mods);
+        self.pending_chord = key;
+    }
+
     fn clear(self: *@This()) void {
         self.pending = null;
         self.pending_kind = press;
+        self.pending_chord = null;
     }
 
     fn pending_keypad(self: *const @This()) ?u21 {
@@ -1152,28 +1177,43 @@ const ComposedKeys = struct {
     // its PC-101 position, which is exactly the kitty base layout key.
     fn claim(self: *@This(), cp: u21, mods: input_translate.Mods) void {
         defer self.clear();
+        if (self.pending_chord) |key| {
+            const btn = self.pending.?;
+            self.held.put(btn, key);
+            const text_cp: u21 = if (cp >= 0x20 and cp != 0x7f) cp else 0;
+            sendKeyText(self.pending_kind, key.codepoint, key.shifted, text_cp, baseLayoutCodepoint(btn), self.pending_mods);
+            return;
+        }
         if (self.pending_keypad()) |kp| {
-            self.held.put(self.pending.?, kp);
+            self.held.put(self.pending.?, .{ .codepoint = kp, .shifted = kp });
             sendKeyText(self.pending_kind, kp, kp, cp, 0, mods);
             return;
         }
         var base_layout: u21 = 0;
         if (self.pending) |btn| {
-            self.held.put(btn, cp);
+            self.held.put(btn, .{ .codepoint = cp, .shifted = cp });
             base_layout = baseLayoutCodepoint(btn);
         }
         sendKey(self.pending_kind, cp, cp, base_layout, mods);
     }
 
-    fn flush_keypad(self: *@This()) void {
+    // Send a pending chord or keypad key that got no .char.
+    fn flush(self: *@This()) void {
+        if (self.pending_chord) |key| {
+            const btn = self.pending.?;
+            defer self.clear();
+            self.held.put(btn, key);
+            sendKey(self.pending_kind, key.codepoint, key.shifted, baseLayoutCodepoint(btn), self.pending_mods);
+            return;
+        }
         const kp = self.pending_keypad() orelse return;
         defer self.clear();
         const nav = input_translate.keypadNavCodepoint(kp);
-        self.held.put(self.pending.?, nav);
+        self.held.put(self.pending.?, .{ .codepoint = nav, .shifted = nav });
         sendKey(self.pending_kind, nav, nav, 0, self.pending_mods);
     }
 
-    fn release_key(self: *@This(), btn: wio.Button) ?u21 {
+    fn release_key(self: *@This(), btn: wio.Button) ?chord_key.Key {
         return self.held.fetchRemove(btn);
     }
 };
@@ -1265,7 +1305,6 @@ fn wioLoop() void {
         @as(u32, @intCast(initial_size.height)),
     }) catch {};
 
-    var held_buttons = input_translate.ButtonSet{};
     var composed = ComposedKeys{};
     var window_visible = true;
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
@@ -1303,7 +1342,7 @@ fn wioLoop() void {
                 },
                 .button_press => |e| {
                     const btn = e.button;
-                    composed.flush_keypad();
+                    composed.flush();
                     held_buttons.press(btn);
                     const mods = syncModifiers(e.modifiers, btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
@@ -1315,8 +1354,7 @@ fn wioLoop() void {
                                 composed.defer_to_char(btn, press, mods);
                                 continue;
                             }
-                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(press, base_cp, shifted_cp orelse base_cp, baseLayoutCodepoint(btn), mods);
+                            composed.defer_chord(btn, press, mods, chordKey(e, base_cp, mods));
                         } else {
                             if (input_translate.modifierCodepoint(btn)) |mod_cp| {
                                 sendKey(press, mod_cp, mod_cp, 0, mods);
@@ -1327,7 +1365,7 @@ fn wioLoop() void {
                 },
                 .button_repeat => |e| {
                     const btn = e.button;
-                    composed.flush_keypad();
+                    composed.flush();
                     const mods = syncModifiers(e.modifiers, btn);
                     if (input_translate.mouseButtonId(btn) == null) {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
@@ -1337,26 +1375,25 @@ fn wioLoop() void {
                                 composed.defer_to_char(btn, repeat, mods);
                                 continue;
                             }
-                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(repeat, base_cp, shifted_cp orelse base_cp, baseLayoutCodepoint(btn), mods);
+                            composed.defer_chord(btn, repeat, mods, chordKey(e, base_cp, mods));
                         }
                     }
                 },
                 .button_release => |e| {
                     const btn = e.button;
-                    composed.flush_keypad();
+                    composed.flush();
                     held_buttons.release(btn);
                     const mods = syncModifiers(e.modifiers, btn);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         sendMouse(.release, @fromBackingInt(@intCast(mb_id)), mouse_pos, mouseMods(e.modifiers));
                     } else {
-                        if (composed.release_key(btn)) |cp| {
-                            // Report the codepoint .char composed on press, so
-                            // press and release agree on layout-dependent keys.
-                            sendKey(release, cp, cp, baseLayoutCodepoint(btn), mods);
+                        if (composed.release_key(btn)) |key| {
+                            // Report the key that the press sent, so press and
+                            // release agree on layout-dependent keys.
+                            sendKey(release, key.codepoint, key.shifted, baseLayoutCodepoint(btn), mods);
                         } else if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
-                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(release, base_cp, shifted_cp orelse base_cp, baseLayoutCodepoint(btn), mods);
+                            const key = chordKey(e, base_cp, mods);
+                            sendKey(release, key.codepoint, key.shifted, baseLayoutCodepoint(btn), mods);
                         } else if (input_translate.modifierCodepoint(btn)) |mod_cp| {
                             sendKey(release, mod_cp, mod_cp, 0, mods);
                             repostMouse(held_buttons);
@@ -1426,7 +1463,7 @@ fn wioLoop() void {
             }
         }
 
-        composed.flush_keypad();
+        composed.flush();
         _ = syncModifiers(wio_modifiers, null);
 
         // Apply pending cross-thread requests from the TUI thread.
@@ -1987,13 +2024,14 @@ fn sendResize(
 fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, base_layout_codepoint: u21, mods: input_translate.Mods) void {
     // Text is the character that would be typed: empty when ctrl/alt active,
     // shifted_codepoint when shift is held, otherwise codepoint.
-    const text_cp: u21 = if (mods.shift) shifted_codepoint else codepoint;
+    const text_cp: u21 = if (mods.ctrl or mods.alt) 0 else if (mods.shift) shifted_codepoint else codepoint;
     sendKeyText(kind, codepoint, shifted_codepoint, text_cp, base_layout_codepoint, mods);
 }
 
+// text_cp is the text the key produced, also for a chord (macOS option text)
 fn sendKeyText(kind: u8, codepoint: u21, shifted_codepoint: u21, text_cp: u21, base_layout_codepoint: u21, mods: input_translate.Mods) void {
     var text_buf: [4]u8 = undefined;
-    const text_len: usize = if (!mods.ctrl and !mods.alt and text_cp >= 0x20 and text_cp != 0x7f and text_cp < 0xE000)
+    const text_len: usize = if (text_cp >= 0x20 and text_cp != 0x7f and text_cp < 0xE000)
         std.unicode.utf8Encode(text_cp, &text_buf) catch 0
     else
         0;
@@ -2005,9 +2043,22 @@ fn sendKeyText(kind: u8, codepoint: u21, shifted_codepoint: u21, text_cp: u21, b
     }) catch {};
 }
 
+// On macOS only the option key from macos_option_as_alt is alt, the other one types text.
+fn optionIsAlt() bool {
+    if (builtin.os.tag != .macos) return true;
+    const left = held_buttons.has(.left_alt);
+    const right = held_buttons.has(.right_alt);
+    return switch (@as(gui_config.MacosOptionAsAlt, @fromBackingInt(@intCast(option_as_alt.load(.acquire))))) {
+        .left => left or !right,
+        .right => right or !left,
+        .none => false,
+    };
+}
+
 fn syncModifiers(modifiers: wio.Modifiers, current_button: ?wio.Button) input_translate.Mods {
     wio_modifiers = modifiers;
-    const mods = input_translate.fromWioModifiers(modifiers);
+    var mods = input_translate.fromWioModifiers(modifiers);
+    if (mods.alt and !optionIsAlt()) mods.alt = false;
     // A modifier state change caused by pressing/releasing a modifier key is
     // already reported by the button handler.
     var skip_shift = false;
