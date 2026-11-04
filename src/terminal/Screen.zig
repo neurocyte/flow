@@ -291,11 +291,7 @@ pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
     if (self.width != 0) {
         const total_rows = self.buf.len / self.width;
         const used_rows = @min(self.visible_top + self.height, total_rows);
-        for (self.buf[0 .. used_rows * self.width]) |*cell| {
-            cell.char.deinit(alloc);
-            cell.uri.deinit(alloc);
-            cell.uri_id.deinit(alloc);
-        }
+        self.freeRows(alloc, 0, used_rows);
     }
     self.cursor.uri.deinit(alloc);
     self.cursor.uri_id.deinit(alloc);
@@ -422,6 +418,15 @@ fn transferMarksRange(
     }
 }
 
+fn freeRows(self: *Screen, allocator: std.mem.Allocator, first: usize, last: usize) void {
+    for (self.buf[first * self.width .. last * self.width]) |*cell| {
+        cell.char.deinit(allocator);
+        cell.uri.deinit(allocator);
+        cell.uri_id.deinit(allocator);
+        cell.* = .{};
+    }
+}
+
 fn blankRowTail(dst: *Screen, allocator: std.mem.Allocator, dst_row: usize, from: usize) void {
     const base = dst_row * dst.width;
     var col = from;
@@ -525,6 +530,7 @@ pub fn resizeVertical(self: *Screen, allocator: std.mem.Allocator, new_h: u16) v
     } else {
         const keep_above = @min(@as(usize, self.cursor.row), nh - 1);
         const src_vp_start = @as(usize, self.cursor.row) - keep_above;
+        self.freeRows(allocator, self.visible_top + src_vp_start + nh, self.visible_top + old_h);
         self.visible_top += src_vp_start;
         self.cursor.row = @intCast(keep_above);
     }
@@ -1015,6 +1021,7 @@ pub fn index(self: *Screen) !void {
             } else {
                 // scrollback is full
                 try self.evictRow();
+                self.freeRows(self.allocator, 0, 1);
                 self.ring.advance();
                 self.buf = self.ring.window();
                 self.shiftMarksUp(0, @intCast(total_rows - 1), 1);
@@ -1770,4 +1777,32 @@ test "encodeRowsUntil keeps blank cells before the end position" {
     out.clearRetainingCapacity();
     try screen.encodeRowFrom(&out.writer, .{ .row = 1, .col = 9 });
     try std.testing.expectEqualStrings("", out.written());
+}
+
+test "deinit after a ring wrap frees hyperlinks in recycled rows" {
+    const alloc = std.testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 7, 3, 2);
+    defer screen.deinit(alloc);
+    try screen.cursor.uri.appendSlice(alloc, "file:///x");
+    for (0..40) |_| {
+        try printAll(&screen, "abcdefg");
+        screen.cursor.col = 0;
+        try screen.index();
+    }
+    screen.cursor.uri.clearRetainingCapacity();
+}
+
+test "deinit after a vertical shrink frees hyperlinks below the viewport" {
+    const alloc = std.testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 5, 6, 10);
+    defer screen.deinit(alloc);
+    try screen.cursor.uri.appendSlice(alloc, "file:///x");
+    for (0..5) |_| {
+        try printAll(&screen, "ab");
+        screen.cursor.col = 0;
+        try screen.index();
+    }
+    screen.cursor.uri.clearRetainingCapacity();
+    screen.cursor.row = 0;
+    screen.resizeVertical(alloc, 2);
 }
