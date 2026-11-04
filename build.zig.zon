@@ -43,8 +43,8 @@
             .lazy = true,
         },
         .wio = .{
-            .url = "git+https://github.com/neurocyte/wio?ref=master#b97d71f2c76054e2f7d6283cc86c08fe626ba386",
-            .hash = "wio-0.0.0-8xHrr-XpCAC7QHjUSviYe1d04_lu2VSrsodX6-5UAE5Z",
+            .url = "git+https://github.com/neurocyte/wio?ref=master#6747388ff313234110efd00a26b16278d1570098",
+            .hash = "wio-0.0.0-8xHrr4H3CAC1K5a10TKdbI7Jxo14cm-48olykbHwsfPa",
             .lazy = true,
         },
         .wio_unix_headers = .{
