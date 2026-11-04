@@ -299,6 +299,11 @@ pub const sql = .{};
 
 pub const @"ssh-config" = .{};
 
+pub const svelte = .{
+    .language_server = .{ "svelteserver", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "svelte" },
+};
+
 pub const svg = .{
     .language_server = .{ "oxvg", "lint", "serve" },
     .formatter = .{ "oxvg", "format" },
