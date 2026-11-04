@@ -11,6 +11,7 @@ const KeyEvent = input.KeyEvent;
 const SelectionStyle = @import("Buffer").Selection.Style;
 pub const CursorShape = @import("config").CursorShape;
 pub const KeybindMode = @import("config").KeybindMode;
+pub const KeybindUi = @import("config").KeybindUi;
 
 const log = std.log.scoped(.keybind);
 
@@ -49,6 +50,17 @@ const Commands = command.Collection(struct {
         .arguments = &.{.integer},
     };
 });
+
+pub const FilterOptions = struct {
+    os: std.Target.Os.Tag = builtin.os.tag,
+    ui: KeybindUi = .tui,
+};
+
+var filter_options: FilterOptions = .{};
+
+pub fn set_filter_options(options: FilterOptions) void {
+    filter_options = options;
+}
 
 pub fn init(mode_flag_: KeybindMode) !void {
     mode_flag = mode_flag_;
@@ -963,7 +975,11 @@ const BindingSet = struct {
 
     fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value, source_info: SourceInfo, lines: []const usize) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
         _ = event;
-        bindings: for (bindings, 0..) |entry, idx| {
+        bindings: for (bindings, 0..) |binding_entry, idx| {
+            const entry = if (binding_entry.len > 0 and binding_entry[0] == .object) blk: {
+                if (!match_filter(binding_entry[0].object, source_info.mode)) continue :bindings;
+                break :blk binding_entry[1..];
+            } else binding_entry;
             if (entry.len < 2) {
                 log.err("ERROR: invalid binding definition {any}", .{entry});
                 continue :bindings;
@@ -1032,6 +1048,54 @@ const BindingSet = struct {
                 },
             });
         }
+    }
+
+    /// keys are ANDed and values are ORed
+    fn match_filter(filter: std.json.ObjectMap, mode_name: []const u8) bool {
+        var matched = true;
+        var iter = filter.iterator();
+        while (iter.next()) |field| {
+            const key = field.key_ptr.*;
+            const value = field.value_ptr.*;
+            const field_matched = if (std.mem.eql(u8, key, "os"))
+                match_filter_values(std.Target.Os.Tag, mode_name, key, value, filter_options.os) orelse return false
+            else if (std.mem.eql(u8, key, "ui"))
+                match_filter_values(KeybindUi, mode_name, key, value, filter_options.ui) orelse return false
+            else {
+                log.info("{s}: unknown keybind filter '{s}', binding skipped", .{ mode_name, key });
+                return false;
+            };
+            matched = matched and field_matched;
+        }
+        return matched;
+    }
+
+    fn match_filter_values(T: type, mode_name: []const u8, key: []const u8, value: std.json.Value, current: T) ?bool {
+        switch (value) {
+            .string => |str| return (filter_value(T, mode_name, key, str) orelse return null) == current,
+            .array => |values| {
+                var matched = false;
+                for (values.items) |item| {
+                    if (item != .string) {
+                        log.info("{s}: keybind filter '{s}' values must be strings, binding skipped", .{ mode_name, key });
+                        return null;
+                    }
+                    if ((filter_value(T, mode_name, key, item.string) orelse return null) == current) matched = true;
+                }
+                return matched;
+            },
+            else => {
+                log.info("{s}: keybind filter '{s}' must be a string or an array of strings, binding skipped", .{ mode_name, key });
+                return null;
+            },
+        }
+    }
+
+    fn filter_value(T: type, mode_name: []const u8, key: []const u8, str: []const u8) ?T {
+        return std.meta.stringToEnum(T, str) orelse {
+            log.info("{s}: unknown value '{s}' for keybind filter '{s}', binding skipped", .{ mode_name, str, key });
+            return null;
+        };
     }
 
     fn copy(allocator: std.mem.Allocator, config_section: []const u8, fallback: *const BindingSet) error{OutOfMemory}!@This() {
@@ -2113,4 +2177,80 @@ test "source_info file and line" {
         try std.testing.expectEqual(e[2], binding.source_info.line);
     }
     try std.testing.expectEqual(@as(usize, 18), normal.release.items[0].source_info.line);
+}
+
+test "binding filters" {
+    reset_namespaces_for_test();
+    const saved = filter_options;
+    defer filter_options = saved;
+    filter_options = .{ .os = .linux, .ui = .gui };
+    const namespace = try load_test_namespace("tfilter",
+        \\{
+        \\  "settings": { "no_defaults": true },
+        \\  "base": { "press": [
+        \\    ["ctrl+n", "base_n"],
+        \\    ["ctrl+o", "base_o"]
+        \\  ]},
+        \\  "normal": {
+        \\    "inherit": "base",
+        \\    "press": [
+        \\      [{}, "ctrl+a", "empty_filter"],
+        \\      [{"os": "linux"}, "ctrl+b", "os_string"],
+        \\      [{"os": "macos"}, "ctrl+c", "os_other"],
+        \\      [{"os": ["freebsd", "linux"]}, "ctrl+d", "os_array"],
+        \\      [{"os": ["macos", "windows"]}, "ctrl+e", "os_array_other"],
+        \\      [{"os": "linux", "ui": "gui"}, ["ctrl+f", "described"], "both_keys"],
+        \\      [{"os": "linux", "ui": "tui"}, "ctrl+g", "both_keys_other"],
+        \\      [{"ui": ["tui", "gui"]}, "ctrl+h", ["multi_a"], ["multi_b", 1]],
+        \\      [{"platform": "linux"}, "ctrl+i", "unknown_key"],
+        \\      [{"os": "linuks"}, "ctrl+j", "unknown_value"],
+        \\      [{"os": ["linux", "linuks"]}, "ctrl+k", "unknown_value_in_array"],
+        \\      [{"os": 1}, "ctrl+l", "bad_type"],
+        \\      [{"os": "macos"}, "ctrl+m"],
+        \\      ["ctrl+p", "plain"],
+        \\      [{"os": "linux"}, "ctrl+n", "unbind"],
+        \\      [{"os": "macos"}, "ctrl+o", "unbind"]
+        \\    ]
+        \\  }
+        \\}
+    );
+    const normal = namespace.get_mode("normal").?;
+    const present = [_]struct { []const u8, []const u8 }{
+        .{ "ctrl+a", "empty_filter" },
+        .{ "ctrl+b", "os_string" },
+        .{ "ctrl+d", "os_array" },
+        .{ "ctrl+f", "both_keys" },
+        .{ "ctrl+h", "multi_a" },
+        .{ "ctrl+p", "plain" },
+        .{ "ctrl+o", "base_o" },
+    };
+    for (present) |e| try std.testing.expectEqualStrings(e[1], (try test_command_for(normal, e[0])) orelse return error.TestBindingNotFound);
+    for ([_][]const u8{ "ctrl+c", "ctrl+e", "ctrl+g", "ctrl+i", "ctrl+j", "ctrl+k", "ctrl+l", "ctrl+m", "ctrl+n" }) |key|
+        try std.testing.expect((try test_command_for(normal, key)) == null);
+
+    const described = (try test_find_binding(normal, "ctrl+f")).?;
+    try std.testing.expectEqualStrings("described", described.description);
+    try std.testing.expectEqual(@as(usize, 2), (try test_find_binding(normal, "ctrl+h")).?.commands.len);
+    try std.testing.expectEqual(@as(usize, 11), (try test_find_binding(normal, "ctrl+b")).?.source_info.line);
+}
+
+test "binding filters follow the filter options" {
+    reset_namespaces_for_test();
+    const saved = filter_options;
+    defer filter_options = saved;
+    filter_options = .{ .os = .macos, .ui = .tui };
+    const namespace = try load_test_namespace("tfilter_macos",
+        \\{
+        \\  "settings": { "no_defaults": true },
+        \\  "normal": { "press": [
+        \\    [{"os": "macos"}, "super+v", "mac_paste"],
+        \\    [{"os": "linux"}, "super+c", "linux_copy"],
+        \\    [{"ui": "gui"}, "super+t", "gui_only"]
+        \\  ]}
+        \\}
+    );
+    const normal = namespace.get_mode("normal").?;
+    try std.testing.expectEqualStrings("mac_paste", (try test_command_for(normal, "super+v")).?);
+    try std.testing.expect((try test_command_for(normal, "super+c")) == null);
+    try std.testing.expect((try test_command_for(normal, "super+t")) == null);
 }
