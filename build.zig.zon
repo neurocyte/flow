@@ -30,8 +30,8 @@
             .hash = "fuzzig-0.1.3-Ji0xitBoAQDvK-B-lfTy87SnSYme0nXvAeFDX4K8eBxD",
         },
         .vaxis = .{
-            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#80160517a582dbc00335ee59579e2d6720520547",
-            .hash = "vaxis-0.6.0-BWNV_ITqCQD_xg8HyvxZzHof07Rd6DQGKZYGcwkUkx4w",
+            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#6bec8b7f002278863a4cdf402d140f7ae5bc36dc",
+            .hash = "vaxis-0.6.0-BWNV_GPsCQDqH5zaxBq9PxL7-kCA1V7x6hHe3kTstHQc",
         },
         .zeit = .{
             .url = "git+https://github.com/neurocyte/zeit?ref=main#4ee32b9df7d2bbbd24656ea42101d84ccfb721b1",
