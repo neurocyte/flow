@@ -99,7 +99,7 @@ if [ -z "$NO_BUILD" ]; then
 
     echo building...
 
-    contrib/builder/build -Dall-targets --release --prefix "./$builddir/build"
+    contrib/builder/build $MAX_JOBS -Dall-targets --release --prefix "./$builddir/build"
 
     VERSION=$(/bin/cat "$DESTDIR/build/version")
 
