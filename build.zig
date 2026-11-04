@@ -83,7 +83,9 @@ fn build_development(
     // The gui renderer links system GL/X11 libraries which are not available
     // via the musl sysroot, so use the native ABI when building it.
     const force_musl = builtin.os.tag == .linux and !flow_options.tracy_enabled and flow_options.renderer != .gui;
-    const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (force_musl) .musl else null } });
+    const target = b.resolveTargetQuery(with_default_macos_min(
+        b.standardTargetOptionsQueryOnly(.{ .default_target = .{ .abi = if (force_musl) .musl else null } }),
+    ));
     const optimize = b.standardOptimizeOption(.{});
 
     return build_exe(
@@ -173,7 +175,7 @@ fn build_release(
         var options = flow_options;
         options.renderer = t.@"1";
         options.strip = false;
-        const target = b.resolveTargetQuery(t.@"0");
+        const target = b.resolveTargetQuery(with_default_macos_min(t.@"0"));
         var triple = std.mem.splitScalar(u8, t.@"0".zigTriple(b.allocator) catch unreachable, '-');
         const arch = triple.next() orelse unreachable;
         const os = triple.next() orelse unreachable;
@@ -189,6 +191,16 @@ fn build_release(
             version,
         );
     }
+}
+
+/// should match LSMinimumSystemVersion in plist
+const macos_version_min: std.SemanticVersion = .{ .major = 13, .minor = 0, .patch = 0 };
+
+fn with_default_macos_min(query: std.Target.Query) std.Target.Query {
+    var q = query;
+    if (q.os_tag == .macos and q.os_version_min == null)
+        q.os_version_min = .{ .semver = macos_version_min };
+    return q;
 }
 
 pub fn build_exe(
