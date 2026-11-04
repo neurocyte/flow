@@ -24,8 +24,13 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     const arena = arena_allocator.allocator();
 
-    const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
-    for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
+    const argv = if (builtin.os.tag == .macos and self.is_login_shell())
+        try macos_login_argv(arena, self.argv) orelse self.argv
+    else
+        self.argv;
+
+    const argv_buf = try arena.allocSentinel(?[*:0]const u8, argv.len, null);
+    for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
     const envp = try createEnvironFromMap(arena, self.env_map);
 
@@ -79,6 +84,34 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     // we are the parent
     self.pid = @intCast(pid);
+}
+
+fn is_login_shell(self: *const Command) bool {
+    const shell = self.env_map.get("SHELL") orelse return false;
+    return self.argv.len > 0 and std.mem.eql(u8, self.argv[0], shell);
+}
+
+fn macos_login_argv(arena: std.mem.Allocator, argv: []const []const u8) !?[]const []const u8 {
+    const pw = std.c.getpwuid(std.c.geteuid()) orelse return null;
+    const user = std.mem.span(pw.name orelse return null);
+    const hush = if (pw.dir) |home| blk: {
+        const path = try std.fmt.allocPrintSentinel(arena, "{s}/.hushlogin", .{std.mem.span(home)}, 0);
+        break :blk std.c.access(path, 0) == 0;
+    } else false;
+
+    var cmd: std.Io.Writer.Allocating = .init(arena);
+    try cmd.writer.writeAll("exec -l");
+    for (argv) |arg| {
+        try cmd.writer.writeAll(" '");
+        for (arg) |ch| if (ch == '\'') try cmd.writer.writeAll("'\\''") else try cmd.writer.writeByte(ch);
+        try cmd.writer.writeByte('\'');
+    }
+
+    var args: std.ArrayList([]const u8) = .empty;
+    try args.append(arena, "/usr/bin/login");
+    if (hush) try args.append(arena, "-q");
+    try args.appendSlice(arena, &.{ "-flp", user, "/bin/bash", "--noprofile", "--norc", "-c", cmd.written() });
+    return args.items;
 }
 
 extern fn getdtablesize() posix.fd_t;
