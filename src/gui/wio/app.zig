@@ -1091,6 +1091,8 @@ fn effectiveAlphaU8(theme_a_u8: u8, opacity: f32, ignore: bool) u8 {
 // and the button event carries the key itself.
 fn isCharacterKey(base_cp: u21, mods: input_translate.Mods) bool {
     if (mods.alt or mods.ctrl) return false;
+    // macOS sends no .char for cmd keys
+    if (builtin.os.tag == .macos and mods.super) return false;
     const ascii = std.math.cast(u8, base_cp) orelse return false;
     return std.ascii.isPrint(ascii);
 }
