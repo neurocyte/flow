@@ -4,12 +4,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Pty = @import("Pty.zig");
 const Terminal = @import("Terminal.zig");
+const MacosLoginShell = @import("config").MacosLoginShell;
 
 const posix = std.posix;
 
 argv: []const []const u8,
 
 working_directory: ?[]const u8,
+
+macos_login_shell: MacosLoginShell = .login,
 
 // Set after spawn()
 pid: ?std.posix.pid_t = null,
@@ -24,13 +27,21 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     const arena = arena_allocator.allocator();
 
-    const argv = if (builtin.os.tag == .macos and self.is_login_shell())
-        try macos_login_argv(arena, self.argv) orelse self.argv
+    const login_shell: MacosLoginShell = if (builtin.os.tag == .macos and self.is_login_shell())
+        self.macos_login_shell
     else
-        self.argv;
+        .none;
+
+    const argv = switch (login_shell) {
+        .login => try macos_login_argv(arena, self.argv) orelse self.argv,
+        .argv0, .none => self.argv,
+    };
 
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, argv.len, null);
     for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
+    const exe = argv_buf[0].?;
+    if (login_shell == .argv0)
+        argv_buf[0] = (try std.fmt.allocPrintSentinel(arena, "-{s}", .{std.fs.path.basename(argv[0])}, 0)).ptr;
 
     const envp = try createEnvironFromMap(arena, self.env_map);
 
@@ -77,7 +88,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
             _ = std.c.chdir(wd_z.ptr);
 
         // exec
-        _ = posix.system.execve(argv_buf.ptr[0].?, argv_buf.ptr, @ptrCast(envp.ptr));
+        _ = posix.system.execve(exe, argv_buf.ptr, @ptrCast(envp.ptr));
 
         std.c._exit(127);
     }

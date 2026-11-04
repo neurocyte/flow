@@ -70,6 +70,7 @@ fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, 
                 const project = tp.env.get().str("project");
                 break :blk if (project.len > 0) project else home;
             },
+            .macos_login_shell = tui.config().terminal_macos_login_shell,
         },
         &self.write_buf,
     );

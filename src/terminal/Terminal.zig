@@ -62,6 +62,7 @@ pub const Options = struct {
     input_delay_us: u64 = 3 * std.time.us_per_ms,
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     initial_working_directory: ?[]const u8 = null,
+    macos_login_shell: @import("config").MacosLoginShell = .login,
 };
 
 /// history rows that are kept as cells, older rows are in the cold store
@@ -271,6 +272,7 @@ pub fn init(
         .env_map = env,
         .pty = pty,
         .working_directory = opts.initial_working_directory,
+        .macos_login_shell = opts.macos_login_shell,
     };
     var tabs: std.ArrayList(u16) = try .initCapacity(allocator, opts.winsize.cols / 8);
     var col: u16 = 0;
@@ -395,6 +397,7 @@ pub fn respawn(
         .env_map = env,
         .pty = new_pty,
         .working_directory = working_directory,
+        .macos_login_shell = self.cmd.macos_login_shell,
     };
     // A new command starts with default terminal modes, like a fresh shell.
     self.mode = .{};

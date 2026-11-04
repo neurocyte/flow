@@ -22,6 +22,7 @@ terminal_persist_scrollback: bool = true,
 terminal_reflow_on_resize: bool = true,
 terminal_input_delay_ms: u16 = 3,
 terminal_on_exit: TerminalOnExit = .hold_on_error,
+terminal_macos_login_shell: MacosLoginShell = .login,
 terminal_focus_after_send: bool = true,
 terminal_newline_after_send: bool = false,
 terminal_send_on_smart_insert_line_before: bool = true,
@@ -412,6 +413,12 @@ pub const TerminalOnExit = enum {
     hold_on_error,
     close,
     hold,
+};
+
+pub const MacosLoginShell = enum {
+    login,
+    argv0,
+    none,
 };
 
 pub const PalettePlacement = enum {
