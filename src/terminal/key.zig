@@ -272,9 +272,9 @@ fn legacy(writer: *std.Io.Writer, key: vaxis.Key, cursor_keys_app: bool) !void {
         return;
     }
 
-    const shift = 0b00000001;
-    const alt = 0b00000010;
-    const ctrl = 0b00000100;
+    const shift: u8 = 0b00000001;
+    const alt: u8 = 0b00000010;
+    const ctrl: u8 = 0b00000100;
 
     const effective_mods: u8 = blk: {
         const mods: u8 = @bitCast(key.mods);
@@ -288,12 +288,12 @@ fn legacy(writer: *std.Io.Writer, key: vaxis.Key, cursor_keys_app: bool) !void {
         return;
     }
 
-    // If we are lowercase ascii and ctrl, we map to a control byte
-    if (effective_mods == ctrl and key.codepoint >= 'a' and key.codepoint <= 'z') {
-        const b: u8 = @truncate(key.codepoint);
-        try writer.writeByte(b -| 0x60);
+    // Ctrl (+ Alt) + a key with a control byte
+    if (effective_mods & ~alt == ctrl) if (ctrlByte(key.codepoint)) |b| {
+        if (effective_mods & alt != 0) try writer.writeByte(0x1b);
+        try writer.writeByte(b);
         return;
-    }
+    };
 
     // If we are printable ascii + alt
     if (effective_mods == alt and key.codepoint >= ' ' and key.codepoint < 0x7F) {
@@ -302,10 +302,21 @@ fn legacy(writer: *std.Io.Writer, key: vaxis.Key, cursor_keys_app: bool) !void {
         return;
     }
 
-    // If we are ctrl + alt + lowercase ascii
-    if (effective_mods == (ctrl | alt) and key.codepoint >= 'a' and key.codepoint <= 'z') {
-        // convert to control sequence
-        try writer.print("\x1b{d}", .{key.codepoint - 0x60});
+    // Enter/Escape/Backspace/Tab keep their control bytes when modified,
+    // with Alt as an ESC prefix (as xterm and kitty do).
+    if (effective_mods != 0) {
+        const main: ?[]const u8 = switch (key.codepoint) {
+            vaxis.Key.enter, vaxis.Key.kp_enter => "\r",
+            vaxis.Key.escape => "\x1b",
+            vaxis.Key.backspace => if (effective_mods & ctrl != 0) "\x08" else "\x7f",
+            vaxis.Key.tab => if (effective_mods & shift != 0) "\x1b[Z" else "\t",
+            else => null,
+        };
+        if (main) |bytes| {
+            if (effective_mods & alt != 0) try writer.writeByte(0x1b);
+            try writer.writeAll(bytes);
+            return;
+        }
     }
 
     const def = switch (key.codepoint) {
@@ -378,6 +389,10 @@ fn legacy(writer: *std.Io.Writer, key: vaxis.Key, cursor_keys_app: bool) !void {
                     vaxis.Key.kp_down,
                     vaxis.Key.kp_left,
                     vaxis.Key.kp_right,
+                    vaxis.Key.home,
+                    vaxis.Key.kp_home,
+                    vaxis.Key.end,
+                    vaxis.Key.kp_end,
                     => try writer.print("{s}{c}", .{ if (cursor_keys_app) "\x1bO" else "\x1b[", def.suffix }),
                     else => try writer.print("\x1b[{c}", .{def.suffix}),
                 }
@@ -386,6 +401,21 @@ fn legacy(writer: *std.Io.Writer, key: vaxis.Key, cursor_keys_app: bool) !void {
         },
         else => try writer.print("\x1b[{d};{d}{c}", .{ def.number, effective_mods + 1, def.suffix }),
     }
+}
+
+/// legacy control byte for Ctrl + `cp`
+fn ctrlByte(cp: u21) ?u8 {
+    return switch (cp) {
+        'a'...'z' => @intCast(cp - 0x60),
+        ' ', '@', '2' => 0x00,
+        '[', '3' => 0x1b,
+        '\\', '4' => 0x1c,
+        ']', '5' => 0x1d,
+        '^', '6' => 0x1e,
+        '_', '/', '7' => 0x1f,
+        '?', '8' => 0x7f,
+        else => null,
+    };
 }
 
 const Definition = struct {
@@ -567,4 +597,40 @@ test "alternates: not reported for functional keys" {
         .report_all_as_ctl_seqs = false,
         .report_text = false,
     });
+}
+
+// Legacy encodings (xterm)
+
+fn expectLegacy(expected: []const u8, key: vaxis.Key, cursor_keys_app: bool) !void {
+    var buf: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    try encode(&writer, key, .press, @bitCast(@as(u5, 0)), cursor_keys_app, 0);
+    try std.testing.expectEqualStrings(expected, writer.buffered());
+}
+
+test "legacy: home/end follow cursor key mode" {
+    try expectLegacy("\x1b[H", .{ .codepoint = vaxis.Key.home }, false);
+    try expectLegacy("\x1b[F", .{ .codepoint = vaxis.Key.end }, false);
+    try expectLegacy("\x1bOH", .{ .codepoint = vaxis.Key.home }, true);
+    try expectLegacy("\x1bOF", .{ .codepoint = vaxis.Key.end }, true);
+    try expectLegacy("\x1b[1;5H", .{ .codepoint = vaxis.Key.home, .mods = .{ .ctrl = true } }, true);
+}
+
+test "legacy: modified tab, backspace, enter, escape" {
+    try expectLegacy("\x1b[Z", .{ .codepoint = vaxis.Key.tab, .mods = .{ .shift = true } }, false);
+    try expectLegacy("\x1b\x1b[Z", .{ .codepoint = vaxis.Key.tab, .mods = .{ .shift = true, .alt = true } }, false);
+    try expectLegacy("\x7f", .{ .codepoint = vaxis.Key.backspace }, false);
+    try expectLegacy("\x08", .{ .codepoint = vaxis.Key.backspace, .mods = .{ .ctrl = true } }, false);
+    try expectLegacy("\x1b\x7f", .{ .codepoint = vaxis.Key.backspace, .mods = .{ .alt = true } }, false);
+    try expectLegacy("\x1b\x08", .{ .codepoint = vaxis.Key.backspace, .mods = .{ .ctrl = true, .alt = true } }, false);
+    try expectLegacy("\r", .{ .codepoint = vaxis.Key.enter, .mods = .{ .shift = true } }, false);
+    try expectLegacy("\x1b\r", .{ .codepoint = vaxis.Key.enter, .mods = .{ .alt = true } }, false);
+    try expectLegacy("\x1b\x1b", .{ .codepoint = vaxis.Key.escape, .mods = .{ .alt = true } }, false);
+}
+
+test "legacy: ctrl and ctrl+alt control bytes" {
+    try expectLegacy("\x01", .{ .codepoint = 'a', .mods = .{ .ctrl = true } }, false);
+    try expectLegacy("\x1b\x01", .{ .codepoint = 'a', .mods = .{ .ctrl = true, .alt = true } }, false);
+    try expectLegacy("\x00", .{ .codepoint = ' ', .mods = .{ .ctrl = true } }, false);
+    try expectLegacy("\x1f", .{ .codepoint = '/', .mods = .{ .ctrl = true } }, false);
 }
