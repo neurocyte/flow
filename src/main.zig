@@ -12,6 +12,7 @@ const sep = std.fs.path.sep;
 const list_languages = @import("list_languages.zig");
 const ScriptExecutor = @import("ScriptExecutor.zig");
 const StdinReader = @import("StdinReader.zig");
+const macos_login_environment = @import("macos_login_environment.zig");
 const file_link = @import("file_link");
 
 const c = @import("c");
@@ -53,7 +54,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     _ = attach_parent_console();
 
-    if (builtin.os.tag == .macos) macos_desktop_launch_cwd_home();
+    if (builtin.os.tag == .macos) macos_desktop_launch();
 
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
@@ -1748,8 +1749,13 @@ fn restart_win32() noreturn {
 }
 
 /// macos apps started from the gui have ppid 1 and no cwd
-fn macos_desktop_launch_cwd_home() void {
+fn macos_desktop_launch() void {
     if (std.c.getppid() != 1) return;
+    macos_desktop_launch_cwd_home();
+    macos_login_environment.exec(global_init);
+}
+
+fn macos_desktop_launch_cwd_home() void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const len = std.Io.Dir.cwd().realPathFile(global_init.io, ".", &buf) catch return;
     if (!std.mem.eql(u8, buf[0..len], "/")) return;
