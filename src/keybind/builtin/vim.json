@@ -43,6 +43,9 @@
             ["<Esc>", "cancel"],
             ["<C-[>", "cancel"],
             ["<C-s>", "save_file"],
+            ["ZZ", "x"],
+            ["ZQ", "quit_without_saving"],
+            ["ZR", "restart"],
 
             ["h", "move_left_vim"],
             ["j", "move_down_vim"],
