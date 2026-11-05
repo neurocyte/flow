@@ -182,6 +182,7 @@ pub fn Create(options: type) type {
             }
             self.inputbox.mini_editor.on_change = .bind(self, on_input_change);
             try self.start_query(0);
+            if (async_query) self.refresh_layout();
             try mv.floating_views.widgets.ensureUnusedCapacity(mv.floating_views.allocator, 2);
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.list_box_layer.widget());
