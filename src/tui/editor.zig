@@ -12,7 +12,6 @@ const tracy = @import("tracy");
 const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const file_type_config = @import("file_type_config");
-const editorconfig = @import("editorconfig");
 const project_manager = @import("project_manager");
 const root_mod = @import("soft_root").root;
 const file_link = @import("file_link");
@@ -41,6 +40,7 @@ const syntax_worker = @import("syntax_worker.zig");
 const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
 const IndentMode = @import("config").IndentMode;
+const FinalNewlineMode = @import("config").FinalNewlineMode;
 const WhitespaceMode = @import("config").WhitespaceMode;
 const CodeActionIndicatorMode = @import("config").CodeActionIndicatorMode;
 const info_view = @import("info_view.zig");
@@ -430,6 +430,10 @@ pub const Editor = struct {
     indent_size: usize,
     tab_width: usize,
     indent_mode: IndentMode,
+    trim_trailing_whitespace_on_save: bool,
+    final_newline_on_save: FinalNewlineMode,
+    value_sources: ValueSources = .{},
+    eol_mode: Buffer.EolMode = .lf,
     reflow_width: ?usize = null,
 
     last: struct {
@@ -611,7 +615,7 @@ pub const Editor = struct {
     }
 
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 15);
+        try cbor.writeArrayHeader(writer, 18);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
@@ -636,6 +640,42 @@ pub const Editor = struct {
         try write_cursels(writer, self.cursels.items);
         try cbor.writeValue(writer, self.last_find_query_find_mode);
         try cbor.writeValue(writer, self.find_mode);
+        try cbor.writeValue(writer, self.trim_trailing_whitespace_on_save);
+        try cbor.writeValue(writer, self.final_newline_on_save);
+        const source_names = @typeInfo(ValueSources).@"struct".field_names;
+        try cbor.writeArrayHeader(writer, source_names.len);
+        inline for (source_names) |name|
+            try cbor.writeValue(writer, @field(self.value_sources, name));
+    }
+
+    fn extract_value_state(self: *Self, state: []const u8) !void {
+        var iter = state;
+        if (try cbor.decodeArrayHeader(&iter) < 18) return;
+        for (0..15) |_| try cbor.skipValue(&iter);
+        var trim_trailing_whitespace_on_save: bool = undefined;
+        var final_newline_on_save: FinalNewlineMode = undefined;
+        if (!try cbor.matchValue(&iter, cbor.extract(&trim_trailing_whitespace_on_save)))
+            return error.RestoreStateMatch;
+        if (!try cbor.matchValue(&iter, cbor.extract(&final_newline_on_save)))
+            return error.RestoreStateMatch;
+        var sources: ValueSources = .{};
+        const source_names = @typeInfo(ValueSources).@"struct".field_names;
+        if (try cbor.decodeArrayHeader(&iter) != source_names.len)
+            return error.RestoreStateMatch;
+        inline for (source_names) |name|
+            if (!try cbor.matchValue(&iter, cbor.extract(&@field(sources, name))))
+                return error.RestoreStateMatch;
+        self.value_sources.indent_mode = sources.indent_mode;
+        self.value_sources.indent_size = sources.indent_size;
+        self.value_sources.tab_width = sources.tab_width;
+        if (sources.trim_trailing_whitespace_on_save != .config) {
+            self.trim_trailing_whitespace_on_save = trim_trailing_whitespace_on_save;
+            self.value_sources.trim_trailing_whitespace_on_save = sources.trim_trailing_whitespace_on_save;
+        }
+        if (sources.final_newline_on_save != .config) {
+            self.final_newline_on_save = final_newline_on_save;
+            self.value_sources.final_newline_on_save = sources.final_newline_on_save;
+        }
     }
 
     fn write_cursels(writer: *std.Io.Writer, cursels: []const ?CurSel) !void {
@@ -690,6 +730,7 @@ pub const Editor = struct {
         var insert_triggers: []TriggerSymbol = undefined;
         var delete_triggers: []TriggerSymbol = undefined;
         var find_history: []const u8 = undefined;
+        const state = iter.*;
         if (!try cbor.matchValue(iter, .{
             tp.extract(&file_path),
             tp.extract(&last_find_query),
@@ -706,8 +747,10 @@ pub const Editor = struct {
             tp.extract_cbor(&cursels_cbor),
             tp.extract(&self.last_find_query_find_mode),
             tp.extract(&self.find_mode),
+            cbor.more,
         }))
             return error.RestoreStateMatch;
+        try self.extract_value_state(state);
         self.clear_event_triggers();
         self.insert_triggers = .fromOwnedSlice(insert_triggers);
         self.delete_triggers = .fromOwnedSlice(delete_triggers);
@@ -758,6 +801,8 @@ pub const Editor = struct {
             .handlers = EventHandler.List.init(allocator),
             .scroll_anim = .{ .last_time_us = now.toMicroseconds() },
             .enable_format_on_save = tui.config().enable_format_on_save,
+            .trim_trailing_whitespace_on_save = tui.config().trim_trailing_whitespace_on_save,
+            .final_newline_on_save = tui.config().final_newline_on_save,
             .render_whitespace = tui.config().whitespace_mode,
         };
         self.add_default_symbol_triggers();
@@ -923,8 +968,11 @@ pub const Editor = struct {
             try self.extract_state(&iter, .none, now);
         }
 
-        if (tui.config().enable_editorconfig)
-            self.apply_editorconfig_settings(new_buf, file_path) catch |e| self.logger.print_err("editorconfig", "{s}", .{@errorName(e)});
+        self.eol_mode = new_buf.file_eol_mode;
+        if (self.buffer_manager.get_shown_path(new_buf)) |abs_path| if (tui.get_editorconfig_values(abs_path)) |map|
+            self.apply_editorconfig_values(map) catch |e| self.logger.print_err("editorconfig", "{t}", .{e});
+        if (!tui.config().enable_editorconfig and self.has_editorconfig_values())
+            self.clear_editorconfig_values();
         if (self.indent_mode == .auto)
             self.detect_indent_mode(content);
 
@@ -937,38 +985,96 @@ pub const Editor = struct {
         project_manager.resend_diagnostics(file_path) catch {};
     }
 
-    fn apply_editorconfig_settings(self: *Self, buffer: *Buffer, file_path: []const u8) error{OutOfMemory}!void {
-        const ec = (try editorconfig.query(root_mod.get_io(), self.allocator, file_path)) orelse return;
-        if (ec.indent_style) |style| switch (style) {
-            .space => self.indent_mode = .spaces,
-            .tab => self.indent_mode = .tabs,
-        };
-        if (ec.tab_width) |w| {
-            self.tab_width = w;
-            self.refresh_tab_width();
+    pub fn apply_editorconfig_values(self: *Self, map: cbor.Raw) !void {
+        const values = values_from_editorconfig(try read_values(map));
+        inline for (@typeInfo(ValueSources).@"struct".field_names) |name| {
+            const source = @field(self.value_sources, name);
+            if (source != .user) {
+                if (@field(values, name)) |value|
+                    self.set_value(name, value, .editorconfig)
+                else if (source == .editorconfig)
+                    self.set_value(name, self.config_value(name), .config);
+            }
         }
-        if (ec.indent_size) |size| switch (size) {
-            .tab => self.indent_size = self.tab_width,
-            .size => |n| self.indent_size = n,
-        };
-        if (ec.indent_size != null and ec.indent_style == null and self.indent_mode == .auto)
-            self.indent_mode = .spaces;
-        buffer.apply_editorconfig(ec);
+        if (self.indent_mode == .auto) if (self.buffer) |b|
+            self.detect_indent_mode(b.store_to_string_cached(b.root, b.file_eol_mode));
+        self.refresh_tab_width();
+        self.update_event() catch {};
+        self.need_render();
     }
 
-    pub fn refresh_editorconfig(self: *Self, changed_path: []const u8) void {
-        const b = self.buffer orelse return;
-        const fp = self.file_path orelse return;
-        var arena_impl = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena_impl.deinit();
-        const a = arena_impl.allocator();
-        const ec_paths = editorconfig.config_paths(root_mod.get_io(), a, fp) catch return;
-        for (ec_paths) |p|
-            if (std.mem.eql(u8, p, changed_path)) {
-                self.apply_editorconfig_settings(b, fp) catch |e| self.logger.print_err("editorconfig", "{s}", .{@errorName(e)});
-                return;
+    fn read_values(map: cbor.Raw) cbor.Error!EditorConfigValues {
+        const info = @typeInfo(EditorConfigValues);
+        var v: EditorConfigValues = .{};
+        var iter = map.bytes;
+        var len = try cbor.decodeMapHeader(&iter);
+        while (len > 0) : (len -= 1) {
+            var key: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &key)) return error.InvalidMapType;
+            var value: cbor.Raw = undefined;
+            if (!try cbor.matchValue(&iter, cbor.extract(&value))) return error.InvalidMapType;
+            inline for (info.@"struct".field_names, info.@"struct".field_types) |name, T| if (std.mem.eql(u8, key, name)) {
+                var typed: @typeInfo(T).optional.child = undefined;
+                if (cbor.matchValue(&value.bytes, cbor.extract(&typed)) catch false)
+                    @field(v, name) = typed;
             };
+        }
+        return v;
     }
+
+    fn values_from_editorconfig(v: EditorConfigValues) Values {
+        return .{
+            .indent_mode = if (v.indent_style) |style| switch (style) {
+                .space => .spaces,
+                .tab => .tabs,
+            } else if (v.indent_size != null and tui.config().indent_mode == .auto)
+                .spaces
+            else
+                null,
+            .indent_size = v.indent_size,
+            .tab_width = v.tab_width,
+            .trim_trailing_whitespace_on_save = v.trim_trailing_whitespace,
+            .final_newline_on_save = if (v.insert_final_newline) |insert_final_newline|
+                if (insert_final_newline) .insert else .remove
+            else
+                null,
+            .eol_mode = if (v.end_of_line) |eol| switch (eol) {
+                .lf => .lf,
+                .crlf => .crlf,
+                .cr => null,
+            } else null,
+        };
+    }
+
+    fn config_value(self: *const Self, comptime name: []const u8) ValueType(name) {
+        if (comptime std.mem.eql(u8, name, "tab_width")) return tui.get_tab_width();
+        if (comptime std.mem.eql(u8, name, "eol_mode")) return if (self.buffer) |b| b.last_save_eol_mode else .lf;
+        return @field(tui.config(), name);
+    }
+
+    fn set_value(self: *Self, comptime name: []const u8, new: ValueType(name), source: ValueSource) void {
+        const value = &@field(self, name);
+        const old_source = @field(self.value_sources, name);
+        if (value.* != new or old_source != source)
+            std.log.scoped(.editorconfig).debug("{s}: {any} ({t}) -> {any} ({t})", .{ name, value.*, old_source, new, source });
+        value.* = new;
+        @field(self.value_sources, name) = source;
+        if (comptime std.mem.eql(u8, name, "eol_mode")) if (source != .editorconfig) if (self.buffer) |b| {
+            b.file_eol_mode = new;
+        };
+    }
+
+    fn has_editorconfig_values(self: *const Self) bool {
+        inline for (@typeInfo(ValueSources).@"struct".field_names) |name|
+            if (@field(self.value_sources, name) == .editorconfig) return true;
+        return false;
+    }
+
+    pub fn clear_editorconfig_values(self: *Self) void {
+        self.apply_editorconfig_values(empty_cbor_map) catch {};
+    }
+
+    const empty_cbor_map: cbor.Raw = .{ .bytes = &[_]u8{0xa0} };
 
     fn maybe_enable_buffer_auto_save(self: *Self, buffer: *Buffer) bool {
         if (self.restored_state) return false;
@@ -1019,7 +1125,7 @@ pub const Editor = struct {
         var tab_width: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&tab_width)}))
             return error.InvalidSetTabWidthArgument;
-        self.tab_width = tab_width;
+        self.set_value("tab_width", tab_width, .user);
         self.refresh_tab_width();
     }
     pub const set_editor_tab_width_meta: Meta = .{ .arguments = &.{.integer} };
@@ -1057,21 +1163,22 @@ pub const Editor = struct {
             return;
         }
         if (self.file_path == null) return error.SaveNoFileName;
-        try self.apply_editorconfig_save_transform(b);
+        try self.apply_save_transform(b);
         self.buffer_manager.save(b, .{ .auto_save = b.is_auto_save(), .overwrite = overwrite, .then = then }) catch |e| switch (e) {
             error.FileChangedOnDisk => self.logger.print_err("save", "{s} changed on disk, use force_save_file to overwrite", .{b.get_file_path()}),
             else => return e,
         };
     }
 
-    fn apply_editorconfig_save_transform(self: *Self, b: *Buffer) !void {
-        if (!(b.editorconfig_trim_trailing_whitespace orelse b.editorconfig_insert_final_newline != null)) return;
+    pub fn apply_save_transform(self: *Self, b: *Buffer) !void {
+        if (self.value_sources.eol_mode != .config) b.file_eol_mode = self.eol_mode;
         var root = b.root;
         var changed = false;
-        if (b.editorconfig_trim_trailing_whitespace orelse false) {
+        if (self.trim_trailing_whitespace_on_save) {
             const lines = root.lines();
             var row: usize = 0;
             while (row < lines) : (row += 1) {
+                if (self.has_cursor_on_row(row)) continue;
                 const last = find_last_non_ws(root, row, self.metrics);
                 const w = root.line_width(row, self.metrics) catch break;
                 if (last < w) {
@@ -1080,60 +1187,36 @@ pub const Editor = struct {
                 }
             }
         }
-        if (b.editorconfig_insert_final_newline) |want_final| {
-            const lines = root.lines();
-            const has_final = lines > 1 and (root.line_width(lines - 1, self.metrics) catch 0) == 0;
-            if (want_final != has_final) {
-                changed = true;
-                if (want_final) {
-                    const last_row = lines -| 1;
-                    const w = root.line_width(last_row, self.metrics) catch 0;
-                    _, _, root = try root.insert_chars(last_row, w, switch (b.file_eol_mode) {
-                        .lf => "\n",
-                        .crlf => "\r\n",
-                    }, b.allocator, self.metrics);
-                } else {
-                    const last_content_row = lines - 2;
-                    const w = root.line_width(last_content_row, self.metrics) catch 0;
-                    root = try root.delete_range(.{
-                        .begin = .{ .row = last_content_row, .col = w },
-                        .end = .{ .row = lines - 1, .col = 0 },
-                    }, b.allocator, null, self.metrics);
-                }
-            }
+        const new_root = switch (self.final_newline_on_save) {
+            .keep => null,
+            .insert => try root.add_final_newline(b.allocator, self.metrics),
+            .remove => self.remove_final_newline(root, b.allocator),
+        };
+        if (new_root) |root_| {
+            root = root_;
+            changed = true;
         }
         if (!changed) return;
-        try self.update_buf_and_eol_mode(root, b.file_eol_mode, b.file_utf8_sanitized, root_mod.get_now());
-        self.reconcile_cursors(root);
+        try self.update_buf(root, root_mod.get_now());
         self.need_render();
         self.clamp(root_mod.get_now());
     }
 
-    fn reconcile_cursors(self: *Self, root: Buffer.Root) void {
+    fn remove_final_newline(self: *Self, root: Buffer.Root, allocator: Allocator) ?Buffer.Root {
         const lines = root.lines();
-        if (lines == 0) return;
-        const last = lines - 1;
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            self.clamp_cursor(root, last, &cursel.cursor);
-            if (cursel.selection) |*sel| {
-                self.clamp_cursor(root, last, &sel.begin);
-                self.clamp_cursor(root, last, &sel.end);
-            }
-        };
+        if (lines < 2 or self.has_cursor_on_row(lines - 1)) return null;
+        if ((root.line_width(lines - 1, self.metrics) catch return null) != 0) return null;
+        const end: Cursor = .{ .row = lines - 1, .col = 0 };
+        const begin: Cursor = .{ .row = lines - 2, .col = root.line_width(lines - 2, self.metrics) catch return null };
+        var cursel: CurSel = .{ .cursor = end, .selection = .{ .begin = begin, .end = end } };
+        return self.delete_selection(root, &cursel, allocator) catch null;
     }
 
-    fn clamp_cursor(self: *Self, root: Buffer.Root, last_line: usize, cursor: *Cursor) void {
-        if (cursor.row > last_line) {
-            cursor.row = last_line;
-            cursor.col = 0;
-            cursor.target = 0;
-            return;
-        }
-        const w = root.line_width(cursor.row, self.metrics) catch return;
-        if (cursor.col > w) {
-            cursor.col = w;
-            cursor.target = w;
-        }
+    fn has_cursor_on_row(self: *const Self, row: usize) bool {
+        for (self.cursels.items) |cursel_| if (cursel_) |cursel| {
+            if (cursel.cursor.row == row) return true;
+        };
+        return false;
     }
 
     pub fn buffer_saved(self: *Self, file_path: []const u8, auto_save: bool) void {
@@ -7376,6 +7459,47 @@ pub const Editor = struct {
 
     pub const SaveOption = enum { default, format, no_format };
 
+    pub const ValueSource = enum { config, editorconfig, user };
+
+    const ValueSources = SourcesOf(Values);
+
+    fn SourcesOf(comptime T: type) type {
+        const names = @typeInfo(T).@"struct".field_names;
+        const default: ValueSource = .config;
+        var types: [names.len]type = undefined;
+        var attrs: [names.len]std.builtin.Type.Struct.FieldAttributes = undefined;
+        for (&types, &attrs) |*field_type, *attr| {
+            field_type.* = ValueSource;
+            attr.* = .{ .@"comptime" = false, .@"align" = @alignOf(ValueSource), .default_value_ptr = &default };
+        }
+        return @Struct(.auto, null, names, &types, &attrs);
+    }
+
+    const Values = struct {
+        indent_mode: ?IndentMode = null,
+        indent_size: ?usize = null,
+        tab_width: ?usize = null,
+        trim_trailing_whitespace_on_save: ?bool = null,
+        final_newline_on_save: ?FinalNewlineMode = null,
+        eol_mode: ?Buffer.EolMode = null,
+    };
+
+    const EditorConfigValues = struct {
+        indent_style: ?IndentStyle = null,
+        indent_size: ?usize = null,
+        tab_width: ?usize = null,
+        end_of_line: ?EndOfLine = null,
+        trim_trailing_whitespace: ?bool = null,
+        insert_final_newline: ?bool = null,
+        const IndentStyle = enum { space, tab };
+        const EndOfLine = enum { lf, cr, crlf };
+        const IndentSize = union(enum) { tab, size: usize };
+    };
+
+    fn ValueType(comptime name: []const u8) type {
+        return @typeInfo(@FieldType(Values, name)).optional.child;
+    }
+
     pub fn toggle_auto_save(self: *Self, _: Context) Result {
         const buffer = self.buffer orelse return;
         if (!buffer.is_auto_save())
@@ -9190,14 +9314,33 @@ pub const Editor = struct {
 
     pub fn toggle_eol_mode(self: *Self, _: Context) Result {
         if (self.buffer) |b| {
-            b.file_eol_mode = switch (b.file_eol_mode) {
+            self.set_value("eol_mode", switch (b.file_eol_mode) {
                 .lf => .crlf,
                 .crlf => .lf,
-            };
+            }, .user);
             self.update_event() catch {};
         }
     }
     pub const toggle_eol_mode_meta: Meta = .{ .description = "Toggle end of line sequence" };
+
+    pub fn toggle_trim_trailing_whitespace_on_save(self: *Self, _: Context) Result {
+        self.set_value("trim_trailing_whitespace_on_save", !self.trim_trailing_whitespace_on_save, .user);
+        self.logger.print("trim trailing whitespace on save: {s}", .{if (self.trim_trailing_whitespace_on_save) "on" else "off"});
+    }
+    pub const toggle_trim_trailing_whitespace_on_save_meta: Meta = .{ .description = "Toggle trim trailing whitespace on save" };
+
+    pub fn set_final_newline_on_save(self: *Self, ctx: Context) Result {
+        var mode: FinalNewlineMode = undefined;
+        if (!(ctx.args.match(.{tp.extract(&mode)}) catch false))
+            mode = switch (self.final_newline_on_save) {
+                .keep => .insert,
+                .insert => .remove,
+                .remove => .keep,
+            };
+        self.set_value("final_newline_on_save", mode, .user);
+        self.logger.print("final newline on save: {t}", .{mode});
+    }
+    pub const set_final_newline_on_save_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn toggle_syntax_highlighting(self: *Self, _: Context) Result {
         self.syntax_no_render = !self.syntax_no_render;

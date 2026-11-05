@@ -550,9 +550,11 @@ pub fn build_exe(
         },
     });
 
-    const editorconfig_mod = b.createModule(.{
-        .root_source_file = b.path("src/editorconfig.zig"),
+    const EditorConfig_mod = b.createModule(.{
+        .root_source_file = b.path("src/EditorConfig.zig"),
         .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
@@ -560,7 +562,6 @@ pub fn build_exe(
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
-            .{ .name = "editorconfig", .module = editorconfig_mod },
             .{ .name = "EditSet", .module = EditSet_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
             .{ .name = "tracy", .module = tracy_mod },
@@ -1104,10 +1105,12 @@ pub fn build_exe(
         const tests = b.addTest(.{
             .name = "test-editorconfig",
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/editorconfig.zig"),
+                .root_source_file = b.path("src/EditorConfig.zig"),
                 .target = target,
                 .optimize = optimize,
                 .imports = &.{
+                    .{ .name = "cbor", .module = cbor_mod },
+                    .{ .name = "thespian", .module = thespian_mod },
                     .{ .name = "soft_root", .module = soft_root_mod },
                 },
             }),
@@ -1503,6 +1506,7 @@ pub fn build_exe(
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "file_watcher", .module = file_watcher_mod },
             .{ .name = "FileStore", .module = FileStore_mod },
+            .{ .name = "EditorConfig", .module = EditorConfig_mod },
             .{ .name = "EditSet", .module = EditSet_mod },
             .{ .name = "gitignore", .module = gitignore_mod },
         },
@@ -1558,7 +1562,6 @@ pub fn build_exe(
             .{ .name = "log", .module = log_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
-            .{ .name = "editorconfig", .module = editorconfig_mod },
             .{ .name = "location_history", .module = location_history_mod },
             .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_mod },

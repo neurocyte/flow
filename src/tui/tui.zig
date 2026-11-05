@@ -66,6 +66,7 @@ stdio_capture_cleanup: ?crash.CleanupHandle = null,
 config_: @import("config"),
 config_bufs: ?*std.heap.ArenaAllocator,
 session_tab_width: ?usize = null,
+editorconfig_values: std.StringHashMapUnmanaged(cbor.Raw) = .empty,
 highlight_columns_: []const u16,
 highlight_columns_configured: []const u16,
 frame_time: usize, // in microseconds
@@ -501,6 +502,8 @@ fn deinit(self: *Self) void {
     self.idle_actions_.deinit(self.allocator);
     self.commands.deinit();
     if (self.mainview_) |*mv| mv.deinit(self.allocator);
+    self.clear_editorconfig_values();
+    self.editorconfig_values.deinit(self.allocator);
     var render_blocks = self.render_blocks.valueIterator();
     while (render_blocks.next()) |t| {
         t.cancel() catch {};
@@ -1015,15 +1018,16 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    var editorconfig_map: cbor.Raw = undefined;
+    if (try m.match(.{ "EC", "update", tp.extract(&changed_path), tp.extract(&editorconfig_map) })) {
+        self.editorconfig_update(changed_path, editorconfig_map);
+        return;
+    }
+
     var renamed_to: []const u8 = undefined;
     if (try m.match(.{ "CFG", "rename", tp.extract(&changed_path), tp.extract(&renamed_to), tp.more })) {
         self.config_file_changed(changed_path);
         self.config_file_changed(renamed_to);
-        return;
-    }
-
-    if (try m.match(.{ "EDC", "change", tp.extract(&changed_path) })) {
-        if (mainview()) |mv| mv.editorconfig_changed(changed_path);
         return;
     }
 
@@ -1675,10 +1679,58 @@ pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
     try root.write_config(self.config_, self.allocator);
 }
 
+fn editorconfig_update(self: *Self, abs_path: []const u8, map: cbor.Raw) void {
+    if (!self.config_.enable_editorconfig) return;
+    const owned: cbor.Raw = .{ .bytes = self.allocator.dupe(u8, map.bytes) catch return };
+    const gop = self.editorconfig_values.getOrPut(self.allocator, abs_path) catch return self.allocator.free(owned.bytes);
+    if (gop.found_existing) {
+        self.allocator.free(gop.value_ptr.bytes);
+    } else {
+        gop.key_ptr.* = self.allocator.dupe(u8, abs_path) catch {
+            self.editorconfig_values.removeByPtr(gop.key_ptr);
+            return self.allocator.free(owned.bytes);
+        };
+    }
+    gop.value_ptr.* = owned;
+    if (mainview()) |mv| mv.editorconfig_update(abs_path, owned);
+    need_render(@src());
+}
+
+pub fn get_editorconfig_values(abs_path: []const u8) ?cbor.Raw {
+    return current().editorconfig_values.get(abs_path);
+}
+
+pub fn forget_editorconfig_values(abs_path: []const u8) void {
+    const self = current();
+    const kv = self.editorconfig_values.fetchRemove(abs_path) orelse return;
+    self.allocator.free(kv.key);
+    self.allocator.free(kv.value.bytes);
+}
+
+fn clear_editorconfig_values(self: *Self) void {
+    var i = self.editorconfig_values.iterator();
+    while (i.next()) |p| {
+        self.allocator.free(p.key_ptr.*);
+        self.allocator.free(p.value_ptr.bytes);
+    }
+    self.editorconfig_values.clearRetainingCapacity();
+}
+
+fn enable_editorconfig_changed(self: *Self) void {
+    if (self.config_.enable_editorconfig) {
+        project_manager.editorconfig_client(.add) catch |e| self.logger.err("editorconfig", e);
+    } else {
+        project_manager.editorconfig_client(.remove) catch |e| self.logger.err("editorconfig", e);
+        self.clear_editorconfig_values();
+        if (mainview()) |mv| mv.clear_editorconfig_values();
+    }
+}
+
 fn reload_config(self: *Self) void {
     const allocator = self.allocator;
     const conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(self.allocator, conf_bufs);
+    const enable_editorconfig = self.config_.enable_editorconfig;
 
     if (!std.mem.eql(u8, conf.theme, self.dark_theme.name))
         self.reload_theme(.dark, conf.theme);
@@ -1707,6 +1759,8 @@ fn reload_config(self: *Self) void {
                 self.logger.print_err("config", "reload of {s} failed: {t}", .{ field_name, e });
         }
     }
+    if (self.config_.enable_editorconfig != enable_editorconfig)
+        self.enable_editorconfig_changed();
     self.run_commands("idle", self.config_.idle_commands);
 }
 

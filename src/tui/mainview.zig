@@ -133,7 +133,10 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     };
     self.set_edit_set_applier();
     self.set_shown_hook();
+    self.set_save_all_hook();
     project_manager.request_file_store() catch |e| std.log.err("request_file_store: {}", .{e});
+    if (tui.config().enable_editorconfig)
+        project_manager.editorconfig_client(.add) catch |e| std.log.err("editorconfig_client: {}", .{e});
     self.startup_render_block = tui.block_render(startup_render_block_timeout_ms, "startup");
     errdefer self.unblock_startup_render();
     try self.commands.init(self);
@@ -961,6 +964,7 @@ const cmds = struct {
             self.buffer_manager = Buffer.Manager.init(self.allocator);
             self.set_edit_set_applier();
             self.set_shown_hook();
+            self.set_save_all_hook();
             if (file_store) |store| self.buffer_manager.set_file_store(store);
             tui.clear_probe_cache();
         }
@@ -3388,12 +3392,14 @@ pub fn foreach_editor(self: *Self, func: ForEachEditorFunc) void {
     }
 }
 
-pub fn editorconfig_changed(self: *Self, path: []const u8) void {
-    for (self.views.widgets.items) |*view| {
-        const editor = view.widget.get("editor") orelse continue;
-        if (editor.dynamic_cast(ed.EditorWidget)) |p|
-            p.editor.refresh_editorconfig(path);
-    }
+pub fn editorconfig_update(self: *Self, abs_path: []const u8, map: cbor.Raw) void {
+    const buffer = self.buffer_manager.get_shown_buffer(abs_path) orelse return;
+    const editor = self.get_editor_for_buffer(buffer) orelse return;
+    editor.apply_editorconfig_values(map) catch |e| std.log.err("editorconfig: {t}", .{e});
+}
+
+pub fn clear_editorconfig_values(self: *Self) void {
+    self.foreach_editor(ed.Editor.clear_editorconfig_values);
 }
 
 fn find_buffer(self: *Self, file_path: []const u8) ?*Buffer {
@@ -4453,14 +4459,25 @@ fn set_edit_set_applier(self: *Self) void {
     }.apply };
 }
 
+fn set_save_all_hook(self: *Self) void {
+    self.buffer_manager.set_save_all_hook(.{ .ctx = self, .prepare = struct {
+        fn prepare(ctx: *anyopaque, buffer: *Buffer) void {
+            const self_: *Self = @ptrCast(@alignCast(ctx));
+            const editor = self_.get_editor_for_buffer(buffer) orelse return;
+            editor.apply_save_transform(buffer) catch |e| std.log.err("save transform {s}: {t}", .{ buffer.get_file_path(), e });
+        }
+    }.prepare });
+}
+
 fn set_shown_hook(self: *Self) void {
     self.buffer_manager.set_shown_hook(.{ .ctx = self, .shown = struct {
         fn shown(_: *anyopaque, abs_path: []const u8) void {
-            project_manager.vcs_file_open(abs_path) catch {};
+            project_manager.file_open(abs_path) catch {};
         }
     }.shown, .hidden = struct {
         fn hidden(_: *anyopaque, abs_path: []const u8) void {
-            project_manager.vcs_file_close(abs_path) catch {};
+            project_manager.file_close(abs_path) catch {};
+            tui.forget_editorconfig_values(abs_path);
         }
     }.hidden });
 }

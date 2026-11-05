@@ -427,6 +427,29 @@ test "load: a line end with more than one CR is one CRLF" {
     try std.testing.expectEqualStrings("one\r\ntwo\r\nmid\rdle\r\n", text.written());
 }
 
+fn expect_final_newline(input: []const u8, expected: ?[]const u8) !void {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    try buffer.load_from_string_and_update("test", input, now);
+    const root = try buffer.root.add_final_newline(buffer.allocator, metrics()) orelse {
+        try std.testing.expectEqual(@as(?[]const u8, null), expected);
+        return;
+    };
+    var text: std.Io.Writer.Allocating = .init(a);
+    defer text.deinit();
+    try root.store_node(&text.writer, buffer.file_eol_mode);
+    try std.testing.expectEqualStrings(expected.?, text.written());
+}
+
+test "add_final_newline: adds one line end in both line end modes, not to an empty file" {
+    try expect_final_newline("one\ntwo", "one\ntwo\n");
+    try expect_final_newline("one\r\ntwo", "one\r\ntwo\r\n");
+    try expect_final_newline("", null);
+    try expect_final_newline("one\ntwo\n", null);
+    try expect_final_newline("one\r\ntwo\r\n", null);
+}
+
 test "update_longest_line_length: incremental result equals a full scan" {
     const now = std.Io.Clock.real.now(std.testing.io);
     const pieces = [_][]const u8{ "a", "bb", "\n", "\n", "a long piece of text ", "x\ny\nz\n", "\t", "end" };

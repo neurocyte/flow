@@ -6,6 +6,7 @@ const log = @import("log");
 const tracy = @import("tracy");
 const file_watcher = @import("file_watcher");
 const FileStore = @import("FileStore");
+const EditorConfig = @import("EditorConfig");
 const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
 const root = @import("soft_root").root;
@@ -156,12 +157,18 @@ pub fn request_vcs_repo(path: []const u8, refresh: bool) (ProjectManagerError ||
     return send(.{ "request_vcs_repo", project, path, refresh });
 }
 
-pub fn vcs_file_open(abs_path: []const u8) ProjectManagerError!void {
-    return send(.{ "vcs_file_open", abs_path });
+pub fn file_open(abs_path: []const u8) ProjectManagerError!void {
+    return send(.{ "file_open", abs_path });
 }
 
-pub fn vcs_file_close(abs_path: []const u8) ProjectManagerError!void {
-    return send(.{ "vcs_file_close", abs_path });
+pub fn file_close(abs_path: []const u8) ProjectManagerError!void {
+    return send(.{ "file_close", abs_path });
+}
+
+pub const EditorConfigClientOp = enum { add, remove };
+
+pub fn editorconfig_client(op: EditorConfigClientOp) ProjectManagerError!void {
+    return send(.{ "editorconfig_client", op });
 }
 
 pub fn hold_vcs_repo(repo_root: []const u8) ProjectManagerError!void {
@@ -533,6 +540,7 @@ const Process = struct {
     non_indexed: []const []const u8,
     watch_non_indexed: bool,
     file_store: ?tp.pid = null,
+    editorconfig: ?tp.pid = null,
 
     const InvalidArgumentError = error{InvalidArgument};
     const UnsupportedError = error{Unsupported};
@@ -631,6 +639,7 @@ const Process = struct {
     }
 
     fn dtor(self: *Process) void {
+        self.shutdown_editorconfig();
         self.shutdown_file_store();
         var i = self.projects.iterator();
         while (i.next()) |p| {
@@ -817,10 +826,14 @@ const Process = struct {
             self.request_n_most_recent_file(from, project_directory, n) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
             self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "vcs_file_open", tp.extract(&path) })) {
+        } else if (try cbor.match(m.buf, .{ "file_open", tp.extract(&path) })) {
+            self.forward_file_open_to_editorconfig(from, m, path);
             self.vcs_file_open(path) catch |e| self.logger.err("vcs_file_open", e);
-        } else if (try cbor.match(m.buf, .{ "vcs_file_close", tp.extract(&path) })) {
+        } else if (try cbor.match(m.buf, .{ "file_close", tp.extract(&path) })) {
+            self.forward_to_editorconfig(from, m);
             self.vcs_file_close(path) catch |e| self.logger.err("vcs_file_close", e);
+        } else if (try cbor.match(m.buf, .{ "editorconfig_client", tp.more })) {
+            self.forward_to_editorconfig(from, m);
         } else if (try cbor.match(m.buf, .{ "hold_vcs_repo", tp.extract(&repo_root) })) {
             if (self.repos.get(repo_root)) |repo| repo.hold(self.should_watch_worktree(repo.root));
         } else if (try cbor.match(m.buf, .{ "release_vcs_repo", tp.extract(&repo_root) })) {
@@ -933,6 +946,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{"request_file_store"})) {
             self.request_file_store(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
+            self.shutdown_editorconfig();
             self.shutdown_file_store();
             self.persist_projects();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
@@ -988,6 +1002,39 @@ const Process = struct {
     fn request_file_store(self: *Process, from: tp.pid_ref) (SpawnError || error{FileStoreFailed})!void {
         const file_store = try self.ensure_file_store();
         file_store.send(.{ "client", from.instance_id() }) catch return error.FileStoreFailed;
+    }
+
+    fn ensure_editorconfig(self: *Process) SpawnError!tp.pid_ref {
+        if (self.editorconfig) |*pid| {
+            if (pid.expired()) {
+                pid.deinit();
+                self.editorconfig = null;
+            }
+        }
+        if (self.editorconfig == null)
+            self.editorconfig = try EditorConfig.spawn(try self.ensure_file_store());
+        return self.editorconfig.?.ref();
+    }
+
+    fn forward_to_editorconfig(self: *Process, from: tp.pid_ref, m: tp.message) void {
+        const editorconfig = self.ensure_editorconfig() catch |e| return self.logger.err("editorconfig", e);
+        editorconfig.send(.{ from.instance_id(), cbor.Raw{ .bytes = m.buf } }) catch |e| self.logger.err("editorconfig", e);
+    }
+
+    fn forward_file_open_to_editorconfig(self: *Process, from: tp.pid_ref, m: tp.message, abs_path: []const u8) void {
+        const editorconfig = self.ensure_editorconfig() catch |e| return self.logger.err("editorconfig", e);
+        const project_dir = if (self.project_for_path(abs_path)) |match|
+            abs_path[0 .. abs_path.len - match.rel_path.len - 1]
+        else
+            "";
+        editorconfig.send(.{ from.instance_id(), cbor.Raw{ .bytes = m.buf }, project_dir }) catch |e| self.logger.err("editorconfig", e);
+    }
+
+    fn shutdown_editorconfig(self: *Process) void {
+        var editorconfig = self.editorconfig orelse return;
+        self.editorconfig = null;
+        editorconfig.send(.{"shutdown"}) catch {};
+        editorconfig.deinit();
     }
 
     fn shutdown_file_store(self: *Process) void {

@@ -57,6 +57,8 @@ idle_commands: ?[]const []const u8 = &.{"markdown_preview_sync"}, // a list of s
 on_disk_change_commands: ?[]const []const u8 = &.{"markdown_preview_sync_disk"}, // a list of simple commands
 enable_format_on_save: bool = false,
 enable_editorconfig: bool = true,
+trim_trailing_whitespace_on_save: bool = false,
+final_newline_on_save: FinalNewlineMode = .keep,
 restore_last_cursor_position: bool = true,
 restore_last_cursor_position_exclusions: []const []const u8 = &.{"COMMIT_EDITMSG"},
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
@@ -242,6 +244,12 @@ pub const IndentMode = enum {
     auto,
     spaces,
     tabs,
+};
+
+pub const FinalNewlineMode = enum {
+    keep,
+    insert,
+    remove,
 };
 
 pub const BackgroundSyntax = enum {
