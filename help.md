@@ -370,26 +370,45 @@ server. If a server does not react, use the command
 Some servers accept the same values in both files, but in different shapes.
 Read the documentation of the server to find out which file it uses.
 
-## EditorConfig
+## EditorConfig and save options
 
 Flow Control supports the [EditorConfig](https://editorconfig.org) standard.
-When a file is opened `.editorconfig` is searched for in the file's directory
-and in each parent directory up the tree. The search stops at the first
-`.editorconfig` that declares `root = true`.
+When a file opens, Flow Control reads the `.editorconfig` file in the
+directory of the file and in each parent directory. A `.editorconfig` file
+with `root = true` stops the search. Flow Control watches these files up to
+the nearest file with `root = true`, or else up to the project directory. If
+you change, add or remove a watched `.editorconfig` file, the new values
+apply to the open files immediately.
 
-Supported properties:
+The supported properties set these editor values:
 
-- `indent_style`
-- `indent_size`
-- `tab_width`
-- `end_of_line`
-- `trim_trailing_whitespace`
-- `insert_final_newline`
+- `indent_style` sets the indent mode.
+- `indent_size` sets the indent size.
+- `tab_width` sets the tab width.
+- `end_of_line` sets the line end mode that a save writes. Flow Control
+  ignores `end_of_line = cr`, because it has no CR mode.
+- `trim_trailing_whitespace` sets whether a save removes trailing
+  whitespace.
+- `insert_final_newline` sets whether a save adds (`true`) or removes
+  (`false`) the newline at the end of the file.
 
-Unsupported properties, such as `charset` and `max_line_length`, are ignored.
-`end_of_line = cr` is also ignored since the editor does not support it.
+Flow Control ignores the other properties, for example `charset` and
+`max_line_length`.
 
-EditorConfig handling can be disabled with the `enable_editorconfig` option.
+You can also set the save values in the configuration, without EditorConfig:
+
+```conf
+trim_trailing_whitespace_on_save false
+final_newline_on_save "keep"
+```
+
+`final_newline_on_save` is `"keep"`, `"insert"` or `"remove"`.
+
+A save does not remove trailing whitespace from a line that has a cursor.
+Save all and quit with save apply these values to the files that are open in
+an editor, but not to files in background tabs.
+
+To disable EditorConfig, set `enable_editorconfig false`.
 
 ## Flags and options
 
