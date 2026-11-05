@@ -1123,6 +1123,19 @@ const cmds = struct {
     }
     pub const terminal_kill_meta: Meta = .{ .description = "Terminal: Kill running application (SIGTERM)" };
 
+    pub fn terminal_send_input(self: *Self, ctx: Ctx) Result {
+        var text: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&text)}))
+            return error.InvalidTerminalSendInputArgument;
+        _ = self.vt.scroll_to_bottom();
+        const pty_writer = self.vt.vt.get_pty_writer();
+        pty_writer.writeAll(text) catch {};
+        pty_writer.flush() catch {};
+        self.vt.block_render_for_output();
+        tui.need_render(@src());
+    }
+    pub const terminal_send_input_meta: Meta = .{ .arguments = &.{.string} };
+
     pub fn terminal_copy_selection(self: *Self, _: Ctx) Result {
         const text = (try self.selection_text(tui.clipboard_allocator())) orelse return;
         if (text.len == 0) {
