@@ -347,7 +347,7 @@ const Process = struct {
     anchors: std.StringHashMapUnmanaged(void) = .empty, // nearest existing parents of missing dirs
     clients: std.AutoHashMapUnmanaged(tp.piid, usize) = .empty,
     streams: std.AutoHashMapUnmanaged(StreamKey, Stream) = .empty,
-    own_writes: std.StringHashMapUnmanaged(Fingerprint) = .empty,
+    own_writes: std.StringHashMapUnmanaged(OwnWrite) = .empty,
 
     const Receiver = tp.Receiver(*@This());
 
@@ -358,6 +358,8 @@ const Process = struct {
     };
 
     const StreamKey = struct { client: tp.piid, id: usize };
+
+    const OwnWrite = struct { fingerprint: Fingerprint, writer: tp.piid };
 
     const Stream = union(enum) {
         read: ReadState,
@@ -517,7 +519,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "exists", tp.extract(&path) })) {
             exists_path(from, path);
         } else if (try cbor.match(m.buf, .{ "file_op", tp.extract(&id), tp.extract(&op), tp.extract(&from_path), tp.extract(&path), tp.extract(&conflict), tp.extract(&scope) })) {
-            const result = self.file_op(op, from_path, path, conflict, scope) catch |e|
+            const result = self.file_op(from.instance_id(), op, from_path, path, conflict, scope) catch |e|
                 return send_error(from, id, "file_op", @errorName(e));
             from.send(.{ "FS", "file_op", id, result }) catch {};
         } else if (try cbor.match(m.buf, .{ "watch", tp.extract(&path) })) {
@@ -876,7 +878,7 @@ const Process = struct {
             s.atomic.file.setPermissions(io, orig.permissions) catch {};
         }
         s.atomic.replace(io) catch |e| return self.fail_stream(key, "write", @errorName(e));
-        self.record_own_write(s.path);
+        self.record_own_write(s.path, key.client);
         perf_log.debug("write {s} total {d:.3}ms bytes {d} [begin {d:.3} write {d:.3} commit {d:.3}]", .{
             s.path,
             to_ms(us_since(io, s.started)),
@@ -900,7 +902,7 @@ const Process = struct {
         from.send(.{ "FS", "probed", id, path, kind, binary }) catch {};
     }
 
-    fn file_op(self: *@This(), op: FileOp, path: []const u8, to_path: []const u8, conflict: Conflict, scope: Scope) !FileOpResult {
+    fn file_op(self: *@This(), writer: tp.piid, op: FileOp, path: []const u8, to_path: []const u8, conflict: Conflict, scope: Scope) !FileOpResult {
         const io = root.get_io();
         const cwd = std.Io.Dir.cwd();
         if (op == .rename) if (cwd.access(io, to_path, .{})) |_| switch (conflict) {
@@ -915,11 +917,11 @@ const Process = struct {
             .rename => {
                 if (std.fs.path.dirname(to_path)) |dir| try cwd.createDirPath(io, dir);
                 try cwd.rename(path, cwd, to_path, io);
-                self.record_own_rename(to_path);
+                self.record_own_rename(to_path, writer);
                 var buf: [std.fs.max_path_bytes]u8 = undefined;
                 var it = self.files.keyIterator();
                 while (it.next()) |watched| if (is_below(watched.*, path))
-                    self.record_own_rename(std.fmt.bufPrint(&buf, "{s}{s}", .{ to_path, watched.*[path.len..] }) catch continue);
+                    self.record_own_rename(std.fmt.bufPrint(&buf, "{s}{s}", .{ to_path, watched.*[path.len..] }) catch continue, writer);
             },
             .delete => try if (!directory)
                 cwd.deleteFile(io, path)
@@ -932,7 +934,7 @@ const Process = struct {
     }
 
     // a client watches to_path only after the reply, so record it even if nobody watches it yet
-    fn record_own_rename(self: *@This(), to_path: []const u8) void {
+    fn record_own_rename(self: *@This(), to_path: []const u8, writer: tp.piid) void {
         const stat_ = std.Io.Dir.cwd().statFile(root.get_io(), to_path, .{}) catch return;
         if (stat_.kind == .directory) return;
         const gop = self.own_writes.getOrPut(self.allocator, to_path) catch return;
@@ -942,7 +944,7 @@ const Process = struct {
                 return;
             };
         }
-        gop.value_ptr.* = .of(stat_);
+        gop.value_ptr.* = .{ .fingerprint = .of(stat_), .writer = writer };
     }
 
     fn stat_path(from: tp.pid_ref, id: usize, path: []const u8) void {
@@ -971,7 +973,7 @@ const Process = struct {
         return std.mem.indexOfScalar(u8, buf[0..n], 0) != null;
     }
 
-    fn record_own_write(self: *@This(), path: []const u8) void {
+    fn record_own_write(self: *@This(), path: []const u8, writer: tp.piid) void {
         if (!self.files.contains(path)) return;
         const stat_ = std.Io.Dir.cwd().statFile(root.get_io(), path, .{}) catch return;
         const gop = self.own_writes.getOrPut(self.allocator, path) catch return;
@@ -981,16 +983,17 @@ const Process = struct {
                 return;
             };
         }
-        gop.value_ptr.* = .of(stat_);
+        gop.value_ptr.* = .{ .fingerprint = .of(stat_), .writer = writer };
     }
 
-    fn is_own_write(self: *@This(), path: []const u8) bool {
-        const fingerprint = self.own_writes.get(path) orelse return false;
+    /// The client that wrote the current content of `path`, if it was one
+    fn own_writer(self: *@This(), path: []const u8) ?tp.piid {
+        const own = self.own_writes.get(path) orelse return null;
         if (std.Io.Dir.cwd().statFile(root.get_io(), path, .{})) |stat_| {
-            if (Fingerprint.of(stat_).eql(fingerprint)) return true;
+            if (Fingerprint.of(stat_).eql(own.fingerprint)) return own.writer;
         } else |_| {}
         self.forget_own_write(path);
-        return false;
+        return null;
     }
 
     fn forget_own_write(self: *@This(), path: []const u8) void {
@@ -1134,8 +1137,7 @@ const Process = struct {
             const file_dir = std.fs.path.dirname(p.key_ptr.*) orelse continue;
             if (!std.mem.eql(u8, file_dir, dir)) continue;
             _ = std.Io.Dir.cwd().statFile(root.get_io(), p.key_ptr.*, .{}) catch continue;
-            if (self.is_own_write(p.key_ptr.*)) continue;
-            if (self.notify(p.value_ptr, null, .{ "FS", "change", p.key_ptr.*, EventType.created, ObjectType.file }))
+            if (self.notify(p.value_ptr, null, self.own_writer(p.key_ptr.*), .{ "FS", "change", p.key_ptr.*, EventType.created, ObjectType.file }))
                 expired = true;
         }
         return expired;
@@ -1155,16 +1157,14 @@ const Process = struct {
     fn handle_change(self: *@This(), path: []const u8, event_type: EventType, object_type: ObjectType) void {
         if (event_type == .closed) return;
         var expired = false;
-        if (self.files.getPtr(path)) |file| {
-            if (!self.is_own_write(path))
-                expired = self.notify(file, null, .{ "FS", "change", path, event_type, object_type });
-        }
+        if (self.files.getPtr(path)) |file|
+            expired = self.notify(file, null, self.own_writer(path), .{ "FS", "change", path, event_type, object_type });
 
         if (object_type != .file and event_type == .deleted) {
             var it = self.files.iterator();
             while (it.next()) |p| {
                 if (!is_below(p.key_ptr.*, path)) continue;
-                if (self.notify(p.value_ptr, null, .{ "FS", "change", p.key_ptr.*, EventType.deleted, ObjectType.file }))
+                if (self.notify(p.value_ptr, null, null, .{ "FS", "change", p.key_ptr.*, EventType.deleted, ObjectType.file }))
                     expired = true;
             }
             self.mark_dirs_missing(path);
@@ -1177,18 +1177,15 @@ const Process = struct {
     fn handle_rename(self: *@This(), from_path: []const u8, to_path: []const u8, object_type: ObjectType) void {
         var expired = false;
         const message = .{ "FS", "rename", from_path, to_path, object_type };
-        const own = self.is_own_write(to_path);
+        const writer = self.own_writer(to_path);
         const from_file = self.files.getPtr(from_path);
-        if (from_file) |file| if (!own) {
-            expired = self.notify(file, null, message);
-        };
+        if (from_file) |file|
+            expired = self.notify(file, null, writer, message);
 
-        if (self.files.getPtr(to_path)) |file| {
-            if (!own)
-                if (self.notify(file, from_file, message)) {
-                    expired = true;
-                };
-        }
+        if (self.files.getPtr(to_path)) |file|
+            if (self.notify(file, from_file, writer, message)) {
+                expired = true;
+            };
 
         if (object_type != .file) {
             var buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -1196,8 +1193,7 @@ const Process = struct {
             while (it.next()) |p| {
                 if (!is_below(p.key_ptr.*, from_path)) continue;
                 const new_path = std.fmt.bufPrint(&buf, "{s}{s}", .{ to_path, p.key_ptr.*[from_path.len..] }) catch continue;
-                if (self.is_own_write(new_path)) continue;
-                if (self.notify(p.value_ptr, null, .{ "FS", "rename", p.key_ptr.*, new_path, ObjectType.file }))
+                if (self.notify(p.value_ptr, null, self.own_writer(new_path), .{ "FS", "rename", p.key_ptr.*, new_path, ObjectType.file }))
                     expired = true;
             }
             self.mark_dirs_missing(from_path);
@@ -1206,11 +1202,12 @@ const Process = struct {
         if (expired) self.prune_expired();
     }
 
-    fn notify(self: *@This(), file: *const File, skip: ?*const File, message: anytype) bool {
+    fn notify(self: *@This(), file: *const File, skip: ?*const File, writer: ?tp.piid, message: anytype) bool {
         var expired = false;
         var it = file.subscribers.keyIterator();
         while (it.next()) |subscriber| {
             if (skip) |s| if (s.subscribers.contains(subscriber.*)) continue;
+            if (writer) |w| if (w == subscriber.*) continue;
             const pid = tp.pid.from_id(subscriber.*) orelse {
                 expired = true;
                 continue;
