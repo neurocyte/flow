@@ -270,6 +270,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                     self.clear_selection();
                 } else if (self.selecting) {
                     self.selection_finish();
+                    if (self.selection == null and self.click_count == 1 and mods == MouseEvent.Modifiers{})
+                        self.prompt_click(coord);
                     return true;
                 }
             }
@@ -867,6 +869,18 @@ fn coord_to_position(self: *Self, coord: MouseEvent.Coord) Position {
     const vrow: usize = if (cell.row < 0) 0 else @min(@as(usize, @intCast(cell.row)), screen.height -| 1);
     const vcol: usize = if (cell.col < 0) 0 else @min(@as(usize, @intCast(cell.col)), @as(usize, screen.width) -| 1);
     return .{ .row = self.vt.vt.viewTop() + vrow, .col = @intCast(vcol) };
+}
+
+fn prompt_click(self: *Self, coord: MouseEvent.Coord) void {
+    if (!tui.config().terminal_prompt_click_to_move) return;
+    const vt = &self.vt.vt;
+    if (vt.mode.mouse != .none or vt.scrollOffset() != 0) return;
+    const screen = vt.back_screen;
+    const cell = coord.to_cell(self.plane.mouse_geometry());
+    if (cell.row < 0 or cell.col < 0) return;
+    const row: u16 = @intCast(@min(@as(usize, @intCast(cell.row)), screen.height -| 1));
+    const col: u16 = @intCast(@min(@as(usize, @intCast(cell.col)), @as(usize, screen.width) -| 1));
+    _ = vt.promptClick(col, row);
 }
 
 fn selection_start(self: *Self, coord: MouseEvent.Coord) void {

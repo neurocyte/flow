@@ -1033,6 +1033,19 @@ pub fn shellState(self: *Terminal) Screen.ShellState {
     return self.back_screen_pri.shellState();
 }
 
+pub fn promptClick(self: *Terminal, col: u16, row: u16) bool {
+    {
+        self.back_mutex.lockUncancelable(self.io);
+        defer self.back_mutex.unlock(self.io);
+        if (self.back_screen != &self.back_screen_pri) return false;
+        if (!self.back_screen_pri.acceptsPromptClick(row)) return false;
+    }
+    const pty_writer = self.get_pty_writer();
+    defer pty_writer.flush() catch {};
+    pty_writer.print("\x1b[<0;{d};{d}M", .{ @as(u32, col) + 1, @as(u32, row) + 1 }) catch return false;
+    return true;
+}
+
 pub fn update(self: *Terminal, event: InputEvent) !void {
     switch (event) {
         .key_press => |k| try self.encodeKey(k, .press),

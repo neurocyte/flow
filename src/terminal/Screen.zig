@@ -626,6 +626,20 @@ pub fn shellState(self: *const Screen) ShellState {
     };
 }
 
+pub fn acceptsPromptClick(self: *const Screen, row: usize) bool {
+    var i: usize = self.prompt_marks.items.len;
+    while (i > 0) {
+        i -= 1;
+        const m = self.prompt_marks.items[i];
+        switch (m.kind) {
+            .input_start => {},
+            .prompt_start => return m.click_events and self.visible_top + row >= m.row,
+            .output_start, .output_end => return false,
+        }
+    }
+    return false;
+}
+
 fn lastExitCode(self: *const Screen) ?i32 {
     var i: usize = self.prompt_marks.items.len;
     while (i > 0) {
@@ -1496,6 +1510,35 @@ test "encodeRows writes styles, hyperlinks, prompt marks and joins soft wraps" {
         "\x1b]133;A\x1b\\$ \x1b[0;1;31mabcdef\x1b[0m\x1b]8;;file:///x\x1b\\g\x1b]8;;\x1b\\",
         out.written(),
     );
+}
+
+test "acceptsPromptClick follows the current prompt and its click_events flag" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.init(alloc, 10, 5);
+    defer screen.deinit(alloc);
+    try testing.expect(!screen.acceptsPromptClick(0));
+
+    screen.cursor.row = 2;
+    try screen.addPromptMark(alloc, .prompt_start, null, true);
+    try testing.expect(!screen.acceptsPromptClick(1));
+    try testing.expect(screen.acceptsPromptClick(2));
+    try testing.expect(screen.acceptsPromptClick(4));
+
+    screen.cursor.col = 2;
+    try screen.addPromptMark(alloc, .input_start, null, false);
+    try testing.expect(screen.acceptsPromptClick(2));
+
+    screen.cursor.row = 3;
+    screen.cursor.col = 0;
+    try screen.addPromptMark(alloc, .output_start, null, false);
+    try testing.expect(!screen.acceptsPromptClick(3));
+    try screen.addPromptMark(alloc, .output_end, 0, false);
+    try testing.expect(!screen.acceptsPromptClick(3));
+
+    screen.cursor.row = 4;
+    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try testing.expect(!screen.acceptsPromptClick(4));
 }
 
 test "encodeLine writes one logical line without prompt marks" {
