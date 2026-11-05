@@ -410,6 +410,45 @@ an editor, but not to files in background tabs.
 
 To disable EditorConfig, set `enable_editorconfig false`.
 
+## Clicks in shell prompts
+
+In a terminal panel, a left click on the command line of a shell prompt
+moves the shell's cursor to the clicked character. This works only if the
+shell marks its prompt with OSC 133 escape sequences. Fish 4.1 and later
+receives the click and moves its cursor itself. For other shells that mark
+their prompt, Flow Control sends left or right arrow keys. The arrow keys
+only move the cursor inside the current line.
+
+A click with a modifier key, a double click and a drag select text as
+before.
+
+Bash does not mark its prompt. To add the marks, add these lines to
+`~/.bashrc`:
+
+```bash
+PS1='\[\e]133;A;cl=line\e\\\]'"$PS1"'\[\e]133;B\e\\\]'
+PS0='\[\e]133;C\e\\\]'
+```
+
+`133;A` marks the start of the prompt, and `cl=line` asks for arrow keys.
+`133;B` marks the start of the command line. `133;C` in `PS0` marks the
+start of the command output. Without `133;C`, Flow Control does not know
+that a command is running, and a click sends arrow keys to the command.
+
+These options control prompt clicks:
+
+```conf
+terminal_prompt_click_to_move true
+terminal_prompt_click_implicit_line true
+```
+
+`terminal_prompt_click_to_move false` disables prompt clicks. Use it if your
+shell does not handle them well.
+
+`terminal_prompt_click_implicit_line false` sends arrow keys only to shells
+that ask for them with `cl=`. With `true`, Flow Control also sends arrow
+keys to a shell that marks its prompt but does not ask for them.
+
 ## Flags and options
 
 As every respectable terminal program, flow provide various invoking options

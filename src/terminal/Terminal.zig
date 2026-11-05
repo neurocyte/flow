@@ -1033,16 +1033,32 @@ pub fn shellState(self: *Terminal) Screen.ShellState {
     return self.back_screen_pri.shellState();
 }
 
-pub fn promptClick(self: *Terminal, col: u16, row: u16) bool {
-    {
+pub fn promptClick(self: *Terminal, col: u16, row: u16, implicit_line: bool) bool {
+    const move: ?i32 = blk: {
         self.back_mutex.lockUncancelable(self.io);
         defer self.back_mutex.unlock(self.io);
         if (self.back_screen != &self.back_screen_pri) return false;
-        if (!self.back_screen_pri.acceptsPromptClick(row)) return false;
-    }
+        const back = &self.back_screen_pri;
+        const prompt = back.currentPrompt() orelse return false;
+        if (back.visible_top + row < prompt.start.row) return false;
+        break :blk switch (prompt.start.click) {
+            .events => null,
+            .keys => back.promptClickMove(prompt.input, row, col) orelse return false,
+            .none => if (implicit_line)
+                back.promptClickMove(prompt.input, row, col) orelse return false
+            else
+                return false,
+        };
+    };
     const pty_writer = self.get_pty_writer();
     defer pty_writer.flush() catch {};
-    pty_writer.print("\x1b[<0;{d};{d}M", .{ @as(u32, col) + 1, @as(u32, row) + 1 }) catch return false;
+    const steps = move orelse {
+        pty_writer.print("\x1b[<0;{d};{d}M", .{ @as(u32, col) + 1, @as(u32, row) + 1 }) catch return false;
+        return true;
+    };
+    const arrow: vaxis.Key = .{ .codepoint = if (steps < 0) vaxis.Key.left else vaxis.Key.right };
+    for (0..@abs(steps)) |_| for ([_]key.Event{ .press, .release }) |event|
+        key.encode(pty_writer, arrow, event, self.back_screen.csi_u_flags, self.mode.cursor_keys_app, self.modify_other_keys) catch return false;
     return true;
 }
 
@@ -1988,7 +2004,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                             };
                             if (kind) |k| {
                                 var exit_code: ?i32 = null;
-                                var click_events: bool = false;
+                                var click: Screen.PromptClick = .none;
                                 var secondary: bool = false;
                                 if (after_semi.len > 1 and after_semi[1] == ';') {
                                     var it = std.mem.tokenizeScalar(u8, after_semi[2..], ';');
@@ -2002,13 +2018,14 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                         // k=s marks a secondary (PS2 continuation) prompt
                                         if (std.mem.eql(u8, tok, "k=s"))
                                             secondary = true;
-                                        if (std.mem.startsWith(u8, tok, "click_events=") and
-                                            std.mem.eql(u8, tok["click_events=".len..], "1"))
-                                            click_events = true;
+                                        if (std.mem.eql(u8, tok, "click_events=1"))
+                                            click = .events
+                                        else if (std.mem.startsWith(u8, tok, "cl=") and click == .none)
+                                            click = .keys;
                                     }
                                 }
                                 if (k == .prompt_start and secondary) continue;
-                                if (self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click_events)) {
+                                if (self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click)) {
                                     try handle_event(context, .{
                                         .shell_state_change = self.back_screen_pri.shellState(),
                                     });

@@ -174,13 +174,14 @@ pub const Cursor = struct {
 
 /// Semantic prompt marks emitted by the shell via OSC 133
 pub const PromptMarkKind = enum { prompt_start, input_start, output_start, output_end };
+pub const PromptClick = enum { none, events, keys };
 
 pub const PromptMark = struct {
     kind: PromptMarkKind,
     row: u32,
     col: u16,
     exit_code: ?i32 = null,
-    click_events: bool = false,
+    click: PromptClick = .none,
 };
 
 pub const ScrollingRegion = struct {
@@ -348,7 +349,7 @@ fn encodeMarks(self: *const Screen, writer: *std.Io.Writer, rows: usize) std.Io.
     try cbor.writeArrayHeader(writer, count);
     for (self.prompt_marks.items) |mark| {
         if (mark.row >= rows) continue;
-        try cbor.writeValue(writer, .{ @as(usize, mark.row) * self.width + mark.col, mark.kind, mark.exit_code, mark.click_events });
+        try cbor.writeValue(writer, .{ @as(usize, mark.row) * self.width + mark.col, mark.kind, mark.exit_code, mark.click == .events });
     }
 }
 
@@ -413,7 +414,7 @@ fn transferMarksRange(
             .row = (mark.row - src_top) + dst_top,
             .col = mark.col,
             .exit_code = mark.exit_code,
-            .click_events = mark.click_events,
+            .click = mark.click,
         });
     }
 }
@@ -586,7 +587,7 @@ pub fn addPromptMark(
     allocator: std.mem.Allocator,
     kind: PromptMarkKind,
     exit_code: ?i32,
-    click_events: bool,
+    click: PromptClick,
 ) !void {
     const row: u32 = @intCast(self.visible_top + self.cursor.row);
     const col: u16 = self.cursor.col;
@@ -599,7 +600,7 @@ pub fn addPromptMark(
         .row = row,
         .col = col,
         .exit_code = exit_code,
-        .click_events = click_events,
+        .click = click,
     });
 }
 
@@ -626,18 +627,64 @@ pub fn shellState(self: *const Screen) ShellState {
     };
 }
 
-pub fn acceptsPromptClick(self: *const Screen, row: usize) bool {
+pub const CurrentPrompt = struct {
+    start: PromptMark,
+    input: ?PromptMark = null,
+};
+
+pub fn currentPrompt(self: *const Screen) ?CurrentPrompt {
+    var input: ?PromptMark = null;
     var i: usize = self.prompt_marks.items.len;
     while (i > 0) {
         i -= 1;
         const m = self.prompt_marks.items[i];
         switch (m.kind) {
-            .input_start => {},
-            .prompt_start => return m.click_events and self.visible_top + row >= m.row,
-            .output_start, .output_end => return false,
+            .input_start => if (input == null) {
+                input = m;
+            },
+            .prompt_start => return .{ .start = m, .input = input },
+            .output_start, .output_end => return null,
         }
     }
-    return false;
+    return null;
+}
+
+pub fn promptClickMove(self: *const Screen, input: ?PromptMark, row: usize, col: usize) ?i32 {
+    if (self.width == 0) return null;
+    const cursor_row = self.visible_top + self.cursor.row;
+    var first = cursor_row;
+    while (first > 0 and self.rowWrapped(first - 1)) first -= 1;
+    var last = cursor_row;
+    while (last + 1 < self.buf.len / self.width and self.rowWrapped(last)) last += 1;
+    const click_row = self.visible_top + row;
+    if (click_row < first or click_row > last) return null;
+
+    const cursor_col: usize = if (self.cursor.pending_wrap) self.width else self.cursor.col;
+    const cursor = self.lineCharIndex(first, cursor_row, cursor_col);
+    var target = self.lineCharIndex(first, click_row, col);
+    if (input) |m| if (m.row >= first and m.row <= last) {
+        target = @max(target, self.lineCharIndex(first, m.row, m.col));
+    };
+    const end = self.lineCharIndex(first, last, self.rowContentEnd(last));
+    target = @min(target, @max(end, cursor));
+    return @as(i32, @intCast(target)) - @as(i32, @intCast(cursor));
+}
+
+fn lineCharIndex(self: *const Screen, first_row: usize, row: usize, col: usize) usize {
+    var n: usize = 0;
+    var r = first_row;
+    var c: usize = 0;
+    while (r < row or (r == row and c < col)) {
+        const w: usize = @max(1, self.buf[r * self.width + c].width);
+        if (r == row and c + w > col) break;
+        n += 1;
+        c += w;
+        if (c >= self.width) {
+            c = 0;
+            r += 1;
+        }
+    }
+    return n;
 }
 
 fn lastExitCode(self: *const Screen) ?i32 {
@@ -921,7 +968,11 @@ fn writeMarks(self: *const Screen, writer: *std.Io.Writer, mark_idx_: usize, row
         const mark = self.prompt_marks.items[mark_idx];
         if (mark.row != row or mark.col > col) break;
         switch (mark.kind) {
-            .prompt_start => try writer.writeAll(if (mark.click_events) "\x1b]133;A;click_events=1\x1b\\" else "\x1b]133;A\x1b\\"),
+            .prompt_start => try writer.writeAll(switch (mark.click) {
+                .none => "\x1b]133;A\x1b\\",
+                .events => "\x1b]133;A;click_events=1\x1b\\",
+                .keys => "\x1b]133;A;cl=line\x1b\\",
+            }),
             .input_start => try writer.writeAll("\x1b]133;B\x1b\\"),
             .output_start => try writer.writeAll("\x1b]133;C\x1b\\"),
             .output_end => if (mark.exit_code) |code|
@@ -1493,7 +1544,7 @@ test "encodeRows writes styles, hyperlinks, prompt marks and joins soft wraps" {
     const alloc = std.testing.allocator;
     var screen = try Screen.init(alloc, 5, 3);
     defer screen.deinit(alloc);
-    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try screen.addPromptMark(alloc, .prompt_start, null, .none);
     try printAll(&screen, "$ ");
     screen.cursor.style.bold = true;
     screen.cursor.style.fg = .{ .index = 1 };
@@ -1512,40 +1563,84 @@ test "encodeRows writes styles, hyperlinks, prompt marks and joins soft wraps" {
     );
 }
 
-test "acceptsPromptClick follows the current prompt and its click_events flag" {
+test "currentPrompt follows the last prompt start mark" {
     const testing = std.testing;
     const alloc = testing.allocator;
     var screen = try Screen.init(alloc, 10, 5);
     defer screen.deinit(alloc);
-    try testing.expect(!screen.acceptsPromptClick(0));
+    try testing.expect(screen.currentPrompt() == null);
 
     screen.cursor.row = 2;
-    try screen.addPromptMark(alloc, .prompt_start, null, true);
-    try testing.expect(!screen.acceptsPromptClick(1));
-    try testing.expect(screen.acceptsPromptClick(2));
-    try testing.expect(screen.acceptsPromptClick(4));
+    try screen.addPromptMark(alloc, .prompt_start, null, .events);
+    var prompt = screen.currentPrompt().?;
+    try testing.expectEqual(@as(u32, 2), prompt.start.row);
+    try testing.expectEqual(PromptClick.events, prompt.start.click);
+    try testing.expect(prompt.input == null);
 
     screen.cursor.col = 2;
-    try screen.addPromptMark(alloc, .input_start, null, false);
-    try testing.expect(screen.acceptsPromptClick(2));
+    try screen.addPromptMark(alloc, .input_start, null, .none);
+    prompt = screen.currentPrompt().?;
+    try testing.expectEqual(@as(u16, 2), prompt.input.?.col);
 
     screen.cursor.row = 3;
     screen.cursor.col = 0;
-    try screen.addPromptMark(alloc, .output_start, null, false);
-    try testing.expect(!screen.acceptsPromptClick(3));
-    try screen.addPromptMark(alloc, .output_end, 0, false);
-    try testing.expect(!screen.acceptsPromptClick(3));
+    try screen.addPromptMark(alloc, .output_start, null, .none);
+    try testing.expect(screen.currentPrompt() == null);
+    try screen.addPromptMark(alloc, .output_end, 0, .none);
+    try testing.expect(screen.currentPrompt() == null);
 
     screen.cursor.row = 4;
-    try screen.addPromptMark(alloc, .prompt_start, null, false);
-    try testing.expect(!screen.acceptsPromptClick(4));
+    try screen.addPromptMark(alloc, .prompt_start, null, .keys);
+    try testing.expectEqual(PromptClick.keys, screen.currentPrompt().?.start.click);
+}
+
+test "promptClickMove counts characters on the cursor line and clamps to the input" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.init(alloc, 20, 3);
+    defer screen.deinit(alloc);
+    try screen.addPromptMark(alloc, .prompt_start, null, .keys);
+    try printAll(&screen, "$ ");
+    try screen.addPromptMark(alloc, .input_start, null, .none);
+    try printAll(&screen, "echo hi");
+    const input = screen.currentPrompt().?.input;
+
+    try testing.expectEqual(@as(?i32, -2), screen.promptClickMove(input, 0, 7));
+    try testing.expectEqual(@as(?i32, -7), screen.promptClickMove(input, 0, 2));
+    try testing.expectEqual(@as(?i32, -7), screen.promptClickMove(input, 0, 0));
+    try testing.expectEqual(@as(?i32, 0), screen.promptClickMove(input, 0, 15));
+    try testing.expectEqual(@as(?i32, null), screen.promptClickMove(input, 1, 0));
+
+    screen.cursor.col = 4;
+    try testing.expectEqual(@as(?i32, 5), screen.promptClickMove(input, 0, 15));
+    try testing.expectEqual(@as(?i32, -4), screen.promptClickMove(null, 0, 0));
+}
+
+test "promptClickMove counts a wide character once and follows soft wraps" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.init(alloc, 6, 3);
+    defer screen.deinit(alloc);
+    try screen.addPromptMark(alloc, .prompt_start, null, .keys);
+    try printAll(&screen, "$ ");
+    try screen.addPromptMark(alloc, .input_start, null, .none);
+    try printAll(&screen, "a");
+    try screen.print("\u{4e16}", 2, true, false);
+    try printAll(&screen, "bcd"); // soft wraps after "b"
+    const input = screen.currentPrompt().?.input;
+
+    try testing.expectEqual(@as(?i32, -4), screen.promptClickMove(input, 0, 3));
+    try testing.expectEqual(@as(?i32, -4), screen.promptClickMove(input, 0, 4));
+    try testing.expectEqual(@as(?i32, -3), screen.promptClickMove(input, 0, 5));
+    try testing.expectEqual(@as(?i32, -2), screen.promptClickMove(input, 1, 0));
+    try testing.expectEqual(@as(?i32, 0), screen.promptClickMove(input, 1, 4));
 }
 
 test "encodeLine writes one logical line without prompt marks" {
     const alloc = std.testing.allocator;
     var screen = try Screen.init(alloc, 5, 4);
     defer screen.deinit(alloc);
-    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try screen.addPromptMark(alloc, .prompt_start, null, .none);
     try printAll(&screen, "$ ");
     screen.cursor.style.bold = true;
     try printAll(&screen, "abcdef"); // soft wraps after "abc"
@@ -1763,7 +1858,7 @@ test "full scrollback evicts logical lines into the cold store" {
     try screen.createCold(alloc, 4096);
     const cold = screen.cold.?;
 
-    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try screen.addPromptMark(alloc, .prompt_start, null, .none);
     try printAll(&screen, "abcdefghij"); // 3 rows
     for ([_][]const u8{ "1", "2", "3", "4" }) |text| {
         screen.cursor.col = 0;
@@ -1799,9 +1894,9 @@ test "encodeRowsUntil keeps blank cells before the end position" {
     try printAll(&screen, "first");
     screen.cursor.col = 0;
     try screen.index();
-    try screen.addPromptMark(alloc, .prompt_start, null, false);
+    try screen.addPromptMark(alloc, .prompt_start, null, .none);
     try printAll(&screen, "$ ");
-    try screen.addPromptMark(alloc, .input_start, null, false);
+    try screen.addPromptMark(alloc, .input_start, null, .none);
     try printAll(&screen, "  xy");
 
     var out: std.Io.Writer.Allocating = .init(alloc);

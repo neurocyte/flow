@@ -880,7 +880,7 @@ fn prompt_click(self: *Self, coord: MouseEvent.Coord) void {
     if (cell.row < 0 or cell.col < 0) return;
     const row: u16 = @intCast(@min(@as(usize, @intCast(cell.row)), screen.height -| 1));
     const col: u16 = @intCast(@min(@as(usize, @intCast(cell.col)), @as(usize, screen.width) -| 1));
-    _ = vt.promptClick(col, row);
+    _ = vt.promptClick(col, row, tui.config().terminal_prompt_click_implicit_line);
 }
 
 fn selection_start(self: *Self, coord: MouseEvent.Coord) void {
