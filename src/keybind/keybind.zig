@@ -2240,12 +2240,23 @@ test "builtin macOS bindings load only for os macos" {
     const keys = [_]struct { []const u8, []const u8, []const u8 }{
         .{ "project", "super+v", "system_paste" },
         .{ "normal", "super+c", "copy" },
-        .{ "normal", "super+shift+z", "redo" },
+        .{ "normal", "super+Z", "redo" },
         .{ "select", "super+x", "cut" },
         .{ "mini_editor", "super+a", "mini_editor_select_all" },
         .{ "panel", "super+w", "panel_tab_close" },
-        .{ "terminal", "super+alt+right", "panel_tab_next" },
+        .{ "project", "super+alt+down", "focus_panel" },
+        .{ "project", "super+alt+right", "focus_next_split" },
+        .{ "panel", "super+alt+up", "panel_unfocus" },
+        .{ "panel", "super+alt+left", "panel_focus_prev_group" },
+        .{ "terminal", "super+alt+right", "panel_focus_next_group" },
+        .{ "terminal", "super+alt+up", "unfocus_terminal" },
+        .{ "project", "super+}", "next_tab" },
+        .{ "panel", "super+{", "panel_tab_prev" },
+        .{ "terminal", "super+}", "panel_tab_next" },
         .{ "terminal", "super+`", "terminal_next_vt" },
+        .{ "project", "super+ctrl+up", "grow_panel" },
+        .{ "panel", "super+ctrl+down", "shrink_panel" },
+        .{ "terminal", "super+ctrl+up", "grow_panel" },
     };
     for ([_]std.Target.Os.Tag{ .macos, .linux }) |os| {
         reset_namespaces_for_test();
@@ -2260,6 +2271,38 @@ test "builtin macOS bindings load only for os macos" {
                 try std.testing.expect(found == null);
         }
     }
+}
+
+test "macOS cmd bindings match the key events of the macOS GUI" {
+    const saved = filter_options;
+    defer filter_options = saved;
+    reset_namespaces_for_test();
+    filter_options = .{ .os = .macos, .ui = .gui };
+    const namespace = try get_or_load_builtin_namespace("flow");
+    const super = input.mod.super;
+    const super_shift = input.mod.super | input.mod.shift;
+    // mode, key, key as sent (shifted if shift is held), mods, command
+    // the GUI sends the key as text, or no text
+    const cases = [_]struct { []const u8, input.Key, input.Key, input.Mods, []const u8 }{
+        .{ "project", ']', '}', super_shift, "next_tab" },
+        .{ "project", '[', '{', super_shift, "previous_tab" },
+        .{ "normal", 'z', 'Z', super_shift, "redo" },
+        .{ "normal", ']', ']', super, "indent_no_tabstop" },
+        .{ "select", '[', '[', super, "unindent" },
+        .{ "panel", ']', '}', super_shift, "panel_tab_next" },
+        .{ "terminal", '[', '{', super_shift, "panel_tab_prev" },
+        .{ "terminal", '`', '~', super_shift, "terminal_previous_vt" },
+    };
+    for (cases) |c| for ([_]bool{ true, false }) |with_text| {
+        var text_buf: [4]u8 = undefined;
+        const text = if (with_text) text_buf[0..try std.unicode.utf8Encode(c[2], &text_buf)] else "";
+        const event = input.KeyEvent.from_message(input.event.press, c[1], c[2], text, c[3]);
+        const mode_bindings = namespace.get_mode(c[0]) orelse return error.TestModeNotFound;
+        const found = for (mode_bindings.press.items) |b| {
+            if (b.key_events.len == 1 and Binding.keyevents_eql(b.key_events[0], event)) break b.commands[0].command;
+        } else return error.TestBindingNotFound;
+        try std.testing.expectEqualStrings(c[4], found);
+    };
 }
 
 test "binding filters follow the filter options" {
