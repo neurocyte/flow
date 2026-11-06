@@ -1737,12 +1737,7 @@ fn reload_config(self: *Self) void {
     if (!std.mem.eql(u8, conf.light_theme, self.light_theme.name))
         self.reload_theme(.light, conf.light_theme);
 
-    const arena = self.config_bufs orelse blk: {
-        const arena = allocator.create(std.heap.ArenaAllocator) catch return;
-        arena.* = .init(allocator);
-        self.config_bufs = arena;
-        break :blk arena;
-    };
+    const arena = self.config_arena() catch return;
     if (conf.keybind_os != self.config_.keybind_os or conf.keybind_ui != self.config_.keybind_ui)
         self.logger.print("keybind_os and keybind_ui changes apply after a restart", .{});
 
@@ -1762,6 +1757,14 @@ fn reload_config(self: *Self) void {
     if (self.config_.enable_editorconfig != enable_editorconfig)
         self.enable_editorconfig_changed();
     self.run_commands("idle", self.config_.idle_commands);
+}
+
+fn config_arena(self: *Self) error{OutOfMemory}!*std.heap.ArenaAllocator {
+    if (self.config_bufs) |arena| return arena;
+    const arena = try self.allocator.create(std.heap.ArenaAllocator);
+    arena.* = .init(self.allocator);
+    self.config_bufs = arena;
+    return arena;
 }
 
 fn reload_theme(self: *Self, color_scheme: Widget.Theme.Type, name: []const u8) void {
@@ -2476,12 +2479,13 @@ const cmds = struct {
             for (namespaces) |namespace| self.allocator.free(namespace);
             self.allocator.free(namespaces);
         }
+        const arena = (try self.config_arena()).allocator();
         var found = false;
         self.config_.input_mode = blk: for (namespaces) |namespace| {
-            if (found) break :blk try self.allocator.dupe(u8, namespace);
+            if (found) break :blk try arena.dupe(u8, namespace);
             if (std.mem.eql(u8, namespace, self.config_.input_mode))
                 found = true;
-        } else try self.allocator.dupe(u8, namespaces[0]);
+        } else try arena.dupe(u8, namespaces[0]);
 
         try save_config();
         self.logger.print("input mode {s}", .{self.config_.input_mode});
