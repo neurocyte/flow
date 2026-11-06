@@ -633,33 +633,26 @@ const TextobjectScope = enum { inside, around };
 
 const CurselOperatorConst = *const fn (root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void;
 
-fn textobject_for(cmd_kind: TextobjectScope, action: []const u8) ?CurselOperatorConst {
-    if (std.mem.eql(u8, action, "W")) {
-        return switch (cmd_kind) {
-            .inside => select_inner_long_word,
-            .around => select_around_long_word,
-        };
-    }
+fn textobject_for(scope: TextobjectScope, action: []const u8) ?CurselOperatorConst {
+    if (std.mem.eql(u8, action, "w")) return switch (scope) {
+        .inside => select_inner_word,
+        .around => select_around_word,
+    };
+    if (std.mem.eql(u8, action, "W")) return switch (scope) {
+        .inside => select_inner_long_word,
+        .around => select_around_long_word,
+    };
     return null;
 }
 
-fn select_textobject(ctx: command.Context, cmd_kind: TextobjectScope) command.Result {
+fn select_textobject(ctx: command.Context, scope: TextobjectScope) command.Result {
     var action: []const u8 = "";
-
     if (!try ctx.args.match(.{tp.extract(&action)})) return error.Stop;
+    const op = textobject_for(scope, action) orelse return;
     const mv = tui.mainview() orelse return;
     const ed = mv.get_active_editor() orelse return;
     const root = ed.buf_root() catch return;
-
-    if (std.mem.eql(u8, action, "w")) {
-        const op: CurselOperatorConst = if (cmd_kind == .inside) select_inner_word else select_around_word;
-        try ed.with_cursels_const(root, op, ed.metrics);
-    } else if (std.mem.eql(u8, action, "W")) {
-        const op = textobject_for(cmd_kind, action) orelse return;
-        try ed.with_cursels_const(root, op, ed.metrics);
-    } else {
-        return;
-    }
+    try ed.with_cursels_const(root, op, ed.metrics);
     ed.clamp(ctx.now);
 }
 
