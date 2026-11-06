@@ -166,11 +166,11 @@
             ["x", "extend_line_below"],
 
             ["m m", "match_brackets"],
-            ["m a", "match", "select_textobject_around"],
-            ["m i", "match", "select_textobject_inner"],
-            ["m d", "match", "surround_delete"],
-            ["m r", "match", "surround_replace"],
-            ["m s", "match", "surround_add"],
+            [["m a", "Select around object"], "match", "select_textobject_around"],
+            [["m i", "Select inside object"], "match", "select_textobject_inner"],
+            [["m d", "Surround delete"], "surround", "delete", "surround_delete"],
+            [["m r", "Surround replace"], "surround", "change", "surround_replace"],
+            [["m s", "Surround add"], "surround", "selection", "surround_add"],
 
             ["[ D", "goto_first_diag"],
             ["[ G", "goto_first_change"],
@@ -448,11 +448,11 @@
             ["x", "extend_line_below"],
 
             ["m m", "match_brackets", "helix_sel_mode"],
-            ["m a", "match", "select_textobject_around"],
-            ["m i", "match", "select_textobject_inner"],
-            ["m d", "match", "surround_delete"],
-            ["m r", "match", "surround_replace"],
-            ["m s", "match", "surround_add"],
+            [["m a", "Select around object"], "match", "select_textobject_around"],
+            [["m i", "Select inside object"], "match", "select_textobject_inner"],
+            [["m d", "Surround delete"], "surround", "delete", "surround_delete"],
+            [["m r", "Surround replace"], "surround", "change", "surround_replace"],
+            [["m s", "Surround add"], "surround", "selection", "surround_add"],
 
             ["[ D", "goto_first_diag"],
             ["[ G", "goto_first_change"],
