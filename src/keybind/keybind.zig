@@ -2241,6 +2241,8 @@ test "builtin macOS bindings load only for os macos" {
         .{ "project", "super+v", "system_paste" },
         .{ "normal", "super+c", "copy" },
         .{ "normal", "super+Z", "redo" },
+        .{ "normal", "super+]", "indent_no_tabstop" },
+        .{ "select", "super+[", "unindent" },
         .{ "select", "super+x", "cut" },
         .{ "mini_editor", "super+a", "mini_editor_select_all" },
         .{ "panel", "super+w", "panel_tab_close" },

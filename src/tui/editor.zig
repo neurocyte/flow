@@ -5693,6 +5693,13 @@ pub const Editor = struct {
     }
     pub const indent_meta: Meta = .{ .description = "Indent current line (or pop tabstop)", .arguments = &.{.integer} };
 
+    pub fn indent_no_tabstop(self: *Self, ctx: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut_repeat(b.root, indent_cursel, b.allocator, ctx);
+        try self.update_buf(root, ctx.now);
+    }
+    pub const indent_no_tabstop_meta: Meta = .{ .description = "Indent current line", .arguments = &.{.integer} };
+
     fn expand_tabs(self: *Self, root_: Buffer.Root, row: usize, allocator: Allocator) error{Stop}!Buffer.Root {
         var col: usize = 0;
         var root = root_;

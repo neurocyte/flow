@@ -148,6 +148,8 @@
             [{"os": "macos"}, "super+x", "cut"],
             [{"os": "macos"}, "super+z", "undo"],
             [{"os": "macos"}, "super+Z", "redo"],
+            [{"os": "macos"}, "super+]", "indent_no_tabstop"],
+            [{"os": "macos"}, "super+[", "unindent"],
             [{"os": "macos"}, "super+a", "select_all"],
             [{"os": "macos"}, "super+f", "find"],
             [{"os": "macos"}, "super+w", "close_file"],
