@@ -3178,6 +3178,18 @@ const cmds = struct {
     }
     pub const previous_tab_meta: Meta = .{ .description = "Switch to previous tab" };
 
+    pub fn goto_tab(self: *Self, ctx: Ctx) Result {
+        var n: usize = undefined;
+        if (!try ctx.args.match(.{tp.extract(&n)})) return error.InvalidGotoTabArgument;
+        _ = try self.widgets_widget.msg(.{ "goto_tab", n });
+    }
+    pub const goto_tab_meta: Meta = .{ .description = "Switch to tab by index", .arguments = &.{.integer} };
+
+    pub fn goto_last_tab(self: *Self, _: Ctx) Result {
+        _ = try self.widgets_widget.msg(.{"goto_last_tab"});
+    }
+    pub const goto_last_tab_meta: Meta = .{ .description = "Switch to last tab" };
+
     pub fn move_tab_next(self: *Self, _: Ctx) Result {
         _ = try self.widgets_widget.msg(.{"move_tab_next"});
     }

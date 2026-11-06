@@ -361,10 +361,15 @@ pub const TabBar = struct {
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var buffer_ref: Buffer.Ref = undefined;
+        var tab_idx: usize = 0;
         if (try m.match(.{"next_tab"})) {
             self.select_next_tab();
         } else if (try m.match(.{"previous_tab"})) {
             self.select_previous_tab();
+        } else if (try m.match(.{ "goto_tab", tp.extract(&tab_idx) })) {
+            self.select_tab_index(tab_idx);
+        } else if (try m.match(.{"goto_last_tab"})) {
+            self.select_last_tab();
         } else if (try m.match(.{"move_tab_next"})) {
             self.move_tab_next();
         } else if (try m.match(.{"move_tab_previous"})) {
@@ -660,6 +665,19 @@ pub const TabBar = struct {
         const buffer_ref, _ = self.find_previous_tab_buffer();
         if (buffer_ref) |ref| return navigate_to_buffer(ref);
         if (self.find_last_tab_buffer()) |ref| return navigate_to_buffer(ref);
+    }
+
+    fn select_tab_index(self: *Self, tab_idx: usize) void {
+        var idx: usize = 0;
+        for (self.splits_list.widgets.items) |*split_widget| if (split_of(split_widget.widget)) |split|
+            for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
+                if (idx == tab_idx) return navigate_to_buffer(btn.opts.ctx.buffer_ref);
+                idx += 1;
+            };
+    }
+
+    fn select_last_tab(self: *Self) void {
+        if (self.find_last_tab_buffer()) |ref| navigate_to_buffer(ref);
     }
 
     fn move_tab_next(self: *Self) void {
