@@ -105,6 +105,7 @@ show_local_diagnostics_in_panel: bool = false,
 auto_open_panel_for_diagnostics: bool = true,
 panel_height_ratio: f32 = 1.0 / 3.0,
 scrollbar_auto_hide: bool = true,
+scrollbar_marks: bool = false,
 scrollbar_overlay_hide_delay: usize = 1000, //milliseconds
 scroll_step_vertical: usize = 3,
 scroll_step_horizontal: usize = 5,

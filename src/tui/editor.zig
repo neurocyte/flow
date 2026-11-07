@@ -31,6 +31,7 @@ const snippet_variables = @import("snippet_variables.zig");
 const Diff = @import("diff").LineDiff;
 
 const scrollbar_v = @import("scrollbar_v.zig");
+const scrollbar_marks = @import("scrollbar_marks.zig");
 const editor_gutter = @import("editor_gutter.zig");
 const ScrollLayer = @import("ScrollLayer.zig");
 const Widget = @import("Widget.zig");
@@ -7908,7 +7909,7 @@ pub const Editor = struct {
         (self.matches.addOne(self.allocator) catch return).* = match;
     }
 
-    fn match_at_cursor(self: *const Self, cursor: Cursor) ?*Match {
+    pub fn match_at_cursor(self: *const Self, cursor: Cursor) ?*Match {
         for (self.matches.items) |*match_| if (match_.*) |*match| {
             if (cursor.within(match.to_selection()) or cursor.eql(match.end))
                 return match;
@@ -9674,6 +9675,7 @@ pub const EditorWidget = struct {
         self.gutter = gutter.dynamic_cast(editor_gutter);
         try container.add(gutter);
         try container.add(editorWidget);
+        try container.add(try scrollbar_marks.create(allocator, container.plane, &self.editor, EventHandler.bind(self, handle_scrollbar_event)));
         if (tui.config().show_scrollbars) {
             const scrollbar = try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.bind(self, handle_scrollbar_event));
             if (scrollbar.dynamic_cast(scrollbar_v)) |sb| {
