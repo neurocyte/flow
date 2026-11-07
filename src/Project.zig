@@ -4,7 +4,6 @@ const cbor = @import("cbor");
 const EditSet = @import("EditSet");
 const log = @import("log");
 const root = @import("soft_root").root;
-const fuzzig = @import("fuzzig");
 const git = @import("git");
 const file_type_config = @import("file_type_config");
 const file_link = @import("file_link");
@@ -12,23 +11,22 @@ const Buffer = @import("Buffer");
 const bin_path = @import("bin_path");
 const builtin = @import("builtin");
 
+const file_finder = @import("file_finder");
+
 const project_manager = @import("project_manager.zig");
 const Repo = @import("Repo.zig");
+const RecentFiles = @import("RecentFiles.zig");
 const LSP = @import("LSP.zig");
 const LSPClient = @import("LSPClient.zig");
-const walk_tree = @import("walk_tree.zig");
-const file_watcher = @import("file_watcher");
-const gitignore = @import("gitignore");
-const convert_path = LSPClient.convert_path;
 
 allocator: std.mem.Allocator,
 name: []const u8,
-files: std.ArrayListUnmanaged(File) = .empty,
-pending: std.ArrayListUnmanaged(File) = .empty,
-file_index: std.StringHashMapUnmanaged(u32) = .empty,
-files_dirty: bool = false,
-file_store: ?tp.pid = null,
-longest_file_path: usize = 0,
+/// Recently used files, persisted with the project. Every update is also
+/// reported to the file finder, which owns the full list of project files.
+mru: RecentFiles,
+finder: file_finder.Handle,
+file_finder_longest: usize = 0,
+file_finder_count: usize = 0,
 open_time: i64,
 language_servers: std.StringHashMap(*LSPClient),
 diagnostics: std.StringHashMapUnmanaged([]const u8) = .empty,
@@ -45,24 +43,13 @@ logger_git: log.Logger,
 last_used: i128,
 parent: tp.pid,
 
-workspace: ?[]const u8 = null,
 repo: ?*Repo = null,
 active: bool = false,
 
-walker: ?tp.pid = null,
-no_index: bool = false,
-watcher: ?file_watcher.Owned = null,
-
-ignore: ?*gitignore.Matcher = null,
-ignore_failed: bool = false,
-
 // async task states
 state: struct {
-    walk_tree: State = .none,
-    workspace_path: State = .none,
-    current_branch: State = .none,
-    workspace_files: State = .none,
-    repo: State = .none,
+    file_finder: State = .running,
+    repo: State = .running,
 } = .{},
 
 load_complete: bool = false,
@@ -70,13 +57,9 @@ load_complete: bool = false,
 const Self = @This();
 
 const OutOfMemoryError = error{OutOfMemory};
-const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 pub const RequestError = error{
-    InvalidMostRecentFileRequest,
     InvalidRequestVcsStatusFilesRequest,
     InvalidVcsUpdateIndexRequest,
-    InvalidRecentFilesRequest,
-    InvalidQueryRecentFilesRequest,
     InvalidGetMruPositionRequest,
     InvalidTasksRequest,
 } || OutOfMemoryError || cbor.Error;
@@ -85,21 +68,7 @@ pub const LspError = LSPClient.LspError;
 pub const GitError = error{InvalidGitResponse};
 pub const LspInfoError = LSPClient.LspInfoError;
 
-const File = struct {
-    path: []const u8,
-    type: []const u8 = "",
-    icon: []const u8 = "",
-    color: u24 = 0,
-    mtime: i128 = 0,
-    pos: FilePos = .{},
-    visited: bool = false,
-    meta_resolved: bool = false,
-};
-
-pub const FilePos = struct {
-    row: usize = 0,
-    col: usize = 0,
-};
+pub const FilePos = RecentFiles.FilePos;
 
 pub const SourceLocation = LSPClient.SourceLocation;
 
@@ -108,19 +77,16 @@ const Task = struct {
     mtime: i64,
 };
 
-const State = enum { none, running, done, failed };
+const State = enum { running, done, failed };
 
-pub const Options = struct {
-    no_index: bool = false,
-    watch_non_indexed: bool = false,
-};
-
-pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref, options: Options) OutOfMemoryError!Self {
+/// Takes ownership of `finder`, the file finder of the project.
+pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref, finder: file_finder.Handle) OutOfMemoryError!Self {
     const now = root.get_now();
     return .{
         .allocator = allocator,
         .name = try allocator.dupe(u8, name),
-        .no_index = options.no_index,
+        .mru = .init(allocator),
+        .finder = finder,
         .open_time = now.toMilliseconds(),
         .language_servers = std.StringHashMap(*LSPClient).init(allocator),
         .file_language_server_name = std.StringHashMap([]const u8).init(allocator),
@@ -130,34 +96,12 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8, parent: tp.pid_ref, 
         .logger_git = log.logger("git"),
         .last_used = @as(i128, now.toNanoseconds()),
         .parent = parent.clone(),
-        .watcher = start_watcher(name, options),
     };
-}
-
-fn start_watcher(name: []const u8, options: Options) ?file_watcher.Owned {
-    if (!tp.env.get().is("enable_file_watcher")) return null;
-    if (options.no_index and !options.watch_non_indexed) {
-        std.log.debug("not watching {s}", .{name});
-        return null;
-    }
-    const watcher = file_watcher.Owned.init(.project_tree) catch |e| {
-        std.log.err("file_watcher.init: {s} -> {}", .{ name, e });
-        return null;
-    };
-    watcher.watch(name) catch |e|
-        std.log.err("file_watcher.watch: {s} -> {}", .{ name, e });
-    return watcher;
 }
 
 pub fn deinit(self: *Self) void {
-    if (self.watcher) |*watcher| watcher.deinit();
+    self.finder.deinit();
     self.parent.deinit();
-    if (self.walker) |pid| pid.send(.{"stop"}) catch {};
-    if (self.ignore) |m| {
-        gitignore.Sources.close(root.get_io(), self.allocator, m);
-        self.ignore = null;
-    }
-    if (self.workspace) |p| self.allocator.free(p);
     var i_ = self.file_language_server_name.iterator();
     while (i_.next()) |p| {
         self.allocator.free(p.key_ptr.*);
@@ -191,11 +135,7 @@ pub fn deinit(self: *Self) void {
     }
     self.lsp_settings.deinit(self.allocator);
     self.lsp_status_subscribers.deinit(self.allocator);
-    for (self.files.items) |file| self.allocator.free(file.path);
-    self.files.deinit(self.allocator);
-    self.pending.deinit(self.allocator);
-    self.file_index.deinit(self.allocator);
-    if (self.file_store) |*pid| pid.deinit();
+    self.mru.deinit();
     for (self.tasks.items) |task| self.allocator.free(task.command);
     self.tasks.deinit(self.allocator);
     self.logger_lsp.deinit();
@@ -210,14 +150,15 @@ pub fn write_state(self: *Self, writer: anytype) !void {
 
 pub fn write_state_v1(self: *Self, writer: anytype) !void {
     tp.trace(tp.channel.debug, .{"write_state_v1"});
+    self.mru.sort();
     try cbor.writeValue(writer, self.name);
     var visited: usize = 0;
-    for (self.files.items) |file| {
+    for (self.mru.files.items) |file| {
         if (file.visited) visited += 1;
     }
     tp.trace(tp.channel.debug, .{ "write_state_v1", "files", visited });
     try cbor.writeArrayHeader(writer, visited);
-    for (self.files.items) |file| {
+    for (self.mru.files.items) |file| {
         if (!file.visited) continue;
         try cbor.writeArrayHeader(writer, 4);
         try cbor.writeValue(writer, file.path);
@@ -237,14 +178,15 @@ pub fn write_state_v1(self: *Self, writer: anytype) !void {
 }
 
 pub fn write_state_v0(self: *Self, writer: anytype) !void {
+    self.mru.sort();
     try cbor.writeValue(writer, self.name);
-    for (self.files.items) |file| {
+    for (self.mru.files.items) |file| {
         if (!file.visited) continue;
         try cbor.writeArrayHeader(writer, 4);
         try cbor.writeValue(writer, file.path);
         try cbor.writeValue(writer, file.mtime);
-        try cbor.writeValue(writer, file.row);
-        try cbor.writeValue(writer, file.col);
+        try cbor.writeValue(writer, file.pos.row);
+        try cbor.writeValue(writer, file.pos.col);
     }
 }
 
@@ -255,7 +197,6 @@ pub fn restore_state(self: *Self, data: []const u8) !void {
 
 pub fn restore_state_inner(self: *Self, data: []const u8) !void {
     tp.trace(tp.channel.debug, .{"restore_state"});
-    defer self.sort_files_by_mtime();
     defer self.sort_tasks_by_mtime();
     var iter: []const u8 = data;
     _ = cbor.matchValue(&iter, tp.string) catch {};
@@ -293,7 +234,6 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
         }
         tp.trace(tp.channel.debug, .{ "restore_state_v1", "file", path_, mtime, row, col });
         const path = project_manager.normalize_file_path_dot_prefix(path_);
-        self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.Io.Dir.cwd().statFile(root.get_io(), path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
@@ -344,7 +284,6 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     WriteFailed,
 }!void {
     tp.trace(tp.channel.debug, .{"restore_state_v0"});
-    defer self.sort_files_by_mtime();
     var name: []const u8 = undefined;
     var path_: []const u8 = undefined;
     var mtime: i128 = undefined;
@@ -364,7 +303,6 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     }) {
         tp.trace(tp.channel.debug, .{ "restore_state_v0", "file", path_, mtime, row, col });
         const path = project_manager.normalize_file_path_dot_prefix(path_);
-        self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.Io.Dir.cwd().statFile(root.get_io(), path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
@@ -577,58 +515,6 @@ pub fn get_lsp_client_for_file(self: *Self, file_path: []const u8) StartLspError
     return self.restart_lsp_client(lsp_name);
 }
 
-fn sort_files_by_mtime(self: *Self) void {
-    sort_by_mtime(File, self.files.items);
-    self.rebuild_file_index(self.files.items);
-}
-
-fn rebuild_file_index(self: *Self, items: []const File) void {
-    self.file_index.clearRetainingCapacity();
-    self.file_index.ensureTotalCapacity(self.allocator, @intCast(items.len)) catch {};
-    for (items, 0..) |file, i|
-        self.file_index.put(self.allocator, file.path, @intCast(i)) catch {};
-}
-
-fn resolve_meta(file: anytype) void {
-    if (file.meta_resolved) return;
-    const file_type, const file_icon, const file_color = guess_file_type(file.path);
-    file.type = file_type;
-    file.icon = file_icon;
-    file.color = file_color;
-    file.meta_resolved = true;
-}
-
-pub fn set_fs_mtime(self: *Self, rel_path: []const u8, mtime: i128) void {
-    const idx = self.file_index.get(rel_path) orelse return;
-    if (idx >= self.files.items.len) return;
-    const file = &self.files.items[idx];
-    if (mtime <= file.mtime) return;
-    file.mtime = mtime;
-    self.files_dirty = true;
-}
-
-fn queue_all_mtimes(self: *Self) void {
-    if (self.file_store == null) return;
-    for (self.files.items) |file|
-        self.queue_mtime(file.path);
-}
-
-fn queue_mtime(self: *Self, rel_path: []const u8) void {
-    const file_store = self.file_store orelse return;
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(self.allocator);
-    buf.appendSlice(self.allocator, self.name) catch return;
-    buf.append(self.allocator, std.fs.path.sep) catch return;
-    buf.appendSlice(self.allocator, rel_path) catch return;
-    file_store.send(.{ "stat", @as(usize, 0), buf.items }) catch {};
-}
-
-fn refresh_order(self: *Self) void {
-    if (!self.files_dirty) return;
-    self.files_dirty = false;
-    self.sort_files_by_mtime();
-}
-
 fn sort_tasks_by_mtime(self: *Self) void {
     sort_by_mtime(Task, self.tasks.items);
 }
@@ -641,269 +527,25 @@ inline fn sort_by_mtime(T: type, items: []T) void {
     }.cmp);
 }
 
-pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) RequestError!void {
-    self.refresh_order();
-    if (n >= self.files.items.len) return error.InvalidMostRecentFileRequest;
-    const file_path = if (self.files.items.len > 0) self.files.items[n].path else null;
-    from.send(.{file_path}) catch |e|
-        std.log.err("send request_n_most_recent_file failed: {t}", .{e});
+// A live file finder completes these requests. Complete them here when it
+// cannot be asked; its exit separately cancels an outstanding palette query.
+
+pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) void {
+    if (self.state.file_finder == .failed or
+        std.meta.isError(self.finder.request_n_most_recent_file(from, n)))
+        from.send(.{@as(?[]const u8, null)}) catch {};
 }
 
-pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) RequestError!void {
-    self.refresh_order();
-    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "", self.files.items.len }) catch {};
-    for (self.files.items, 0..) |*file, i| {
-        resolve_meta(file);
-        from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color }) catch |e| {
-            std.log.err("send recent failed: {t}", .{e});
-            return;
-        };
-        if (i >= max) return;
-    }
+pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) void {
+    if (self.state.file_finder == .failed or
+        std.meta.isError(self.finder.request_recent_files(from, max)))
+        file_finder.send_recent_done(from, 0, "", 0);
 }
 
-fn strip_non_search_chars(self: *const Self, s: []const u8) error{OutOfMemory}![]const u8 {
-    var stripped: std.ArrayList(u8) = try .initCapacity(self.allocator, s.len);
-    for (s) |c| switch (c) {
-        ' ', '\t', '\n' => {},
-        else => |c_| (try stripped.addOne(self.allocator)).* = c_,
-    };
-    return try stripped.toOwnedSlice(self.allocator);
-}
-
-fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
-    var i: usize = 0;
-    for (self.files.items) |*file| {
-        if (file.path.len < query.len) continue;
-        if (std.mem.indexOf(u8, file.path, query)) |idx| {
-            var matches = try self.allocator.alloc(usize, query.len);
-            defer self.allocator.free(matches);
-            var n: usize = 0;
-            while (n < query.len) : (n += 1) matches[n] = idx + n;
-            resolve_meta(file);
-            from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color, matches }) catch |e| {
-                std.log.err("send navigate failed: {t}", .{e});
-                return error.InvalidRecentFilesRequest;
-            };
-            i += 1;
-            if (i >= max) return i;
-        }
-    }
-    return i;
-}
-
-pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query_: []const u8) RequestError!usize {
-    self.refresh_order();
-    const query = try self.strip_non_search_chars(query_);
-    defer self.allocator.free(query);
-    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query_, self.files.items.len }) catch {};
-    if (query.len < 3)
-        return self.simple_query_recent_files(from, max, query);
-
-    var searcher = try fuzzig.Ascii.init(
-        self.allocator,
-        4096, // haystack max size
-        4096, // needle max size
-        .{ .case_sensitive = false },
-    );
-    defer searcher.deinit();
-
-    const Match = struct {
-        index: usize,
-        score: i32,
-        matches: []const usize,
-    };
-    var matches: std.ArrayList(Match) = .empty;
-
-    for (self.files.items, 0..) |file, index| {
-        const match = searcher.scoreMatches(file.path, query);
-        if (match.score) |score| {
-            (try matches.addOne(self.allocator)).* = .{
-                .index = index,
-                .score = score,
-                .matches = try self.allocator.dupe(usize, match.matches),
-            };
-        }
-    }
-    if (matches.items.len == 0) return 0;
-
-    const less_fn = struct {
-        fn less_fn(_: void, lhs: Match, rhs: Match) bool {
-            return lhs.score > rhs.score;
-        }
-    }.less_fn;
-    std.mem.sort(Match, matches.items, {}, less_fn);
-
-    for (matches.items[0..@min(max, matches.items.len)]) |match| {
-        const file = &self.files.items[match.index];
-        resolve_meta(file);
-        from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color, match.matches }) catch |e| {
-            std.log.err("send navigate failed: {t}", .{e});
-            return error.InvalidQueryRecentFilesRequest;
-        };
-    }
-    return @min(max, matches.items.len);
-}
-
-fn walk_tree_entry_callback(parent: tp.pid_ref, root_path: []const u8, file_path: []const u8) error{Exit}!void {
-    try parent.send(.{ "walk_tree_entry", root_path, file_path });
-}
-
-pub fn walk_tree_entry(self: *Self, m: tp.message) OutOfMemoryError!void {
-    var file_path: []const u8 = undefined;
-    if (!(cbor.match(m.buf, .{
-        tp.string,
-        tp.string,
-        tp.extract(&file_path),
-    }) catch return)) return;
-    try self.add_pending_owned(try self.allocator.dupe(u8, file_path));
-}
-
-fn add_pending_owned(self: *Self, owned_path: []u8) OutOfMemoryError!void {
-    errdefer self.allocator.free(owned_path);
-    (try self.pending.addOne(self.allocator)).* = .{ .path = owned_path };
-    self.longest_file_path = @max(self.longest_file_path, owned_path.len);
-}
-
-fn walk_tree_done_callback(parent: tp.pid_ref, root_path: []const u8) error{Exit}!void {
-    try parent.send(.{ "walk_tree_done", root_path });
-}
-
-pub fn walk_tree_done(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
-    self.state.walk_tree = .done;
-    if (self.walker) |pid| pid.deinit();
-    self.walker = null;
-    return self.loaded(parent);
-}
-
-fn default_ft() struct { []const u8, []const u8, u24 } {
-    return .{
-        file_type_config.default.name,
-        file_type_config.default.icon,
-        file_type_config.default.color,
-    };
-}
-
-pub fn guess_path_file_type(path: []const u8, file_name: []const u8) struct { []const u8, []const u8, u24 } {
-    var buf: [4096]u8 = undefined;
-    const file_path = std.fmt.bufPrint(&buf, "{s}{}{s}", .{ path, std.fs.path.sep, file_name }) catch return default_ft();
-    return guess_file_type(file_path);
-}
-
-pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
-    var buf: [1024]u8 = undefined;
-    const content: []const u8 = blk: {
-        const io = root.get_io();
-        const file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch break :blk &.{};
-        defer file.close(io);
-        const size = safe_file_read(file, &buf) catch break :blk &.{};
-        break :blk buf[0..size];
-    };
-    return if (file_type_config.guess_file_type(file_path, content)) |ft| .{
-        ft.name,
-        ft.icon orelse file_type_config.default.icon,
-        ft.color orelse file_type_config.default.color,
-    } else default_ft();
-}
-
-fn safe_file_read(self: std.Io.File, buffer: []u8) (error{ FileHandleInvalidForReading, ProcessNotFound, ConnectionTimedOut } || std.Io.File.ReadStreamingError)!usize {
-    return switch (builtin.os.tag) {
-        .windows => safe_windows_read(self.handle, buffer),
-        else => safe_posix_read(self.handle, buffer),
-    };
-}
-
-fn safe_windows_read(handle: std.os.windows.HANDLE, buffer: []u8) (error{ FileHandleInvalidForReading, ProcessNotFound, ConnectionTimedOut } || std.Io.File.ReadStreamingError)!usize {
-    const windows = std.os.windows;
-    const ReadFile = struct {
-        extern "kernel32" fn ReadFile(hFile: windows.HANDLE, lpBuffer: ?[*]u8, nNumberOfBytesToRead: windows.DWORD, lpNumberOfBytesRead: ?*windows.DWORD, lpOverlapped: ?*anyopaque) callconv(.winapi) windows.BOOL;
-    }.ReadFile;
-    var bytes_read: windows.DWORD = 0;
-    const len: windows.DWORD = @intCast(@min(buffer.len, std.math.maxInt(windows.DWORD)));
-    if (ReadFile(handle, buffer.ptr, len, &bytes_read, null) == .FALSE)
-        return windows.unexpectedError(windows.GetLastError());
-    return @intCast(bytes_read);
-}
-
-fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{ FileHandleInvalidForReading, ConnectionTimedOut, ProcessNotFound } || std.Io.File.ReadStreamingError)!usize {
-    const native_os = builtin.os.tag;
-    const unexpectedErrno = safe_unexpectedErrno;
-    const maxInt = std.math.maxInt;
-    const system = std.posix.system;
-    const errno = std.posix.errno;
-    if (buf.len == 0) return 0;
-    if (native_os == .wasi and !builtin.link_libc) {
-        const iovec = std.os.posix.iovec;
-        const wasi = std.os.wasi;
-        const iovs = [1]iovec{iovec{
-            .base = buf.ptr,
-            .len = buf.len,
-        }};
-
-        var nread: usize = undefined;
-        switch (wasi.fd_read(fd, &iovs, iovs.len, &nread)) {
-            .SUCCESS => return nread,
-            .INTR => unreachable,
-            .INVAL => return error.FileHandleInvalidForReading,
-            .FAULT => unreachable,
-            .AGAIN => unreachable,
-            .BADF => return error.NotOpenForReading, // Can be a race condition.
-            .IO => return error.InputOutput,
-            .ISDIR => return error.IsDir,
-            .NOBUFS => return error.SystemResources,
-            .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketUnconnected,
-            .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
-            .NOTCAPABLE => return error.AccessDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-
-    // Prevents EINVAL.
-    const max_count = switch (native_os) {
-        .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
-        else => maxInt(isize),
-    };
-    while (true) {
-        const rc = system.read(fd, buf.ptr, @min(buf.len, max_count));
-        switch (errno(rc)) {
-            .SUCCESS => return @intCast(rc),
-            .INTR => continue,
-            .INVAL => return error.FileHandleInvalidForReading,
-            .FAULT => unreachable,
-            .SRCH => return error.ProcessNotFound,
-            .AGAIN => return error.WouldBlock,
-            .CANCELED => return error.Canceled,
-            .BADF => return error.NotOpenForReading, // Can be a race condition.
-            .IO => return error.InputOutput,
-            .ISDIR => return error.IsDir,
-            .NOBUFS => return error.SystemResources,
-            .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketUnconnected,
-            .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-}
-
-fn safe_unexpectedErrno(_: std.posix.system.E) std.posix.UnexpectedError {
-    return error.Unexpected;
-}
-
-fn merge_pending_files(self: *Self) OutOfMemoryError!void {
-    defer self.sort_files_by_mtime();
-    const existing = try self.files.toOwnedSlice(self.allocator);
-    defer self.allocator.free(existing);
-    self.files = self.pending;
-    self.pending = .empty;
-
-    for (existing) |*file| {
-        self.update_mru_internal(&.{ .src = .{ .path = file.path, .line = file.pos.row, .column = file.pos.col } }, file.mtime) catch {};
-        self.allocator.free(file.path);
-    }
+pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) void {
+    if (self.state.file_finder == .failed or
+        std.meta.isError(self.finder.query_recent_files(from, max, query)))
+        file_finder.send_recent_done(from, 0, query, 0);
 }
 
 fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
@@ -913,158 +555,58 @@ fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     if (self.load_complete) return;
     self.load_complete = true;
 
-    self.logger.print("project files: {d} restored, {d} {s}", .{
-        self.files.items.len,
-        self.pending.items.len,
-        if (self.state.workspace_files == .done) "tracked" else "walked",
-    });
-
-    try self.merge_pending_files();
-    self.queue_all_mtimes();
     self.logger.print("opened: {s} with {d} files in {d} ms", .{
         self.name,
-        self.files.items.len,
+        self.file_finder_count,
         root.get_now().toMilliseconds() - self.open_time,
     });
 
-    parent.send(.{ "PRJ", "open_done", self.name, self.longest_file_path, self.files.items.len }) catch {};
+    parent.send(.{ "PRJ", "open_done", self.name, self.file_finder_longest, self.file_finder_count }) catch {};
 }
 
-pub fn file_added(self: *Self, file_path: []const u8) OutOfMemoryError!void {
-    for (self.files.items) |file|
-        if (std.mem.eql(u8, file.path, file_path)) return;
-    for (self.pending.items) |file|
-        if (std.mem.eql(u8, file.path, file_path)) return;
-    const file_type, const file_icon, const file_color = guess_file_type(file_path);
-    (try self.files.addOne(self.allocator)).* = .{
-        .path = try self.allocator.dupe(u8, file_path),
-        .type = file_type,
-        .icon = file_icon,
-        .color = file_color,
-        .mtime = @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()),
-        .meta_resolved = true,
-    };
-    self.longest_file_path = @max(self.longest_file_path, file_path.len);
-    self.sort_files_by_mtime();
+pub fn file_finder_ready(self: *Self, parent: tp.pid_ref, longest: usize, count: usize) OutOfMemoryError!void {
+    self.file_finder_longest = longest;
+    self.file_finder_count = count;
+    self.state.file_finder = .done;
+    return self.loaded(parent);
 }
 
-pub fn file_modified(self: *Self, file_path: []const u8) void {
-    for (self.files.items) |*file| {
-        if (!std.mem.eql(u8, file.path, file_path)) continue;
-        file.mtime = @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds());
-        self.sort_files_by_mtime();
-        return;
-    }
+pub fn file_finder_exited(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
+    self.state.file_finder = .failed;
+    parent.send(.{ "PRJ", "file_finder_failed", self.name }) catch {};
+    return self.loaded(parent);
 }
 
+/// A file or directory was renamed outside of flow.
+///
+/// A use of the old path that was in flight may still arrive afterwards and
+/// list it again, here and in the file finder, until the project is opened
+/// again, which skips files that are gone. That takes a use racing the
+/// change, which is rare.
 pub fn file_renamed(self: *Self, from_path: []const u8, to_path: []const u8) OutOfMemoryError!void {
-    for (self.files.items) |*file| {
-        if (!std.mem.eql(u8, file.path, to_path)) continue;
-        self.file_deleted(from_path);
-        return;
-    }
-    for (self.files.items) |*file| {
-        if (!std.mem.eql(u8, file.path, from_path)) continue;
-        const new_path = try self.allocator.dupe(u8, to_path);
-        self.allocator.free(file.path);
-        file.path = new_path;
-        file.mtime = @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds());
-        self.longest_file_path = @max(self.longest_file_path, to_path.len);
-        self.sort_files_by_mtime();
-        return;
-    }
-    return self.file_added(to_path);
+    return self.mru.renamed(from_path, to_path);
 }
 
-pub fn file_deleted(self: *Self, file_path: []const u8) void {
-    for (self.files.items, 0..) |file, i| {
-        if (!std.mem.eql(u8, file.path, file_path)) continue;
-        self.allocator.free(file.path);
-        _ = self.files.swapRemove(i);
-        self.sort_files_by_mtime();
-        return;
-    }
-}
-
-fn is_in_subtree(file_path: []const u8, dir_path: []const u8) bool {
-    if (!std.mem.startsWith(u8, file_path, dir_path)) return false;
-    if (file_path.len <= dir_path.len) return false;
-    return file_path[dir_path.len] == '/' or file_path[dir_path.len] == '\\';
-}
-
-pub fn subtree_deleted(self: *Self, dir_path: []const u8) void {
-    var i: usize = 0;
-    var removed = false;
-    while (i < self.files.items.len) {
-        if (!is_in_subtree(self.files.items[i].path, dir_path)) {
-            i += 1;
-            continue;
-        }
-        self.allocator.free(self.files.items[i].path);
-        _ = self.files.swapRemove(i); // fills i with the last entry, so don't advance
-        removed = true;
-    }
-    if (removed) self.sort_files_by_mtime();
-}
-
-pub fn subtree_renamed(self: *Self, from_path: []const u8, to_path: []const u8) OutOfMemoryError!void {
-    var renamed = false;
-    for (self.files.items) |*file| {
-        if (!is_in_subtree(file.path, from_path)) continue;
-        const new_path = try std.mem.concat(self.allocator, u8, &.{ to_path, file.path[from_path.len..] });
-        self.allocator.free(file.path);
-        file.path = new_path;
-        self.longest_file_path = @max(self.longest_file_path, new_path.len);
-        renamed = true;
-    }
-    // rebuild after freeing paths
-    if (renamed) self.sort_files_by_mtime();
+/// A file or directory was deleted outside of flow. See `file_renamed`.
+pub fn file_deleted(self: *Self, path: []const u8) void {
+    self.mru.deleted(path);
 }
 
 pub fn update_mru(self: *Self, source_location: *const SourceLocation) OutOfMemoryError!void {
-    defer self.sort_files_by_mtime();
     try self.update_mru_internal(source_location, @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()));
 }
 
 fn update_mru_internal(self: *Self, source_location: *const SourceLocation, mtime: i128) OutOfMemoryError!void {
-    for (self.files.items) |*file| {
-        if (!std.mem.eql(u8, file.path, source_location.src.path)) continue;
-        file.mtime = mtime;
-        if (source_location.src.line != 0) {
-            file.pos.row = source_location.src.line;
-            file.pos.col = source_location.src.column;
-            file.visited = true;
-        }
-        return;
-    }
-    const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(source_location.src.path);
-    if (source_location.src.line != 0) {
-        (try self.files.addOne(self.allocator)).* = .{
-            .path = try self.allocator.dupe(u8, source_location.src.path),
-            .type = file_type,
-            .icon = file_icon,
-            .color = file_color,
-            .mtime = mtime,
-            .pos = .{ .row = source_location.src.line, .col = source_location.src.column },
-            .visited = true,
-            .meta_resolved = true,
-        };
-    } else {
-        (try self.files.addOne(self.allocator)).* = .{
-            .path = try self.allocator.dupe(u8, source_location.src.path),
-            .type = file_type,
-            .icon = file_icon,
-            .color = file_color,
-            .mtime = mtime,
-            .meta_resolved = true,
-        };
-    }
+    const path = source_location.src.path;
+    defer self.finder.update_mru(path, mtime) catch {};
+    const visited = source_location.src.line != 0;
+    const pos: FilePos = .{ .row = source_location.src.line, .col = source_location.src.column };
+    return self.mru.update(path, if (visited) pos else null, mtime);
 }
 
 pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) RequestError!void {
-    for (self.files.items) |*file| {
-        if (!std.mem.eql(u8, file.path, file_path)) continue;
-        from.send(.{ file.pos.row + 1, file.pos.col + 1 }) catch return error.InvalidGetMruPositionRequest;
+    if (self.mru.position(file_path)) |pos| {
+        from.send(.{ pos.row + 1, pos.col + 1 }) catch return error.InvalidGetMruPositionRequest;
         return;
     }
     from.send(.{"none"}) catch return error.InvalidGetMruPositionRequest;
@@ -1686,121 +1228,8 @@ pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u
 
 pub const GetLineOfFileError = LSPClient.GetLineOfFileError;
 
-pub fn query_git(self: *Self) void {
-    self.state.workspace_path = .running;
-    git.workspace_path(@intFromPtr(self), self.name) catch {
-        self.state.workspace_path = .failed;
-        self.start_walker();
-    };
-    self.state.current_branch = .running;
-    git.current_branch(@intFromPtr(self), self.name) catch {
-        self.state.current_branch = .failed;
-    };
-}
-
-fn start_walker(self: *Self) void {
-    if (self.no_index) {
-        self.logger.print("not indexing {s}", .{self.name});
-        return;
-    }
-    self.state.walk_tree = .running;
-    const io = root.get_io();
-
-    var sources: gitignore.Sources = .init(self.allocator);
-    defer sources.deinit();
-    sources.collect(io, root.get_init().environ_map, self.name);
-
-    self.walker = walk_tree.start(self.allocator, self.name, walk_tree_entry_callback, walk_tree_done_callback, .{
-        .follow_directory_symlinks = tp.env.get().is("follow_directory_symlinks"),
-        .maximum_symlink_depth = @intCast(tp.env.get().num("maximum_symlink_depth")),
-        .log_ignored_links = tp.env.get().is("log_ignored_links"),
-        .use_gitignore = !tp.env.get().is("disable_gitignore"),
-        .extra_sources = sources.list.items,
-        .use_builtin_fallback = sources.use_builtin,
-    }) catch blk: {
-        self.state.walk_tree = .failed;
-        break :blk null;
-    };
-}
-
-fn get_ignore(self: *Self) ?*gitignore.Matcher {
-    if (self.ignore) |m| return m;
-    if (self.ignore_failed) return null;
-    const m = gitignore.Sources.open(
-        root.get_io(),
-        self.allocator,
-        root.get_init().environ_map,
-        self.name,
-        .{},
-    ) catch {
-        // one failure is enough; do not retry on every event
-        self.ignore_failed = true;
-        return null;
-    };
-    self.ignore = m;
-    return m;
-}
-
-/// Test before `is_ignored`: an ignore file may itself be ignored, and its
-/// change events are still needed.
-pub fn is_ignore_file(self: *Self, rel_path: []const u8) bool {
-    const m = self.get_ignore() orelse return false;
-    return m.is_ignore_file(rel_path);
-}
-
-/// Whether a new path should be dropped rather than indexed. An already
-/// indexed path is never ignored.
-pub fn is_ignored(self: *Self, rel_path: []const u8, dtype: gitignore.DType) bool {
-    if (gitignore.in_vcs_metadata_dir(rel_path)) return true;
-    for (self.files.items) |file|
-        if (std.mem.eql(u8, file.path, rel_path)) return false;
-    for (self.pending.items) |file|
-        if (std.mem.eql(u8, file.path, rel_path)) return false;
-    const m = self.get_ignore() orelse return false;
-    return m.is_ignored(root.get_io(), rel_path, dtype) catch false;
-}
-
-pub fn ignore_changed(self: *Self, rel_path: []const u8) void {
-    const m = self.ignore orelse return;
-    m.invalidate_dir(std.fs.path.dirname(rel_path) orelse "");
-}
-
-pub fn ignore_subtree_removed(self: *Self, rel_path: []const u8) void {
-    const m = self.ignore orelse return;
-    m.invalidate_subtree(rel_path);
-}
-
-pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || error{Exit})!void {
-    var value: []const u8 = undefined;
-    var path: []const u8 = undefined;
-    if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
-        self.state.workspace_path = .done;
-        self.start_walker();
-        try self.loaded(parent);
-    } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.extract(&value) })) {
-        if (self.workspace) |p| self.allocator.free(p);
-        self.workspace = convert_path(try self.allocator.dupe(u8, value));
-        self.state.workspace_path = .done;
-        self.state.workspace_files = .running;
-        git.workspace_files(@intFromPtr(self), self.name) catch {
-            self.state.workspace_files = .failed;
-        };
-        self.state.repo = .running; // the project manager links the repository
-    } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.more })) {
-        self.state.current_branch = .done;
-        try self.loaded(parent);
-    } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
-        var it = std.mem.splitScalar(u8, path, '\n');
-        while (it.next()) |line| {
-            if (line.len == 0) continue;
-            try self.add_pending_owned(convert_path(try self.allocator.dupe(u8, line)));
-        }
-    } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.null_ })) {
-        self.state.workspace_files = .done;
-        try self.loaded(parent);
-    } else {
-        self.logger_git.err("git", tp.unexpected(m));
-    }
+pub fn sync_file_finder(self: *Self) void {
+    self.finder.sync() catch {};
 }
 
 pub fn process_git_response(_: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || GitError || error{Exit})!void {
