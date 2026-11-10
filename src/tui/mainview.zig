@@ -1871,6 +1871,26 @@ const cmds = struct {
     }
     pub const panel_scroll_down_meta: Meta = .{ .description = "Scroll down" };
 
+    pub fn panel_scroll_left(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.left);
+    }
+    pub const panel_scroll_left_meta: Meta = .{ .description = "Scroll left" };
+
+    pub fn panel_scroll_right(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.right);
+    }
+    pub const panel_scroll_right_meta: Meta = .{ .description = "Scroll right" };
+
+    pub fn panel_scroll_line_start(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.line_start);
+    }
+    pub const panel_scroll_line_start_meta: Meta = .{ .description = "Scroll to the start" };
+
+    pub fn panel_scroll_line_end(self: *Self, _: Ctx) Result {
+        self.scroll_focused_panel(.line_end);
+    }
+    pub const panel_scroll_line_end_meta: Meta = .{ .description = "Scroll to the end" };
+
     pub fn panel_scroll_page_up(self: *Self, _: Ctx) Result {
         self.scroll_focused_panel(.page_up);
     }

@@ -310,6 +310,9 @@ const MarkPlane = struct {
         self.len += 1;
     }
     pub fn cursor_move_yx(_: *MarkPlane, _: usize, _: usize) void {}
+    pub fn egc_length(_: *MarkPlane, text: []const u8, cols: *usize, col: usize, tab_width: usize) usize {
+        return test_metrics.egc_length(text, cols, col, tab_width);
+    }
     pub fn putstr(self: *MarkPlane, text: []const u8) !usize {
         for (text) |_| self.mark(false);
         return text.len;
@@ -335,17 +338,91 @@ test "draw links as terminal links and underlined" {
     var t = try layout_of("a [b](x.md) [c](https://x)\n", 40);
     defer t.deinit();
     var plain: MarkPlane = .{};
-    render.to_plane(&t.layout, &plain, 0, 1, 0, .{}, .{});
+    render.to_plane(&t.layout, &plain, 0, 1, 0, 0, .{}, .{});
     try std.testing.expectEqualStrings(".....", plain.marks[0..plain.len]);
     var links: MarkPlane = .{};
-    render.to_plane(&t.layout, &links, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri });
+    render.to_plane(&t.layout, &links, 0, 1, 0, 0, .{}, .{ .terminal_link = render.is_absolute_uri });
     try std.testing.expectEqualStrings("....l", links.marks[0..links.len]);
     var all: MarkPlane = .{};
-    render.to_plane(&t.layout, &all, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline = .all });
+    render.to_plane(&t.layout, &all, 0, 1, 0, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline = .all });
     try std.testing.expectEqualStrings("..u.L", all.marks[0..all.len]);
     var hovered: MarkPlane = .{};
-    render.to_plane(&t.layout, &hovered, 0, 1, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline = .{ .link = "x.md" } });
+    render.to_plane(&t.layout, &hovered, 0, 1, 0, 0, .{}, .{ .terminal_link = render.is_absolute_uri, .underline = .{ .link = "x.md" } });
     try std.testing.expectEqualStrings("..u.l", hovered.marks[0..hovered.len]);
+}
+
+const TextPlane = struct {
+    style: RDoc.Style = .{},
+    buf: [128]u8 = undefined,
+    len: usize = 0,
+
+    const Cell = struct { text: []const u8 = "", link: bool = false };
+
+    fn add(self: *TextPlane, text: []const u8) void {
+        @memcpy(self.buf[self.len..][0..text.len], text);
+        self.len += text.len;
+    }
+    fn written(self: *const TextPlane) []const u8 {
+        return self.buf[0..self.len];
+    }
+    pub fn cursor_move_yx(self: *TextPlane, row: usize, _: usize) void {
+        if (row > 0) self.add("|");
+    }
+    pub fn egc_length(_: *TextPlane, text: []const u8, cols: *usize, col: usize, tab_width: usize) usize {
+        return wide_metrics.egc_length(text, cols, col, tab_width);
+    }
+    pub fn putstr(self: *TextPlane, text: []const u8) !usize {
+        self.add(text);
+        return text.len;
+    }
+    pub fn cell_init(_: *TextPlane) Cell {
+        return .{};
+    }
+    pub fn cell_load(_: *TextPlane, cell: *Cell, text: []const u8) !usize {
+        const len = std.unicode.utf8ByteSequenceLength(text[0]) catch 1;
+        cell.text = text[0..len];
+        return len;
+    }
+    pub fn cell_set_link(_: *TextPlane, cell: *Cell, _: []const u8, _: []const u8) void {
+        cell.link = true;
+    }
+    pub fn putc(self: *TextPlane, cell: *Cell) !usize {
+        if (cell.link) self.add("[");
+        self.add(cell.text);
+        if (cell.link) self.add("]");
+        return 1;
+    }
+};
+
+fn expect_skipped(source: []const u8, skip_cols: usize, expected: []const u8) !void {
+    if (!build_options.use_tree_sitter) return error.SkipZigTest;
+    var t = try layout_with(source, 40, wide_metrics);
+    defer t.deinit();
+    var plane: TextPlane = .{};
+    render.to_plane(&t.layout, &plane, 0, 10, 0, skip_cols, .{}, .{ .terminal_link = render.is_absolute_uri });
+    try std.testing.expectEqualStrings(expected, plane.written());
+}
+
+test "draw lines scrolled left" {
+    try expect_skipped("abcdef\n", 0, "abcdef");
+    try expect_skipped("abcdef\n", 2, "cdef");
+    try expect_skipped("abcdef\n", 6, "");
+    try expect_skipped("abcdef\n", 9, "");
+    // a short line next to a long one
+    try expect_skipped("    abcdef\n    ab\n", 2, "cdef|");
+    // runs: "ab ", "cd" (bold), " ef"
+    try expect_skipped("ab **cd** ef\n", 4, "d ef");
+}
+
+test "draw a wide character cut by the left edge" {
+    // "中" takes cells 0 and 1: cut after cell 0 it leaves one blank cell
+    try expect_skipped("中x\n", 1, " x");
+    try expect_skipped("中x\n", 2, "x");
+    try expect_skipped("a中x\n", 1, "中x");
+}
+
+test "draw a terminal link scrolled left" {
+    try expect_skipped("[abc](https://x)\n", 1, "[b][c]");
 }
 
 fn expect_heading_row(source: []const u8, anchor: []const u8, expected: ?usize) !void {

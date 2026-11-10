@@ -215,6 +215,7 @@ pub fn scroll(self: *Self, action: Panel.ScrollAction) void {
         .page_down => self.glide_to(dest + rows),
         .top => self.jump_to(0),
         .bottom => self.jump_to(self.max_top()),
+        .left, .right, .line_start, .line_end => {},
     }
 }
 

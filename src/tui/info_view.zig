@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = @import("std").mem.Allocator;
-const Plane = @import("renderer").Plane;
+const renderer = @import("renderer");
+const Plane = renderer.Plane;
 const command = @import("command");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
@@ -19,6 +20,7 @@ const richdoc = @import("richdoc");
 const placement = @import("info_box_placement.zig");
 const OverlayLine = @import("OverlayLine.zig");
 const link_dispatch = @import("link_dispatch.zig");
+const EdgeFade = @import("EdgeFade.zig");
 const file_link = @import("file_link");
 
 pub const name = @typeName(Self);
@@ -79,6 +81,8 @@ theme_name: []const u8 = "",
 widget_type: Widget.Type,
 panel_input: ?PanelInput = null,
 scroller: Scroller = .{},
+left_col: usize = 0,
+fade: EdgeFade = .{},
 source_anchor: ?SourceAnchor = null,
 source_top: ?usize = null,
 source_scrolled_away: bool = false,
@@ -102,6 +106,7 @@ const default_widget_type: Widget.Type = .panel;
 const panel_margin = 2;
 pub const box_min_width = 40;
 const box_slack_cols = 3;
+const fade_cells = 5;
 
 pub const panel_tag = "info";
 pub const panel_singleton = true;
@@ -248,6 +253,7 @@ pub fn free_content(allocator: Allocator, content: []const Content) void {
 pub fn set_contents(self: *Self, content: []const Content) !void {
     self.clear();
     self.scroller.scroll(.top);
+    self.left_col = 0;
     for (content) |c| switch (c) {
         .plaintext => |text| try self.append_content(.plaintext, text),
         .markdown => |md| try self.append_markdown(md.text, md.links),
@@ -299,6 +305,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.title) |title| self.allocator.free(title);
     if (self.source) |source| self.allocator.free(source);
     self.layout.deinit();
+    self.fade.deinit();
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -333,6 +340,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             self.clear_link_hover();
         }
     }
+    if (try self.receive_mouse_hscroll(m)) return true;
     if (try self.scroller.receive_mouse(m)) {
         self.clear_link_hover();
         return true;
@@ -344,7 +352,53 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 pub fn panel_scroll(self: *Self, action: Panel.ScrollAction) void {
     self.clear_link_hover();
-    self.scroller.scroll(action);
+    const step = tui.config().scroll_step_horizontal;
+    switch (action) {
+        .left => self.set_left_col(self.left_col -| step),
+        .right => self.set_left_col(self.left_col + step),
+        .line_start => self.set_left_col(0),
+        .line_end => self.set_left_col(self.max_left_col()),
+        else => self.scroller.scroll(action),
+    }
+}
+
+fn receive_mouse_hscroll(self: *Self, m: tp.message) error{Exit}!bool {
+    var btn: MouseEvent.Button = .none;
+    var mods: MouseEvent.Modifiers = .{};
+    if (!try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.any, tp.extract(&mods) })) return false;
+    const actions = tui.mouse_actions(mods);
+    const direction: enum { left, right } = switch (btn) {
+        .wheel_up => if (actions.alt_scroll) .left else return false,
+        .wheel_down => if (actions.alt_scroll) .right else return false,
+        .wheel_right => .left,
+        .wheel_left => .right,
+        else => return false,
+    };
+    const step = tui.config().scroll_step_horizontal * @as(usize, if (actions.fast_scroll) 5 else 1);
+    self.clear_link_hover();
+    self.set_left_col(switch (direction) {
+        .left => self.left_col -| step,
+        .right => self.left_col + step,
+    });
+    return true;
+}
+
+fn set_left_col(self: *Self, col: usize) void {
+    const left_col = @min(col, self.max_left_col());
+    if (left_col == self.left_col) return;
+    self.left_col = left_col;
+    tui.need_render(@src());
+}
+
+fn visible_cols(self: *const Self) usize {
+    return self.view_cols -| self.text_col();
+}
+
+fn max_left_col(self: *const Self) usize {
+    const width = self.layout.max_width();
+    const cols = self.visible_cols();
+    if (width <= cols) return 0;
+    return width + self.text_col() - cols;
 }
 
 pub fn panel_copy(self: *Self) void {
@@ -468,6 +522,7 @@ pub fn write_markdown(self: *const Self, writer: *std.Io.Writer) std.Io.Writer.E
 pub fn set_content(self: *Self, kind: Kind, content: []const u8) !void {
     self.clear();
     self.scroller.scroll(.top);
+    self.left_col = 0;
     return self.append_content(kind, content);
 }
 
@@ -614,6 +669,7 @@ fn relayout(self: *Self) !void {
     const width = self.text_width();
     self.layout_width = width;
     try self.layout_at(width);
+    self.left_col = @min(self.left_col, self.max_left_col());
     self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
     self.resolve_source_anchor();
 }
@@ -652,16 +708,38 @@ pub fn update(self: *Self) void {
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     if (!std.mem.eql(u8, self.theme_name, theme.name) and self.has_markdown()) self.restyle() catch {};
-    self.plane.set_base_style(if (tui.config().hover_info_mode == .box) theme.editor_widget else theme.panel);
+    const base = if (tui.config().hover_info_mode == .box) theme.editor_widget else theme.panel;
+    self.plane.set_base_style(base);
     self.plane.erase();
     self.plane.home();
+    self.left_col = @min(self.left_col, self.max_left_col());
     const more = self.scroller.render();
-    richdoc.render.to_plane(&self.layout, &self.plane, self.scroller.top(), self.view_rows, self.text_col(), self.plane.style, .{
+    richdoc.render.to_plane(&self.layout, &self.plane, self.scroller.top(), self.view_rows, self.text_col(), self.left_col, self.plane.style, .{
         .terminal_link = terminal_link,
         .underline = if (self.links_shown) .all else if (self.link_hover) |h| .{ .link = h.href } else .none,
     });
+    self.render_fade(base.bg);
     self.show_link_line();
     return more;
+}
+
+fn render_fade(self: *Self, bg: ?Widget.Theme.Color) void {
+    const color = bg orelse return;
+    const cols = self.visible_cols();
+    const cw = self.plane.cell_x();
+    const ch = self.plane.cell_y();
+    const ox, const oy = self.plane.global_origin_px();
+    const view: renderer.Layer.Frame = .{
+        .x = ox + @as(i32, @intCast(self.text_col())) * cw,
+        .y = oy,
+        .w = @as(i32, @intCast(cols)) * cw,
+        .h = @as(i32, @intCast(self.view_rows)) * ch,
+    };
+    const z_index: renderer.Layer.Level = if (self.plane.layer) |layer| layer.z_index else .root;
+    self.fade.submit(self.allocator, view, .horizontal, .{
+        .head = self.left_col > 0,
+        .tail = self.left_col < self.max_left_col(),
+    }, @intCast(@min(fade_cells, cols / 4)), color, z_index);
 }
 
 fn terminal_link(href: []const u8) bool {
@@ -707,7 +785,7 @@ fn link_under(self: *Self, coord: MouseEvent.Coord) ?[]const u8 {
     const col: usize = @intCast(cell.col);
     if (col < self.text_col()) return null;
     const line = self.scroller.top() + @as(usize, @intCast(cell.row));
-    return richdoc.render.link_at(&self.layout, line, col - self.text_col(), &self.plane);
+    return richdoc.render.link_at(&self.layout, line, col - self.text_col() + self.left_col, &self.plane);
 }
 
 fn hover_link(self: *Self, coord: MouseEvent.Coord) void {

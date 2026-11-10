@@ -106,15 +106,39 @@ pub const PlaneOptions = struct {
 };
 
 /// draw the lines of `layout` from `first_row` on, at most `rows`, styled over `base`
-pub fn to_plane(layout: *const RDocLayout, plane: anytype, first_row: usize, rows: usize, first_col: usize, base: Style, opts: PlaneOptions) void {
+pub fn to_plane(
+    layout: *const RDocLayout,
+    plane: anytype,
+    first_row: usize,
+    rows: usize,
+    first_col: usize,
+    skip_cols: usize,
+    base: Style,
+    opts: PlaneOptions,
+) void {
     defer plane.style = base;
     const lines = layout.lines.items;
     for (lines[@min(first_row, lines.len)..], 0..) |line, row| {
         if (row >= rows) break;
         plane.cursor_move_yx(@intCast(row), @intCast(first_col));
-        for (line.runs) |run| write_run(plane, base, run, opts);
+        var col: usize = 0;
+        for (line.runs) |run| {
+            var text = run.text;
+            var cut: usize = 0;
+            while (col < skip_cols and text.len > 0) {
+                var cols: usize = 0;
+                const len = @max(1, plane.egc_length(text, &cols, col, 1)); // tabs are expanded in the layout
+                col += cols;
+                text = text[@min(len, text.len)..];
+                cut = col -| skip_cols;
+            }
+            if (cut > 0) write_run(plane, base, .{ .text = spaces[0..@min(cut, spaces.len)], .attrs = .{ .style = run.attrs.style } }, opts);
+            if (text.len > 0) write_run(plane, base, .{ .text = text, .attrs = run.attrs }, opts);
+        }
     }
 }
+
+const spaces = "                ";
 
 /// the link at cell `col` of layout line `line`, measured with `metrics` as in `to_layout`
 pub fn link_at(layout: *const RDocLayout, line: usize, col: usize, metrics: anytype) ?[]const u8 {

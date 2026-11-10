@@ -818,7 +818,13 @@
             ["page_up", "panel_scroll_page_up"],
             ["page_down", "panel_scroll_page_down"],
             ["home", "panel_scroll_top"],
-            ["end", "panel_scroll_bottom"]
+            ["end", "panel_scroll_bottom"],
+            ["left", "panel_scroll_left"],
+            ["right", "panel_scroll_right"],
+            ["h", "panel_scroll_left"],
+            ["l", "panel_scroll_right"],
+            ["shift+home", "panel_scroll_line_start"],
+            ["shift+end", "panel_scroll_line_end"]
         ]
     },
     "inspector": {
