@@ -70,7 +70,7 @@ pub fn max_width(self: *const @This()) usize {
     return w;
 }
 
-pub fn fit_fills(self: *@This()) error{OutOfMemory}!void {
+pub fn fit_fills(self: *@This(), max: usize) error{OutOfMemory}!void {
     if (self.fills.items.len == 0) return;
     var w: usize = 0;
     var fill_idx: usize = 0;
@@ -81,6 +81,7 @@ pub fn fit_fills(self: *@This()) error{OutOfMemory}!void {
         }
         w = @max(w, line.width);
     }
+    w = @min(w, max);
     const arena = self.allocator();
     for (self.fills.items) |f| {
         const line = &self.lines.items[f.line];

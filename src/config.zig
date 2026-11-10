@@ -137,7 +137,7 @@ hint_window_style: WidgetStyle = .thick_boxed,
 info_box_style: WidgetStyle = .bar_left_spacious,
 info_box_width_limit: usize = 80,
 info_box_height_limit: usize = 20,
-info_code_overflow: CodeOverflow = .wrap,
+info_code_overflow: CodeOverflow = .scroll,
 markdown_preview_file_links: bool = false,
 
 palette_placement: PalettePlacement = .top_center,
@@ -407,7 +407,7 @@ pub const HoverInfoMode = enum {
 
 pub const CodeOverflow = enum {
     wrap,
-    clip,
+    scroll,
 };
 
 pub const Alignment = enum {

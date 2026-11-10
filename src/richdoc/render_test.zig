@@ -163,7 +163,7 @@ const test_metrics = struct {
 }{};
 
 fn layout_of(source: []const u8, width: usize) !TestLayout {
-    return layout_with(source, width, test_metrics);
+    return layout_with(source, width, test_metrics, .wrap);
 }
 
 /// three byte UTF-8 sequences are two cells wide
@@ -186,7 +186,7 @@ const TestLayout = struct {
     }
 };
 
-fn layout_with(source: []const u8, width: usize, metrics: anytype) !TestLayout {
+fn layout_with(source: []const u8, width: usize, metrics: anytype, code_overflow: render.CodeOverflow) !TestLayout {
     const gpa = std.testing.allocator;
     const query_cache = try syntax.QueryCache.create(std.testing.io, gpa, .{});
     defer query_cache.deinit();
@@ -196,7 +196,7 @@ fn layout_with(source: []const u8, width: usize, metrics: anytype) !TestLayout {
     errdefer gpa.free(rdoc.raw.bytes);
     var layout: RDocLayout = .init(gpa);
     errdefer layout.deinit();
-    try render.to_layout(&layout, rdoc, metrics, .{ .width = width, .tab_width = 8 });
+    try render.to_layout(&layout, rdoc, metrics, .{ .width = width, .tab_width = 8, .code_overflow = code_overflow });
     return .{ .layout = layout, .rdoc = rdoc.raw.bytes };
 }
 
@@ -288,7 +288,7 @@ test "link at a cell of a wrapped link" {
 test "link at a cell after a wide character" {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
     // "中 l": the wide character takes cells 0 and 1, the link is at cell 3
-    var t = try layout_with("中 [l](#top)\n", 40, wide_metrics);
+    var t = try layout_with("中 [l](#top)\n", 40, wide_metrics, .wrap);
     defer t.deinit();
     const layout = &t.layout;
     try std.testing.expectEqual(null, render.link_at(layout, 0, 1, wide_metrics));
@@ -396,7 +396,7 @@ const TextPlane = struct {
 
 fn expect_skipped(source: []const u8, skip_cols: usize, expected: []const u8) !void {
     if (!build_options.use_tree_sitter) return error.SkipZigTest;
-    var t = try layout_with(source, 40, wide_metrics);
+    var t = try layout_with(source, 40, wide_metrics, .wrap);
     defer t.deinit();
     var plane: TextPlane = .{};
     render.to_plane(&t.layout, &plane, 0, 10, 0, skip_cols, .{}, .{ .terminal_link = render.is_absolute_uri });

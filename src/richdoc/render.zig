@@ -65,7 +65,7 @@ pub fn from_sdoc(allocator: Allocator, doc: SDoc, theme: Theme, query_cache: *sy
     return top.encode(allocator);
 }
 
-pub const CodeOverflow = enum { wrap, clip };
+pub const CodeOverflow = enum { wrap, scroll };
 
 pub const LayoutOptions = struct {
     width: usize,
@@ -827,9 +827,9 @@ fn LayoutBuilder(comptime Metrics: type) type {
 
         fn wrap(self: *@This(), b: RDoc.BlockReader) !void {
             const segs = try self.segments(b);
-            const mode: enum { words, cells, clip } = switch (b.wrap()) {
+            const mode: enum { words, cells, whole } = switch (b.wrap()) {
                 .words => .words,
-                .cells => if (self.code_overflow == .clip) .clip else .cells,
+                .cells => if (self.code_overflow == .scroll) .whole else .cells,
             };
             const first_row = b.src_row();
             var lines = std.mem.splitScalar(u8, b.text, '\n');
@@ -843,33 +843,13 @@ fn LayoutBuilder(comptime Metrics: type) type {
                 switch (mode) {
                     .words => try self.wrap_words(b.text, segs, a, end),
                     .cells => try self.wrap_cells(b.text, segs, a, end),
-                    .clip => try self.clip(b.text, segs, a, end),
+                    .whole => try self.emit(b.text, segs, a, end),
                 }
             }
         }
 
         fn avail(self: *const @This()) usize {
             return @max(1, self.width -| self.next_prefix_width());
-        }
-
-        fn clip(self: *@This(), text: []const u8, segs: []const RDocLayout.Run, a: usize, end: usize) !void {
-            const width = self.avail();
-            if (self.text_width(text[a..end], 0) <= width) return self.emit(text, segs, a, end);
-            var col: usize = 0;
-            var i = a;
-            while (i < end) {
-                const g = self.grapheme(text[i..end], col);
-                if (col + g.width > width -| 1) break;
-                col += g.width;
-                i += g.len;
-            }
-            try self.emit(text, segs, a, i);
-            const line = &self.layout.lines.items[self.layout.lines.items.len - 1];
-            const runs = try self.arena.alloc(RDocLayout.Run, line.runs.len + 1);
-            @memcpy(runs[0..line.runs.len], line.runs);
-            runs[line.runs.len] = .{ .text = "…", .attrs = if (line.runs.len > 0) line.runs[line.runs.len - 1].attrs else .{} };
-            line.runs = runs;
-            line.width += 1;
         }
 
         fn wrap_cells(self: *@This(), text: []const u8, segs: []const RDocLayout.Run, a: usize, end: usize) !void {

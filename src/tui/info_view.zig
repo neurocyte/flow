@@ -684,11 +684,11 @@ fn layout_at(self: *Self, width: usize) !void {
             .tab_width = tab_width,
             .code_overflow = switch (tui.config().info_code_overflow) {
                 .wrap => .wrap,
-                .clip => .clip,
+                .scroll => .scroll,
             },
         }),
     };
-    if (self.widget_type == .info_box) try self.layout.fit_fills();
+    if (self.widget_type == .info_box) try self.layout.fit_fills(width);
 }
 
 fn layout_plaintext(self: *Self, content: []const u8, width: usize, tab_width: usize) !void {
