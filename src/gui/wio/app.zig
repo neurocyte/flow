@@ -1484,7 +1484,7 @@ fn wioLoop() void {
             }
         }
         for (0..clipboard_read_pending.swap(0, .acq_rel)) |_|
-            window.getClipboardText(clipboardText, null);
+            window.getClipboardText(.{ .function = clipboardText, .data = null });
         {
             clipboard_mutex.lockUncancelable(io);
             const pending = primary_write;
@@ -1504,7 +1504,7 @@ fn wioLoop() void {
             if (emulate_primary)
                 primaryText(null, emulated_primary orelse "")
             else
-                window.getPrimaryText(primaryText, null);
+                window.getPrimaryText(.{ .function = primaryText, .data = null });
         }
         if (cursor_dirty.swap(false, .acq_rel)) {
             window.setCursor(@fromBackingInt(@intCast(pending_cursor.load(.acquire))));
