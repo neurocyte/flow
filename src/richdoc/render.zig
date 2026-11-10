@@ -580,6 +580,7 @@ fn LayoutBuilder(comptime Metrics: type) type {
         code_overflow: CodeOverflow,
         prefixes: std.ArrayList(Prefix) = .empty,
         src_row: ?usize = null,
+        seg_cursor: struct { ptr: ?[*]const RDocLayout.Run = null, len: usize = 0, idx: usize = 0, pos: usize = 0 } = .{},
 
         fn text_width(self: *const @This(), text: []const u8, start_col: usize) usize {
             return render.text_width(self.metrics, text, start_col, self.tab_width);
@@ -628,9 +629,14 @@ fn LayoutBuilder(comptime Metrics: type) type {
         fn emit(self: *@This(), text: []const u8, segs: []const RDocLayout.Run, start: usize, end: usize) !void {
             var runs: std.ArrayList(RDocLayout.Run) = .empty;
             var col = try self.prefix_runs(&runs, true);
-            var pos: usize = 0;
-            for (segs) |seg| {
+            const resume_ = self.seg_cursor.ptr == segs.ptr and self.seg_cursor.len == segs.len and self.seg_cursor.pos <= start;
+            var idx: usize = if (resume_) self.seg_cursor.idx else 0;
+            var pos: usize = if (resume_) self.seg_cursor.pos else 0;
+            while (idx < segs.len) : (idx += 1) {
+                const seg = segs[idx];
                 const seg_start = pos;
+                if (seg_start >= end) break;
+                self.seg_cursor = .{ .ptr = segs.ptr, .len = segs.len, .idx = idx, .pos = seg_start };
                 pos += seg.text.len;
                 const s = @max(start, seg_start);
                 const e = @min(end, pos);
