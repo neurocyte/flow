@@ -46,6 +46,7 @@ tabs: *WidgetList,
 source: Source,
 style: *const Tabs.Style,
 hash: u64 = 0,
+label_hash: u64 = 0,
 
 pub fn init(self: *Self, allocator: Allocator, parent: Plane, style: *const Tabs.Style, source: Source) error{OutOfMemory}!void {
     const list = try WidgetList.createH(allocator, parent, "tab_strip", .{ .static = 1 });
@@ -85,26 +86,33 @@ pub fn widget(self: *Self) Widget {
 
 pub fn sync(self: *Self) void {
     if (self.scroll.is_drag_scrolling()) return;
-    const hash = self.hash_tabs();
-    if (hash == self.hash) return;
-    self.hash = hash;
-    self.rebuild();
+    const hash, const label_hash = self.hash_tabs();
+    if (hash != self.hash) {
+        self.hash = hash;
+        self.label_hash = label_hash;
+        return self.rebuild();
+    }
+    if (label_hash != self.label_hash) {
+        self.label_hash = label_hash;
+        self.list.resize(self.list.deco_box);
+    }
 }
 
-fn hash_tabs(self: *Self) u64 {
+fn hash_tabs(self: *Self) struct { u64, u64 } {
     var h = std.hash.Wyhash.init(0);
+    var l = std.hash.Wyhash.init(0);
     const n = self.source.count(self.source.ctx);
     for (0..n) |i| {
         const t = self.source.info(self.source.ctx, i);
         h.update(std.mem.asBytes(&t.id));
         h.update(std.mem.asBytes(&t.active));
         h.update(std.mem.asBytes(&t.indicator));
-        h.update(t.icon);
-        h.update(&[_]u8{0});
-        h.update(t.label);
-        h.update(&[_]u8{0});
+        l.update(t.icon);
+        l.update(&[_]u8{0});
+        l.update(t.label);
+        l.update(&[_]u8{0});
     }
-    return h.final();
+    return .{ h.final(), l.final() };
 }
 
 fn rebuild(self: *Self) void {
