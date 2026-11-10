@@ -76,6 +76,7 @@ view_cols: usize = 0,
 sections: std.ArrayList(Section) = .empty,
 layout: richdoc.RDocLayout,
 layout_width: usize = 0,
+layout_code_overflow: @import("config").CodeOverflow = .wrap,
 box_text_width: ?usize = null,
 theme_name: []const u8 = "",
 widget_type: Widget.Type,
@@ -115,6 +116,7 @@ pub const preview_tag = "preview";
 pub const panel_menu: Menu = .{ .label = "Info", .items = &.{
     .{ .command = .{ .command = "info_open_in_editor" } },
     .{ .command = .{ .command = "toggle_markdown_preview_file_links", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_info_code_overflow", .on_activate = .keep_open } },
 } };
 
 pub fn panel_title(self: *Self) []const u8 {
@@ -424,7 +426,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.view_rows = pos.h;
     self.view_cols = pos.w;
-    if (self.text_width() != self.layout_width) self.relayout() catch {};
+    if (self.text_width() != self.layout_width or self.layout_code_overflow != tui.config().info_code_overflow) self.relayout() catch {};
     self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
     self.resolve_source_anchor();
 }
@@ -677,12 +679,13 @@ fn relayout(self: *Self) !void {
 fn layout_at(self: *Self, width: usize) !void {
     self.layout.reset();
     const tab_width = tui.config().tab_width;
+    self.layout_code_overflow = tui.config().info_code_overflow;
     for (self.sections.items) |section| switch (section) {
         .plaintext => |text| try self.layout_plaintext(text, width, tab_width),
         .markdown => |md| try richdoc.render.to_layout(&self.layout, md.rdoc, &self.plane, .{
             .width = width,
             .tab_width = tab_width,
-            .code_overflow = switch (tui.config().info_code_overflow) {
+            .code_overflow = switch (self.layout_code_overflow) {
                 .wrap => .wrap,
                 .scroll => .scroll,
             },

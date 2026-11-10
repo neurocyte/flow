@@ -318,6 +318,7 @@ const settings: Menu = .{ .label = "Settings", .items = &.{
     .{ .submenu = &completion },
     .{ .command = .{ .command = "toggle_hover_info_mode" } },
     .{ .command = .{ .command = "toggle_markdown_preview_file_links", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_info_code_overflow", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_auto_find" } },
     .{ .command = .{ .command = "toggle_auto_save" } },
     .{ .command = .{ .command = "toggle_format_on_save" } },

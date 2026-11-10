@@ -1331,6 +1331,20 @@ const cmds = struct {
     }
     pub const toggle_markdown_preview_file_links_meta: Meta = .{ .description = "Toggle file links in markdown previews" };
 
+    pub fn toggle_info_code_overflow(_: *Self, _: Ctx) Result {
+        const config = tui.config_mut();
+        config.info_code_overflow = switch (config.info_code_overflow) {
+            .wrap => .scroll,
+            .scroll => .wrap,
+        };
+        const logger = log.logger("markdown_preview");
+        defer logger.deinit();
+        defer logger.print("long code lines {s}", .{@tagName(config.info_code_overflow)});
+        try tui.save_config();
+        tui.resize();
+    }
+    pub const toggle_info_code_overflow_meta: Meta = .{ .description = "Toggle wrapping of code lines in markdown previews" };
+
     pub fn markdown_preview_sync_disk(self: *Self, _: Ctx) Result {
         self.bottom_area.each_tagged(info_view, info_view.preview_tag, self, sync_preview_disk);
     }
