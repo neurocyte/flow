@@ -426,7 +426,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.view_rows = pos.h;
     self.view_cols = pos.w;
-    if (self.text_width() != self.layout_width or self.layout_code_overflow != tui.config().info_code_overflow) self.relayout() catch {};
+    if (self.layout_stale()) self.relayout() catch {};
     self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
     self.resolve_source_anchor();
 }
@@ -592,9 +592,12 @@ pub fn place_box(self: *Self, layer: *tui.WidgetLayerBox, anchor: BoxAnchor) !Bo
 }
 
 fn set_box_text_width(self: *Self, width: ?usize) !void {
-    if (self.box_text_width == width) return;
     self.box_text_width = width;
-    if (self.text_width() != self.layout_width) try self.relayout();
+    if (self.layout_stale()) try self.relayout();
+}
+
+fn layout_stale(self: *const Self) bool {
+    return self.text_width() != self.layout_width or self.layout_code_overflow != tui.config().info_code_overflow;
 }
 
 fn render_sdoc(self: *Self, sdoc: richdoc.SDoc, links: Links) !richdoc.RDoc {

@@ -2644,6 +2644,11 @@ pub const Editor = struct {
         return info;
     }
 
+    pub fn refresh_info_box(self: *Self) void {
+        const state = self.info_box_state orelse return;
+        self.place_info_box(state.range.begin);
+    }
+
     fn place_info_box(self: *Self, cursor: Cursor) void {
         const layer = self.info_box_layer orelse return;
         const info = self.show_info_box() catch return;

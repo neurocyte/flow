@@ -1342,6 +1342,7 @@ const cmds = struct {
         defer logger.print("long code lines {s}", .{@tagName(config.info_code_overflow)});
         try tui.save_config();
         tui.resize();
+        if (tui.get_active_editor()) |editor| editor.refresh_info_box();
     }
     pub const toggle_info_code_overflow_meta: Meta = .{ .description = "Toggle wrapping of code lines in markdown previews" };
 
