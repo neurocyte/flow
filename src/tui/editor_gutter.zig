@@ -101,7 +101,7 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     }
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var coord: MouseEvent.Coord = undefined;
     var mods: MouseEvent.Modifiers = .{};
     var line_number_mode: ?LineNumberMode = null;
@@ -127,6 +127,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return self.secondary_click(coord);
     if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any }))
         return self.primary_drag(coord);
+    if (try m.match(.{ "scroll", tp.more }))
+        return if (self.get_editor_widget()) |w| w.send(from, m) else false;
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_up, tp.any, tp.extract(&mods) }))
         return self.mouse_click_button4(mods);
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.wheel_down, tp.any, tp.extract(&mods) }))
@@ -454,13 +456,13 @@ fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widg
     _ = self.plane.putc(&cell) catch {};
 }
 
+fn get_editor_widget(self: *Self) ?Widget {
+    if (self.editor_widget == null) self.editor_widget = self.parent.get("editor");
+    return self.editor_widget;
+}
+
 fn focus_editor(self: *Self) void {
-    const editor_widget = self.editor_widget orelse blk: {
-        const editor_widget = self.parent.get("editor") orelse return;
-        self.editor_widget = editor_widget;
-        break :blk editor_widget;
-    };
-    _ = tui.set_focus_by_widget(editor_widget);
+    _ = tui.set_focus_by_widget(self.get_editor_widget() orelse return);
 }
 
 fn editor_row(self: *Self, coord: MouseEvent.Coord) i32 {
