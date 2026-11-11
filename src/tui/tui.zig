@@ -1219,6 +1219,7 @@ fn dispatch_scroll(self: *Self, scroll: MouseEvent.Scroll.Input) void {
         .mods = scroll.mods,
         .source = scroll.source,
         .phase = scroll.phase,
+        .axis = scroll.axis,
         .amount = amt,
     };
     var buf: [128]u8 = undefined;

@@ -90,6 +90,7 @@ pub const Scroll = struct {
     mods: Modifiers = .{},
     source: Source = .unknown,
     phase: Phase = .move,
+    axis: Axis,
     amount: Amount = .{},
 
     pub const Amount = struct {
@@ -106,6 +107,8 @@ pub const Scroll = struct {
 
     pub const Source = enum { unknown, wheel, finger, continuous };
 
+    pub const Axis = enum { x, y };
+
     pub const Phase = enum {
         move,
         /// fingers left touchpad
@@ -115,7 +118,7 @@ pub const Scroll = struct {
     };
 
     pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
-        try cbor.writeValue(writer, .{ self.coord, self.mods, self.source, self.phase, self.amount });
+        try cbor.writeValue(writer, .{ self.coord, self.mods, self.source, self.phase, self.axis, self.amount });
     }
 
     pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
@@ -124,6 +127,7 @@ pub const Scroll = struct {
             cbor.extract(&self.mods),
             cbor.extract(&self.source),
             cbor.extract(&self.phase),
+            cbor.extract(&self.axis),
             cbor.extract(&self.amount),
         });
     }
@@ -133,6 +137,7 @@ pub const Scroll = struct {
         mods: Modifiers = .{},
         source: Source = .unknown,
         phase: Phase = .move,
+        axis: Axis,
         unit: Unit,
         delta: CoordF32 = .zero,
 
@@ -141,21 +146,23 @@ pub const Scroll = struct {
         pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
             try cbor.writeValue(writer, .{
                 self.coord, self.mods, self.source,
-                self.phase, self.unit, self.delta,
+                self.phase, self.axis, self.unit,
+                self.delta,
             });
         }
 
         pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
             return cbor.matchValue(iter, .{
                 cbor.extract(&self.coord), cbor.extract(&self.mods), cbor.extract(&self.source),
-                cbor.extract(&self.phase), cbor.extract(&self.unit), cbor.extract(&self.delta),
+                cbor.extract(&self.phase), cbor.extract(&self.axis), cbor.extract(&self.unit),
+                cbor.extract(&self.delta),
             });
         }
     };
 
     pub const Accumulator = struct {
-        x: Axis,
-        y: Axis,
+        x: AxisState,
+        y: AxisState,
 
         pub const init: @This() = .{ .x = .{}, .y = .{} };
 
@@ -168,7 +175,7 @@ pub const Scroll = struct {
             };
         }
 
-        const Axis = struct {
+        const AxisState = struct {
             step_rest: f32 = 0,
             delta_rest: f32 = 0,
             negative: bool = false,
@@ -322,6 +329,7 @@ test "scroll cbor round-trip preserves every field" {
         .mods = .{ .ctrl = true },
         .source = .finger,
         .phase = .momentum,
+        .axis = .x,
         .amount = .{ .step = .{ .x = -1, .y = 2 }, .delta = .{ .x = -30, .y = 125 } },
     };
     var buf: [64]u8 = undefined;
@@ -338,6 +346,7 @@ test "scroll input cbor round-trip preserves every field" {
         .mods = .{ .shift = true },
         .source = .wheel,
         .phase = .stop,
+        .axis = .x,
         .unit = .pixels,
         .delta = .{ .x = -0.5, .y = 12.25 },
     };

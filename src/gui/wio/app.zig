@@ -1000,7 +1000,7 @@ fn sendMouse(mouse_type: MouseEvent.Type, button: MouseEvent.Button, pos: wio.Po
     tui_pid.send(.{ "RDR", event }) catch {};
 }
 
-fn sendScroll(axis: enum { x, y }, e: wio.Event.Scroll, pos: wio.Position) void {
+fn sendScroll(axis: MouseEvent.Scroll.Axis, e: wio.Event.Scroll, pos: wio.Position) void {
     if (e.delta == 0 and e.phase != .stop) return;
     const p = scaledPixel(pos);
     var input: MouseEvent.Scroll.Input = .{
@@ -1017,6 +1017,7 @@ fn sendScroll(axis: enum { x, y }, e: wio.Event.Scroll, pos: wio.Position) void 
             .stop => .stop,
             .momentum => .momentum,
         },
+        .axis = axis,
         .unit = switch (e.unit) {
             .steps => .steps,
             .pixels => .pixels,
