@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const build_options = @import("build_options");
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
 const tp = @import("thespian");
 const root = @import("soft_root").root;
 const MouseEvent = @import("MouseEvent");
@@ -55,6 +57,7 @@ pub const Axis = struct {
 const Overlay = struct {
     widget: Widget,
     allocator: Allocator,
+    layer: ?*Layer = null,
     hide_at_us: i64 = 0,
     hide_timer: ?tp.Cancellable = null,
     in_use: bool = false,
@@ -90,12 +93,19 @@ pub fn attach_overlay(self: *Self, allocator: Allocator, content: Plane) !void {
     scrollbar.precise = self.pixel_offsets;
     self.scrollbar = scrollbar;
     self.overlay = .{ .widget = sb, .allocator = allocator };
+    if (build_options.gui and self.pixel_offsets) {
+        const layer = try Layer.init(allocator, .{ .h = 1, .w = 1 });
+        sb.plane.window.screen = &layer.screen;
+        sb.plane.layer = layer;
+        self.overlay.?.layer = layer;
+    }
 }
 
 pub fn deinit(self: *Self) void {
     const overlay = if (self.overlay) |*overlay| overlay else return;
     overlay.cancel_timer();
     overlay.widget.deinit(overlay.allocator);
+    if (overlay.layer) |layer| layer.deinit();
     self.overlay = null;
     self.scrollbar = null;
 }
@@ -103,6 +113,11 @@ pub fn deinit(self: *Self) void {
 /// `box` is the owner's box, the bar covers its last column
 pub fn resize_overlay(self: *Self, box: Widget.Box) void {
     const overlay = self.overlay orelse return;
+    if (overlay.layer) |layer| {
+        const root_plane = tui.plane();
+        layer.resize(1, @intCast(box.h), @intCast(root_plane.cell_x()), @intCast(box.h * @as(usize, @intCast(root_plane.cell_y())))) catch return;
+        return overlay.widget.resize(.{ .y = 0, .x = 0, .h = box.h, .w = 1 });
+    }
     overlay.widget.resize(.{ .y = box.y, .x = box.x + box.w -| 1, .h = box.h, .w = 1 });
 }
 
@@ -139,14 +154,47 @@ pub fn overlay_edge_hover(self: *Self, coord: MouseEvent.Coord, owner: Plane) vo
 }
 
 /// the owner draws its content first
-pub fn render_overlay(self: *Self, theme: *const Widget.Theme) bool {
+pub fn render_overlay(self: *Self, theme: *const Widget.Theme, owner: *const Plane) bool {
     const overlay = if (self.overlay) |*overlay| overlay else return false;
     const scrollbar = self.scrollbar orelse return false;
     const in_use = scrollbar.hover or scrollbar.active;
     if (overlay.in_use and !in_use) self.activity();
     overlay.in_use = in_use;
     if (!self.overlay_visible()) return false;
-    return overlay.widget.render(theme);
+    const more = overlay.widget.render(theme);
+    if (overlay.layer) |layer| submit_overlay_layer(layer, owner);
+    return more;
+}
+
+/// the bar over the last column of `owner`, above its content layer
+fn submit_overlay_layer(layer: *Layer, owner: *const Plane) void {
+    const root_plane = tui.plane();
+    const cw: i32 = root_plane.cell_x();
+    const ch: i32 = root_plane.cell_y();
+    const ox, const oy = owner.global_origin_px();
+    const x = ox + (@as(i32, @intCast(owner.dim_x())) - 1) * cw;
+    const content_z: i32 = if (owner.layer) |l| @backingInt(l.z_index) + 1 else @backingInt(Layer.Level.main);
+    layer.clip = .{ .x = x, .y = oy, .w = cw, .h = @as(i32, @intCast(owner.dim_y())) * ch };
+    layer.z_index = @fromBackingInt(content_z + 1);
+    _ = tui.submit_layer(.{
+        .src = layer,
+        .dst = root_plane.window,
+        .x = @divFloor(x, cw),
+        .y = @divFloor(oy, ch),
+        .xoffset = @intCast(@mod(x, cw)),
+        .yoffset = @intCast(@mod(oy, ch)),
+        .z_index = layer.z_index,
+        .blend = .replace,
+        .clip = layer.clip,
+    });
+}
+
+/// the top row for the owner of the position, rounded up while a row is cut off
+pub fn take_owner_top_ceil(self: *Self) ?usize {
+    const row = self.top() + @intFromBool(self.y.anim.pos.offset > 0);
+    if (self.synced_top) |synced| if (synced == row) return null;
+    self.synced_top = row;
+    return row;
 }
 
 /// the owner walks this before itself, so the bar wins hit tests over the owner

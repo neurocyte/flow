@@ -157,6 +157,10 @@ pub fn scroll_to_bottom(self: *@This()) bool {
     return true;
 }
 
+pub fn set_top_row(self: *@This(), want: bool) void {
+    if (self.vt.setTopRow(want)) self.request_publish();
+}
+
 fn request_publish(self: *@This()) void {
     if (self.pty_pid) |pid|
         pid.send(.{"publish"}) catch {}

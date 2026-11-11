@@ -10,10 +10,12 @@ const root = @import("root");
 
 const Vt = @import("Vt.zig");
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
 const Widget = @import("Widget.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
 const Scroller = @import("Scroller.zig");
+const ScrollLayer = @import("ScrollLayer.zig");
 const Menu = @import("Menu.zig");
 const tui = @import("tui.zig");
 const input = @import("input");
@@ -30,7 +32,11 @@ const Self = @This();
 allocator: Allocator,
 plane: Plane,
 panel_input: PanelInput,
-scroller: Scroller = .{},
+scroller: Scroller = .{ .pixel_offsets = true },
+scroll_layer: ScrollLayer = undefined,
+scroll_layer_id: ?Layer.Id = null,
+display_top: usize = 0,
+display_shift: u16 = 0,
 hover: bool = false,
 vt: *Vt,
 commands: Commands = undefined,
@@ -108,10 +114,14 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
         .vt = vt,
     };
     self.commands.init_unregistered(self);
+    self.scroll_layer = try ScrollLayer.init(allocator, &self.scroll_layer_id);
+    errdefer self.scroll_layer.deinit();
     try self.scroller.attach_overlay(allocator, self.plane);
     errdefer self.scroller.deinit();
 
     layer.set(Widget.to(self));
+    layer.ctx = self;
+    layer.after_submit = after_layer_submit;
     return Panel.to_hosted(self, layer.widget());
 }
 
@@ -201,6 +211,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.paste(event.content);
         return true;
     }
+    if (self.vt.vt.mode.mouse == .none and try m.match(.{ "scroll", tp.more }))
+        return self.scroller.receive_mouse(m);
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         self.apply_mouse_cursor();
         if (!self.hover) {
@@ -229,7 +241,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             }
             if (jump and is_press) {
                 // look up the link under the click, hover may be armed without having resolved it
-                const cell = coord.to_cell(self.plane.mouse_geometry());
+                const cell = coord.to_cell(self.scroll_layer.geometry(&self.plane));
                 if (cell.row >= 0 and cell.col >= 0) {
                     const pos: Position = .{ .row = @intCast(cell.row), .col = @intCast(cell.col) };
                     self.hover_pos = pos;
@@ -363,7 +375,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         // Mouse motion (no button held)
         if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
             self.scroller.overlay_edge_hover(coord, self.plane);
-            const cell = coord.to_cell(self.plane.mouse_geometry());
+            const cell = coord.to_cell(self.scroll_layer.geometry(&self.plane));
             const hover = self.link_actions(mods).hover;
             if (self.panel_input.focused and self.vt.vt.mode.mouse == .any_event and !(hover and self.vt.vt.isAltScreen())) {
                 self.hover_mods = .{};
@@ -500,6 +512,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     self.panel_input.deinit(Widget.to(self));
     if (self.current) self.commands.unregister();
     self.scroller.deinit();
+    self.scroll_layer.deinit();
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -524,6 +537,12 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         .dark => .dark,
         .light => .light,
     });
+
+    const widget_plane = self.plane;
+    defer self.plane = widget_plane;
+    self.plane.erase();
+    self.scroll_layer.prepare(&widget_plane, widget_plane.dim_y() + 1, widget_plane.dim_x());
+    self.plane = self.scroll_layer.plane;
 
     // Blit the terminal's front screen into our vaxis.Window.
     // erase first to drop cells that reference graphemes in the front screen
@@ -553,6 +572,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         }
     }
 
+    self.update_display_top();
     if (self.link_click_pending) |pos| self.open_pending_link_click(pos);
     _ = self.update_file_link_highlight(false);
     self.render_file_link_highlight(theme);
@@ -560,8 +580,25 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     if (self.hover) self.apply_mouse_cursor();
 
+    self.plane = widget_plane;
     const more = self.scroller.render();
-    return self.scroller.render_overlay(theme) or more;
+    return self.scroller.render_overlay(theme, &self.plane) or more;
+}
+
+fn update_display_top(self: *Self) void {
+    const frame = self.vt.vt.frameView();
+    const top_row = @intFromBool(frame.top_row);
+    self.display_top = frame.history -| frame.scroll_offset -| top_row;
+    const ch: i64 = @intCast(@max(1, tui.plane().cell_y()));
+    const pos = self.scroller.pos();
+    const shift = @as(i64, pos.row) * ch + pos.yoffset - @as(i64, @intCast(self.display_top)) * ch;
+    const max_shift: i64 = if (frame.top_row) ch else 0;
+    self.display_shift = @intCast(if (shift >= 0 and shift <= max_shift) shift else max_shift);
+}
+
+fn after_layer_submit(ctx: ?*anyopaque, handle: Layer.Handle) void {
+    const self: *Self = @ptrCast(@alignCast(ctx orelse return));
+    self.scroll_layer.submit(&self.plane, .{ .row = 0, .col = 0, .yoffset = self.display_shift }, .{ 0, 0 }, .{ .parent = handle });
 }
 
 pub fn update(self: *Self) void {
@@ -571,7 +608,8 @@ pub fn update(self: *Self) void {
     self.scroller.set_size(history + view_rows, view_rows);
     self.scroller.sync(history -| vt.scrollOffset());
     self.scroller.update();
-    const top = self.scroller.take_owner_top() orelse return;
+    self.vt.set_top_row(self.scroller.pos().yoffset > 0);
+    const top = self.scroller.take_owner_top_ceil() orelse return;
     const current = history -| vt.scrollOffset();
     _ = self.vt.scroll(@intCast(@as(i64, @intCast(current)) - @as(i64, @intCast(top))));
 }
@@ -718,7 +756,7 @@ fn update_file_link_highlight(self: *Self, force: bool) bool {
     }
 
     if (pos.row >= self.vt.vt.back_screen.height) return false;
-    var row_iter = self.row_at(self.vt.vt.viewTop() + pos.row);
+    var row_iter = self.row_at(self.display_top + pos.row);
     defer row_iter.deinit();
     const row = row_iter.next() orelse return false;
     const screen = row.screen;
@@ -822,12 +860,12 @@ fn render_selection(self: *Self, theme: *const Widget.Theme) void {
     const s = sel.ordered();
     const screen = self.vt.vt.back_screen;
     if (screen.height == 0 or screen.width == 0) return;
-    const top = self.vt.vt.viewTop();
+    const top = self.display_top;
     var abs = s.start.row;
     while (abs <= s.end.row) : (abs += 1) {
         if (abs < top) continue;
         const vrow = abs - top;
-        if (vrow >= screen.height) break;
+        if (vrow >= self.plane.dim_y()) break;
         const col_start: u16 = if (abs == s.start.row) s.start.col else 0;
         const col_end: u16 = if (abs == s.end.row) s.end.col else screen.width - 1;
         var col: u16 = col_start;
@@ -865,10 +903,10 @@ fn want_selection(self: *Self, mods: MouseEvent.Modifiers) bool {
 
 fn coord_to_position(self: *Self, coord: MouseEvent.Coord) Position {
     const screen = self.vt.vt.back_screen;
-    const cell = coord.to_cell(self.plane.mouse_geometry());
-    const vrow: usize = if (cell.row < 0) 0 else @min(@as(usize, @intCast(cell.row)), screen.height -| 1);
+    const cell = coord.to_cell(self.scroll_layer.geometry(&self.plane));
+    const vrow: usize = if (cell.row < 0) 0 else @min(@as(usize, @intCast(cell.row)), screen.height);
     const vcol: usize = if (cell.col < 0) 0 else @min(@as(usize, @intCast(cell.col)), @as(usize, screen.width) -| 1);
-    return .{ .row = self.vt.vt.viewTop() + vrow, .col = @intCast(vcol) };
+    return .{ .row = self.display_top + vrow, .col = @intCast(vcol) };
 }
 
 fn prompt_click(self: *Self, coord: MouseEvent.Coord) void {
