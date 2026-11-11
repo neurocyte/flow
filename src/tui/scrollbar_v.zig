@@ -1,4 +1,5 @@
 const Allocator = @import("std").mem.Allocator;
+const clamp = @import("std").math.clamp;
 const tp = @import("thespian");
 const tracy = @import("tracy");
 
@@ -25,6 +26,7 @@ event_sink: EventHandler,
 hover: bool = false,
 active: bool = false,
 hidden: bool = false,
+precise: bool = false,
 style_factory: ?*const fn (self: *Self, theme: *const Widget.Theme) Widget.Theme.Style = null,
 
 const Self = @This();
@@ -135,11 +137,29 @@ fn click_at(self: *Self, y: i32, ypx: i32) void {
         self.mouse_pos_scrn_offset = pos_scrn -| curr_pos_scrn;
     } else {
         self.mouse_pos_scrn_offset = self.view_scrn / 2;
+        if (self.precise) return self.move_to_fraction(y, ypx);
         self.move_to(self.pos_scrn_to_virt(pos_scrn -| self.mouse_pos_scrn_offset));
     }
 }
 
+fn fraction_at(self: *const Self, y: i32, ypx: i32) f64 {
+    const ch: f64 = @floatFromInt(@max(1, self.plane.cell_y()));
+    const pointer: f64 = @as(f64, @floatFromInt(y)) * eighths_c + @as(f64, @floatFromInt(ypx)) * eighths_c / ch;
+    const travel: f64 = @floatFromInt(self.size_scrn -| self.view_scrn);
+    if (travel <= 0) return 0;
+    const offset: f64 = @floatFromInt(self.mouse_pos_scrn_offset);
+    return clamp((pointer - offset) / travel, 0, 1);
+}
+
+fn move_to_fraction(self: *Self, y: i32, ypx: i32) void {
+    const fraction = self.fraction_at(y, ypx);
+    const max_virt: f64 = @floatFromInt(self.size_virt -| self.view_virt);
+    self.set(self.size_virt, self.view_virt, @intFromFloat(fraction * max_virt));
+    _ = self.event_sink.msg(.{ "scroll_to_fraction", fraction }) catch {};
+}
+
 fn drag_to(self: *Self, y: i32, ypx: i32) void {
+    if (self.precise) return self.move_to_fraction(y, ypx);
     const pos_scrn = self.y_coord_to_pos_scrn(y, ypx) -| self.mouse_pos_scrn_offset;
     const pos_virt = self.pos_scrn_to_virt(pos_scrn);
     self.move_to(pos_virt);

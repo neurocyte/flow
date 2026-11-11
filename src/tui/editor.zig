@@ -634,7 +634,7 @@ pub const Editor = struct {
             try cbor.writeArrayHeader(writer, 0);
         }
         var view = self.view;
-        view.row = self.scroll_anim.dest;
+        view.row = self.scroll_anim.dest().cell;
         try view.write(writer);
 
         try write_cursels(writer, self.cursels.items);
@@ -763,7 +763,7 @@ pub const Editor = struct {
         const cols = self.view.cols;
         if (!try self.view.extract(&view_cbor))
             return error.RestoreView;
-        self.scroll_anim.jump_to(self.view.row);
+        self.scroll_anim.jump_to(.at(self.view.row));
         self.view.rows = rows;
         self.view.cols = cols;
 
@@ -799,7 +799,7 @@ pub const Editor = struct {
             .buffer = null,
             .buffer_manager = buffer_manager,
             .handlers = EventHandler.List.init(allocator),
-            .scroll_anim = .{ .last_time_us = now.toMicroseconds() },
+            .scroll_anim = .{ .last_glide_us = now.toMicroseconds() },
             .enable_format_on_save = tui.config().enable_format_on_save,
             .trim_trailing_whitespace_on_save = tui.config().trim_trailing_whitespace_on_save,
             .final_newline_on_save = tui.config().final_newline_on_save,
@@ -874,10 +874,14 @@ pub const Editor = struct {
         return if (self.buffer) |p| p.root else null;
     }
 
+    fn draw_rows(self: *const Self) usize {
+        return self.plane.dim_y();
+    }
+
     pub fn handle_resize(self: *Self, pos: Widget.Box) void {
         self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
         self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-        self.view.rows = pos.h;
+        self.view.rows = pos.full_rows(self.plane.cell_y());
         self.view.cols = pos.w;
     }
 
@@ -1452,7 +1456,7 @@ pub const Editor = struct {
     pub fn update(self: *Self) void {
         self.update_scroll();
         self.update_event() catch {};
-        if (self.diagnostic_hover_pending) |pos| if (self.view.row == self.scroll_anim.dest) {
+        if (self.diagnostic_hover_pending) |pos| if (!self.scroll_anim.animating()) {
             self.diagnostic_hover_pending = null;
             tp.self_pid().send(.{ "cmd", "show_diagnostic_hover", .{ pos.row, pos.col } }) catch {};
         };
@@ -1480,7 +1484,7 @@ pub const Editor = struct {
         self.update_file_link_highlight();
         self.render_screen(theme, cache, focused, now);
         const info_box_more = if (self.info_box_layer) |layer| layer.widget().render(theme) else false;
-        return self.scroll_anim.dest != self.view.row or self.syntax_refresh_full or info_box_more;
+        return self.scroll_anim.animating() or self.syntax_refresh_full or info_box_more;
     }
 
     const CellType = enum {
@@ -1516,7 +1520,7 @@ pub const Editor = struct {
                 const view = self_.view;
                 const n = &self_.plane;
 
-                if (ctx.buf_row > view.row + view.rows)
+                if (ctx.buf_row > view.row + self_.draw_rows())
                     return Buffer.Walker.stop;
 
                 const bufsize = 4095;
@@ -1615,7 +1619,7 @@ pub const Editor = struct {
                     ctx.y += 1;
                     ctx.x = 0;
                     ctx.leading = true;
-                    if (ctx.y >= view.rows) return Buffer.Walker.stop;
+                    if (ctx.y >= self_.draw_rows()) return Buffer.Walker.stop;
                     n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x));
                 }
                 return Buffer.Walker.keep_walking;
@@ -1635,7 +1639,7 @@ pub const Editor = struct {
             .buf_row = self.view.row,
             .theme = theme,
             .hl_row = hl_row,
-            .cell_map = CellMap.init(self.allocator, self.view.rows, self.view.cols) catch @panic("OOM"),
+            .cell_map = CellMap.init(self.allocator, self.draw_rows(), self.view.cols) catch @panic("OOM"),
         };
         defer ctx_.cell_map.deinit(self.allocator);
         const root = self.buf_root() catch return;
@@ -1752,7 +1756,7 @@ pub const Editor = struct {
         const offset = self.view.col;
         for (hl_cols) |hl_col| {
             if (hl_col > (self.view.cols + offset)) continue;
-            for (0..self.view.rows) |row| for (0..self.view.cols) |col| {
+            for (0..self.draw_rows()) |row| for (0..self.view.cols) |col| {
                 const view_col = col + offset;
                 if (hl_col <= view_col) {
                     self.plane.cursor_move_yx(@intCast(row), @intCast(col));
@@ -2073,7 +2077,7 @@ pub const Editor = struct {
                     const y = row - ctx.self.view.row;
                     const x = begin_col - ctx.self.view.col;
                     const end_x = end_col - ctx.self.view.col;
-                    if (y >= ctx.self.view.rows) continue;
+                    if (y >= ctx.self.draw_rows()) continue;
                     for (x..end_x) |x_| {
                         if (x_ >= ctx.self.view.cols) break;
                         const i = y * ctx.self.view.cols + x_;
@@ -2110,14 +2114,14 @@ pub const Editor = struct {
                     cursor.row = row_off;
                     cursor.col = col_off;
                 }
-                if (cursor.row >= row_off + ctx.self.view.rows) {
-                    cursor.row = row_off + ctx.self.view.rows;
+                if (cursor.row >= row_off + ctx.self.draw_rows()) {
+                    cursor.row = @intCast(row_off + ctx.self.draw_rows());
                     cursor.col = col_off + ctx.self.view.cols;
                 }
                 cursor.col = std.math.clamp(cursor.col, col_off, col_off + ctx.self.view.cols);
             }
         };
-        const rank = try self.allocator.alloc(i64, self.view.rows * self.view.cols);
+        const rank = try self.allocator.alloc(i64, self.draw_rows() * self.view.cols);
         @memset(rank, std.math.minInt(i64));
         var ctx: Ctx = .{
             .self = self,
@@ -2132,7 +2136,7 @@ pub const Editor = struct {
         defer self.allocator.free(rank);
         const range: syntax.Range = .{
             .start_point = .{ .row = @intCast(self.view.row), .column = 0 },
-            .end_point = .{ .row = @intCast(self.view.row + self.view.rows), .column = 0 },
+            .end_point = .{ .row = @intCast(self.view.row + self.draw_rows()), .column = 0 },
             .start_byte = 0,
             .end_byte = 0,
         };
@@ -2144,7 +2148,7 @@ pub const Editor = struct {
 
     fn render_diff_words(self: *Self, theme: *const Widget.Theme, root: Buffer.Root) !void {
         const first_row = self.view.row -| diff_words_scan_rows;
-        const end_row = @min(self.view.row + self.view.rows + diff_words_scan_rows, root.lines());
+        const end_row = @min(self.view.row + self.draw_rows() + diff_words_scan_rows, root.lines());
         if (end_row <= first_row) return;
         const lines = try self.allocator.alloc(?DiffLine, end_row - first_row);
         defer self.allocator.free(lines);
@@ -3910,41 +3914,40 @@ pub const Editor = struct {
     }
 
     fn update_scroll(self: *Self) void {
-        if (self.view.row == self.scroll_anim.dest) return;
-        self.scroll_anim.pos = self.view.row;
-        self.scroll_anim.advance();
-        self.view.row = self.scroll_anim.pos;
+        if (!self.scroll_anim.animating()) return;
+        self.scroll_anim.update(root_mod.get_now().toMicroseconds(), 1);
+        self.view.row = self.scroll_anim.pos.cell;
     }
 
     pub fn update_scroll_dest_abs(self: *Self, dest: usize, now: std.Io.Timestamp) void {
         const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const root = self.buf_root() catch return;
         const max_view = if (root.lines() <= scroll_cursor_min_border_distance) 0 else root.lines() - scroll_cursor_min_border_distance;
-        self.scroll_anim.pos = self.view.row;
-        self.scroll_anim.glide_to(@min(dest, max_view), tui.scroll_animation_timing_at(now));
+        if (self.scroll_anim.pos.cell != self.view.row) self.scroll_anim.jump_to(.at(self.view.row));
+        self.scroll_anim.glide_to(.at(@min(dest, max_view)), tui.scroll_animation_timing_at(now));
     }
 
     fn scroll_up_internal(self: *Self, count: usize, now: std.Io.Timestamp) void {
-        var dest_row = self.scroll_anim.dest;
+        var dest_row = self.scroll_anim.dest().cell;
         dest_row -|= count;
         self.update_scroll_dest_abs(dest_row, now);
     }
 
     fn scroll_down_internal(self: *Self, count: usize, now: std.Io.Timestamp) void {
-        var dest_row = self.scroll_anim.dest;
+        var dest_row = self.scroll_anim.dest().cell;
         dest_row += count;
         self.update_scroll_dest_abs(dest_row, now);
     }
 
     fn scroll_pageup(self: *Self, now: std.Io.Timestamp) void {
-        var dest_row = self.scroll_anim.dest;
+        var dest_row = self.scroll_anim.dest().cell;
         const view_rows = self.view.rows;
         dest_row = if (dest_row > view_rows) dest_row - view_rows else 0;
         self.update_scroll_dest_abs(dest_row, now);
     }
 
     fn scroll_pagedown(self: *Self, now: std.Io.Timestamp) void {
-        var dest_row: usize = self.scroll_anim.dest;
+        var dest_row: usize = self.scroll_anim.dest().cell;
         dest_row += self.view.rows;
         self.update_scroll_dest_abs(dest_row, now);
     }

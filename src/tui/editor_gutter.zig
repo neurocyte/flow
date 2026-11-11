@@ -30,7 +30,6 @@ plane: Plane,
 parent: Widget,
 
 lines: u32 = 0,
-view_rows: u32 = 1,
 view_top: u32 = 1,
 line: usize = 0,
 line_number_mode: ?LineNumberMode = null,
@@ -87,7 +86,7 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
         return self.diff_update(false) catch |e| return tp.exit_error(e, @errorReturnTrace());
     if (try m.match(.{ "E", "update" }))
         return self.diff_update(self.lines == 0) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    if (try m.match(.{ "E", "view", tp.extract(&self.lines), tp.extract(&self.view_rows), tp.extract(&self.view_top) }))
+    if (try m.match(.{ "E", "view", tp.extract(&self.lines), tp.any, tp.extract(&self.view_top) }))
         return self.update_width();
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.more }))
         return self.update_width();
@@ -181,6 +180,10 @@ fn from_mode_enum(mode: anytype) LineNumberMode {
     };
 }
 
+fn view_rows(self: *const Self) u32 {
+    return @intCast(self.plane.dim_y());
+}
+
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = "gutter render" });
     defer frame.deinit();
@@ -208,7 +211,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
     var linenum = self.view_top + 1;
-    var rows = self.view_rows;
+    var rows = self.view_rows();
     var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
@@ -223,7 +226,7 @@ pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
 pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
     var linenum = self.view_top + 1;
-    var rows = self.view_rows;
+    var rows = self.view_rows();
     var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
@@ -250,7 +253,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
     var linenum: isize = row - line;
     var abs_linenum = self.view_top + 1;
-    var rows = self.view_rows;
+    var rows = self.view_rows();
     var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (self.lines > @as(u32, @intCast(row)) and pos > self.lines - @as(u32, @intCast(row))) return;
@@ -275,7 +278,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
 pub fn render_current(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
     var linenum = self.view_top + 1;
-    var rows = self.view_rows;
+    var rows = self.view_rows();
     var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
@@ -295,7 +298,7 @@ pub fn render_current(self: *Self, theme: *const Widget.Theme) void {
 pub fn render_multiples_of_n(self: *Self, theme: *const Widget.Theme, n: u32) void {
     var pos: usize = 0;
     var linenum = self.view_top + 1;
-    var rows = self.view_rows;
+    var rows = self.view_rows();
     var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
@@ -321,7 +324,7 @@ pub fn render_multiples_of_n(self: *Self, theme: *const Widget.Theme, n: u32) vo
 
 fn render_diff_line_backgrounds(self: *Self, theme: *const Widget.Theme) void {
     if (theme.diff_editor_gutter_inserted_line.bg == null and theme.diff_editor_gutter_removed_line.bg == null) return;
-    const lines = self.allocator.alloc(?ed.DiffLine, self.view_rows) catch return;
+    const lines = self.allocator.alloc(?ed.DiffLine, self.view_rows()) catch return;
     defer self.allocator.free(lines);
     self.editor.get_diff_lines(self.view_top, lines);
     for (lines, 0..) |line, pos| {
@@ -381,7 +384,7 @@ inline fn render_diff(self: *Self, sym: Diff, pos: usize, linenum: usize, theme:
 
     const end = diff_symbol_end(sym);
     if (end <= linenum) return;
-    var rows = @min(end - linenum, self.view_rows -| pos);
+    var rows = @min(end - linenum, self.view_rows() -| pos);
     while (rows > 0) : (rows -= 1) {
         self.plane.cursor_move_yx(@intCast(pos + rows - 1), @intCast(self.get_width() - 1));
         var cell = self.plane.cell_init();
@@ -405,7 +408,7 @@ const code_action_icon = "󰌵";
 
 fn code_action_indicator_y(self: *const Self) ?usize {
     const row = self.editor.code_action_indicator_row() orelse return null;
-    return if (self.view_top <= row and row < self.view_top + self.view_rows) row - self.view_top else null;
+    return if (self.view_top <= row and row < self.view_top + self.view_rows()) row - self.view_top else null;
 }
 
 fn render_code_action_indicator(self: *Self, theme: *const Widget.Theme) void {
@@ -420,7 +423,7 @@ fn render_code_action_indicator(self: *Self, theme: *const Widget.Theme) void {
 
 fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widget.Theme) void {
     const row = diag.sel.begin.row;
-    if (!(self.view_top <= row and row < self.view_top + self.view_rows)) return;
+    if (!(self.view_top <= row and row < self.view_top + self.view_rows())) return;
     const style_ = switch (diag.get_severity()) {
         .Error => theme.editor_error,
         .Warning => theme.editor_warning,

@@ -30,6 +30,11 @@ pub fn resolve_frame(self: Self, cw: i32, ch: i32) Frame {
     };
 }
 
+pub fn full_rows(self: Self, ch: i32) usize {
+    if (!self.frame.is_set()) return self.h;
+    return @min(self.h, @as(usize, @intCast(@divFloor(@max(0, self.frame.h), @max(1, ch)))));
+}
+
 pub fn opts(self: Self, name_: [:0]const u8) Plane.Options {
     return self.opts_flags(name_, Plane.option.none);
 }

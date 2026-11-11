@@ -4257,10 +4257,22 @@ pub fn scroll_animation_timing_at(now: std.Io.Timestamp) @import("ScrollAnimatio
     const conf = config();
     return .{
         .now_us = now.toMicroseconds(),
-        .frame_rate = conf.frame_rate,
         .min_lag_ms = conf.animation_min_lag,
         .max_lag_ms = conf.animation_max_lag,
+        .curve = conf.scroll_animation_curve,
     };
+}
+
+pub fn scroll_delta_scale() f32 {
+    if (comptime @hasDecl(renderer, "display_scale")) return rdr().display_scale();
+    return 1;
+}
+
+pub fn scroll_cell_size() renderer.Layer.CellSize {
+    const whole: renderer.Layer.CellSize = .{ .w = 1, .h = 1 };
+    if (!build_options.gui or config().scroll_motion == .cells) return whole;
+    const size = rdr().cell_size() orelse return whole;
+    return .{ .w = @max(1, size.w), .h = @max(1, size.h) };
 }
 
 pub const MouseActions = struct {

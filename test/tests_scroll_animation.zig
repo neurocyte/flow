@@ -1,92 +1,130 @@
 const std = @import("std");
 const ScrollAnimation = @import("tui").exports.ScrollAnimation;
+const Pos = ScrollAnimation.Pos;
 
 const eq = std.testing.expectEqual;
+const expect = std.testing.expect;
 
 const us_per_ms = std.time.us_per_ms;
+const cell_px = 20;
 
 fn timing(now_ms: i64) ScrollAnimation.Timing {
-    return .{ .now_us = now_ms * us_per_ms, .frame_rate = 60, .min_lag_ms = 0, .max_lag_ms = 50 };
+    return .{ .now_us = now_ms * us_per_ms, .min_lag_ms = 0, .max_lag_ms = 50, .curve = .linear };
 }
 
-fn run(anim: *ScrollAnimation) !usize {
-    var frames: usize = 0;
-    while (anim.animating()) : (frames += 1) {
-        if (frames > 10_000) return error.NotConverging;
-        const prev = anim.pos;
-        anim.advance();
-        try std.testing.expect(anim.pos != prev);
-        try std.testing.expect(@min(prev, anim.dest) <= anim.pos and anim.pos <= @max(prev, anim.dest));
-    }
-    return frames;
+fn at_ms(anim: *ScrollAnimation, now_ms: i64) Pos {
+    anim.update(now_ms * us_per_ms, cell_px);
+    return anim.pos;
 }
 
-test "scroll_animation glide reaches dest exactly" {
+test "scroll_animation glide reaches dest at the end of the lag" {
     var anim: ScrollAnimation = .{};
-    anim.glide_to(36, timing(10_000));
-    const frames = try run(&anim);
-    try eq(36, anim.pos);
-    // max lag (50ms) at 60 fps is 3 frames
-    try eq(3, frames);
-    // a distance that does not divide evenly takes one more frame
-    anim.glide_to(73, timing(20_000));
-    try eq(4, try run(&anim));
-    try eq(73, anim.pos);
+    anim.glide_to(.at(10), timing(10_000));
+    try expect(anim.animating());
+    // the max lag (50ms) is the duration, linear: half way at 25ms
+    try eq(Pos{ .cell = 5 }, at_ms(&anim, 10_025));
+    try eq(Pos.at(10), at_ms(&anim, 10_050));
+    try expect(!anim.animating());
+}
+
+test "scroll_animation glide moves by pixels between cells" {
+    var anim: ScrollAnimation = .{};
+    anim.glide_to(.at(1), timing(10_000));
+    try eq(Pos{ .cell = 0, .offset = 8 }, at_ms(&anim, 10_020));
 }
 
 test "scroll_animation glides up without overshoot" {
     var anim: ScrollAnimation = .{};
-    anim.jump_to(100);
-    anim.glide_to(3, timing(10_000));
-    _ = try run(&anim);
-    try eq(3, anim.pos);
+    anim.jump_to(.at(100));
+    anim.glide_to(.at(3), timing(10_000));
+    var now: i64 = 10_000;
+    var prev = anim.pos;
+    while (anim.animating()) : (now += 5) {
+        const pos = at_ms(&anim, now);
+        try expect(pos.order(prev) != .gt and pos.order(.at(3)) != .lt);
+        prev = pos;
+    }
+    try eq(Pos.at(3), anim.pos);
 }
 
-test "scroll_animation step is at least 1" {
+test "scroll_animation a new glide continues from the current position" {
     var anim: ScrollAnimation = .{};
-    anim.glide_to(2, .{ .now_us = 10 * std.time.us_per_s, .frame_rate = 60, .min_lag_ms = 1000, .max_lag_ms = 1000 });
-    try eq(1, anim.step);
-    try eq(2, try run(&anim));
+    anim.glide_to(.at(10), timing(10_000));
+    _ = at_ms(&anim, 10_025);
+    // 25ms after the previous glide, so this one takes 25ms
+    anim.glide_to(.at(20), timing(10_025));
+    try eq(Pos.at(5), at_ms(&anim, 10_025));
+    // 12ms of 25ms, 100px + 0.48 * 300px = 244px
+    try eq(Pos{ .cell = 12, .offset = 4 }, at_ms(&anim, 10_037));
+    try eq(Pos.at(20), at_ms(&anim, 10_050));
 }
 
-test "scroll_animation quick repeats shorten the lag" {
+test "scroll_animation quick repeats shorten the glide" {
     var anim: ScrollAnimation = .{};
-    anim.glide_to(30, timing(10_000));
-    try eq(10, anim.step);
-    // 16ms after the previous glide: one frame
-    anim.glide_to(60, timing(10_016));
-    try eq(60, anim.step);
+    anim.glide_to(.at(3), timing(10_000));
+    anim.glide_to(.at(6), timing(10_016));
+    try eq(16 * us_per_ms, anim.motion.glide.duration_us);
 }
 
 test "scroll_animation min_lag above max_lag uses min_lag" {
     var anim: ScrollAnimation = .{};
-    anim.glide_to(60, .{ .now_us = 10 * std.time.us_per_s, .frame_rate = 60, .min_lag_ms = 500, .max_lag_ms = 50 });
-    try eq(2, anim.step);
+    anim.glide_to(.at(60), .{ .now_us = 10 * std.time.us_per_s, .min_lag_ms = 500, .max_lag_ms = 50, .curve = .linear });
+    try eq(500 * us_per_ms, anim.motion.glide.duration_us);
 }
 
-test "scroll_animation zero frame_rate does not divide by zero" {
+test "scroll_animation zero duration jumps at the next update" {
     var anim: ScrollAnimation = .{};
-    anim.glide_to(5, .{ .now_us = 10 * std.time.us_per_s, .frame_rate = 0, .min_lag_ms = 0, .max_lag_ms = 50 });
-    try eq(5, anim.step);
+    anim.glide_to(.at(5), .{ .now_us = 10 * std.time.us_per_s, .min_lag_ms = 0, .max_lag_ms = 0, .curve = .ease_out_cubic });
+    try eq(Pos.at(5), at_ms(&anim, 10_000));
+    try expect(!anim.animating());
 }
 
 test "scroll_animation jump_to stops a glide" {
     var anim: ScrollAnimation = .{};
-    anim.glide_to(100, timing(10_000));
-    anim.advance();
-    try std.testing.expect(anim.animating());
-    anim.jump_to(7);
-    try std.testing.expect(!anim.animating());
-    try eq(7, anim.pos);
+    anim.glide_to(.at(100), timing(10_000));
+    _ = at_ms(&anim, 10_010);
+    anim.jump_to(.at(7));
+    try expect(!anim.animating());
+    try eq(Pos.at(7), anim.pos);
 }
 
 test "scroll_animation clamp while animating" {
     var anim: ScrollAnimation = .{};
-    anim.glide_to(100, timing(10_000));
-    anim.advance();
-    anim.clamp(20);
-    try eq(20, anim.dest);
-    try std.testing.expect(anim.pos <= 20);
-    _ = try run(&anim);
-    try eq(20, anim.pos);
+    anim.glide_to(.at(100), timing(10_000));
+    _ = at_ms(&anim, 10_010);
+    anim.clamp(.at(10));
+    try eq(Pos.at(10), anim.dest());
+    try expect(anim.pos.order(.at(10)) != .gt);
+    try eq(Pos.at(10), at_ms(&anim, 10_050));
+}
+
+test "scroll_animation retarget keeps the glide timing" {
+    var anim: ScrollAnimation = .{};
+    anim.glide_to(.at(10), timing(10_000));
+    anim.retarget(.at(20));
+    try eq(Pos.at(10), at_ms(&anim, 10_025));
+    try eq(Pos.at(20), at_ms(&anim, 10_050));
+}
+
+test "scroll_animation an offset that does not fit a smaller cell rounds up" {
+    var anim: ScrollAnimation = .{};
+    anim.jump_to(.{ .cell = 4, .offset = 15 });
+    anim.update(0, 16);
+    try eq(Pos{ .cell = 4, .offset = 15 }, anim.pos);
+    anim.update(0, 12);
+    try eq(Pos.at(5), anim.pos);
+}
+
+test "scroll_animation curves at the start, the middle and the end" {
+    const curves = [_]struct { ScrollAnimation.Curve, f64 }{
+        .{ .linear, 0.5 },
+        .{ .ease_out_quad, 0.75 },
+        .{ .ease_out_cubic, 0.875 },
+        .{ .ease_in_out_cubic, 0.5 },
+    };
+    for (curves) |c| {
+        try eq(0.0, ScrollAnimation.ease(c[0], 0));
+        try std.testing.expectApproxEqAbs(c[1], ScrollAnimation.ease(c[0], 0.5), 1e-9);
+        try eq(1.0, ScrollAnimation.ease(c[0], 1));
+    }
 }

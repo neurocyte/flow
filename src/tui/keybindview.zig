@@ -10,6 +10,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
 const input = @import("input");
 const command = @import("command");
 
@@ -19,6 +20,7 @@ const WidgetList = @import("WidgetList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
 const Scroller = @import("Scroller.zig");
+const ScrollLayer = @import("ScrollLayer.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 pub const name = "keybindview";
@@ -28,7 +30,10 @@ parent: Plane,
 plane: Plane,
 buffer: Buffer,
 panel_input: PanelInput,
-scroller: Scroller = .{ .sticky_end = true },
+scroller: Scroller = .{ .sticky_end = true, .pixel_offsets = true },
+scroll_layer: ScrollLayer = undefined,
+
+var scroll_layer_id: ?Layer.Id = null;
 
 const Self = @This();
 
@@ -64,6 +69,8 @@ pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Panel {
         .buffer = .empty,
         .panel_input = try PanelInput.init(allocator, "log"),
     };
+    self.scroll_layer = try ScrollLayer.init(allocator, &scroll_layer_id);
+    errdefer self.scroll_layer.deinit();
     try container.add(Widget.to(self));
     try self.scroller.attach_scrollbar(allocator, container, container.plane);
     try tui.message_filters().add(MessageFilter.bind(self, keybind_match));
@@ -78,28 +85,38 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     for (self.buffer.items) |item|
         self.allocator.free(item.msg);
     self.buffer.deinit(self.allocator);
+    self.scroll_layer.deinit();
     self.plane.deinit();
     allocator.destroy(self);
 }
 
+pub fn handle_resize(self: *Self, pos: Widget.Box) void {
+    self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
+    self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
+    self.scroller.set_view(pos, &self.plane);
+}
+
 pub fn update(self: *Self) void {
-    self.scroller.set_size(self.buffer.items.len, self.plane.dim_y());
+    self.scroller.set_content(self.buffer.items.len);
     self.scroller.update();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    const more = self.scroller.render();
-    self.plane.set_base_style(theme.panel);
     self.plane.erase();
-    self.plane.home();
-    const height = self.plane.dim_y();
+    self.scroll_layer.prepare(&self.plane, self.scroller.draw_rows());
+    defer self.scroll_layer.submit(&self.plane, self.scroller.pos(), self.scroller.view_px());
+    const more = self.scroller.render();
+    self.scroll_layer.plane.set_base_style(theme.panel);
+    self.scroll_layer.plane.erase();
+    self.scroll_layer.plane.home();
+    const height = self.scroll_layer.plane.dim_y();
     var first = true;
     const count = self.buffer.items.len;
-    const begin_at = @min(self.scroller.top(), count -| height);
+    const begin_at = @min(self.scroller.top(), count -| self.scroller.view_rows());
     for (self.buffer.items[begin_at..@min(count, begin_at + height)]) |item| {
-        if (first) first = false else _ = self.plane.putstr("\n") catch return more;
+        if (first) first = false else _ = self.scroll_layer.plane.putstr("\n") catch return more;
         self.output_tdiff(item.tdiff) catch return more;
-        _ = self.plane.putstr(item.msg) catch return more;
+        _ = self.scroll_layer.plane.putstr(item.msg) catch return more;
     }
     return more;
 }
@@ -109,10 +126,10 @@ fn output_tdiff(self: *Self, tdiff: i64) !void {
     if (msi == 0) {
         const d: f64 = @floatFromInt(tdiff);
         const ms = d / time.us_per_ms;
-        _ = try self.plane.print("{d:6.2} ▏", .{ms});
+        _ = try self.scroll_layer.plane.print("{d:6.2} ▏", .{ms});
     } else {
         const ms: u64 = @intCast(msi);
-        _ = try self.plane.print("{d:6} ▏", .{ms});
+        _ = try self.scroll_layer.plane.print("{d:6} ▏", .{ms});
     }
 }
 

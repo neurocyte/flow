@@ -809,6 +809,10 @@ pub fn setAllowColorGlyphs(allow: bool) void {
     requestRender();
 }
 
+pub fn getDpiScale() f32 {
+    return dpi_scale;
+}
+
 pub fn getAllowColorGlyphs() bool {
     return allow_color_glyphs;
 }

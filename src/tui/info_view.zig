@@ -427,7 +427,8 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.view_rows = pos.h;
     self.view_cols = pos.w;
     if (self.layout_stale()) self.relayout() catch {};
-    self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
+    self.scroller.set_view(pos, &self.plane);
+    self.scroller.set_content(self.layout.lines.items.len);
     self.resolve_source_anchor();
 }
 
@@ -470,12 +471,12 @@ fn resolve_source_anchor(self: *Self) void {
             .top => @as(usize, @intCast(@max(0, @as(isize, @intCast(line)) + anchor.offset))),
             .center => line -| self.view_rows / 2,
         };
-        if (@min(top, self.scroller.max_top()) != self.scroller.anim.dest) switch (anchor.motion) {
+        if (@min(top, self.scroller.max_top()) != self.scroller.dest()) switch (anchor.motion) {
             .jump => self.scroller.jump_to(top),
             .glide => self.scroller.glide_to(top),
         };
     }
-    self.source_top = self.scroller.anim.dest;
+    self.source_top = self.scroller.dest();
     self.source_scrolled_away = anchor.state == .scrolled_away;
 }
 
@@ -483,7 +484,7 @@ pub fn scrolled_away_from_source(self: *const Self) bool {
     if (self.source_anchor) |anchor| return anchor.state == .scrolled_away;
     if (self.source_scrolled_away) return true;
     const top = self.source_top orelse return false;
-    return @min(top, self.scroller.max_top()) != self.scroller.anim.dest;
+    return @min(top, self.scroller.max_top()) != self.scroller.dest();
 }
 
 pub fn append_content(self: *Self, kind: Kind, content: []const u8) !void {
@@ -675,7 +676,7 @@ fn relayout(self: *Self) !void {
     self.layout_width = width;
     try self.layout_at(width);
     self.left_col = @min(self.left_col, self.max_left_col());
-    self.scroller.set_size(self.layout.lines.items.len, self.view_rows);
+    self.scroller.set_content(self.layout.lines.items.len);
     self.resolve_source_anchor();
 }
 

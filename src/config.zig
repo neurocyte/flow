@@ -49,6 +49,8 @@ inline_vcs_blame_alignment: Alignment = .right,
 inline_vcs_blame_age: AgeFormat = .short,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
+scroll_motion: ScrollMotion = .pixels,
+scroll_animation_curve: ScrollAnimationCurve = .ease_out_cubic,
 hover_time_ms: usize = 150, //milliseconds
 hover_info_mode: HoverInfoMode = .box,
 input_idle_time_ms: usize = 100, //milliseconds
@@ -205,6 +207,8 @@ const macos = builtin.os.tag == .macos;
 
 pub const MouseModifier = enum { none, shift, alt, ctrl, super };
 pub const MouseHover = enum { none, shift, alt, ctrl, super, always };
+pub const ScrollMotion = enum { pixels, cells };
+pub const ScrollAnimationCurve = enum { linear, ease_out_quad, ease_out_cubic, ease_in_out_cubic };
 
 const default_actions = [_]IdleAction{ .highlight_references, .code_actions };
 pub const IdleAction = enum {

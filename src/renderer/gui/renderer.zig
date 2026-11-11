@@ -632,6 +632,10 @@ pub fn cell_size(self: *const Self) ?Layer.CellSize {
     return Layer.cell_size_px(&self.vx.screen);
 }
 
+pub fn display_scale(_: *const Self) f32 {
+    return app.getDpiScale();
+}
+
 pub fn write_runtime_info(self: *Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     _ = self;
     try app.writeRuntimeInfo(writer);

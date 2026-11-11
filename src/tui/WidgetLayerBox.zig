@@ -231,6 +231,7 @@ fn fill_frame(self: *Self, box: Widget.Box) void {
             .h = box.h,
             .extra_x = box.extra_x,
             .extra_y = box.extra_y,
+            .frame = .{ .x = self.layer.origin_px_x, .y = self.layer.origin_px_y, .w = w_pix, .h = h_pix },
         });
 }
 

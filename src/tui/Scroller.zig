@@ -12,16 +12,44 @@ const Panel = @import("Panel.zig");
 const WidgetList = @import("WidgetList.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const ScrollAnimation = @import("ScrollAnimation.zig");
+const Pos = ScrollAnimation.Pos;
 
 const Self = @This();
 
-anim: ScrollAnimation = .{},
-content_rows: usize = 0,
-view_rows: usize = 0,
+y: Axis = .{},
+x: Axis = .{},
 sticky_end: bool = false,
+pixel_offsets: bool = false,
 scrollbar: ?*scrollbar_v = null,
 overlay: ?Overlay = null,
 synced_top: ?usize = null,
+
+pub const Axis = struct {
+    anim: ScrollAnimation = .{},
+    content: usize = 0,
+    view: usize = 0,
+    box: usize = 0,
+    view_px: usize = 0,
+    cell_px: u16 = 1,
+    px_rest: f32 = 0,
+
+    fn max_pos(self: *const Axis) Pos {
+        if (self.cell_px <= 1 or self.view_px == 0) return .at(self.content -| @max(1, self.view));
+        const content_px = self.content * self.cell_px;
+        return Pos.from_px(@intCast(content_px -| self.view_px), self.cell_px);
+    }
+
+    fn draw_cells(self: *const Axis) usize {
+        if (self.cell_px <= 1 or self.view_px == 0) return @max(self.box, self.view);
+        return (self.anim.pos.offset + self.view_px + self.cell_px - 1) / self.cell_px;
+    }
+
+    fn set_cell_px(self: *Axis, cell_px: u16) bool {
+        if (self.cell_px == cell_px) return false;
+        self.cell_px = cell_px;
+        return true;
+    }
+};
 
 const Overlay = struct {
     widget: Widget,
@@ -46,6 +74,7 @@ pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetLis
     try container.add(sb);
     const scrollbar = sb.dynamic_cast(scrollbar_v).?;
     scrollbar.style_factory = scrollbar_v.panel_style;
+    scrollbar.precise = self.pixel_offsets;
     scrollbar.hidden = !self.wants_bar();
     self.scrollbar = scrollbar;
 }
@@ -57,6 +86,7 @@ pub fn attach_overlay(self: *Self, allocator: Allocator, content: Plane) !void {
     const sb = try scrollbar_v.create(allocator, content, null, EventHandler.bind(self, handle_scroll));
     const scrollbar = sb.dynamic_cast(scrollbar_v).?;
     scrollbar.style_factory = scrollbar_v.editor_style;
+    scrollbar.precise = self.pixel_offsets;
     self.scrollbar = scrollbar;
     self.overlay = .{ .widget = sb, .allocator = allocator };
 }
@@ -128,45 +158,94 @@ pub fn walk_overlay(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
 /// for a position owned elsewhere: follow `top` if the owner moved it
 pub fn sync(self: *Self, owner_top: usize) void {
     if (self.synced_top) |synced| if (synced == owner_top) return;
-    self.anim.jump_to(@min(owner_top, self.max_top()));
+    self.y.anim.jump_to(.at(@min(owner_top, self.max_top())));
     self.synced_top = owner_top;
 }
 
 /// for a position owned elsewhere: the top to apply after `update`, null if unchanged
 pub fn take_owner_top(self: *Self) ?usize {
-    const pos = self.anim.pos;
-    if (self.synced_top) |synced| if (synced == pos) return null;
-    self.synced_top = pos;
-    return pos;
+    const row = self.top();
+    if (self.synced_top) |synced| if (synced == row) return null;
+    self.synced_top = row;
+    return row;
 }
 
-pub fn set_size(self: *Self, content_rows: usize, view_rows: usize) void {
-    const follow_end = self.sticky_end and self.anim.dest >= self.max_top();
-    self.content_rows = content_rows;
-    self.view_rows = view_rows;
-    if (!follow_end)
-        self.anim.clamp(self.max_top())
-    else if (self.anim.animating())
-        self.anim.dest = self.max_top()
+pub fn set_size(self: *Self, content_rows: usize, visible_rows: usize) void {
+    const follow_end = self.at_end();
+    self.y.content = content_rows;
+    self.y.view = visible_rows;
+    self.y.box = @max(self.y.box, visible_rows);
+    self.reclamp(follow_end);
+}
+
+fn reclamp(self: *Self, follow_end: bool) void {
+    if (follow_end)
+        self.y.anim.retarget(self.y.max_pos())
     else
-        self.anim.jump_to(self.max_top());
+        self.y.anim.clamp(self.y.max_pos());
     self.set_bar_visible(self.wants_bar());
 }
 
+fn at_end(self: *const Self) bool {
+    return self.sticky_end and self.y.anim.dest().order(self.y.max_pos()) != .lt;
+}
+
+pub fn set_content(self: *Self, content_rows: usize) void {
+    self.set_size(content_rows, self.y.view);
+}
+
+pub fn set_view(self: *Self, box: Widget.Box, plane: *const Plane) void {
+    const follow_end = self.at_end();
+    const cw: usize = @intCast(@max(1, plane.cell_x()));
+    const ch: usize = @intCast(@max(1, plane.cell_y()));
+    self.y.view = box.full_rows(@intCast(ch));
+    self.y.box = box.h;
+    self.y.view_px = if (box.frame.is_set()) @intCast(@max(0, box.frame.h)) else box.h * ch;
+    self.x.view = box.w;
+    self.x.box = box.w;
+    self.x.view_px = if (box.frame.is_set()) @intCast(@max(0, box.frame.w)) else box.w * cw;
+    self.reclamp(follow_end);
+}
+
+pub fn draw_rows(self: *const Self) usize {
+    return self.y.draw_cells();
+}
+
+pub fn view_px(self: *const Self) struct { usize, usize } {
+    return .{ self.x.view_px, self.y.view_px };
+}
+
+pub fn pos(self: *const Self) MouseEvent.Cell {
+    return .{
+        .col = @intCast(self.x.anim.pos.cell),
+        .row = @intCast(self.y.anim.pos.cell),
+        .xoffset = self.x.anim.pos.offset,
+        .yoffset = self.y.anim.pos.offset,
+    };
+}
+
 pub fn top(self: *const Self) usize {
-    return self.anim.pos;
+    return self.y.anim.pos.cell;
+}
+
+pub fn dest(self: *const Self) usize {
+    return self.y.anim.dest().cell;
+}
+
+pub fn view_rows(self: *const Self) usize {
+    return self.y.view;
 }
 
 pub fn max_top(self: *const Self) usize {
-    return self.content_rows -| self.page_rows();
+    return self.y.max_pos().cell;
 }
 
 fn page_rows(self: *const Self) usize {
-    return @max(1, self.view_rows);
+    return @max(1, self.y.view);
 }
 
 pub fn overflows(self: *const Self) bool {
-    return self.content_rows > self.view_rows;
+    return self.y.content > self.y.view;
 }
 
 pub fn bar_cols(self: *const Self) usize {
@@ -179,7 +258,7 @@ fn wants_bar(self: *const Self) bool {
 }
 
 fn stuck_to_end(self: *const Self) bool {
-    if (!self.sticky_end or self.anim.animating() or self.anim.pos < self.max_top()) return false;
+    if (!self.sticky_end or self.y.anim.animating() or self.y.anim.pos.order(self.y.max_pos()) == .lt) return false;
     const scrollbar = self.scrollbar orelse return true;
     return !scrollbar.active;
 }
@@ -191,61 +270,106 @@ fn set_bar_visible(self: *Self, visible: bool) void {
     tui.need_render(@src());
 }
 
-pub fn jump_to(self: *Self, pos: usize) void {
-    self.anim.jump_to(@min(self.max_top(), pos));
+pub fn jump_to(self: *Self, row: usize) void {
+    self.y.anim.jump_to(Pos.at(row).min(self.y.max_pos()));
     self.activity();
     tui.need_render(@src());
 }
 
-pub fn glide_to(self: *Self, dest: usize) void {
-    self.anim.glide_to(@min(self.max_top(), dest), tui.scroll_animation_timing());
+pub fn glide_to(self: *Self, dest_row: usize) void {
+    self.y.anim.glide_to(Pos.at(dest_row).min(self.y.max_pos()), tui.scroll_animation_timing());
     self.activity();
     tui.need_render(@src());
 }
 
 pub fn scroll(self: *Self, action: Panel.ScrollAction) void {
     const rows = self.page_rows();
-    const dest = self.anim.dest;
+    const row = self.dest();
     switch (action) {
-        .line_up => self.jump_to(dest -| 1),
-        .line_down => self.jump_to(dest + 1),
-        .half_page_up => self.glide_to(dest -| @max(1, rows / 2)),
-        .half_page_down => self.glide_to(dest + @max(1, rows / 2)),
-        .page_up => self.glide_to(dest -| rows),
-        .page_down => self.glide_to(dest + rows),
+        .line_up => self.jump_to(row -| 1),
+        .line_down => self.jump_to(row + 1),
+        .half_page_up => self.glide_to(row -| @max(1, rows / 2)),
+        .half_page_down => self.glide_to(row + @max(1, rows / 2)),
+        .page_up => self.glide_to(row -| rows),
+        .page_down => self.glide_to(row + rows),
         .top => self.jump_to(0),
-        .bottom => self.jump_to(self.max_top()),
+        .bottom => self.jump_to(self.y.content),
         .left, .right, .line_start, .line_end => {},
     }
 }
 
 pub fn receive_mouse(self: *Self, m: tp.message) error{Exit}!bool {
+    var event: MouseEvent.Scroll = undefined;
+    if (try m.match(.{ "scroll", tp.extract(&event) })) return self.receive_scroll(event);
     var btn: MouseEvent.Button = .none;
     var mods: MouseEvent.Modifiers = .{};
     if (!try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.any, tp.extract(&mods) })) return false;
     const rows = self.page_rows();
     const step = if (tui.mouse_actions(mods).fast_scroll) rows else @min(rows, tui.config().scroll_step_vertical);
     switch (btn) {
-        .wheel_up => self.glide_to(self.anim.dest -| step),
-        .wheel_down => self.glide_to(self.anim.dest + step),
+        .wheel_up => self.glide_to(self.dest() -| step),
+        .wheel_down => self.glide_to(self.dest() + step),
         else => return false,
     }
     return true;
 }
 
+fn receive_scroll(self: *Self, e: MouseEvent.Scroll) bool {
+    if (e.axis != .y) return false;
+    if (self.pixel_offsets and self.y.cell_px > 1) switch (e.source) {
+        .finger, .continuous => {
+            self.scroll_by_px(@as(f32, @floatFromInt(e.amount.delta.y)) * tui.scroll_delta_scale());
+            return true;
+        },
+        .unknown, .wheel => {},
+    };
+    const steps = e.amount.step.y;
+    if (steps == 0) return true;
+    const rows = self.page_rows();
+    const step = if (tui.mouse_actions(e.mods).fast_scroll) rows else @min(rows, tui.config().scroll_step_vertical);
+    const distance = step * @abs(steps);
+    self.glide_to(if (steps < 0) self.dest() -| distance else self.dest() + distance);
+    return true;
+}
+
+pub fn scroll_by_px(self: *Self, delta: f32) void {
+    const cell_px = self.y.cell_px;
+    const total = delta + self.y.px_rest;
+    const whole = @round(total);
+    self.y.px_rest = total - whole;
+    const max = self.y.max_pos().to_px(cell_px);
+    const px = std.math.clamp(self.y.anim.pos.to_px(cell_px) + @as(i64, @intFromFloat(whole)), 0, max);
+    self.y.anim.jump_to(Pos.from_px(px, cell_px));
+    self.activity();
+    tui.need_render(@src());
+}
+
 fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var pos: usize = 0;
-    if (try m.match(.{ "scroll_to", tp.extract(&pos) }))
-        self.jump_to(pos);
+    var row: usize = 0;
+    var fraction: f64 = 0;
+    if (try m.match(.{ "scroll_to", tp.extract(&row) })) {
+        self.jump_to(row);
+    } else if (try m.match(.{ "scroll_to_fraction", tp.extract(&fraction) })) {
+        const cell_px = self.y.cell_px;
+        const max: f64 = @floatFromInt(self.y.max_pos().to_px(cell_px));
+        self.y.anim.jump_to(Pos.from_px(@intFromFloat(@round(std.math.clamp(fraction, 0, 1) * max)), cell_px));
+        self.activity();
+        tui.need_render(@src());
+    }
 }
 
 pub fn update(self: *Self) void {
-    self.anim.advance();
+    const cell: @TypeOf(tui.scroll_cell_size()) = if (self.pixel_offsets) tui.scroll_cell_size() else .{ .w = 1, .h = 1 };
+    if (self.y.set_cell_px(cell.h)) self.reclamp(self.at_end());
+    _ = self.x.set_cell_px(cell.w);
+    const now_us = root.get_now().toMicroseconds();
+    self.y.anim.update(now_us, cell.h);
+    self.x.anim.update(now_us, cell.w);
     self.set_bar_visible(self.wants_bar());
 }
 
 pub fn render(self: *Self) bool {
     if (self.scrollbar) |scrollbar|
-        scrollbar.set(@intCast(self.content_rows), @intCast(self.view_rows), @intCast(self.anim.pos));
-    return self.anim.animating();
+        scrollbar.set(@intCast(self.y.content), @intCast(self.y.view), @intCast(self.top()));
+    return self.y.anim.animating() or self.x.anim.animating();
 }
