@@ -452,6 +452,7 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
         errdefer new_layer.deinit(self.allocator);
         const inner = try info_view.create_widget_type(self.allocator, new_layer.inner_plane(), info_box_widget_type);
         new_layer.set(inner);
+        info_view.bind_layer(new_layer);
         self.value.info_box_layer = new_layer;
         break :blk new_layer;
     };

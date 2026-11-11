@@ -30,6 +30,7 @@ pub const Axis = struct {
     view: usize = 0,
     box: usize = 0,
     view_px: usize = 0,
+    box_px: usize = 0,
     cell_px: u16 = 1,
     px_rest: f32 = 0,
 
@@ -201,10 +202,49 @@ pub fn set_view(self: *Self, box: Widget.Box, plane: *const Plane) void {
     self.y.view = box.full_rows(@intCast(ch));
     self.y.box = box.h;
     self.y.view_px = if (box.frame.is_set()) @intCast(@max(0, box.frame.h)) else box.h * ch;
-    self.x.view = box.w;
-    self.x.box = box.w;
-    self.x.view_px = if (box.frame.is_set()) @intCast(@max(0, box.frame.w)) else box.w * cw;
+    self.y.box_px = self.y.view_px;
+    self.x.box_px = if (box.frame.is_set()) @intCast(@max(0, box.frame.w)) else box.w * cw;
     self.reclamp(follow_end);
+}
+
+pub fn set_cols(self: *Self, content_cols: usize, view_cols: usize) void {
+    self.x.content = content_cols;
+    self.x.view = view_cols;
+    self.x.anim.clamp(self.x.max_pos());
+}
+
+pub fn left(self: *const Self) usize {
+    return self.x.anim.pos.cell;
+}
+
+pub fn left_dest(self: *const Self) usize {
+    return self.x.anim.dest().cell;
+}
+
+pub fn max_left(self: *const Self) usize {
+    return self.x.max_pos().cell;
+}
+
+pub fn scrolled_left(self: *const Self) bool {
+    return self.x.anim.pos.order(.{}) == .gt;
+}
+
+pub fn scrolled_right(self: *const Self) bool {
+    return self.x.anim.pos.order(self.x.max_pos()) == .lt;
+}
+
+pub fn draw_cols(self: *const Self) usize {
+    return self.x.view + @intFromBool(self.x.anim.pos.offset > 0);
+}
+
+pub fn jump_left_to(self: *Self, col: usize) void {
+    self.x.anim.jump_to(Pos.at(col).min(self.x.max_pos()));
+    tui.need_render(@src());
+}
+
+pub fn glide_left_to(self: *Self, col: usize) void {
+    self.x.anim.glide_to(Pos.at(col).min(self.x.max_pos()), tui.scroll_animation_timing());
+    tui.need_render(@src());
 }
 
 pub fn draw_rows(self: *const Self) usize {
@@ -212,7 +252,7 @@ pub fn draw_rows(self: *const Self) usize {
 }
 
 pub fn view_px(self: *const Self) struct { usize, usize } {
-    return .{ self.x.view_px, self.y.view_px };
+    return .{ self.x.box_px, self.y.box_px };
 }
 
 pub fn pos(self: *const Self) MouseEvent.Cell {
@@ -315,14 +355,21 @@ pub fn receive_mouse(self: *Self, m: tp.message) error{Exit}!bool {
 }
 
 fn receive_scroll(self: *Self, e: MouseEvent.Scroll) bool {
-    if (e.axis != .y) return false;
-    if (self.pixel_offsets and self.y.cell_px > 1) switch (e.source) {
-        .finger, .continuous => {
-            self.scroll_by_px(@as(f32, @floatFromInt(e.amount.delta.y)) * tui.scroll_delta_scale());
-            return true;
-        },
-        .unknown, .wheel => {},
+    const precise = switch (e.source) {
+        .finger, .continuous => true,
+        .unknown, .wheel => false,
     };
+    const alt_scroll = e.axis == .y and tui.mouse_actions(e.mods).alt_scroll;
+    if (e.axis == .x or alt_scroll) {
+        if (!precise or !self.pixel_offsets or self.x.cell_px <= 1 or self.x.content <= self.x.view) return false;
+        const delta = if (alt_scroll) e.amount.delta.y else e.amount.delta.x;
+        self.scroll_by_px(.x, @as(f32, @floatFromInt(delta)) * tui.scroll_delta_scale());
+        return true;
+    }
+    if (precise and self.pixel_offsets and self.y.cell_px > 1) {
+        self.scroll_by_px(.y, @as(f32, @floatFromInt(e.amount.delta.y)) * tui.scroll_delta_scale());
+        return true;
+    }
     const steps = e.amount.step.y;
     if (steps == 0) return true;
     const rows = self.page_rows();
@@ -332,15 +379,18 @@ fn receive_scroll(self: *Self, e: MouseEvent.Scroll) bool {
     return true;
 }
 
-pub fn scroll_by_px(self: *Self, delta: f32) void {
-    const cell_px = self.y.cell_px;
-    const total = delta + self.y.px_rest;
+pub fn scroll_by_px(self: *Self, axis: MouseEvent.Scroll.Axis, delta: f32) void {
+    const a = switch (axis) {
+        .x => &self.x,
+        .y => &self.y,
+    };
+    const total = delta + a.px_rest;
     const whole = @round(total);
-    self.y.px_rest = total - whole;
-    const max = self.y.max_pos().to_px(cell_px);
-    const px = std.math.clamp(self.y.anim.pos.to_px(cell_px) + @as(i64, @intFromFloat(whole)), 0, max);
-    self.y.anim.jump_to(Pos.from_px(px, cell_px));
-    self.activity();
+    a.px_rest = total - whole;
+    const max = a.max_pos().to_px(a.cell_px);
+    const px = std.math.clamp(a.anim.pos.to_px(a.cell_px) + @as(i64, @intFromFloat(whole)), 0, max);
+    a.anim.jump_to(Pos.from_px(px, a.cell_px));
+    if (axis == .y) self.activity();
     tui.need_render(@src());
 }
 

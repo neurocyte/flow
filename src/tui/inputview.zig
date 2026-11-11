@@ -102,8 +102,8 @@ pub fn update(self: *Self) void {
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
-    self.scroll_layer.prepare(&self.plane, self.scroller.draw_rows());
-    defer self.scroll_layer.submit(&self.plane, self.scroller.pos(), self.scroller.view_px());
+    self.scroll_layer.prepare(&self.plane, self.scroller.draw_rows(), self.plane.dim_x());
+    defer self.scroll_layer.submit(&self.plane, self.scroller.pos(), self.scroller.view_px(), .{});
     const more = self.scroller.render();
     self.scroll_layer.plane.set_base_style(theme.panel);
     self.scroll_layer.plane.erase();

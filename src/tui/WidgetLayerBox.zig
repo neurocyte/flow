@@ -43,6 +43,7 @@ box: Widget.Box = .{},
 ctx: ?*anyopaque = null,
 prepare_resize: ?*const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = null,
 walk_extra: ?*const fn (ctx: ?*anyopaque, walk_ctx: *anyopaque, f: Widget.WalkFn) bool = null,
+after_submit: ?*const fn (ctx: ?*anyopaque, handle: Layer.Handle) void = null,
 alpha: u8 = 0xFF,
 z_index: Layer.Level = .overlay,
 blend: Layer.Target.Blend = .default,
@@ -247,7 +248,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     if (self.inner) |*w| if (w.render(theme)) {
         more = true;
     };
-    _ = tui.submit_layer(target);
+    const handle = tui.submit_layer(target);
+    if (self.after_submit) |after_submit| after_submit(self.ctx, handle);
     return more;
 }
 

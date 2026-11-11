@@ -2639,6 +2639,7 @@ pub const Editor = struct {
             errdefer new_layer.deinit(self.allocator);
             const inner = try info_view.create_widget_type(self.allocator, new_layer.inner_plane(), info_box_widget_type);
             new_layer.set(inner);
+            info_view.bind_layer(new_layer);
             self.info_box_layer = new_layer;
             break :blk new_layer;
         };
@@ -2713,7 +2714,7 @@ pub const Editor = struct {
         }
         const info = try self.show_info_box();
         info.clear();
-        info.left_col = 0;
+        info.scroller.jump_left_to(0);
         try self.append_hover_info(info, kind, content);
         self.place_info_box(box_range.begin);
         self.info_box_state = .{
@@ -2729,7 +2730,7 @@ pub const Editor = struct {
         const info = try mv.show_info_panel();
         info.clear();
         info.scroller.scroll(.top);
-        info.left_col = 0;
+        info.scroller.jump_left_to(0);
         try self.append_hover_info(info, kind, content);
         tui.need_render(@src());
     }

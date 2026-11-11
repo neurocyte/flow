@@ -139,8 +139,8 @@ pub fn update(self: *Self) void {
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
-    self.scroll_layer.prepare(&self.plane, self.scroller.draw_rows());
-    defer self.scroll_layer.submit(&self.plane, self.scroller.pos(), self.scroller.view_px());
+    self.scroll_layer.prepare(&self.plane, self.scroller.draw_rows(), self.plane.dim_x());
+    defer self.scroll_layer.submit(&self.plane, self.scroller.pos(), self.scroller.view_px(), .{});
     const style_normal = theme.panel;
     const style_info: Widget.Theme.Style = .{ .fg = theme.editor_information.fg, .fs = theme.editor_information.fs };
     const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs };
