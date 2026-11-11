@@ -1795,7 +1795,7 @@ pub const Editor = struct {
     fn render_cursor_primary(self: *Self, cursor: *const Cursor, cell_map: CellMap, focused_: bool) !void {
         const focused = focused_ or self.cursor_focus_override;
         const shape: @import("renderer").CursorShape = if (focused) tui.get_cursor_shape() else .unfocused;
-        const screen_pos = self.screen_cursor(cursor);
+        const screen_pos = self.drawn_cursor(cursor);
         if (screen_pos) |pos| set_cell_map_cursor(cell_map, pos.row, pos.col);
 
         if (screen_pos) |pos|
@@ -1805,7 +1805,7 @@ pub const Editor = struct {
     }
 
     fn render_cursor_secondary(self: *Self, cursor: *const Cursor, cell_map: CellMap) !void {
-        const pos = self.screen_cursor(cursor) orelse return;
+        const pos = self.drawn_cursor(cursor) orelse return;
         set_cell_map_cursor(cell_map, pos.row, pos.col);
         self.render_term_cursor_secondary(pos);
     }
@@ -1845,7 +1845,7 @@ pub const Editor = struct {
     }
 
     fn render_jump_label(self: *Self, label: jump_labels.Label, typed: usize, style: Widget.Theme.Style, typed_style: Widget.Theme.Style) void {
-        const pos = self.screen_cursor(&label.pos) orelse return;
+        const pos = self.drawn_cursor(&label.pos) orelse return;
         for (label.text, 0..) |c, i| {
             const x = pos.col + i;
             if (x >= self.draw_cols()) break;
@@ -1879,7 +1879,7 @@ pub const Editor = struct {
     }
 
     fn render_line_highlight(self: *Self, pc_row: usize, theme: *const Widget.Theme) !void {
-        if (!self.view.is_row_visible(pc_row)) return;
+        if (!self.is_row_drawn(pc_row)) return;
         const row = pc_row - self.view.row;
         for (0..self.draw_cols()) |i| {
             self.plane.cursor_move_yx(@intCast(row), @intCast(i));
@@ -1925,7 +1925,7 @@ pub const Editor = struct {
 
     fn render_file_link_highlight(self: *Self, theme: *const Widget.Theme) void {
         const match = self.file_link_highlight orelse return;
-        const pos = self.screen_cursor(&match.begin) orelse return;
+        const pos = self.drawn_cursor(&match.begin) orelse return;
         self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
         var col = pos.col;
         while (col < match.end.col) : (col += 1) {
@@ -1954,7 +1954,7 @@ pub const Editor = struct {
 
     fn render_diagnostic(self: *Self, diag: *const Diagnostic, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) void {
         const screen_width = self.view.cols;
-        const pos = self.screen_cursor(&diag.sel.begin) orelse return;
+        const pos = self.drawn_cursor(&diag.sel.begin) orelse return;
         var style = switch (diag.get_severity()) {
             .Error => theme.editor_error,
             .Warning => theme.editor_warning,
@@ -2037,7 +2037,7 @@ pub const Editor = struct {
 
     fn render_blame(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap, now: std.Io.Timestamp) !void {
         const cursor = self.get_primary().cursor;
-        const pos = self.screen_cursor(&cursor) orelse return;
+        const pos = self.drawn_cursor(&cursor) orelse return;
         const commit = self.get_vcs_blame(cursor.row) orelse return;
 
         const screen_width = self.view.cols;
@@ -2198,7 +2198,7 @@ pub const Editor = struct {
             }
             fn render_line_bg(ctx: *@This(), sel: Selection, style: Widget.Theme.Style) !void {
                 for (sel.begin.row..sel.end.row + 1) |row| {
-                    if (!ctx.self.view.is_row_visible(row)) continue;
+                    if (!ctx.self.is_row_drawn(row)) continue;
                     const y = row - ctx.self.view.row;
                     for (0..ctx.self.draw_cols()) |x| {
                         ctx.self.plane.cursor_move_yx(@intCast(y), @intCast(x));
@@ -2282,7 +2282,7 @@ pub const Editor = struct {
     }
 
     fn render_diff_word_pair(self: *Self, theme: *const Widget.Theme, root: Buffer.Root, src_row: usize, dst_row: usize) !void {
-        if (!self.view.is_row_visible(src_row) and !self.view.is_row_visible(dst_row)) return;
+        if (!self.is_row_drawn(src_row) and !self.is_row_drawn(dst_row)) return;
         var src: std.Io.Writer.Allocating = .init(self.allocator);
         defer src.deinit();
         try root.get_line(src_row, &src.writer, self.metrics);
@@ -2299,7 +2299,7 @@ pub const Editor = struct {
     }
 
     fn render_text_bg(self: *Self, root: Buffer.Root, row: usize, begin: usize, end: usize, style: Widget.Theme.Style) void {
-        if (!self.view.is_row_visible(row)) return;
+        if (!self.is_row_drawn(row)) return;
         const begin_col = root.pos_to_width(row, begin, self.metrics) catch return;
         const end_col = root.pos_to_width(row, end, self.metrics) catch return;
         const y = row - self.view.row;
@@ -2544,6 +2544,16 @@ pub const Editor = struct {
             .row = cursor.row - self.view.row,
             .col = cursor.col - self.view.col,
         } else null;
+    }
+
+    inline fn drawn_cursor(self: *const Self, cursor: *const Cursor) ?Cursor {
+        if (!self.is_row_drawn(cursor.row)) return null;
+        if (cursor.col < self.view.col or cursor.col >= self.view.col + self.draw_cols()) return null;
+        return .{ .row = cursor.row - self.view.row, .col = cursor.col - self.view.col };
+    }
+
+    inline fn is_row_drawn(self: *const Self, row: usize) bool {
+        return self.view.row <= row and row < self.view.row + self.draw_rows();
     }
 
     inline fn screen_pos_y(self: *Self) usize {
