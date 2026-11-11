@@ -1000,6 +1000,35 @@ fn sendMouse(mouse_type: MouseEvent.Type, button: MouseEvent.Button, pos: wio.Po
     tui_pid.send(.{ "RDR", event }) catch {};
 }
 
+fn sendScroll(axis: enum { x, y }, e: wio.Event.Scroll, pos: wio.Position) void {
+    if (e.delta == 0 and e.phase != .stop) return;
+    const p = scaledPixel(pos);
+    var input: MouseEvent.Scroll.Input = .{
+        .coord = .{ .x = p.x, .y = p.y },
+        .mods = mouseMods(e.modifiers),
+        .source = switch (e.source) {
+            .unknown => .unknown,
+            .wheel => .wheel,
+            .finger => .finger,
+            .continuous => .continuous,
+        },
+        .phase = switch (e.phase) {
+            .move => .move,
+            .stop => .stop,
+            .momentum => .momentum,
+        },
+        .unit = switch (e.unit) {
+            .steps => .steps,
+            .pixels => .pixels,
+        },
+    };
+    switch (axis) {
+        .x => input.delta.x = e.delta,
+        .y => input.delta.y = e.delta,
+    }
+    tui_pid.send(.{ "RDR", "scroll_input", input }) catch {};
+}
+
 /// Repost the last mouse event if the held modifier keys changed it
 fn repostMouse(held: input_translate.ButtonSet) void {
     const last = last_mouse orelse return;
@@ -1411,21 +1440,8 @@ fn wioLoop() void {
                         sendMouse(.motion, .none, e.position, mouseMods(e.modifiers));
                     }
                 },
-                .scroll_vertical => |e| {
-                    if (input_translate.fromWioModifiers(e.modifiers).ctrl) {
-                        if (e.delta < 0)
-                            adjustFontSize(1) // scrolling up zooms in
-                        else
-                            adjustFontSize(-1);
-                        continue;
-                    }
-                    const btn_id: u8 = if (e.delta < 0) 64 else 65; // up / down scroll
-                    sendMouse(.press, @fromBackingInt(@intCast(btn_id)), mouse_pos, mouseMods(e.modifiers));
-                },
-                .scroll_horizontal => |e| {
-                    const btn_id: u8 = if (e.delta < 0) 66 else 67; // left / right scroll
-                    sendMouse(.press, @fromBackingInt(@intCast(btn_id)), mouse_pos, mouseMods(e.modifiers));
-                },
+                .scroll_vertical => |e| sendScroll(.y, e, mouse_pos),
+                .scroll_horizontal => |e| sendScroll(.x, e, mouse_pos),
                 .focused => {
                     window.enableTextInput(.{});
                     tui_pid.send(.{"focus_in"}) catch {};

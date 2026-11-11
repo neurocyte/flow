@@ -97,6 +97,7 @@ logger: log.Logger,
 drag_source: ?Widget = null,
 drag_button: MouseEvent.Button = .none,
 drag_press: ?struct { coord: MouseEvent.Coord, button: MouseEvent.Button } = null,
+scroll: MouseEvent.Scroll.Accumulator = .init,
 dark_theme: Widget.Theme,
 light_theme: Widget.Theme,
 idle_frame_count: usize = 0,
@@ -1181,8 +1182,11 @@ fn copy_input_event(buf: []u8, args: tp.message) error{InputEventTooLarge}!tp.me
 
 fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
-    self.update_mouse_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
+    var scroll: MouseEvent.Scroll.Input = undefined;
+    if (m.match(.{ "scroll_input", tp.extract(&scroll) }) catch false)
+        return self.dispatch_scroll(scroll);
+    self.update_mouse_idle_timer();
     const from = tp.self_pid();
     if (!(m.match(.{ MouseEvent.Type.motion, tp.more }) catch false))
         self.unrendered_input_events_count += 1;
@@ -1198,6 +1202,28 @@ fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8
         self.drag_press = null;
     };
     self.maybe_reset_drag_source(btn);
+}
+
+fn dispatch_scroll(self: *Self, scroll: MouseEvent.Scroll.Input) void {
+    const pixels_per_step: f32 = @floatFromInt(self.config_.scroll_pixels_per_step);
+    const amt = self.scroll.scroll(scroll.unit, scroll.delta, pixels_per_step);
+    if (scroll.mods.ctrl and scroll.delta.y != 0) {
+        if (comptime @hasDecl(renderer, "adjust_fontsize"))
+            if (amt.step.y != 0) self.rdr_.adjust_fontsize(@floatFromInt(-amt.step.y));
+        return;
+    }
+    if (amt.step.x == 0 and amt.step.y == 0 and amt.delta.x == 0 and amt.delta.y == 0 and scroll.phase != .stop)
+        return;
+    const event: MouseEvent.Scroll = .{
+        .coord = scroll.coord,
+        .mods = scroll.mods,
+        .source = scroll.source,
+        .phase = scroll.phase,
+        .amount = amt,
+    };
+    var buf: [128]u8 = undefined;
+    const msg = tp.message.fmtbuf(&buf, .{ "scroll", event }) catch return;
+    dispatch_mouse(self, event.coord, msg.buf);
 }
 
 fn is_drag_button(btn: MouseEvent.Button) bool {
@@ -1594,15 +1620,35 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn send_mouse(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     if (try self.update_hover(coord)) |w|
-        _ = try w.send(from, m);
+        try send_mouse_to(w, from, m);
 }
 
 fn send_mouse_drag(self: *Self, coord: MouseEvent.Coord, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = try self.update_hover(coord);
     if (self.drag_source) |w| if (self.is_live_widget_ptr(w)) {
-        _ = try w.send(from, m);
+        try send_mouse_to(w, from, m);
     };
+}
+
+fn send_mouse_to(w: Widget, from: tp.pid_ref, m: tp.message) tp.result {
+    if (try w.send(from, m)) return;
+    var event: MouseEvent.Scroll = undefined;
+    if (try m.match(.{ "scroll", tp.extract(&event) }))
+        try send_wheel_presses(w, from, event);
+}
+
+fn send_wheel_presses(w: Widget, from: tp.pid_ref, event: MouseEvent.Scroll) tp.result {
+    const axes = [_]struct { presses: i32, back: MouseEvent.Button, forward: MouseEvent.Button }{
+        .{ .presses = event.amount.step.y, .back = .wheel_up, .forward = .wheel_down },
+        .{ .presses = event.amount.step.x, .back = .wheel_right, .forward = .wheel_left },
+    };
+    var buf: [64]u8 = undefined;
+    for (axes) |axis| {
+        const button = if (axis.presses < 0) axis.back else axis.forward;
+        const press = tp.message.fmtbuf(&buf, .{ MouseEvent.Type.press, button, event.coord, event.mods }) catch return;
+        for (0..@abs(axis.presses)) |_| _ = try w.send(from, press);
+    }
 }
 
 fn update_hover(self: *Self, coord: MouseEvent.Coord) !?Widget {

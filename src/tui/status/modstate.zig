@@ -74,9 +74,15 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var mods: input.Mods = 0;
     var mouse_type: MouseEvent.Type = .motion;
     var mouse_mods: MouseEvent.Modifiers = .{};
+    var scroll: MouseEvent.Scroll = undefined;
     if (try m.match(.{ "I", tp.any, tp.any, tp.any, tp.any, tp.extract(&mods), tp.more })) {
         self.set_mods(@bitCast(mods));
-    } else if (try m.match(.{ tp.extract(&mouse_type), tp.any, tp.any, tp.extract(&mouse_mods) })) {
+    } else if (try m.match(.{ tp.extract(&mouse_type), tp.any, tp.any, tp.extract(&mouse_mods) }) or
+        try m.match(.{ "scroll", tp.extract(&scroll) }) and blk: {
+            mouse_mods = scroll.mods;
+            break :blk true;
+        })
+    {
         var new = self.mods;
         new.shift = mouse_mods.shift;
         new.alt = mouse_mods.alt;

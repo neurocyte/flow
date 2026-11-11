@@ -85,9 +85,127 @@ pub const Event = struct {
     Modifiers,
 };
 
+pub const Scroll = struct {
+    coord: Coord,
+    mods: Modifiers = .{},
+    source: Source = .unknown,
+    phase: Phase = .move,
+    amount: Amount = .{},
+
+    pub const Amount = struct {
+        step: Coord = .zero,
+        delta: Coord = .zero,
+
+        pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
+            try cbor.writeValue(writer, .{ self.step, self.delta });
+        }
+        pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
+            return cbor.matchValue(iter, .{ cbor.extract(&self.step), cbor.extract(&self.delta) });
+        }
+    };
+
+    pub const Source = enum { unknown, wheel, finger, continuous };
+
+    pub const Phase = enum {
+        move,
+        /// fingers left touchpad
+        stop,
+        /// motion (from OS) after a stop
+        momentum,
+    };
+
+    pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
+        try cbor.writeValue(writer, .{ self.coord, self.mods, self.source, self.phase, self.amount });
+    }
+
+    pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
+        return cbor.matchValue(iter, .{
+            cbor.extract(&self.coord),
+            cbor.extract(&self.mods),
+            cbor.extract(&self.source),
+            cbor.extract(&self.phase),
+            cbor.extract(&self.amount),
+        });
+    }
+
+    pub const Input = struct {
+        coord: Coord,
+        mods: Modifiers = .{},
+        source: Source = .unknown,
+        phase: Phase = .move,
+        unit: Unit,
+        delta: CoordF32 = .zero,
+
+        pub const Unit = enum { steps, pixels };
+
+        pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
+            try cbor.writeValue(writer, .{
+                self.coord, self.mods, self.source,
+                self.phase, self.unit, self.delta,
+            });
+        }
+
+        pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
+            return cbor.matchValue(iter, .{
+                cbor.extract(&self.coord), cbor.extract(&self.mods), cbor.extract(&self.source),
+                cbor.extract(&self.phase), cbor.extract(&self.unit), cbor.extract(&self.delta),
+            });
+        }
+    };
+
+    pub const Accumulator = struct {
+        x: Axis,
+        y: Axis,
+
+        pub const init: @This() = .{ .x = .{}, .y = .{} };
+
+        pub fn scroll(self: *@This(), unit: Input.Unit, delta: CoordF32, pixels_per_step: f32) Amount {
+            const x = self.x.scroll(unit, delta.x, pixels_per_step);
+            const y = self.y.scroll(unit, delta.y, pixels_per_step);
+            return .{
+                .step = .{ .x = x.step, .y = y.step },
+                .delta = .{ .x = x.delta, .y = y.delta },
+            };
+        }
+
+        const Axis = struct {
+            step_rest: f32 = 0,
+            delta_rest: f32 = 0,
+            negative: bool = false,
+
+            const AxisResult = struct { step: i32 = 0, delta: i32 = 0 };
+
+            fn scroll(self: *@This(), unit: Input.Unit, delta: f32, pixels_per_step: f32) AxisResult {
+                return switch (unit) {
+                    .steps => self.add(delta, delta * @max(1, pixels_per_step)),
+                    .pixels => self.add(delta / @max(1, pixels_per_step), delta),
+                };
+            }
+
+            fn add(self: *@This(), steps: f32, delta: f32) AxisResult {
+                if (delta == 0) return .{};
+                const negative = delta < 0;
+                if (negative != self.negative) self.* = .{ .negative = negative };
+
+                self.step_rest += steps;
+                const step = @trunc(self.step_rest);
+                self.step_rest -= step;
+
+                self.delta_rest += delta;
+                const whole = @trunc(self.delta_rest);
+                self.delta_rest -= whole;
+
+                return .{ .step = @intFromFloat(step), .delta = @intFromFloat(whole) };
+            }
+        };
+    };
+};
+
 pub const Coord = struct {
     x: i32,
     y: i32,
+
+    pub const zero: @This() = .{ .x = 0, .y = 0 };
 
     pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
         try cbor.writeValue(writer, .{ self.x, self.y });
@@ -120,6 +238,21 @@ pub const Coord = struct {
             cell.xoffset = 0;
         }
         return cell;
+    }
+};
+
+pub const CoordF32 = struct {
+    x: f32,
+    y: f32,
+
+    pub const zero: @This() = .{ .x = 0, .y = 0 };
+
+    pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
+        try cbor.writeValue(writer, .{ self.x, self.y });
+    }
+
+    pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
+        return cbor.matchValue(iter, .{ cbor.extract(&self.x), cbor.extract(&self.y) });
     }
 };
 
@@ -181,6 +314,89 @@ test "cbor round-trip preserves every field" {
         try expectEqual(ev.@"2".y, decoded.@"2".y);
         try expectEqual(ev.@"3", decoded.@"3");
     }
+}
+
+test "scroll cbor round-trip preserves every field" {
+    const ev: Scroll = .{
+        .coord = .{ .x = -3, .y = 40 },
+        .mods = .{ .ctrl = true },
+        .source = .finger,
+        .phase = .momentum,
+        .amount = .{ .step = .{ .x = -1, .y = 2 }, .delta = .{ .x = -30, .y = 125 } },
+    };
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try cbor.writeValue(&writer, .{ "scroll", ev });
+    var decoded: Scroll = undefined;
+    try expect(try cbor.match(writer.buffered(), .{ "scroll", cbor.extract(&decoded) }));
+    try std.testing.expectEqualDeep(ev, decoded);
+}
+
+test "scroll input cbor round-trip preserves every field" {
+    const ev: Scroll.Input = .{
+        .coord = .{ .x = 7, .y = 9 },
+        .mods = .{ .shift = true },
+        .source = .wheel,
+        .phase = .stop,
+        .unit = .pixels,
+        .delta = .{ .x = -0.5, .y = 12.25 },
+    };
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try cbor.writeValue(&writer, .{ "scroll_input", ev });
+    var decoded: Scroll.Input = undefined;
+    try expect(try cbor.match(writer.buffered(), .{ "scroll_input", cbor.extract(&decoded) }));
+    try std.testing.expectEqualDeep(ev, decoded);
+}
+
+fn amount(step_x: i32, step_y: i32, delta_x: i32, delta_y: i32) Scroll.Amount {
+    return .{ .step = .{ .x = step_x, .y = step_y }, .delta = .{ .x = delta_x, .y = delta_y } };
+}
+
+test "accumulator: whole steps give one step and pixels_per_step pixels each" {
+    var acc: Scroll.Accumulator = .init;
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 60), acc.scroll(.steps, .{ .x = 0, .y = 1 }, 60));
+    try std.testing.expectEqualDeep(amount(-2, 0, -120, 0), acc.scroll(.steps, .{ .x = -2, .y = 0 }, 60));
+}
+
+test "accumulator: fractional steps add up to a step" {
+    var acc: Scroll.Accumulator = .init;
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 7), acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60));
+    for (0..6) |_| _ = acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60);
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 8), acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60));
+}
+
+test "accumulator: pixels give a step per pixels_per_step" {
+    var acc: Scroll.Accumulator = .init;
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60));
+}
+
+test "accumulator: fractional pixels add up to a pixel" {
+    var acc: Scroll.Accumulator = .init;
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 0), acc.scroll(.pixels, .{ .x = 0, .y = 0.5 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 1), acc.scroll(.pixels, .{ .x = 0, .y = 0.5 }, 60));
+}
+
+test "accumulator: a direction change drops the rest" {
+    var acc: Scroll.Accumulator = .init;
+    _ = acc.scroll(.pixels, .{ .x = 0, .y = 59.5 }, 60);
+    try std.testing.expectEqualDeep(amount(0, 0, 0, -1), acc.scroll(.pixels, .{ .x = 0, .y = -1 }, 60));
+    try std.testing.expectEqualDeep(amount(0, -1, 0, -59), acc.scroll(.pixels, .{ .x = 0, .y = -59 }, 60));
+}
+
+test "accumulator: the axes accumulate separately" {
+    var acc: Scroll.Accumulator = .init;
+    try std.testing.expectEqualDeep(amount(0, 0, 30, 30), acc.scroll(.pixels, .{ .x = 30, .y = 30 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 1, -1, 30), acc.scroll(.pixels, .{ .x = -1, .y = 30 }, 60));
+}
+
+test "accumulator: a zero delta keeps the rest" {
+    var acc: Scroll.Accumulator = .init;
+    _ = acc.scroll(.steps, .{ .x = 0, .y = 0.5 }, 60);
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 0), acc.scroll(.pixels, .zero, 60));
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 30), acc.scroll(.steps, .{ .x = 0, .y = 0.5 }, 60));
 }
 
 test "has matches the configured modifier and ignores the others" {

@@ -583,6 +583,14 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     }
 
     {
+        var scroll: MouseEvent.Scroll.Input = undefined;
+        if (try cbor.match(msg, .{ cbor.any, "scroll_input", cbor.extract(&scroll) })) {
+            if (self.dispatch_mouse) |f| f(self.handler_ctx, scroll.coord, try self.fmtmsg(.{ "scroll_input", scroll }));
+            return;
+        }
+    }
+
+    {
         var hwnd: usize = undefined;
         if (try cbor.match(msg, .{
             cbor.any,

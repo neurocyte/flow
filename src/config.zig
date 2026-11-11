@@ -106,6 +106,7 @@ scrollbar_auto_hide: bool = true,
 scrollbar_overlay_hide_delay: usize = 1000, //milliseconds
 scroll_step_vertical: usize = 3,
 scroll_step_horizontal: usize = 5,
+scroll_pixels_per_step: usize = 40,
 scroll_cursor_min_border_distance: usize = 5,
 
 mouse_click_jump: MouseModifier = if (macos) .super else .ctrl,
