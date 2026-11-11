@@ -166,9 +166,9 @@ pub const Scroll = struct {
 
         pub const init: @This() = .{ .x = .{}, .y = .{} };
 
-        pub fn scroll(self: *@This(), unit: Input.Unit, delta: CoordF32, pixels_per_step: f32) Amount {
-            const x = self.x.scroll(unit, delta.x, pixels_per_step);
-            const y = self.y.scroll(unit, delta.y, pixels_per_step);
+        pub fn scroll(self: *@This(), unit: Input.Unit, delta: CoordF32, pixels_per_step: f32, delta_multiplier: f32) Amount {
+            const x = self.x.scroll(unit, delta.x, pixels_per_step, delta_multiplier);
+            const y = self.y.scroll(unit, delta.y, pixels_per_step, delta_multiplier);
             return .{
                 .step = .{ .x = x.step, .y = y.step },
                 .delta = .{ .x = x.delta, .y = y.delta },
@@ -182,10 +182,10 @@ pub const Scroll = struct {
 
             const AxisResult = struct { step: i32 = 0, delta: i32 = 0 };
 
-            fn scroll(self: *@This(), unit: Input.Unit, delta: f32, pixels_per_step: f32) AxisResult {
+            fn scroll(self: *@This(), unit: Input.Unit, delta: f32, pixels_per_step: f32, delta_multiplier: f32) AxisResult {
                 return switch (unit) {
                     .steps => self.add(delta, delta * @max(1, pixels_per_step)),
-                    .pixels => self.add(delta / @max(1, pixels_per_step), delta),
+                    .pixels => self.add(delta / @max(1, pixels_per_step), delta * delta_multiplier),
                 };
             }
 
@@ -364,48 +364,56 @@ fn amount(step_x: i32, step_y: i32, delta_x: i32, delta_y: i32) Scroll.Amount {
 
 test "accumulator: whole steps give one step and pixels_per_step pixels each" {
     var acc: Scroll.Accumulator = .init;
-    try std.testing.expectEqualDeep(amount(0, 1, 0, 60), acc.scroll(.steps, .{ .x = 0, .y = 1 }, 60));
-    try std.testing.expectEqualDeep(amount(-2, 0, -120, 0), acc.scroll(.steps, .{ .x = -2, .y = 0 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 60), acc.scroll(.steps, .{ .x = 0, .y = 1 }, 60, 1));
+    try std.testing.expectEqualDeep(amount(-2, 0, -120, 0), acc.scroll(.steps, .{ .x = -2, .y = 0 }, 60, 1));
 }
 
 test "accumulator: fractional steps add up to a step" {
     var acc: Scroll.Accumulator = .init;
-    try std.testing.expectEqualDeep(amount(0, 0, 0, 7), acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60));
-    for (0..6) |_| _ = acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60);
-    try std.testing.expectEqualDeep(amount(0, 1, 0, 8), acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 7), acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60, 1));
+    for (0..6) |_| _ = acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60, 1);
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 8), acc.scroll(.steps, .{ .x = 0, .y = 0.125 }, 60, 1));
 }
 
 test "accumulator: pixels give a step per pixels_per_step" {
     var acc: Scroll.Accumulator = .init;
-    try std.testing.expectEqualDeep(amount(0, 0, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60));
-    try std.testing.expectEqualDeep(amount(0, 0, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60));
-    try std.testing.expectEqualDeep(amount(0, 1, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60, 1));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60, 1));
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 25), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60, 1));
+}
+
+test "accumulator: the multiplier scales pixel deltas but not steps" {
+    var acc: Scroll.Accumulator = .init;
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 50), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60, 2));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 50), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60, 2));
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 50), acc.scroll(.pixels, .{ .x = 0, .y = 25 }, 60, 2));
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 60), acc.scroll(.steps, .{ .x = 0, .y = 1 }, 60, 2));
 }
 
 test "accumulator: fractional pixels add up to a pixel" {
     var acc: Scroll.Accumulator = .init;
-    try std.testing.expectEqualDeep(amount(0, 0, 0, 0), acc.scroll(.pixels, .{ .x = 0, .y = 0.5 }, 60));
-    try std.testing.expectEqualDeep(amount(0, 0, 0, 1), acc.scroll(.pixels, .{ .x = 0, .y = 0.5 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 0), acc.scroll(.pixels, .{ .x = 0, .y = 0.5 }, 60, 1));
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 1), acc.scroll(.pixels, .{ .x = 0, .y = 0.5 }, 60, 1));
 }
 
 test "accumulator: a direction change drops the rest" {
     var acc: Scroll.Accumulator = .init;
-    _ = acc.scroll(.pixels, .{ .x = 0, .y = 59.5 }, 60);
-    try std.testing.expectEqualDeep(amount(0, 0, 0, -1), acc.scroll(.pixels, .{ .x = 0, .y = -1 }, 60));
-    try std.testing.expectEqualDeep(amount(0, -1, 0, -59), acc.scroll(.pixels, .{ .x = 0, .y = -59 }, 60));
+    _ = acc.scroll(.pixels, .{ .x = 0, .y = 59.5 }, 60, 1);
+    try std.testing.expectEqualDeep(amount(0, 0, 0, -1), acc.scroll(.pixels, .{ .x = 0, .y = -1 }, 60, 1));
+    try std.testing.expectEqualDeep(amount(0, -1, 0, -59), acc.scroll(.pixels, .{ .x = 0, .y = -59 }, 60, 1));
 }
 
 test "accumulator: the axes accumulate separately" {
     var acc: Scroll.Accumulator = .init;
-    try std.testing.expectEqualDeep(amount(0, 0, 30, 30), acc.scroll(.pixels, .{ .x = 30, .y = 30 }, 60));
-    try std.testing.expectEqualDeep(amount(0, 1, -1, 30), acc.scroll(.pixels, .{ .x = -1, .y = 30 }, 60));
+    try std.testing.expectEqualDeep(amount(0, 0, 30, 30), acc.scroll(.pixels, .{ .x = 30, .y = 30 }, 60, 1));
+    try std.testing.expectEqualDeep(amount(0, 1, -1, 30), acc.scroll(.pixels, .{ .x = -1, .y = 30 }, 60, 1));
 }
 
 test "accumulator: a zero delta keeps the rest" {
     var acc: Scroll.Accumulator = .init;
-    _ = acc.scroll(.steps, .{ .x = 0, .y = 0.5 }, 60);
-    try std.testing.expectEqualDeep(amount(0, 0, 0, 0), acc.scroll(.pixels, .zero, 60));
-    try std.testing.expectEqualDeep(amount(0, 1, 0, 30), acc.scroll(.steps, .{ .x = 0, .y = 0.5 }, 60));
+    _ = acc.scroll(.steps, .{ .x = 0, .y = 0.5 }, 60, 1);
+    try std.testing.expectEqualDeep(amount(0, 0, 0, 0), acc.scroll(.pixels, .zero, 60, 1));
+    try std.testing.expectEqualDeep(amount(0, 1, 0, 30), acc.scroll(.steps, .{ .x = 0, .y = 0.5 }, 60, 1));
 }
 
 test "has matches the configured modifier and ignores the others" {
