@@ -9,6 +9,7 @@ const cbor = @import("cbor");
 const root = @import("soft_root").root;
 
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
 const style = @import("renderer").style;
 const styles = @import("renderer").styles;
 const MouseEvent = @import("MouseEvent");
@@ -20,6 +21,7 @@ const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const Menu = @import("Menu.zig");
 const ed = @import("editor.zig");
+const ScrollLayer = @import("ScrollLayer.zig");
 const DigitStyle = @import("config").DigitStyle;
 const LineNumberMode = @import("config").LineNumberMode;
 
@@ -38,6 +40,7 @@ highlight: bool,
 symbols: bool,
 width: usize,
 editor: *ed.Editor,
+scroll_layer: ScrollLayer = undefined,
 editor_widget: ?Widget = null,
 indicator_hover: bool = false,
 change_hover: ?Diff = null,
@@ -45,7 +48,7 @@ differ: diff.AsyncDiffer,
 
 const Self = @This();
 
-pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor: *ed.Editor) !Widget {
+pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor: *ed.Editor, layer_id: *?Layer.Id) !Widget {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
@@ -60,6 +63,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .editor = editor,
         .differ = try diff.create(),
     };
+    self.scroll_layer = try ScrollLayer.init(allocator, layer_id);
     self.update_width();
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));
     try event_source.subscribe(EventHandler.bind(self, handle_event));
@@ -73,6 +77,7 @@ pub fn widget(self: *Self) Widget {
 pub fn deinit(self: *Self, allocator: Allocator) void {
     self.diff_symbols_clear();
     tui.message_filters().remove_ptr(self);
+    self.scroll_layer.deinit();
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -187,6 +192,10 @@ fn view_rows(self: *const Self) u32 {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = "gutter render" });
     defer frame.deinit();
+    const widget_plane = self.plane;
+    defer self.plane = widget_plane;
+    self.scroll_layer.prepare(&widget_plane, widget_plane.dim_y() + @intFromBool(self.editor.scroll_offset() > 0), widget_plane.dim_x());
+    self.plane = self.scroll_layer.plane;
     self.plane.set_base_style(theme.editor);
     self.plane.erase();
     self.plane.home();
@@ -455,7 +464,7 @@ fn focus_editor(self: *Self) void {
 }
 
 fn editor_row(self: *Self, coord: MouseEvent.Coord) i32 {
-    return coord.to_cell(self.plane.mouse_geometry()).row;
+    return coord.to_cell(self.scroll_layer.geometry(&self.plane)).row;
 }
 
 fn primary_click(self: *Self, coord: MouseEvent.Coord) error{Exit}!bool {
@@ -492,7 +501,7 @@ const menu: Menu = .{ .items = &.{
 } };
 
 fn is_code_action_indicator(self: *const Self, coord: MouseEvent.Coord) bool {
-    const cell = coord.to_cell(self.plane.mouse_geometry());
+    const cell = coord.to_cell(self.scroll_layer.geometry(&self.plane));
     const y = self.code_action_indicator_y() orelse return false;
     return cell.col == 0 and cell.row == y;
 }
@@ -500,9 +509,13 @@ fn is_code_action_indicator(self: *const Self, coord: MouseEvent.Coord) bool {
 /// the change whose diff symbol is under the mouse
 fn change_at(self: *const Self, coord: MouseEvent.Coord) ?Diff {
     if (!tui.config().gutter_diffs) return null;
-    const cell = coord.to_cell(self.plane.mouse_geometry());
+    const cell = coord.to_cell(self.scroll_layer.geometry(&self.plane));
     if (cell.row < 0 or cell.col < 0 or cell.col != @as(i32, self.plane.dim_x()) - 1) return null;
     return self.editor.get_change_at(self.view_top + @as(usize, @intCast(cell.row)));
+}
+
+pub fn submit_content(self: *Self, parent: ?Layer.Handle) void {
+    self.scroll_layer.submit(&self.plane, .{ .row = 0, .col = 0, .yoffset = self.editor.scroll_offset() }, .{ 0, self.editor.view_px[1] }, .{ .parent = parent });
 }
 
 fn is_same_change(a_: ?Diff, b: Diff) bool {

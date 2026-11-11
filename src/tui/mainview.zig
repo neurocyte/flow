@@ -3613,6 +3613,8 @@ fn get_view_layer_ids(self: *Self, view: usize) ed.LayerIds {
         self.view_layer_ids.append(self.allocator, .{
             .box = Layer.next_id(),
             .trailing = Layer.next_id(),
+            .text = Layer.next_id(),
+            .gutter = Layer.next_id(),
         }) catch return .{};
     return self.view_layer_ids.items[view];
 }

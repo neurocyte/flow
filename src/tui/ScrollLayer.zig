@@ -85,6 +85,11 @@ pub fn submit(self: *Self, view: *const Plane, pos: MouseEvent.Cell, view_px: st
     });
 }
 
+pub fn geometry(self: *const Self, view: *const Plane) MouseEvent.Geometry {
+    if (!use_layer) return view.mouse_geometry();
+    return self.plane.mouse_geometry();
+}
+
 pub fn over_level(self: *const Self, view: *const Plane) Layer.Level {
     if (!use_layer) return if (view.layer) |l| l.z_index else .root;
     return @fromBackingInt(@intCast(@backingInt(self.layer.z_index) + 1));

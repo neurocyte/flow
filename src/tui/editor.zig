@@ -32,6 +32,7 @@ const Diff = @import("diff").LineDiff;
 
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
+const ScrollLayer = @import("ScrollLayer.zig");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const Menu = @import("Menu.zig");
@@ -425,6 +426,11 @@ pub const Editor = struct {
     view: View = View{},
     handlers: EventHandler.List,
     scroll_anim: ScrollAnimation = .{},
+    scroll_layer: ?ScrollLayer = null,
+    scroll_px_rest: f32 = 0,
+    hscroll_anim: ScrollAnimation = .{},
+    hscroll_px_rest: f32 = 0,
+    view_px: struct { usize, usize } = .{ 0, 0 },
 
     render_whitespace: WhitespaceMode,
     indent_size: usize,
@@ -809,6 +815,7 @@ pub const Editor = struct {
     }
 
     fn deinit(self: *Self) void {
+        if (self.scroll_layer) |*sl| sl.deinit();
         var meta: std.Io.Writer.Allocating = .init(self.allocator);
         defer meta.deinit();
         if (self.buffer) |_| self.write_state(&meta.writer) catch {};
@@ -878,11 +885,107 @@ pub const Editor = struct {
         return self.plane.dim_y();
     }
 
+    fn draw_cols(self: *const Self) usize {
+        return self.plane.dim_x();
+    }
+
     pub fn handle_resize(self: *Self, pos: Widget.Box) void {
         self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
         self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
         self.view.rows = pos.full_rows(self.plane.cell_y());
         self.view.cols = pos.w;
+        const cw: usize = @intCast(@max(1, self.plane.cell_x()));
+        const ch: usize = @intCast(@max(1, self.plane.cell_y()));
+        self.view_px = if (pos.frame.is_set())
+            .{ @intCast(@max(0, pos.frame.w)), @intCast(@max(0, pos.frame.h)) }
+        else
+            .{ pos.w * cw, pos.h * ch };
+    }
+
+    pub fn content_geometry(self: *const Self) MouseEvent.Geometry {
+        if (self.scroll_layer) |*sl| return sl.geometry(&self.plane);
+        return self.plane.mouse_geometry();
+    }
+
+    pub fn scroll_offset(self: *const Self) u16 {
+        return self.scroll_anim.pos.offset;
+    }
+
+    pub fn submit_content(self: *Self, parent: ?Layer.Handle) void {
+        const sl = if (self.scroll_layer) |*sl| sl else return;
+        sl.submit(&self.plane, .{ .row = 0, .col = 0, .xoffset = self.hscroll_anim.pos.offset, .yoffset = self.scroll_offset() }, self.view_px, .{ .parent = parent });
+    }
+
+    fn scroll_cell_h(self: *const Self) u16 {
+        return if (self.scroll_layer != null) tui.scroll_cell_size().h else 1;
+    }
+
+    fn scroll_cell_w(self: *const Self) u16 {
+        return if (self.scroll_layer != null) tui.scroll_cell_size().w else 1;
+    }
+
+    fn sync_scroll_anims(self: *Self) void {
+        if (!self.scroll_anim.animating() and self.scroll_anim.pos.cell != self.view.row)
+            self.scroll_anim.jump_to(.at(self.view.row));
+        if (!self.hscroll_anim.animating() and self.hscroll_anim.pos.cell != self.view.col)
+            self.hscroll_anim.jump_to(.at(self.view.col));
+    }
+
+    fn max_view_col(self: *const Self) usize {
+        const buffer = self.buffer orelse return 0;
+        return buffer.longest_line_len -| self.view.cols + 1;
+    }
+
+    pub fn scroll_by_px_x(self: *Self, delta: f32) void {
+        self.sync_scroll_anims();
+        const cell_w = self.scroll_cell_w();
+        const total = delta + self.hscroll_px_rest;
+        const whole = @round(total);
+        self.hscroll_px_rest = total - whole;
+        const max = ScrollAnimation.Pos.at(self.max_view_col()).to_px(cell_w);
+        const px = std.math.clamp(self.hscroll_anim.pos.to_px(cell_w) + @as(i64, @intFromFloat(whole)), 0, max);
+        self.hscroll_anim.jump_to(ScrollAnimation.Pos.from_px(px, cell_w));
+        self.view.col = self.hscroll_anim.pos.cell;
+        tui.need_render(@src());
+    }
+
+    fn glide_cols(self: *Self, direction: enum { left, right }, n: usize) void {
+        self.sync_scroll_anims();
+        var dest = self.view;
+        dest.col = self.hscroll_anim.dest().cell;
+        switch (direction) {
+            .left => dest.move_left(n) catch {},
+            .right => if (self.buffer) |buffer| dest.move_right(buffer, n) catch {},
+        }
+        self.hscroll_anim.glide_to(.at(dest.col), tui.scroll_animation_timing());
+        tui.need_render(@src());
+    }
+
+    fn max_view_row(self: *Self) usize {
+        const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
+        const root = self.buf_root() catch return 0;
+        return if (root.lines() <= scroll_cursor_min_border_distance) 0 else root.lines() - scroll_cursor_min_border_distance;
+    }
+
+    fn jump_to_px(self: *Self, px: i64) void {
+        self.sync_scroll_anims();
+        const cell_h = self.scroll_cell_h();
+        const max = ScrollAnimation.Pos.at(self.max_view_row()).to_px(cell_h);
+        self.scroll_anim.jump_to(ScrollAnimation.Pos.from_px(std.math.clamp(px, 0, max), cell_h));
+        self.view.row = self.scroll_anim.pos.cell;
+        tui.need_render(@src());
+    }
+
+    pub fn scroll_by_px(self: *Self, delta: f32) void {
+        const total = delta + self.scroll_px_rest;
+        const whole = @round(total);
+        self.scroll_px_rest = total - whole;
+        self.jump_to_px(self.scroll_anim.pos.to_px(self.scroll_cell_h()) + @as(i64, @intFromFloat(whole)));
+    }
+
+    pub fn scroll_to_fraction(self: *Self, fraction: f64) void {
+        const max: f64 = @floatFromInt(ScrollAnimation.Pos.at(self.max_view_row()).to_px(self.scroll_cell_h()));
+        self.jump_to_px(@intFromFloat(@round(std.math.clamp(fraction, 0, 1) * max)));
     }
 
     fn open(self: *Self, file_path: []const u8, now: std.Io.Timestamp) !void {
@@ -1466,6 +1569,12 @@ pub const Editor = struct {
     pub fn render(self: *Self, theme: *const Widget.Theme, focused: bool, now: std.Io.Timestamp) bool {
         const frame = tracy.initZone(@src(), .{ .name = "editor render" });
         defer frame.deinit();
+        const widget_plane = self.plane;
+        defer self.plane = widget_plane;
+        if (self.scroll_layer) |*sl| {
+            sl.prepare(&widget_plane, widget_plane.dim_y() + @intFromBool(self.scroll_offset() > 0), widget_plane.dim_x() + @intFromBool(self.hscroll_anim.pos.offset > 0));
+            self.plane = sl.plane;
+        }
         self.update_syntax(now) catch |e| switch (e) {
             error.Stop => {},
             else => self.logger.err("update_syntax", e),
@@ -1484,7 +1593,7 @@ pub const Editor = struct {
         self.update_file_link_highlight();
         self.render_screen(theme, cache, focused, now);
         const info_box_more = if (self.info_box_layer) |layer| layer.widget().render(theme) else false;
-        return self.scroll_anim.animating() or self.syntax_refresh_full or info_box_more;
+        return self.scroll_anim.animating() or self.hscroll_anim.animating() or self.syntax_refresh_full or info_box_more;
     }
 
     const CellType = enum {
@@ -1539,7 +1648,7 @@ pub const Editor = struct {
                 chunk.len = leaf.buf.len;
 
                 while (chunk.len > 0) {
-                    if (ctx.buf_col >= view.col + view.cols)
+                    if (ctx.buf_col >= view.col + self_.draw_cols())
                         break;
                     var cell = n.cell_init();
                     const c = &cell;
@@ -1583,7 +1692,7 @@ pub const Editor = struct {
                         n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x));
                     }
                     while (advance > 0) : (advance -= 1) {
-                        if (ctx.x >= view.cols) break;
+                        if (ctx.x >= self_.draw_cols()) break;
                         var cell_ = n.cell_init();
                         const c_ = &cell_;
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
@@ -1639,7 +1748,7 @@ pub const Editor = struct {
             .buf_row = self.view.row,
             .theme = theme,
             .hl_row = hl_row,
-            .cell_map = CellMap.init(self.allocator, self.draw_rows(), self.view.cols) catch @panic("OOM"),
+            .cell_map = CellMap.init(self.allocator, self.draw_rows(), self.draw_cols()) catch @panic("OOM"),
         };
         defer ctx_.cell_map.deinit(self.allocator);
         const root = self.buf_root() catch return;
@@ -1739,7 +1848,7 @@ pub const Editor = struct {
         const pos = self.screen_cursor(&label.pos) orelse return;
         for (label.text, 0..) |c, i| {
             const x = pos.col + i;
-            if (x >= self.view.cols) break;
+            if (x >= self.draw_cols()) break;
             self.plane.cursor_move_yx(@intCast(pos.row), @intCast(x));
             var cell = self.plane.cell_init();
             cell.set_style(if (i < typed) typed_style else style);
@@ -1755,8 +1864,8 @@ pub const Editor = struct {
         const alpha: u8 = tui.config().highlight_columns_alpha;
         const offset = self.view.col;
         for (hl_cols) |hl_col| {
-            if (hl_col > (self.view.cols + offset)) continue;
-            for (0..self.draw_rows()) |row| for (0..self.view.cols) |col| {
+            if (hl_col > (self.draw_cols() + offset)) continue;
+            for (0..self.draw_rows()) |row| for (0..self.draw_cols()) |col| {
                 const view_col = col + offset;
                 if (hl_col <= view_col) {
                     self.plane.cursor_move_yx(@intCast(row), @intCast(col));
@@ -1772,7 +1881,7 @@ pub const Editor = struct {
     fn render_line_highlight(self: *Self, pc_row: usize, theme: *const Widget.Theme) !void {
         if (!self.view.is_row_visible(pc_row)) return;
         const row = pc_row - self.view.row;
-        for (0..self.view.cols) |i| {
+        for (0..self.draw_cols()) |i| {
             self.plane.cursor_move_yx(@intCast(row), @intCast(i));
             var cell = self.plane.cell_init();
             _ = self.plane.at_cursor_cell(&cell) catch return;
@@ -2073,14 +2182,14 @@ pub const Editor = struct {
 
                 for (sel.begin.row..sel.end.row + 1) |row| {
                     const begin_col = if (row == sel.begin.row) sel.begin.col else ctx.self.view.col;
-                    const end_col = if (row == sel.end.row) sel.end.col else ctx.self.view.col + ctx.self.view.cols;
+                    const end_col = if (row == sel.end.row) sel.end.col else ctx.self.view.col + ctx.self.draw_cols();
                     const y = row - ctx.self.view.row;
                     const x = begin_col - ctx.self.view.col;
                     const end_x = end_col - ctx.self.view.col;
                     if (y >= ctx.self.draw_rows()) continue;
                     for (x..end_x) |x_| {
-                        if (x_ >= ctx.self.view.cols) break;
-                        const i = y * ctx.self.view.cols + x_;
+                        if (x_ >= ctx.self.draw_cols()) break;
+                        const i = y * ctx.self.draw_cols() + x_;
                         if (rank < ctx.rank[i]) continue;
                         ctx.rank[i] = rank;
                         try ctx.render_cell(y, x_, style);
@@ -2091,7 +2200,7 @@ pub const Editor = struct {
                 for (sel.begin.row..sel.end.row + 1) |row| {
                     if (!ctx.self.view.is_row_visible(row)) continue;
                     const y = row - ctx.self.view.row;
-                    for (0..ctx.self.view.cols) |x| {
+                    for (0..ctx.self.draw_cols()) |x| {
                         ctx.self.plane.cursor_move_yx(@intCast(y), @intCast(x));
                         var cell = ctx.self.plane.cell_init();
                         _ = ctx.self.plane.at_cursor_cell(&cell) catch return;
@@ -2116,12 +2225,12 @@ pub const Editor = struct {
                 }
                 if (cursor.row >= row_off + ctx.self.draw_rows()) {
                     cursor.row = @intCast(row_off + ctx.self.draw_rows());
-                    cursor.col = col_off + ctx.self.view.cols;
+                    cursor.col = @intCast(col_off + ctx.self.draw_cols());
                 }
-                cursor.col = std.math.clamp(cursor.col, col_off, col_off + ctx.self.view.cols);
+                cursor.col = std.math.clamp(cursor.col, col_off, col_off + @as(u32, @intCast(ctx.self.draw_cols())));
             }
         };
-        const rank = try self.allocator.alloc(i64, self.draw_rows() * self.view.cols);
+        const rank = try self.allocator.alloc(i64, self.draw_rows() * self.draw_cols());
         @memset(rank, std.math.minInt(i64));
         var ctx: Ctx = .{
             .self = self,
@@ -2197,7 +2306,7 @@ pub const Editor = struct {
         for (begin_col..end_col) |col| {
             if (col < self.view.col) continue;
             const x = col - self.view.col;
-            if (x >= self.view.cols) break;
+            if (x >= self.draw_cols()) break;
             self.plane.cursor_move_yx(@intCast(y), @intCast(x));
             var cell = self.plane.cell_init();
             _ = self.plane.at_cursor_cell(&cell) catch return;
@@ -2810,6 +2919,7 @@ pub const Editor = struct {
         var dest: View = self.view;
         dest.clamp_offset(&self.get_primary().cursor, abs, offset);
         self.update_scroll_dest_abs(dest.row, now);
+        if (dest.col != self.view.col) self.hscroll_anim.jump_to(.at(dest.col));
         self.view.col = dest.col;
     }
 
@@ -3915,9 +4025,18 @@ pub const Editor = struct {
     }
 
     fn update_scroll(self: *Self) void {
-        if (!self.scroll_anim.animating()) return;
-        self.scroll_anim.update(root_mod.get_now().toMicroseconds(), 1);
-        self.view.row = self.scroll_anim.pos.cell;
+        self.sync_scroll_anims();
+        const now_us = root_mod.get_now().toMicroseconds();
+        const before = self.scroll_anim.pos;
+        const cell_h = self.scroll_cell_h();
+        self.scroll_anim.fit(cell_h);
+        if (self.scroll_anim.animating()) self.scroll_anim.update(now_us, cell_h);
+        if (!before.eql(self.scroll_anim.pos)) self.view.row = self.scroll_anim.pos.cell;
+        const hbefore = self.hscroll_anim.pos;
+        const cell_w = self.scroll_cell_w();
+        self.hscroll_anim.fit(cell_w);
+        if (self.hscroll_anim.animating()) self.hscroll_anim.update(now_us, cell_w);
+        if (!hbefore.eql(self.hscroll_anim.pos)) self.view.col = self.hscroll_anim.pos.cell;
     }
 
     pub fn update_scroll_dest_abs(self: *Self, dest: usize, now: std.Io.Timestamp) void {
@@ -5829,35 +5948,33 @@ pub const Editor = struct {
     pub fn scroll_left(self: *Self, ctx: Context) Result {
         var count: usize = 1;
         _ = ctx.args.match(.{tp.extract(&count)}) catch false;
-        self.view.move_left(count) catch {};
+        self.glide_cols(.left, count);
     }
     pub const scroll_left_meta: Meta = .{ .description = "Scroll left", .arguments = &.{.integer} };
 
     pub fn scroll_right(self: *Self, ctx: Context) Result {
         var count: usize = 1;
         _ = ctx.args.match(.{tp.extract(&count)}) catch false;
-        if (self.buffer) |buffer| self.view.move_right(buffer, count) catch {};
+        self.glide_cols(.right, count);
     }
     pub const scroll_right_meta: Meta = .{ .description = "Scroll right", .arguments = &.{.integer} };
 
     pub fn mouse_scroll_left(self: *Self, actions: tui.MouseActions) void {
         const scroll_step_horizontal = tui.config().scroll_step_horizontal;
         const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
-        self.view.move_left(if (actions.fast_scroll)
+        self.glide_cols(.left, if (actions.fast_scroll)
             scroll_step_horizontal_fast
         else
-            scroll_step_horizontal) catch {};
+            scroll_step_horizontal);
     }
 
     pub fn mouse_scroll_right(self: *Self, actions: tui.MouseActions) void {
         const scroll_step_horizontal = tui.config().scroll_step_horizontal;
         const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
-        if (self.buffer) |buffer| {
-            self.view.move_right(buffer, if (actions.fast_scroll)
-                scroll_step_horizontal_fast
-            else
-                scroll_step_horizontal) catch {};
-        }
+        self.glide_cols(.right, if (actions.fast_scroll)
+            scroll_step_horizontal_fast
+        else
+            scroll_step_horizontal);
     }
 
     pub fn move_scroll_page_up(self: *Self, ctx: Context) Result {
@@ -9453,6 +9570,8 @@ pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manag
 pub const LayerIds = struct {
     box: ?Layer.Id = null,
     trailing: ?Layer.Id = null,
+    text: ?Layer.Id = null,
+    gutter: ?Layer.Id = null,
 };
 
 /// apply text edits to a buffer that is not shown in any editor
@@ -9501,6 +9620,8 @@ fn log_edit_set_error(file_path: []const u8, edit_set: cbor.Raw, e: anyerror) vo
 pub const EditorWidget = struct {
     plane: Plane,
     parent: Plane,
+    layer_ids: LayerIds = .{},
+    gutter: ?*editor_gutter = null,
 
     editor: Editor,
     commands: Commands = undefined,
@@ -9532,14 +9653,29 @@ pub const EditorWidget = struct {
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
         try self.init(allocator, container.plane, buffer_manager, now);
+        self.layer_ids = layer_ids_;
+        self.editor.scroll_layer = try ScrollLayer.init(allocator, &self.layer_ids.text);
         self.commands.init_unregistered(&self.editor);
         const editorWidget = Widget.to(self);
-        try container.add(try editor_gutter.create(allocator, container.widget(), editorWidget, &self.editor));
+        const gutter = try editor_gutter.create(allocator, container.widget(), editorWidget, &self.editor, &self.layer_ids.gutter);
+        self.gutter = gutter.dynamic_cast(editor_gutter);
+        try container.add(gutter);
         try container.add(editorWidget);
-        if (tui.config().show_scrollbars)
-            try container.add(try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container)));
+        if (tui.config().show_scrollbars) {
+            const scrollbar = try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container));
+            if (scrollbar.dynamic_cast(scrollbar_v)) |sb| sb.precise = true;
+            try container.add(scrollbar);
+        }
         layer.set(container.widget());
+        layer.ctx = self;
+        layer.after_submit = after_layer_submit;
         return layer.widget();
+    }
+
+    fn after_layer_submit(ctx: ?*anyopaque, handle: Layer.Handle) void {
+        const self: *Self = @ptrCast(@alignCast(ctx orelse return));
+        if (self.gutter) |gutter| gutter.submit_content(handle);
+        self.editor.submit_content(handle);
     }
 
     fn init(self: *Self, allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager, now: std.Io.Timestamp) !void {
@@ -9610,11 +9746,13 @@ pub const EditorWidget = struct {
         var pos: u32 = 0;
         var bytes: []const u8 = "";
         var whitespace_mode: WhitespaceMode = .none;
+        var fraction: f64 = 0;
+        var scroll: MouseEvent.Scroll = undefined;
 
         const io = root_mod.get_io();
         const now = root_mod.get_now();
         if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
-            const cell = coord.to_cell(self.editor.plane.mouse_geometry());
+            const cell = coord.to_cell(self.editor.content_geometry());
             const hover_y, const hover_x = .{ cell.row, cell.col };
             const hover_active = tui.mouse_actions(mods).hover;
             const moved = hover_y != self.hover_y or hover_x != self.hover_x;
@@ -9646,6 +9784,10 @@ pub const EditorWidget = struct {
             }
         } else if (try m.match(.{ "scroll_to", tp.extract(&pos) })) {
             self.editor.scroll_to(pos, root_mod.get_now());
+        } else if (try m.match(.{ "scroll_to_fraction", tp.extract(&fraction) })) {
+            self.editor.scroll_to_fraction(fraction);
+        } else if (try m.match(.{ "scroll", tp.extract(&scroll) })) {
+            return self.receive_scroll(scroll);
         } else if (self.editor.is_filter_running() and try m.match(.{ "filter", "stdout", tp.extract(&bytes) })) {
             self.editor.filter_stdout(bytes) catch {};
         } else if (self.editor.is_filter_running() and try m.match(.{ "filter", "stderr", tp.extract(&bytes) })) {
@@ -9690,6 +9832,23 @@ pub const EditorWidget = struct {
             self.editor.render_whitespace = whitespace_mode;
         } else {
             return false;
+        }
+        return true;
+    }
+
+    fn receive_scroll(self: *Self, e: MouseEvent.Scroll) bool {
+        switch (e.source) {
+            .finger, .continuous => {},
+            .unknown, .wheel => return false,
+        }
+        if (self.editor.scroll_cell_h() <= 1) return false;
+        const scale = tui.scroll_delta_scale();
+        if (e.axis == .x) {
+            self.editor.scroll_by_px_x(@as(f32, @floatFromInt(e.amount.delta.x)) * scale);
+        } else if (tui.mouse_actions(e.mods).alt_scroll) {
+            self.editor.scroll_by_px_x(@as(f32, @floatFromInt(e.amount.delta.y)) * scale);
+        } else {
+            self.editor.scroll_by_px(@as(f32, @floatFromInt(e.amount.delta.y)) * scale);
         }
         return true;
     }
@@ -9755,7 +9914,7 @@ pub const EditorWidget = struct {
     }
 
     fn mouse_pos_abs(self: *Self, coord: MouseEvent.Coord) struct { c_int, c_int } {
-        const geom = self.editor.plane.mouse_geometry();
+        const geom = self.editor.content_geometry();
         const cell = if (tui.is_cursor_beam())
             coord.to_cell_nearest_x(geom)
         else
