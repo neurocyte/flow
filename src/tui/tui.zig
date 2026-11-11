@@ -1358,7 +1358,10 @@ fn dispatch_paste(self: *Self, event: PasteEvent) !void {
             paste_log.debug("dropped, mode {s} does not accept paste", .{if (self.input_mode_) |mode| mode.mode else "(none)"});
             return;
         };
-        return command.execute(id, "mini_mode_paste", command.fmt(.{event.content}));
+        var buf: std.Io.Writer.Allocating = .init(self.allocator);
+        defer buf.deinit();
+        try cbor.writeValue(&buf.writer, .{event.content});
+        return command.execute(id, "mini_mode_paste", .init(.{ .buf = buf.written() }));
     }
     return paste_to_editor(event.content);
 }
