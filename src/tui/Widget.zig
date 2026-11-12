@@ -57,16 +57,15 @@ var scope_list: std.ArrayList([]const u8) = .empty;
 pub const ThemeInfo = struct {
     name: []const u8,
     storage: ?Theme = null,
+    storage_hash: u64 = 0,
 
     pub fn get(self: *@This(), allocator: std.mem.Allocator) ?Theme {
         defer scopes = scope_list.items;
         if (scope_list.capacity == 0)
             scope_list.appendSlice(allocator, &static_scopes) catch @panic("OOM get");
 
-        if (load_theme_file(allocator, self.name) catch null) |parsed_theme| {
-            self.storage = parsed_theme;
-            return self.storage;
-        }
+        if (self.load_theme_file(allocator) catch null) |parsed_theme|
+            return parsed_theme;
 
         for (static_themes) |theme_| {
             if (std.mem.eql(u8, theme_.name, self.name))
@@ -76,24 +75,32 @@ pub const ThemeInfo = struct {
         return null;
     }
 
-    fn load_theme_file(allocator: std.mem.Allocator, theme_name: []const u8) !?Theme {
-        return load_theme_file_internal(allocator, theme_name) catch |e| {
-            std.log.err("Error loading theme '{s}' from file: {t}", .{ theme_name, e });
+    fn load_theme_file(self: *@This(), allocator: std.mem.Allocator) !?Theme {
+        return self.load_theme_file_internal(allocator) catch |e| {
+            std.log.err("Error loading theme '{s}' from file: {t}", .{ self.name, e });
             return e;
         };
     }
-    fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8) !?Theme {
-        const json_str = root.read_theme(allocator, theme_name) orelse return null;
+    fn load_theme_file_internal(self: *@This(), allocator: std.mem.Allocator) !?Theme {
+        const json_str = root.read_theme(allocator, self.name) orelse return null;
         defer allocator.free(json_str);
+        const hash = std.hash.Wyhash.hash(0, json_str);
+        if (self.storage) |storage| if (self.storage_hash == hash) return storage;
+        // the old theme may still be in use, so it is freed in deinit_themes
+        if (self.storage != null) try retired_themes.ensureUnusedCapacity(allocator, 1);
         const custom = try std.json.parseFromSlice(CustomTheme, allocator, json_str, .{ .allocate = .alloc_always });
         defer custom.deinit();
         defer scopes = scope_list.items;
-        const theme: ?Theme = try custom.value.toTheme(allocator, &scope_list);
+        const theme = try custom.value.toTheme(allocator, &scope_list);
+        if (self.storage) |old| retired_themes.appendAssumeCapacity(old);
+        self.storage = theme;
+        self.storage_hash = hash;
         return theme;
     }
 };
 
 var themes_: ?std.StringHashMap(*ThemeInfo) = null;
+var retired_themes: std.ArrayList(Theme) = .empty;
 var theme_names_: ?[]const []const u8 = null;
 const static_themes = @import("themes").themes;
 
@@ -131,22 +138,27 @@ pub fn deinit_themes(allocator: std.mem.Allocator) void {
     if (themes_) |*themes| {
         var it = themes.valueIterator();
         while (it.next()) |theme_info| {
-            if (theme_info.*.storage) |theme| {
-                allocator.free(theme.name);
-                allocator.free(theme.description);
-                allocator.free(theme.tokens);
-            }
+            if (theme_info.*.storage) |theme| free_theme(allocator, theme);
             allocator.free(theme_info.*.name);
             allocator.destroy(theme_info.*);
         }
         themes.deinit();
     }
     themes_ = null;
+    for (retired_themes.items) |theme| free_theme(allocator, theme);
+    retired_themes.deinit(allocator);
+    retired_themes = .empty;
     if (scope_list.items.len > static_scopes.len)
         for (scope_list.items[static_scopes.len..]) |scope| allocator.free(scope);
     scope_list.deinit(allocator);
     scope_list = .empty;
     scopes = &.{};
+}
+
+fn free_theme(allocator: std.mem.Allocator, theme: Theme) void {
+    allocator.free(theme.name);
+    allocator.free(theme.description);
+    allocator.free(theme.tokens);
 }
 
 fn get_theme_names() []const []const u8 {
@@ -180,11 +192,7 @@ fn add_theme_file(allocator: std.mem.Allocator, name_: []const u8) error{OutOfMe
         allocator.destroy(theme_info);
         return null;
     };
-    errdefer {
-        allocator.free(theme.name);
-        allocator.free(theme.description);
-        allocator.free(theme.tokens);
-    }
+    errdefer free_theme(allocator, theme);
     const themes = get_themes(allocator);
     try themes.put(theme_info.name, theme_info);
     if (theme_names_) |names| themes.allocator.free(names);
