@@ -1885,7 +1885,23 @@ fn read_desktop_theme_file(self: *Self) !void {
     const theme_name = try self.allocator.alloc(u8, @intCast(stat.size));
     defer self.allocator.free(theme_name);
     _ = try file.readPositionalAll(io, theme_name, 0);
+    if (is_json(theme_name))
+        return self.import_vscode_theme_file(self.config_.desktop_theme_file, null, .from_theme);
     self.set_desktop_theme_by_name(std.mem.trimEnd(u8, theme_name, "\r\n "), .store);
+}
+
+fn is_json(content: []const u8) bool {
+    const text = std.mem.trimStart(u8, content, " \t\r\n");
+    return std.mem.startsWith(u8, text, "{") or std.mem.startsWith(u8, text, "//") or std.mem.startsWith(u8, text, "/*");
+}
+
+fn import_vscode_theme_file(self: *Self, file_path: []const u8, output_path: ?[]const u8, color_scheme: enum { current, from_theme }) !void {
+    const theme_ = Widget.load_vscode_theme(self.allocator, file_path) catch return;
+    defer Widget.vscode_theme_file.deinit(self.allocator, theme_);
+    Widget.vscode_theme_file.write(self.allocator, theme_, Widget.scopes, output_path) catch return;
+    try Widget.add_theme_name(self.allocator, theme_.name);
+    if (color_scheme == .from_theme) self.set_color_scheme_(theme_.type);
+    return self.set_theme_by_name(theme_.name, .store);
 }
 
 pub fn is_mainview_focused() bool {
@@ -2246,12 +2262,7 @@ const cmds = struct {
             output_path
         else
             return tp.exit_error(error.InvalidImportVscodeThemeArgument, null);
-        const theme_ = Widget.load_vscode_theme(self.allocator, file_path) catch return;
-        defer Widget.vscode_theme_file.deinit(self.allocator, theme_);
-        Widget.vscode_theme_file.write(self.allocator, theme_, Widget.scopes, output) catch return;
-        Widget.add_theme_name(self.allocator, theme_.name) catch |e|
-            return tp.exit_error(e, @errorReturnTrace());
-        return self.set_theme_by_name(theme_.name, .store);
+        return self.import_vscode_theme_file(file_path, output, .current);
     }
     pub const import_vscode_theme_meta: Meta = .{ .arguments = &.{.string} };
 
