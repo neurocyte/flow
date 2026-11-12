@@ -1,12 +1,17 @@
 const std = @import("std");
+const tp = @import("thespian");
+const build_options = @import("build_options");
 const EventHandler = @import("EventHandler");
+const MouseEvent = @import("MouseEvent");
 
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
 const tui = @import("tui.zig");
+const ScrollLayer = @import("ScrollLayer.zig");
 
 pub const Container = WidgetList;
 pub const scroll_lines = 3;
@@ -24,6 +29,10 @@ pub fn Options(context: type) type {
         prepare_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) Widget.Box = prepare_resize_default,
         after_resize: *const fn (ctx: context, list_box: *ListBoxType, box: Widget.Box) void = after_resize_default,
         on_scroll: ?EventHandler = null,
+        on_mouse: ?*const fn (ctx: context, m: tp.message) error{Exit}!bool = null,
+        pixel_scroll: bool = false,
+        /// the owner submits the scroll layer into its own layer with `submit_items`
+        submit_in_parent: bool = false,
         select_on_click: bool = false,
 
         pub const Context = context;
@@ -112,6 +121,11 @@ pub fn State(ctx_type: type) type {
         render_idx: usize = 0,
         selected_active: bool = false,
         header_count: usize = 0,
+        scroll_layer: ?ScrollLayer = null,
+        scroll_layer_id: ?Layer.Id = null,
+        scroll_pos: MouseEvent.Cell = .{ .row = 0, .col = 0 },
+        scroll_rows: usize = 0,
+        scroll_view_px: struct { usize, usize } = .{ 0, 0 },
 
         const Self = @This();
         pub const OptionsType = Options(ctx_type);
@@ -127,7 +141,61 @@ pub fn State(ctx_type: type) type {
 
         fn free_from_container(ctx: ?*anyopaque) void {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
+            if (self.scroll_layer) |*l| l.deinit();
             self.allocator.destroy(self);
+        }
+
+        pub fn set_scroll(self: *Self, pos: MouseEvent.Cell, rows: usize, view_px: struct { usize, usize }) void {
+            self.scroll_pos = pos;
+            self.scroll_rows = rows;
+            self.scroll_view_px = view_px;
+        }
+
+        fn on_mouse_item(self: **Self, _: *ButtonType, m: tp.message) error{Exit}!bool {
+            const f = self.*.opts.on_mouse orelse return false;
+            return f(self.*.opts.ctx, m);
+        }
+
+        fn item_view(self: *Self) Plane {
+            var header_rows: u16 = 0;
+            for (self.list.widgets.items[0..@min(self.header_count, self.list.widgets.items.len)]) |*w|
+                header_rows += w.widget.plane.dim_y();
+            var view = self.list.plane;
+            const height = self.list.plane.dim_y() -| header_rows;
+            view.window = self.list.plane.window.child(.{ .y_off = @intCast(header_rows), .width = self.list.plane.dim_x(), .height = height });
+            return view;
+        }
+
+        fn render_items_on_layer(self: *Self) void {
+            if (self.scroll_layer == null)
+                self.scroll_layer = ScrollLayer.init(self.allocator, &self.scroll_layer_id) catch return;
+            const sl = &self.scroll_layer.?;
+            const view = self.item_view();
+            sl.prepare(&view, self.scroll_rows, view.dim_x());
+            const base = sl.plane.window;
+            var row: usize = 0;
+            for (self.list.widgets.items[@min(self.header_count, self.list.widgets.items.len)..]) |*w| {
+                const rows: usize = switch (w.widget.layout()) {
+                    .static => |n| n,
+                    .dynamic => 1,
+                };
+                const visible = row < self.scroll_rows;
+                w.widget.plane.window = base.child(.{
+                    .y_off = @intCast(@min(row, self.scroll_rows)),
+                    .width = base.width,
+                    .height = if (visible) @intCast(@min(rows, self.scroll_rows - row)) else 0,
+                });
+                w.widget.plane.layer = sl.plane.layer;
+                row += rows;
+            }
+            if (!self.opts.submit_in_parent) sl.submit(&view, self.scroll_pos, self.scroll_view_px, .{});
+        }
+
+        /// composite the items into the layer of the owner, after it is submitted
+        pub fn submit_items(self: *Self, parent: Layer.Handle) void {
+            const sl = if (self.scroll_layer) |*sl| sl else return;
+            const view = self.item_view();
+            sl.submit(&view, self.scroll_pos, self.scroll_view_px, .{ .parent = parent });
         }
 
         pub fn add_header(self: *Self, w_: Widget) !*Widget {
@@ -145,6 +213,7 @@ pub fn State(ctx_type: type) type {
                 .on_click4 = self.opts.on_click4,
                 .on_click5 = self.opts.on_click5,
                 .on_render = self.opts.on_render,
+                .on_mouse = on_mouse_item,
             });
             self.list.add(button) catch |e| {
                 button.deinit(self.allocator);
@@ -162,6 +231,7 @@ pub fn State(ctx_type: type) type {
                 .on_click4 = self.opts.on_click4,
                 .on_click5 = self.opts.on_click5,
                 .on_render = on_render,
+                .on_mouse = on_mouse_item,
             });
             self.list.add(button) catch |e| {
                 button.deinit(self.allocator);
@@ -183,6 +253,7 @@ pub fn State(ctx_type: type) type {
         fn on_render_list(ctx: ?*anyopaque, _: *const Widget.Theme) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.render_idx = 0;
+            if (build_options.gui and self.opts.pixel_scroll) self.render_items_on_layer();
         }
 
         fn prepare_resize(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) Widget.Box {

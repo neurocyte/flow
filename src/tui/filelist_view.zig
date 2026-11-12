@@ -18,6 +18,7 @@ const editor = @import("editor.zig");
 const FileList = @import("FileList.zig");
 const Panel = @import("Panel.zig");
 const PanelInput = @import("PanelInput.zig");
+const Scroller = @import("Scroller.zig");
 
 pub const name = @typeName(Self);
 
@@ -41,6 +42,7 @@ activate: ActivateMode = .normal,
 view_rows: usize = 0,
 view_cols: usize = 0,
 box: Widget.Box = .{},
+scroller: Scroller = .{ .pixel_offsets = true },
 
 const ListBoxType = ListBox.Options(*Self).ListBoxType;
 const ButtonType = ListBoxType.ButtonType;
@@ -63,9 +65,8 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
         .ctx = self,
         .style = widget_type,
         .on_render = handle_render_list_box,
-        .on_scroll = EventHandler.bind(self, Self.handle_scroll),
-        .on_click4 = mouse_click_button4,
-        .on_click5 = mouse_click_button5,
+        .on_mouse = handle_list_mouse,
+        .pixel_scroll = true,
     });
     errdefer list_box.widget().deinit(allocator);
 
@@ -78,7 +79,7 @@ pub fn create(allocator: Allocator, parent: Plane, manager: *FileList.Manager, l
         .manager = manager,
         .list_id = list_id,
     };
-    if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_v.panel_style;
+    try self.scroller.attach_scrollbar(allocator, self.list_box.container, plane);
     self.list_box.container.render_decoration = null;
     self.commands.init_unregistered(self);
     self.rebuild_list_box();
@@ -89,6 +90,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     self.panel_input.deinit(Widget.to(self));
     if (self.current) self.commands.unregister();
     self.list_box.widget().deinit(allocator);
+    self.scroller.deinit();
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -156,7 +158,21 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     const client_box = self.box.to_client_box(padding);
     self.view_rows = client_box.h;
     self.view_cols = client_box.w;
-    self.update_scrollbar();
+    self.scroller.set_view(client_box, &self.plane);
+    self.scroller.set_content(self.entry_count());
+}
+
+fn entry_count(self: *Self) usize {
+    return if (self.list()) |fl| fl.entries.items.len else 0;
+}
+
+pub fn update(self: *Self) void {
+    const fl = self.list() orelse return;
+    self.scroller.set_content(fl.entries.items.len);
+    self.scroller.sync(fl.view_pos);
+    self.scroller.update();
+    if (self.scroller.take_owner_top()) |top| fl.view_pos = top;
+    self.update_selected();
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
@@ -178,7 +194,7 @@ fn rebuild_list_box(self: *Self) void {
         self.list_box.resize(self.box);
         self.update_selected();
     }
-    self.update_scrollbar();
+    self.scroller.set_content(self.entry_count());
 }
 
 fn append_button(self: *Self) void {
@@ -190,7 +206,7 @@ fn append_button(self: *Self) void {
     cbor.writeValue(&label.writer, idx) catch return;
     self.list_box.add_item_with_handler(label.written(), handle_list_box_action) catch return;
     self.list_box.resize(self.box);
-    self.update_scrollbar();
+    self.scroller.set_content(self.entry_count());
 }
 
 pub fn handle_filelist_event(self: *Self, event: FileList.Event) void {
@@ -211,7 +227,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(theme.panel);
     self.plane.erase();
     self.plane.home();
-    return self.list_box.container_widget.render(theme);
+    const more = self.scroller.render();
+    self.list_box.set_scroll(self.scroller.pos(), self.scroller.draw_rows(), self.scroller.view_px());
+    return self.list_box.container_widget.render(theme) or more;
 }
 
 fn handle_render_list_box(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
@@ -297,52 +315,17 @@ fn handle_render_list_box(self: *Self, button: *ButtonType, theme: *const Widget
     return false;
 }
 
-fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
-    const fl = self.list() orelse return;
-    _ = try m.match(.{ "scroll_to", tp.extract(&fl.view_pos) });
-    self.update_selected();
-}
-
-fn update_scrollbar(self: *Self) void {
-    const scrollbar = self.list_box.scrollbar orelse return;
-    if (self.list()) |fl|
-        scrollbar.set(@intCast(fl.entries.items.len), @intCast(self.view_rows), @intCast(fl.view_pos))
-    else
-        scrollbar.set(0, @intCast(self.view_rows), 0);
-}
-
-fn mouse_click_button4(list_box: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {
-    const self = &list_box.*.opts.ctx.*;
-    const fl = self.list() orelse return;
-    fl.selected = if (self.list_box.selected) |sel_| sel_ + fl.view_pos else fl.selected;
-    if (fl.view_pos < ListBox.scroll_lines) {
-        fl.view_pos = 0;
-    } else {
-        fl.view_pos -= ListBox.scroll_lines;
-    }
-    self.update_selected();
-    self.update_scrollbar();
-}
-
-fn mouse_click_button5(list_box: **ListBoxType, _: *ButtonType, _: Widget.Pos) void {
-    const self = &list_box.*.opts.ctx.*;
-    const fl = self.list() orelse return;
-    fl.selected = if (self.list_box.selected) |sel_| sel_ + fl.view_pos else fl.selected;
-    if (fl.view_pos < @max(fl.entries.items.len, self.view_rows) - self.view_rows)
-        fl.view_pos += ListBox.scroll_lines;
-    self.update_selected();
-    self.update_scrollbar();
+fn handle_list_mouse(self: *Self, m: tp.message) error{Exit}!bool {
+    return self.scroller.receive_mouse(m);
 }
 
 fn update_selected(self: *Self) void {
     const fl = self.list() orelse return;
-    if (fl.selected) |sel| {
-        if (sel >= fl.view_pos and sel < fl.view_pos + self.view_rows) {
-            self.list_box.selected = sel - fl.view_pos;
-        } else {
-            self.list_box.selected = null;
-        }
-    }
+    const sel = fl.selected orelse return;
+    self.list_box.selected = if (sel >= fl.view_pos and sel < fl.view_pos + self.scroller.draw_rows())
+        sel - fl.view_pos
+    else
+        null;
 }
 
 fn handle_list_box_action(list_box: **ListBoxType, button: *ButtonType, _: Widget.Pos) void {
@@ -355,7 +338,11 @@ fn handle_list_box_action(list_box: **ListBoxType, button: *ButtonType, _: Widge
         self.logger.print_err(name, "invalid table entry: {s}", .{json});
         return;
     }
-    idx += fl.view_pos;
+    self.activate_entry(idx + fl.view_pos);
+}
+
+fn activate_entry(self: *Self, idx: usize) void {
+    const fl = self.list() orelse return;
     if (idx >= fl.entries.items.len) return;
     fl.selected = idx;
     self.update_selected();
@@ -390,7 +377,6 @@ fn handle_list_box_action(list_box: **ListBoxType, button: *ButtonType, _: Widge
 fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end }) void {
     const fl = self.list() orelse return;
     if (fl.entries.items.len == 0) return;
-    fl.selected = if (self.list_box.selected) |sel_| sel_ + fl.view_pos else fl.selected;
     const sel_ = fl.selected orelse 0;
     const sel = switch (dir) {
         .up => if (sel_ > 0) sel_ - 1 else fl.entries.items.len - 1,
@@ -401,10 +387,20 @@ fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end 
         .end => fl.entries.items.len - 1,
     };
     fl.selected = sel;
-    if (sel < fl.view_pos) fl.view_pos = sel;
-    if (sel > fl.view_pos + self.view_rows - 1) fl.view_pos = sel - @min(sel, self.view_rows - 1);
+    const rows = @max(1, self.scroller.view_rows());
+    const top = self.scroller.dest();
+    const new_top = if (sel < top) sel else if (sel >= top + rows) sel + 1 - rows else top;
+    switch (dir) {
+        .page_up, .page_down => self.scroller.glide_to(new_top),
+        .up, .down, .home, .end => self.scroller.jump_to(new_top),
+    }
+    fl.view_pos = self.scroller.top();
     self.update_selected();
-    self.update_scrollbar();
+}
+
+fn activate_selected(self: *Self) void {
+    const fl = self.list() orelse return;
+    self.activate_entry(fl.selected orelse return);
 }
 
 pub fn focus(self: *Self) void {
@@ -428,13 +424,13 @@ const cmds = struct {
 
     pub fn goto_prev_file(self: *Self, _: Ctx) Result {
         self.select_next(.up);
-        self.list_box.activate_selected();
+        self.activate_selected();
     }
     pub const goto_prev_file_meta: Meta = .{ .description = "Go to previous" };
 
     pub fn goto_next_file(self: *Self, _: Ctx) Result {
         self.select_next(.down);
-        self.list_box.activate_selected();
+        self.activate_selected();
     }
     pub const goto_next_file_meta: Meta = .{ .description = "Go to next" };
 
@@ -469,15 +465,17 @@ const cmds = struct {
     pub const select_file_end_meta: Meta = .{ .description = "Select end" };
 
     pub fn goto_selected_file(self: *Self, _: Ctx) Result {
-        if (self.list_box.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
-        self.list_box.activate_selected();
+        const fl = self.list() orelse return;
+        if (fl.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
+        self.activate_selected();
     }
     pub const goto_selected_file_meta: Meta = .{ .description = "Go to location" };
 
     pub fn goto_selected_file_alternate(self: *Self, _: Ctx) Result {
-        if (self.list_box.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
+        const fl = self.list() orelse return;
+        if (fl.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
         self.activate = .alternate;
-        self.list_box.activate_selected();
+        self.activate_selected();
     }
     pub const goto_selected_file_alternate_meta: Meta = .{ .description = "Go to location in split" };
 

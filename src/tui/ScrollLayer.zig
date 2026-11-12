@@ -52,7 +52,9 @@ pub fn submit(self: *Self, view: *const Plane, pos: MouseEvent.Cell, view_px: st
     const root = tui.plane();
     const cw: i32 = root.cell_x();
     const ch: i32 = root.cell_y();
-    var x, var y = view.global_origin_px();
+    const abs_x, const abs_y = view.global_origin_px();
+    var x = abs_x;
+    var y = abs_y;
     var z: Layer.Level = .main;
     if (view.layer) |l| {
         z = @fromBackingInt(@intCast(@backingInt(l.z_index) + 1));
@@ -69,7 +71,7 @@ pub fn submit(self: *Self, view: *const Plane, pos: MouseEvent.Cell, view_px: st
     const clip: Layer.Frame = .{ .x = x + margin, .y = y, .w = @max(0, w - margin), .h = h };
     const ox = x - pos.xoffset;
     const oy = y - pos.yoffset;
-    self.layer.clip = clip;
+    self.layer.clip = .{ .x = abs_x + margin, .y = abs_y, .w = clip.w, .h = clip.h };
     self.layer.z_index = z;
     _ = tui.submit_layer(.{
         .src = self.layer,

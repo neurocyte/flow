@@ -18,7 +18,9 @@ const Widget = @import("../../Widget.zig");
 const scrollbar_v = @import("../../scrollbar_v.zig");
 const ModalBackground = @import("../../ModalBackground.zig");
 
-pub const ListBox = @import("../../ListBox.zig");
+pub const renderer = @import("renderer");
+const Scroller = @import("../../Scroller.zig");
+const ListBox = @import("../../ListBox.zig");
 
 const max_list_box_width = 80;
 const default_widget_type: Widget.Type = .palette;
@@ -65,10 +67,15 @@ pub fn Create(options: type) type {
         view_rows: usize,
         view_pos: usize = 0,
         total_items: usize = 0,
+        scroller: Scroller = .{ .pixel_offsets = true },
+        selected: ?usize = null,
+        last_updated: ?usize = null,
+        matches: std.ArrayList(Match) = .empty,
 
         value: ValueType = if (@hasDecl(options, "defaultValue")) options.defaultValue else {},
 
         const Entry = options.Entry;
+        const Match = struct { entry: *Entry, positions: ?[]const usize };
         const Self = @This();
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
         const widget_type: Widget.Type = if (@hasDecl(options, "widget_type")) options.widget_type else default_widget_type;
@@ -111,9 +118,10 @@ pub fn Create(options: type) type {
                 .style = widget_type,
                 .on_render = if (@hasDecl(options, "on_render_list_box")) options.on_render_list_box else on_render_list_box,
                 .after_resize = after_resize_list_box,
-                .on_scroll = EventHandler.bind(self, Self.on_scroll),
-                .on_click4 = mouse_click_button4,
-                .on_click5 = mouse_click_button5,
+                .on_scroll = if (async_query) EventHandler.bind(self, Self.on_scroll) else null,
+                .on_mouse = if (async_query) null else on_list_mouse,
+                .pixel_scroll = !async_query,
+                .submit_in_parent = true,
                 .select_on_click = true,
             });
             list_box_layer.set(list_box.container_widget);
@@ -166,7 +174,12 @@ pub fn Create(options: type) type {
             self.mode.name = options.name;
             self.list_box_layer.ctx = self;
             self.list_box_layer.prepare_resize = prepare_resize_layer;
-            if (self.list_box.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+            if (!async_query) {
+                self.list_box_layer.before_update = before_update_layer;
+                self.list_box_layer.after_submit = after_submit_layer;
+                try self.scroller.attach_scrollbar(allocator, self.list_box.container, self.list_box.container.plane);
+            }
+            if (self.get_scrollbar()) |scrollbar| scrollbar.style_factory = scrollbar_style;
             errdefer self.entries.deinit(self.allocator);
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
                 try options.load_entries_with_args(self, ctx)
@@ -193,6 +206,9 @@ pub fn Create(options: type) type {
             self.commands.deinit();
             if (@hasDecl(options, "deinit"))
                 options.deinit(self);
+            self.clear_matches();
+            self.matches.deinit(self.allocator);
+            self.scroller.deinit();
             self.entries.deinit(self.allocator);
             tui.message_filters().remove_ptr(self);
             if (tui.mainview()) |mv| {
@@ -201,6 +217,10 @@ pub fn Create(options: type) type {
             }
             self.logger.deinit();
             self.allocator.destroy(self);
+        }
+
+        fn get_scrollbar(self: *Self) ?*scrollbar_v {
+            return if (async_query) self.list_box.scrollbar else self.scroller.scrollbar;
         }
 
         fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
@@ -429,8 +449,30 @@ pub fn Create(options: type) type {
         }
 
         fn after_resize(self: *Self) void {
-            self.update_scrollbar();
-            // self.start_query(0) catch {};
+            if (async_query) return self.update_scrollbar();
+            const rows = @min(self.total_items, self.view_rows);
+            self.scroller.set_view(.{ .h = rows, .w = self.list_box.list.plane.dim_x() }, &self.list_box.list.plane);
+            self.scroller.set_size(self.total_items, rows);
+        }
+
+        fn before_update_layer(ctx_: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx_ orelse return));
+            self.scroller.update();
+            if (self.scroller.take_owner_top()) |top| if (top != self.view_pos) {
+                self.view_pos = top;
+                self.fill_rows() catch {};
+            };
+            if (self.scroller.render()) tui.need_render(@src());
+            self.list_box.set_scroll(self.scroller.pos(), self.scroller.draw_rows(), self.scroller.view_px());
+        }
+
+        fn after_submit_layer(ctx_: ?*anyopaque, handle: renderer.Layer.Handle) void {
+            const self: *Self = @ptrCast(@alignCast(ctx_ orelse return));
+            self.list_box.submit_items(handle);
+        }
+
+        fn on_list_mouse(self: *Self, m: tp.message) error{Exit}!bool {
+            return self.scroller.receive_mouse(m);
         }
 
         fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
@@ -458,27 +500,6 @@ pub fn Create(options: type) type {
         }
 
         pub const ScrollDirection = enum { up, down };
-
-        fn mouse_click_button4(list_box: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
-            const self = &list_box.*.opts.ctx.*;
-            if (async_query) return;
-            if (self.view_pos < ListBox.scroll_lines) {
-                self.view_pos = 0;
-            } else {
-                self.view_pos -= ListBox.scroll_lines;
-            }
-            self.update_scrollbar();
-            self.start_query(0) catch {};
-        }
-
-        fn mouse_click_button5(list_box: **ListBox.State(*Self), _: *ButtonType, _: Widget.Pos) void {
-            const self = &list_box.*.opts.ctx.*;
-            if (async_query) return;
-            if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
-                self.view_pos += ListBox.scroll_lines;
-            self.update_scrollbar();
-            self.start_query(0) catch {};
-        }
 
         fn mouse_modal_scroll_up(self: *Self, _: *ModalBackground.State(*Self), mods: MouseEvent.Modifiers) void {
             if (@hasDecl(options, "scroll_background")) options.scroll_background(self, .up, mods);
@@ -519,42 +540,37 @@ pub fn Create(options: type) type {
             if (async_query) return options.query(self, self.inputbox.mini_editor.bytes());
             defer tui.reset_hover(@src());
             defer self.update_count_hint();
-            self.items = 0;
-            self.list_box.reset_items();
-            self.list_box.selected = null;
             self.longest = self.inputbox.mini_editor.bytes().len;
             for (self.entries.items) |entry|
                 self.longest = @max(self.longest, entry.label.len);
-
+            self.clear_matches();
             if (self.inputbox.mini_editor.bytes().len == 0) {
-                self.total_items = 0;
-                var pos: usize = 0;
-                for (self.entries.items) |*entry| {
-                    defer self.total_items += 1;
-                    defer pos += 1;
-                    if (pos < self.view_pos) continue;
-                    if (self.items < self.view_rows)
-                        try options.add_list_box_entry(self, entry, null);
-                }
+                try self.matches.ensureTotalCapacity(self.allocator, self.entries.items.len);
+                for (self.entries.items) |*entry| self.matches.appendAssumeCapacity(.{ .entry = entry, .positions = null });
             } else {
-                _ = try self.query_entries(self.inputbox.mini_editor.bytes());
+                try self.query_entries(self.inputbox.mini_editor.bytes());
             }
+            self.last_updated = null;
+            self.total_items = self.matches.items.len;
+            const rows = @min(self.total_items, self.view_rows);
+            self.scroller.set_size(self.total_items, rows);
             if (self.initial_selected) |idx| {
                 self.initial_selected = null;
-                self.select(idx);
-            } else {
-                self.list_box.select_down();
-                var i = n;
-                while (i > 0) : (i -= 1)
-                    self.list_box.select_down();
-                const padding = tui.get_widget_style(widget_type).padding;
-                self.do_resize(padding);
-                tui.refresh_hover(@src());
-                self.selection_updated();
+                return self.select(idx);
             }
+            self.scroller.jump_to(@min(self.view_pos, self.total_items -| rows));
+            self.view_pos = self.scroller.top();
+            _ = self.scroller.take_owner_top();
+            self.select_index(if (self.total_items > 0) @min(self.view_pos + n, self.total_items - 1) else null, .jump);
+            tui.refresh_hover(@src());
         }
 
-        fn query_entries(self: *Self, query: []const u8) error{ OutOfMemory, WriteFailed }!usize {
+        fn clear_matches(self: *Self) void {
+            for (self.matches.items) |match| if (match.positions) |p| self.allocator.free(p);
+            self.matches.clearRetainingCapacity();
+        }
+
+        fn query_entries(self: *Self, query: []const u8) error{ OutOfMemory, WriteFailed }!void {
             var searcher = try fuzzig.Ascii.init(
                 self.allocator,
                 self.longest, // haystack max size
@@ -563,17 +579,10 @@ pub fn Create(options: type) type {
             );
             defer searcher.deinit();
 
-            const Match = struct {
-                entry: *Entry,
-                score: i32,
-                matches: []const usize,
-            };
-
-            var matches: std.ArrayList(Match) = .empty;
-            defer {
-                for (matches.items) |match| self.allocator.free(match.matches);
-                matches.deinit(self.allocator);
-            }
+            const Scored = struct { match: Match, score: i32 };
+            var scored: std.ArrayList(Scored) = .empty;
+            defer scored.deinit(self.allocator);
+            errdefer for (scored.items) |m| if (m.match.positions) |p| self.allocator.free(p);
 
             for (self.entries.items) |*entry| {
                 if (has_skip_entry and options.skip_entry(entry)) continue;
@@ -582,38 +591,75 @@ pub fn Create(options: type) type {
                 if (match.score) |score| {
                     const match_positions = try self.allocator.dupe(usize, match.matches);
                     errdefer self.allocator.free(match_positions);
-                    (try matches.addOne(self.allocator)).* = .{
-                        .entry = entry,
+                    (try scored.addOne(self.allocator)).* = .{
+                        .match = .{ .entry = entry, .positions = match_positions },
                         .score = score + bonus,
-                        .matches = match_positions,
                     };
                 }
             }
-            if (matches.items.len == 0) {
-                self.total_items = 0;
-                return 0;
-            }
-
             const less_fn = struct {
-                fn less_fn(_: void, lhs: Match, rhs: Match) bool {
+                fn less_fn(_: void, lhs: Scored, rhs: Scored) bool {
                     if (lhs.score != rhs.score) return lhs.score > rhs.score;
                     if (preserve_entry_order) return false;
-                    if (has_compare_entries) return options.compare_entries(lhs.entry, rhs.entry);
-                    return lhs.entry.label.len < rhs.entry.label.len;
+                    if (has_compare_entries) return options.compare_entries(lhs.match.entry, rhs.match.entry);
+                    return lhs.match.entry.label.len < rhs.match.entry.label.len;
                 }
             }.less_fn;
-            std.mem.sort(Match, matches.items, {}, less_fn);
+            std.mem.sort(Scored, scored.items, {}, less_fn);
+            try self.matches.ensureTotalCapacity(self.allocator, scored.items.len);
+            for (scored.items) |m| self.matches.appendAssumeCapacity(m.match);
+        }
 
-            var pos: usize = 0;
-            self.total_items = 0;
-            for (matches.items) |*match| {
-                defer self.total_items += 1;
-                defer pos += 1;
-                if (pos < self.view_pos) continue;
-                if (self.items < self.view_rows)
-                    try options.add_list_box_entry(self, match.entry, match.matches);
+        fn fill_rows(self: *Self) !void {
+            defer tui.reset_hover(@src());
+            self.items = 0;
+            self.list_box.reset_items();
+            const end = @min(self.total_items, self.view_pos + self.view_rows + 1);
+            for (self.matches.items[@min(self.view_pos, end)..end]) |match|
+                try options.add_list_box_entry(self, match.entry, match.positions);
+            self.sync_selected();
+            const padding = tui.get_widget_style(widget_type).padding;
+            self.do_resize(padding);
+            self.selection_updated();
+        }
+
+        fn sync_selected(self: *Self) void {
+            const sel = self.selected orelse {
+                self.list_box.selected = null;
+                return;
+            };
+            self.list_box.selected = if (sel >= self.view_pos and sel < self.view_pos + self.items) sel - self.view_pos else null;
+        }
+
+        fn select_index(self: *Self, idx: ?usize, motion: enum { jump, glide }) void {
+            self.selected = idx;
+            if (idx) |sel| {
+                const rows = @max(1, @min(self.total_items, self.view_rows));
+                const top = self.scroller.dest();
+                const new_top = if (sel < top) sel else if (sel >= top + rows) sel + 1 - rows else top;
+                switch (motion) {
+                    .jump => {
+                        self.scroller.jump_to(new_top);
+                        self.view_pos = self.scroller.top();
+                        _ = self.scroller.take_owner_top();
+                    },
+                    .glide => self.scroller.glide_to(new_top),
+                }
             }
-            return matches.items.len;
+            self.fill_rows() catch {};
+        }
+
+        pub fn selected_button(self: *Self) ?*ButtonType {
+            if (self.list_box.get_selected()) |button| return button;
+            if (async_query) return null;
+            const sel = self.selected orelse return null;
+            self.select_index(sel, .jump);
+            return self.list_box.get_selected();
+        }
+
+        fn activate_selected(self: *Self) void {
+            const button = self.selected_button() orelse return;
+            button.opts.on_click(&button.opts.ctx, button, .{});
         }
 
         fn on_input_change(self: *Self) void {
@@ -669,39 +715,34 @@ pub fn Create(options: type) type {
         }
 
         fn selection_updated(self: *Self) void {
-            if (@hasDecl(options, "updated"))
-                options.updated(self, self.list_box.get_selected()) catch {};
+            if (!@hasDecl(options, "updated")) return;
+            const button = self.list_box.get_selected();
+            if (!async_query) {
+                const current = if (button != null) self.selected else null;
+                if (current != null and current == self.last_updated) return;
+                self.last_updated = current;
+            }
+            options.updated(self, button) catch {};
         }
 
         fn select(self: *Self, idx: usize) void {
-            if (self.total_items < self.view_rows) {
-                self.view_pos = 0;
-            } else if (idx > self.total_items - self.view_rows) {
-                self.view_pos = self.total_items - self.view_rows;
-            } else if (idx > self.view_rows / 2) {
-                self.view_pos = idx - self.view_rows / 2;
-            } else {
-                self.view_pos = 0;
-            }
-            self.update_scrollbar();
-            if (idx < self.view_pos + 1)
-                self.start_query(0) catch {}
-            else
-                self.start_query(idx - self.view_pos - 1) catch {};
+            if (self.total_items == 0) return self.select_index(null, .jump);
+            const sel = @min(idx -| 1, self.total_items - 1);
+            const rows = @min(self.total_items, self.view_rows);
+            self.scroller.jump_to(@min(sel -| rows / 2, self.total_items - rows));
+            self.select_index(sel, .jump);
         }
 
         const Direction = enum { up, down };
 
         fn selected_is_selectable(self: *Self) bool {
             if (!has_is_selectable) return true;
-            const selected = self.list_box.selected orelse return true;
-            const pos = selected + self.list_box.header_count;
-            if (pos >= self.list_box.list.widgets.items.len) return true;
-            const button = self.list_box.list.widgets.items[pos].widget.dynamic_cast(ButtonType) orelse return true;
+            const button = self.list_box.get_selected() orelse return true;
             return options.is_selectable(button);
         }
 
         fn selection_pos(self: *Self) usize {
+            if (!async_query) return self.selected orelse 0;
             return self.view_pos + (self.list_box.selected orelse 0);
         }
 
@@ -727,34 +768,25 @@ pub fn Create(options: type) type {
         }
 
         fn menu_down(self: *Self) !void {
-            if (!async_query) if (self.list_box.selected) |selected| {
-                if (selected == self.view_rows - 1 and
-                    self.view_pos + self.view_rows < self.total_items)
-                {
-                    self.view_pos += 1;
-                    try self.start_query(0);
-                    self.list_box.select_last();
-                    self.selection_updated();
-                    return;
-                }
-            };
-            self.list_box.select_down();
-            self.selection_updated();
+            if (async_query) {
+                self.list_box.select_down();
+                return self.selection_updated();
+            }
+            if (self.total_items == 0) return;
+            self.select_index(if (self.selected) |sel| @min(sel + 1, self.total_items - 1) else 0, .jump);
         }
 
         fn menu_up(self: *Self) !void {
-            if (!async_query) if (self.list_box.selected) |selected| {
-                if (selected == 0 and self.view_pos > 0) {
-                    self.view_pos -= 1;
-                    try self.start_query(0);
-                    self.list_box.select_first();
-                    self.selection_updated();
-                    return;
-                }
-            };
-            self.list_box.select_up();
-            self.selection_updated();
+            if (async_query) {
+                self.list_box.select_up();
+                return self.selection_updated();
+            }
+            if (self.total_items == 0) return;
+            self.select_index((self.selected orelse 0) -| 1, .jump);
         }
+
+        /// page moves glide, unless unselectable items must be skipped at the destination
+        const page_motion = if (has_is_selectable) .jump else .glide;
 
         const cmds = struct {
             pub const Target = Self;
@@ -808,68 +840,63 @@ pub fn Create(options: type) type {
             pub const palette_menu_left_meta: Meta = .{};
 
             pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
-                if (!async_query) {
-                    if (self.total_items > self.view_rows) {
-                        self.view_pos += self.view_rows;
-                        if (self.view_pos > self.total_items - self.view_rows)
-                            self.view_pos = self.total_items - self.view_rows;
-                    }
-                    try self.start_query(0);
+                if (async_query) {
+                    self.list_box.select_last();
+                    self.selection_updated();
+                    return;
                 }
-                self.list_box.select_last();
-                self.selection_updated();
+                if (self.total_items == 0) return;
+                self.select_index(@min((self.selected orelse 0) + self.view_rows, self.total_items - 1), page_motion);
                 try self.skip_unselectable(.down);
             }
             pub const palette_menu_pagedown_meta: Meta = .{ .description = "Next page" };
 
             pub fn palette_menu_pageup(self: *Self, _: Ctx) Result {
-                if (!async_query) {
-                    if (self.view_pos > self.view_rows)
-                        self.view_pos -= self.view_rows
-                    else
-                        self.view_pos = 0;
-                    try self.start_query(0);
+                if (async_query) {
+                    self.list_box.select_first();
+                    self.selection_updated();
+                    return;
                 }
-                self.list_box.select_first();
-                self.selection_updated();
+                if (self.total_items == 0) return;
+                self.select_index((self.selected orelse 0) -| self.view_rows, page_motion);
                 try self.skip_unselectable(.up);
             }
             pub const palette_menu_pageup_meta: Meta = .{ .description = "Previous page" };
 
             pub fn palette_menu_bottom(self: *Self, _: Ctx) Result {
-                if (!async_query) {
-                    if (self.total_items > self.view_rows) {
-                        self.view_pos = self.total_items - self.view_rows;
-                    }
-                    try self.start_query(0);
+                if (async_query) {
+                    self.list_box.select_last();
+                    self.selection_updated();
+                    return;
                 }
-                self.list_box.select_last();
-                self.selection_updated();
+                if (self.total_items == 0) return;
+                self.select_index(self.total_items - 1, .jump);
                 try self.skip_unselectable(.up);
             }
             pub const palette_menu_bottom_meta: Meta = .{ .description = "Last item" };
 
             pub fn palette_menu_top(self: *Self, _: Ctx) Result {
-                if (!async_query) {
-                    self.view_pos = 0;
-                    try self.start_query(0);
+                if (async_query) {
+                    self.list_box.select_first();
+                    self.selection_updated();
+                    return;
                 }
-                self.list_box.select_first();
-                self.selection_updated();
+                if (self.total_items == 0) return;
+                self.select_index(0, .jump);
                 try self.skip_unselectable(.down);
             }
             pub const palette_menu_top_meta: Meta = .{ .description = "First item" };
 
             pub fn palette_menu_delete_item(self: *Self, ctx: Ctx) Result {
                 if (@hasDecl(options, "delete_item")) {
-                    const button = self.list_box.get_selected() orelse return;
+                    const button = self.selected_button() orelse return;
                     const refresh = options.delete_item(self.list_box, button);
                     if (refresh) {
                         if (@hasDecl(options, "load_entries")) {
                             options.clear_entries(self);
                             self.longest_hint = try options.load_entries(self);
                             if (self.entries.items.len > 0)
-                                self.initial_selected = self.list_box.selected;
+                                self.initial_selected = if (async_query) self.list_box.selected else if (self.selected) |sel| sel + 1 else null;
                             try self.start_query(0);
                         } else {
                             return palette_menu_cancel(self, ctx);
@@ -884,13 +911,13 @@ pub fn Create(options: type) type {
 
             pub fn palette_menu_action(self: *Self, ctx: Ctx) Result {
                 if (@hasDecl(options, "action"))
-                    try options.action(self, self.list_box.get_selected(), ctx);
+                    try options.action(self, self.selected_button(), ctx);
             }
             pub const palette_menu_action_meta: Meta = .{ .arguments = &.{.string} };
 
             pub fn palette_menu_complete(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "complete"))
-                    options.complete(self, self.list_box.get_selected()) catch {};
+                    options.complete(self, self.selected_button()) catch {};
             }
             pub const palette_menu_complete_meta: Meta = .{ .description = "Complete selected item" };
 
@@ -900,7 +927,7 @@ pub fn Create(options: type) type {
                     self.activate = .normal;
                     return options.activate_query(activate, self.inputbox.mini_editor.bytes());
                 }
-                self.list_box.activate_selected();
+                self.activate_selected();
             }
             pub const palette_menu_activate_meta: Meta = .{ .description = "Select" };
 
@@ -914,7 +941,7 @@ pub fn Create(options: type) type {
                 const activate = self.activate;
                 self.activate = .normal;
                 if (@hasDecl(options, "edit_selected"))
-                    return options.edit_selected(self, self.list_box.get_selected());
+                    return options.edit_selected(self, self.selected_button());
                 if (has_insert and self.inputbox.mini_editor.bytes().len > 0)
                     return options.insert(activate, self.inputbox.mini_editor.bytes());
             }
@@ -928,7 +955,7 @@ pub fn Create(options: type) type {
 
             pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
                 if (!self.quick_activate_enabled) return;
-                if (self.list_box.selected orelse 0 > 0) self.list_box.activate_selected();
+                if (self.selection_pos() > 0) self.activate_selected();
                 self.quick_activate_enabled = false;
             }
             pub const palette_menu_activate_quick_meta: Meta = .{};

@@ -386,7 +386,7 @@ fn get_insert_selection(editor: *ed.Editor, values: Values, query: ?Selection) S
 }
 
 pub fn complete(self: *Type, _: ?*Type.ButtonType) !void {
-    self.list_box.activate_selected();
+    self.activate_selected();
 }
 
 fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) void {
@@ -530,7 +530,7 @@ const cmds = struct {
     pub fn completion_info_to_panel(self: *Type, _: Ctx) Result {
         const layer = self.value.info_box_layer orelse return;
         const info = info_view.from_layer(layer) orelse return;
-        const button = self.list_box.get_selected() orelse return;
+        const button = self.selected_button() orelse return;
         const mv = tui.mainview() orelse return;
         try mv.open_info_copy(info, get_values(button.opts.label).label);
     }

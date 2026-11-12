@@ -44,6 +44,7 @@ ctx: ?*anyopaque = null,
 prepare_resize: ?*const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = null,
 walk_extra: ?*const fn (ctx: ?*anyopaque, walk_ctx: *anyopaque, f: Widget.WalkFn) bool = null,
 after_submit: ?*const fn (ctx: ?*anyopaque, handle: Layer.Handle) void = null,
+before_update: ?*const fn (ctx: ?*anyopaque) void = null,
 alpha: u8 = 0xFF,
 z_index: Layer.Level = .overlay,
 blend: Layer.Target.Blend = .default,
@@ -284,6 +285,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 pub fn update(self: *Self) void {
+    if (self.before_update) |before_update| before_update(self.ctx);
     if (self.inner) |*w| w.update();
 }
 

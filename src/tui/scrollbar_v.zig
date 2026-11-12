@@ -290,8 +290,10 @@ pub fn set(self: *Self, size_virt_: u32, view_virt_: u32, pos_virt_: u32) void {
 
     const ratio = size_virt / size_scrn;
 
-    self.pos_scrn = @intFromFloat(pos_virt / ratio);
-    self.view_scrn = @intFromFloat(view_virt / ratio);
+    const pos_scrn: u32 = @intFromFloat(@round(pos_virt / ratio));
+    const end_scrn: u32 = @intFromFloat(@round(@min(size_virt, pos_virt + view_virt) / ratio));
+    self.pos_scrn = pos_scrn;
+    self.view_scrn = end_scrn -| pos_scrn;
     self.size_scrn = @intFromFloat(size_scrn);
 }
 
