@@ -464,14 +464,14 @@ pub fn set_bg_palindex(self: *Plane, idx: u8) !void {
 pub inline fn set_base_style(self: *Plane, style_: Style) void {
     self.style_base.fg = if (style_.fg) |col| to_cell_color(col) else .default;
     self.style_base.bg = if (style_.bg) |col| to_cell_color(col) else .default;
-    if (style_.fs) |fs| set_font_style(&self.style, fs);
+    set_base_font_style(&self.style, style_.fs);
     self.set_style(style_);
 }
 
 pub fn set_base_style_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
     self.style_base.fg = if (style_.fg) |col| to_cell_color(col) else .default;
     self.style_base.bg = if (style_.bg) |col| to_cell_color(col) else .default;
-    if (style_.fs) |fs| set_font_style(&self.style, fs);
+    set_base_font_style(&self.style, style_.fs);
     self.set_style(style_);
     self.transparent = true;
 }
@@ -479,7 +479,7 @@ pub fn set_base_style_transparent(self: *Plane, _: [*:0]const u8, style_: Style)
 pub fn set_base_style_bg_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
     self.style_base.fg = if (style_.fg) |col| to_cell_color(col) else .default;
     self.style_base.bg = if (style_.bg) |col| to_cell_color(col) else .default;
-    if (style_.fs) |fs| set_font_style(&self.style, fs);
+    set_base_font_style(&self.style, style_.fs);
     self.set_style(style_);
     self.transparent = true;
 }
@@ -518,6 +518,15 @@ pub inline fn set_style_bg_transparent(self: *Plane, style_: Style) void {
     if (style_.bg) |col| self.style.bg = apply_alpha(self.style_base.bg, col);
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.transparent = true;
+}
+
+inline fn set_base_font_style(style: *vaxis.Cell.Style, fs: ?FontStyle) void {
+    style.bold = false;
+    style.italic = false;
+    style.dim = false;
+    style.ul_style = .off;
+    style.strikethrough = false;
+    if (fs) |fs_| set_font_style(style, fs_);
 }
 
 inline fn set_font_style(style: *vaxis.Cell.Style, fs: FontStyle) void {
