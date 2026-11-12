@@ -315,8 +315,13 @@ pub fn build_exe(
     const regex_mod = regex_dep.module("regex");
 
     const themes_dep = b.dependency("themes", .{});
-    const vscode_theme_mod = themes_dep.module("vscode_theme");
-    vscode_theme_mod.addImport("cbor", cbor_mod);
+    const vscode_theme_mod = b.createModule(.{
+        .root_source_file = themes_dep.path("src/vscode_theme.zig"),
+        .imports = &.{
+            .{ .name = "theme", .module = themes_dep.module("theme") },
+            .{ .name = "cbor", .module = cbor_mod },
+        },
+    });
 
     const syntax_dep = b.dependency("syntax", .{
         .target = target,
