@@ -745,13 +745,14 @@ fn render_fade(self: *Self, bg: ?Widget.Theme.Color) void {
     const color = bg orelse return;
     const cols = self.visible_cols();
     const cw = self.plane.cell_x();
-    const ch = self.plane.cell_y();
     const ox, const oy = self.plane.global_origin_px();
+    const view_w, const view_h = self.scroller.view_px();
+    const margin = @as(i32, @intCast(self.text_col())) * cw;
     const view: renderer.Layer.Frame = .{
-        .x = ox + @as(i32, @intCast(self.text_col())) * cw,
+        .x = ox + margin,
         .y = oy,
-        .w = @as(i32, @intCast(cols)) * cw,
-        .h = @as(i32, @intCast(self.view_rows)) * ch,
+        .w = @as(i32, @intCast(view_w)) - margin,
+        .h = @intCast(view_h),
     };
     self.fade.submit(self.allocator, view, .horizontal, .{
         .head = self.scroller.scrolled_left(),

@@ -9632,6 +9632,7 @@ pub const EditorWidget = struct {
     parent: Plane,
     layer_ids: LayerIds = .{},
     gutter: ?*editor_gutter = null,
+    scrollbar: ?*scrollbar_v = null,
 
     editor: Editor,
     commands: Commands = undefined,
@@ -9672,8 +9673,12 @@ pub const EditorWidget = struct {
         try container.add(gutter);
         try container.add(editorWidget);
         if (tui.config().show_scrollbars) {
-            const scrollbar = try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container));
-            if (scrollbar.dynamic_cast(scrollbar_v)) |sb| sb.precise = true;
+            const scrollbar = try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.bind(self, handle_scrollbar_event));
+            if (scrollbar.dynamic_cast(scrollbar_v)) |sb| {
+                sb.precise = true;
+                sb.forward_scroll = true;
+                self.scrollbar = sb;
+            }
             try container.add(scrollbar);
         }
         layer.set(container.widget());
@@ -9991,6 +9996,36 @@ pub const EditorWidget = struct {
         try tui.open_menu(menu, .below(.{ .y = cell.row, .x = cell.col }), null);
     }
 
+    fn handle_scrollbar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+        var pos: usize = 0;
+        var fraction: f64 = 0;
+        var scroll: MouseEvent.Scroll = undefined;
+        var btn: MouseEvent.Button = .none;
+        var mods: MouseEvent.Modifiers = .{};
+        if (try m.match(.{ "scroll_to", tp.extract(&pos) })) {
+            self.editor.scroll_to(pos, root_mod.get_now());
+        } else if (try m.match(.{ "scroll_to_fraction", tp.extract(&fraction) })) {
+            self.editor.scroll_to_fraction(fraction);
+        } else if (try m.match(.{ "scroll", tp.extract(&scroll) })) {
+            if (!self.receive_scroll(scroll)) self.scroll_steps(scroll.amount.step, tui.mouse_actions(scroll.mods));
+        } else if (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.any, tp.extract(&mods) })) {
+            const actions = tui.mouse_actions(mods);
+            switch (btn) {
+                .wheel_up => self.scroll_steps(.{ .x = 0, .y = -1 }, actions),
+                .wheel_down => self.scroll_steps(.{ .x = 0, .y = 1 }, actions),
+                .wheel_right => self.scroll_steps(.{ .x = -1, .y = 0 }, actions),
+                .wheel_left => self.scroll_steps(.{ .x = 1, .y = 0 }, actions),
+                else => {},
+            }
+        }
+    }
+
+    fn scroll_steps(self: *Self, steps: MouseEvent.Coord, actions: tui.MouseActions) void {
+        const now = root_mod.get_now();
+        for (0..@abs(steps.y)) |_| if (steps.y < 0) self.editor.mouse_scroll_up(now, actions) else self.editor.mouse_scroll_down(now, actions);
+        for (0..@abs(steps.x)) |_| if (steps.x < 0) self.editor.mouse_scroll_left(actions) else self.editor.mouse_scroll_right(actions);
+    }
+
     fn mouse_click_button4(self: *Self, _: MouseEvent.Coord, actions: tui.MouseActions) Result {
         self.editor.mouse_scroll_up(root_mod.get_now(), actions);
     }
@@ -10019,6 +10054,7 @@ pub const EditorWidget = struct {
         self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
         self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
         self.editor.handle_resize(pos);
+        if (self.scrollbar) |sb| sb.frame_h = if (pos.frame.is_set()) @intCast(@max(0, pos.frame.h)) else 0;
     }
 
     pub fn subscribe(self: *Self, h: EventHandler) !void {

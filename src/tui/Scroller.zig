@@ -80,6 +80,7 @@ pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetLis
     scrollbar.style_factory = scrollbar_v.panel_style;
     scrollbar.precise = self.pixel_offsets;
     scrollbar.pixel_track = self.pixel_offsets;
+    scrollbar.forward_scroll = true;
     scrollbar.hidden = !self.wants_bar();
     self.scrollbar = scrollbar;
 }
@@ -92,6 +93,7 @@ pub fn attach_overlay(self: *Self, allocator: Allocator, content: Plane) !void {
     const scrollbar = sb.dynamic_cast(scrollbar_v).?;
     scrollbar.style_factory = scrollbar_v.editor_style;
     scrollbar.precise = self.pixel_offsets;
+    scrollbar.forward_scroll = true;
     self.scrollbar = scrollbar;
     self.overlay = .{ .widget = sb, .allocator = allocator };
     if (build_options.gui and self.pixel_offsets) {
@@ -454,6 +456,8 @@ fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
         self.y.anim.jump_to(Pos.from_px(@intFromFloat(@round(std.math.clamp(fraction, 0, 1) * max)), cell_px));
         self.activity();
         tui.need_render(@src());
+    } else {
+        _ = try self.receive_mouse(m);
     }
 }
 
@@ -468,7 +472,12 @@ pub fn update(self: *Self) void {
 }
 
 pub fn render(self: *Self) bool {
-    if (self.scrollbar) |scrollbar|
-        scrollbar.set(@intCast(self.y.content), @intCast(self.y.view), @intCast(self.top()));
+    if (self.scrollbar) |scrollbar| {
+        const y = &self.y;
+        if (y.cell_px > 1 and y.view_px > 0)
+            scrollbar.set(@intCast(y.content * y.cell_px), @intCast(y.view_px), @intCast(y.anim.pos.to_px(y.cell_px)))
+        else
+            scrollbar.set(@intCast(y.content), @intCast(y.view), @intCast(self.top()));
+    }
     return self.y.anim.animating() or self.x.anim.animating();
 }

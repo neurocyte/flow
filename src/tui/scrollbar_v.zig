@@ -32,7 +32,9 @@ active: bool = false,
 hidden: bool = false,
 precise: bool = false,
 pixel_track: bool = false,
+forward_scroll: bool = false,
 track_layer: ?ScrollLayer = null,
+frame_h: u32 = 0,
 track_layer_id: ?Layer.Id = null,
 style_factory: ?*const fn (self: *Self, theme: *const Widget.Theme) Widget.Theme.Style = null,
 
@@ -74,9 +76,17 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
         self.set(size, view, pos);
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var coord: MouseEvent.Coord = undefined;
+    var btn: MouseEvent.Button = .none;
     const old_hover = self.hover;
+
+    if (self.forward_scroll and (try m.match(.{ "scroll", tp.more }) or
+        (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more }) and is_wheel(btn))))
+    {
+        self.event_sink.send(from, m) catch {};
+        return true;
+    }
 
     if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         const cell = coord.to_cell(self.plane.mouse_geometry());
@@ -101,6 +111,13 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     }
 
     return false;
+}
+
+fn is_wheel(btn: MouseEvent.Button) bool {
+    return switch (btn) {
+        .wheel_up, .wheel_down, .wheel_left, .wheel_right => true,
+        else => false,
+    };
 }
 
 fn update_max_ypx(self: *Self, ypx_: i32) void {
@@ -232,11 +249,12 @@ fn use_track_layer(self: *const Self) bool {
 }
 
 fn track_px(self: *const Self) u32 {
+    if (self.frame_h > 0) return self.frame_h;
     return @intCast(@max(0, self.plane.pixel_frame().h));
 }
 
 fn track_scrn(self: *const Self) u32 {
-    if (!self.use_track_layer()) return self.plane.dim_y() * eighths_c;
+    if (!build_options.gui or !(self.precise or self.use_track_layer())) return self.plane.dim_y() * eighths_c;
     const ch: u32 = @max(1, self.plane.cell_y());
     return (self.track_px() * eighths_c + ch - 1) / ch;
 }

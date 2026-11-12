@@ -71,6 +71,7 @@ pub fn submit(
         w_px,
         h_px,
     ) catch return;
+    fade.background = color.color;
     var plane = fade.plane();
     plane.set_base_style(.{ .bg = color });
     plane.erase();

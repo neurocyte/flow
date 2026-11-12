@@ -647,7 +647,11 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
                 .vertical => screen.width_pix,
                 .horizontal => screen.height_pix,
             };
-            break :blk @max(cell_aligned, screen_perp_pix);
+            const perp_offset_pix: u16 = @intCast(switch (self.direction) {
+                .vertical => self.deco_box.x * cell_x,
+                .horizontal => self.deco_box.y * cell_y,
+            });
+            break :blk @max(cell_aligned, screen_perp_pix -| perp_offset_pix);
         };
         const fill_extra: u16 = if (trailing_cells >= total) extras_a else 0;
         const layer_w_pix: u16 = switch (self.direction) {
