@@ -4118,9 +4118,11 @@ pub const Editor = struct {
     pub fn scroll_view_center_cycle(self: *Self, ctx: Context) Result {
         const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const cursor_row = self.get_primary().cursor.row;
-        return if (cursor_row <= self.view.row + scroll_cursor_min_border_distance)
+        self.sync_scroll_anims();
+        const top = self.scroll_anim.dest().cell;
+        return if (cursor_row <= top + scroll_cursor_min_border_distance)
             self.scroll_view_bottom(ctx)
-        else if (cursor_row <= self.view.row + self.view.rows / 2)
+        else if (cursor_row <= top + self.view.rows / 2)
             self.scroll_view_top(ctx)
         else
             self.scroll_view_offset(self.view.rows / 2, ctx.now);
