@@ -233,8 +233,10 @@ pub fn Create(options: type) type {
             const rows = @min(self.total_items, self.view_rows);
             self.scroller.set_view(.{ .h = rows, .w = self.list_box.list.plane.dim_x() }, &self.list_box.list.plane);
             self.scroller.set_size(self.total_items, rows);
-            if (@hasDecl(options, "after_resize"))
+            if (@hasDecl(options, "after_resize")) {
                 options.after_resize(self);
+                self.last_updated = null;
+            }
             self.selection_updated();
         }
 
