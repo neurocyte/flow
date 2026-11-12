@@ -20,14 +20,8 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 
 /// the area of `plane`, with its pixel frame
 pub fn area_of(plane: Plane) Widget.Box {
-    const x, const y = plane.global_origin_px();
     var box: Widget.Box = .from(plane);
-    box.frame = .{
-        .x = x,
-        .y = y,
-        .w = @as(i32, @intCast(plane.dim_x())) * plane.cell_x(),
-        .h = @as(i32, @intCast(plane.dim_y())) * plane.cell_y(),
-    };
+    box.frame = plane.pixel_frame();
     return box;
 }
 

@@ -160,6 +160,17 @@ pub fn frame(self: Plane) Layer.Frame {
     };
 }
 
+pub fn pixel_frame(self: Plane) Layer.Frame {
+    var f = self.frame();
+    const l = self.layer orelse return f;
+    const s = &l.screen;
+    if (s.width_pix > 0 and self.window.x_off + self.window.width >= s.width)
+        f.w = @max(f.w, @as(i32, s.width_pix) - @as(i32, self.window.x_off) * self.cell_x());
+    if (s.height_pix > 0 and self.window.y_off + self.window.height >= s.height)
+        f.h = @max(f.h, @as(i32, s.height_pix) - @as(i32, self.window.y_off) * self.cell_y());
+    return f;
+}
+
 pub fn hide(_: Plane) void {}
 
 pub fn cursor_enable(self: *const Plane, y: i32, x: i32, shape: vaxis.Cell.CursorShape) void {

@@ -79,6 +79,7 @@ pub fn attach_scrollbar(self: *Self, allocator: Allocator, container: *WidgetLis
     const scrollbar = sb.dynamic_cast(scrollbar_v).?;
     scrollbar.style_factory = scrollbar_v.panel_style;
     scrollbar.precise = self.pixel_offsets;
+    scrollbar.pixel_track = self.pixel_offsets;
     scrollbar.hidden = !self.wants_bar();
     self.scrollbar = scrollbar;
 }

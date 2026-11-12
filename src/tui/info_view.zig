@@ -813,8 +813,7 @@ pub fn scroll_to_heading(self: *Self, anchor: []const u8) bool {
 }
 
 fn link_under(self: *Self, coord: MouseEvent.Coord) ?[]const u8 {
-    const box = coord.to_cell(self.plane.mouse_geometry());
-    if (box.row < 0 or box.col < 0 or box.row >= self.view_rows or box.col >= self.view_cols) return null;
+    if (!self.plane.pixel_frame().contains(coord.x, coord.y)) return null;
     const cell = coord.to_cell(self.scroll_layer.geometry(&self.plane));
     if (cell.row < 0 or cell.col < 0) return null;
     const col: usize = @intCast(cell.col);

@@ -410,9 +410,7 @@ pub fn hover(self: *const Self) bool {
 pub fn is_coord_inside(self: *const Self, coord: @import("MouseEvent").Coord) bool {
     if (self.plane.layer) |layer| if (layer.clip) |clip|
         if (!clip.contains(coord.x, coord.y)) return false;
-    const cell = coord.to_cell(self.plane.mouse_geometry());
-    return 0 <= cell.col and cell.col < self.plane.dim_x() and
-        0 <= cell.row and cell.row < self.plane.dim_y();
+    return self.plane.pixel_frame().contains(coord.x, coord.y);
 }
 
 pub fn z_rank(self: *const Self) i32 {
