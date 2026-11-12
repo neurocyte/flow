@@ -12,6 +12,7 @@ pub const Box = @import("Box.zig");
 pub const Pos = struct { y: i32 = 0, x: i32 = 0 };
 pub const Theme = @import("theme");
 pub const CustomTheme = @import("CustomTheme.zig");
+pub const vscode_theme_file = @import("vscode_theme_file.zig");
 const static_scopes = @import("themes").scopes;
 pub const Type = @import("config").WidgetType;
 pub const StyleTag = @import("config").WidgetStyle;
@@ -165,8 +166,30 @@ fn get_theme_names() []const []const u8 {
 
 pub fn get_theme_by_name(allocator: std.mem.Allocator, name_: []const u8) ?Theme {
     const themes = get_themes(allocator);
-    const theme = themes.get(name_) orelse return null;
+    const theme = themes.get(name_) orelse return add_theme_file(allocator, name_) catch null;
     return theme.get(allocator);
+}
+
+fn add_theme_file(allocator: std.mem.Allocator, name_: []const u8) error{OutOfMemory}!?Theme {
+    const theme_info = try allocator.create(ThemeInfo);
+    errdefer allocator.destroy(theme_info);
+    theme_info.* = .{ .name = try allocator.dupe(u8, name_) };
+    errdefer allocator.free(theme_info.name);
+    const theme = theme_info.get(allocator) orelse {
+        allocator.free(theme_info.name);
+        allocator.destroy(theme_info);
+        return null;
+    };
+    errdefer {
+        allocator.free(theme.name);
+        allocator.free(theme.description);
+        allocator.free(theme.tokens);
+    }
+    const themes = get_themes(allocator);
+    try themes.put(theme_info.name, theme_info);
+    if (theme_names_) |names| themes.allocator.free(names);
+    theme_names_ = null;
+    return theme;
 }
 
 pub fn get_next_theme_by_name(name_: []const u8) []const u8 {
@@ -195,6 +218,26 @@ pub fn get_prev_theme_by_name(name_: []const u8) []const u8 {
 
 pub fn list_themes() []const []const u8 {
     return get_theme_names();
+}
+
+/// add a theme file that appeared after startup
+pub fn add_theme_name(allocator: std.mem.Allocator, name_: []const u8) error{OutOfMemory}!void {
+    const themes = get_themes(allocator);
+    if (themes.contains(name_)) return;
+    const theme_info = try allocator.create(ThemeInfo);
+    errdefer allocator.destroy(theme_info);
+    theme_info.* = .{ .name = try allocator.dupe(u8, name_) };
+    errdefer allocator.free(theme_info.name);
+    try themes.put(theme_info.name, theme_info);
+    if (theme_names_) |names| themes.allocator.free(names);
+    theme_names_ = null;
+}
+
+/// free the result with vscode_theme_file.deinit.
+pub fn load_vscode_theme(allocator: std.mem.Allocator, file_path: []const u8) !Theme {
+    if (scope_list.capacity == 0) try scope_list.appendSlice(allocator, &static_scopes);
+    defer scopes = scope_list.items;
+    return vscode_theme_file.load(allocator, file_path, &scope_list);
 }
 
 pub const VTable = struct {

@@ -315,6 +315,8 @@ pub fn build_exe(
     const regex_mod = regex_dep.module("regex");
 
     const themes_dep = b.dependency("themes", .{});
+    const vscode_theme_mod = themes_dep.module("vscode_theme");
+    vscode_theme_mod.addImport("cbor", cbor_mod);
 
     const syntax_dep = b.dependency("syntax", .{
         .target = target,
@@ -1576,6 +1578,7 @@ pub fn build_exe(
             .{ .name = "ripgrep", .module = ripgrep_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "themes", .module = themes_dep.module("themes") },
+            .{ .name = "vscode_theme", .module = vscode_theme_mod },
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "build_options", .module = options_mod },
             .{ .name = "color", .module = color_mod },

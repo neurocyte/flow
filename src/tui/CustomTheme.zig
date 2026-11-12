@@ -177,6 +177,16 @@ fn toTokens(allocator: std.mem.Allocator, customTokens: Tokens, scope_list: *std
     return tokens;
 }
 
+pub fn jsonFromTheme(allocator: std.mem.Allocator, theme: Theme, scopes: [][]const u8) ![]u8 {
+    var custom_theme = try fromTheme(allocator, theme, scopes);
+    defer custom_theme.deinit(allocator);
+    var buf: std.Io.Writer.Allocating = .init(allocator);
+    defer buf.deinit();
+    var s: std.json.Stringify = .{ .writer = &buf.writer, .options = .{ .whitespace = .indent_2 } };
+    try s.write(custom_theme);
+    return buf.toOwnedSlice();
+}
+
 pub fn fromTheme(allocator: std.mem.Allocator, theme: Theme, scopes: [][]const u8) !@This() {
     return .{
         .name = try allocator.dupe(u8, theme.name),

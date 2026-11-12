@@ -2231,6 +2231,24 @@ const cmds = struct {
         .arguments = &.{.integer},
     };
 
+    pub fn import_vscode_theme(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var output_path: []const u8 = undefined;
+        const output: ?[]const u8 = if (try ctx.args.match(.{tp.extract(&file_path)}))
+            null
+        else if (try ctx.args.match(.{ tp.extract(&file_path), tp.extract(&output_path) }))
+            output_path
+        else
+            return tp.exit_error(error.InvalidImportVscodeThemeArgument, null);
+        const theme_ = Widget.load_vscode_theme(self.allocator, file_path) catch return;
+        defer Widget.vscode_theme_file.deinit(self.allocator, theme_);
+        Widget.vscode_theme_file.write(self.allocator, theme_, Widget.scopes, output) catch return;
+        Widget.add_theme_name(self.allocator, theme_.name) catch |e|
+            return tp.exit_error(e, @errorReturnTrace());
+        return self.set_theme_by_name(theme_.name, .store);
+    }
+    pub const import_vscode_theme_meta: Meta = .{ .arguments = &.{.string} };
+
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
         if (try ctx.args.match(.{tp.extract(&name)}))
@@ -3727,6 +3745,7 @@ pub fn find_scope_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.
 }
 
 fn scope_to_theme_token(theme_: *const Widget.Theme, document_scope: []const u8) ?Widget.Theme.Token {
+    if (theme_.tokens.len == 0) return null;
     var idx = theme_.tokens.len - 1;
     var matched: ?Widget.Theme.Token = null;
     var done = false;
@@ -4029,13 +4048,9 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator, buffer: [
     if (root.read_theme(allocator, theme_name)) |content| {
         allocator.free(content);
     } else {
-        var custom_theme = try Widget.CustomTheme.fromTheme(allocator, self.current_theme().*, Widget.scopes);
-        defer custom_theme.deinit(allocator);
-        var buf: std.Io.Writer.Allocating = .init(self.allocator);
-        defer buf.deinit();
-        var s: std.json.Stringify = .{ .writer = &buf.writer, .options = .{ .whitespace = .indent_2 } };
-        try s.write(custom_theme);
-        try root.write_theme(theme_name, buf.written());
+        const json = try Widget.CustomTheme.jsonFromTheme(allocator, self.current_theme().*, Widget.scopes);
+        defer allocator.free(json);
+        try root.write_theme(theme_name, json);
     }
     return try root.get_theme_file_name(theme_name, buffer);
 }
