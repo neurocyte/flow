@@ -80,6 +80,7 @@ render_skipped: bool = false,
 receiver: Receiver,
 mainview_: ?Widget = null,
 on_ui_ready: DelayedMessageQueue,
+on_init: DelayedMessageQueue,
 message_filters_: MessageFilter.List,
 input_mode_: ?Mode = null,
 delayed_init_done: bool = false,
@@ -308,6 +309,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .frame_clock_running = true,
         .receiver = .init(receive, dtor, self),
         .on_ui_ready = DelayedMessageQueue.init(allocator),
+        .on_init = DelayedMessageQueue.init(allocator),
         .file_probe = .init(allocator),
         .message_filters_ = MessageFilter.List.init(allocator),
         .input_listeners_ = EventHandler.List.init(allocator),
@@ -401,6 +403,7 @@ fn show_keybind_load_failures(self: *Self) void {
 
 fn init_delayed(self: *Self, ctx: command.Context) command.Result {
     self.delayed_init_done = true;
+    defer self.on_init.set(.xon) catch {};
     if (self.input_mode_) |_| {
         if (self.delayed_init_input_mode) |delayed_init_input_mode| {
             if (self.input_mode_outer_ == null) {
@@ -465,6 +468,7 @@ fn deinit(self: *Self) void {
         self.dbus_client = null;
     };
     self.on_ui_ready.deinit();
+    self.on_init.deinit();
     self.file_probe.deinit();
     self.deinit_stdio_capture();
     if (self.auto_run_timer) |*t| {
@@ -696,6 +700,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         ctx.args = .{ .buf = arg };
         return command.execute(cmd_id, command.get_name(cmd_id) orelse "(unknown)", ctx) catch |e| self.logger.err("command", e);
     }
+    if (!self.delayed_init_done and try m.match(.{ "cmd", tp.any, tp.any, .{ "reply", tp.more } }))
+        return self.on_init.post_raw(m);
     if (try m.match(.{ "cmd", tp.extract(&cmd), tp.extract_cbor(&arg), .{ "reply", tp.extract(&reply.piid), tp.extract(&reply.id) } })) {
         ctx.args = .{ .buf = arg };
         ctx.reply = reply;
