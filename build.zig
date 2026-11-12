@@ -227,7 +227,7 @@ pub fn build_exe(
     const embed_emoji = flow_options.embed_emoji;
     const install_tests = flow_options.install_tests;
 
-    const use_lld = if (target.result.os.tag.isDarwin()) null else use_llvm;
+    const use_lld = if (isDarwin(target)) null else use_llvm;
     const is_native = target.query.isNative();
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
@@ -1889,4 +1889,9 @@ fn gen_version(b: *std.Build, writer: *std.Io.Writer) !void {
     const version = std.mem.trimEnd(u8, describe, "\r\n ");
 
     try writer.print("{s}{s}", .{ version, if (diff.len > 0) "-dirty" else "" });
+}
+
+// Work around https://codeberg.org/ziglang/zig/issues/37250
+noinline fn isDarwin(target: std.Build.ResolvedTarget) bool {
+    return target.result.os.tag.isDarwin();
 }
