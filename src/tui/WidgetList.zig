@@ -37,6 +37,7 @@ deco_box: Widget.Box,
 trailing_layer: ?*Layer = null,
 trailing_layer_id: ?Layer.Id = null,
 trailing_z_index: ?Layer.Level = null,
+trailing_background: ?u24 = null,
 ctx: ?*anyopaque = null,
 on_deinit: ?*const fn (ctx: ?*anyopaque) void = null,
 on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
@@ -293,6 +294,7 @@ fn build_trailing_target(self: *Self, layer: *Layer, client_box: *const Widget.B
         .z_index = self.trailing_z(),
     };
     layer.z_index = target.z_index; // keep in sync
+    layer.background = self.trailing_background;
 
     const cw = self.plane.cell_x();
     const ch = self.plane.cell_y();
@@ -335,7 +337,15 @@ fn trailing_frame(self: *Self, client_box: *const Widget.Box, trailing_count: us
             .{ .x = base_x + loc_a * cw, .y = base_y + loc_b * ch, .w = trailing_cells * cw, .h = size_b * ch },
         },
     };
-    return if (trailing_cells >= size_a) content else switch (self.direction) {
+    if (trailing_cells >= size_a) {
+        var filled = content;
+        switch (self.direction) {
+            .vertical => filled.h += rem,
+            .horizontal => filled.w += rem,
+        }
+        return filled;
+    }
+    return switch (self.direction) {
         .vertical => content.align_bottom(list_frame),
         .horizontal => content.align_right(list_frame),
     };
@@ -639,12 +649,13 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             };
             break :blk @max(cell_aligned, screen_perp_pix);
         };
+        const fill_extra: u16 = if (trailing_cells >= total) extras_a else 0;
         const layer_w_pix: u16 = switch (self.direction) {
             .vertical => perp_pix,
-            .horizontal => @as(u16, layer_w) * cell_x,
+            .horizontal => @as(u16, layer_w) * cell_x + fill_extra,
         };
         const layer_h_pix: u16 = switch (self.direction) {
-            .vertical => @as(u16, layer_h) * cell_y,
+            .vertical => @as(u16, layer_h) * cell_y + fill_extra,
             .horizontal => perp_pix,
         };
         layer.resize(layer_w, layer_h, layer_w_pix, layer_h_pix) catch return;

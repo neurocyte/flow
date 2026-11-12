@@ -390,6 +390,7 @@ fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !W
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     if (tui.mini_mode() == null) self.mini_mode_overlay.release_cursor();
     const views_more = self.floating_views.render(theme);
+    self.widgets.trailing_background = if (theme.panel.bg) |bg| bg.color else null;
     const widgets_more = self.widgets.render(theme);
     if (self.link_line) |line|
         self.link_line_overlay.render(self.allocator, theme, line.area, .right, line.text, theme.statusbar) catch {};
