@@ -66,9 +66,6 @@ const Row = struct {
 
 const Details = enum { hidden, shown };
 
-const max_listed_keys = 7;
-const sided_modifiers = [_][]const u8{ "shft", "ctrl", "alt", "super", "hyper", "meta" };
-
 /// one row per description, with the keys of all bindings that share it
 fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, prefix_len: usize, details: Details) error{ OutOfMemory, WriteFailed }![]Row {
     var rows: std.ArrayList(Row) = .empty;
@@ -92,42 +89,16 @@ fn build_rows(allocator: std.mem.Allocator, bindings: []const keybind.Binding, p
             else if (!std.mem.eql(u8, row.first_command, first))
                 row.more_commands = true;
             const source_mode = if (binding.source_info.mode.len > 0) binding.source_info.mode else "global";
-            if (index_of_string(row.source_modes.items, source_mode) == null)
+            if (keybind.index_of_string(row.source_modes.items, source_mode) == null)
                 try row.source_modes.append(allocator, source_mode);
         }
     }
     for (rows.items) |*row| {
-        try merge_sided_modifiers(allocator, &row.keys);
-        row.text = try format_keys(allocator, row.keys.items);
+        row.text = try keybind.format_hint_keys(allocator, &row.keys);
         row.command = if (row.more_commands) try std.fmt.allocPrint(allocator, "{s}, …", .{row.first_command}) else row.first_command;
         row.sources = try std.mem.join(allocator, ", ", row.source_modes.items);
     }
     return rows.items;
-}
-
-/// replace a left and a right modifier key with one unsided key (lctrl, rctrl -> ctrl)
-fn merge_sided_modifiers(allocator: std.mem.Allocator, keys: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
-    for (sided_modifiers) |modifier| {
-        var left_buf: [8]u8 = undefined;
-        var right_buf: [8]u8 = undefined;
-        const left = std.fmt.bufPrint(&left_buf, "l{s}", .{modifier}) catch unreachable;
-        const right = std.fmt.bufPrint(&right_buf, "r{s}", .{modifier}) catch unreachable;
-        const left_idx = index_of_string(keys.items, left) orelse continue;
-        const right_idx = index_of_string(keys.items, right) orelse continue;
-        keys.items[@min(left_idx, right_idx)] = try allocator.dupe(u8, modifier);
-        _ = keys.orderedRemove(@max(left_idx, right_idx));
-    }
-}
-
-fn index_of_string(keys: []const []const u8, key: []const u8) ?usize {
-    for (keys, 0..) |k, i| if (std.mem.eql(u8, k, key)) return i;
-    return null;
-}
-
-fn format_keys(allocator: std.mem.Allocator, keys: []const []const u8) error{OutOfMemory}![]const u8 {
-    if (keys.len > max_listed_keys)
-        return std.fmt.allocPrint(allocator, "{s}, .. {s}", .{ keys[0], keys[keys.len - 1] });
-    return std.mem.join(allocator, ", ", keys);
 }
 
 fn get_description(binding: *const keybind.Binding) []const u8 {

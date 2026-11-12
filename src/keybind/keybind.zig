@@ -697,6 +697,34 @@ pub const Binding = struct {
 
 pub const KeybindHints = std.StringHashMapUnmanaged([]u8);
 
+const max_listed_hint_keys = 7;
+const sided_modifiers = [_][]const u8{ "shft", "ctrl", "alt", "super", "hyper", "meta" };
+
+pub fn format_hint_keys(allocator: std.mem.Allocator, keys: *std.ArrayList([]const u8)) error{OutOfMemory}![]u8 {
+    merge_sided_modifiers(keys);
+    if (keys.items.len > max_listed_hint_keys)
+        return std.fmt.allocPrint(allocator, "{s}, .. {s}", .{ keys.items[0], keys.items[keys.items.len - 1] });
+    return std.mem.join(allocator, ", ", keys.items);
+}
+
+fn merge_sided_modifiers(keys: *std.ArrayList([]const u8)) void {
+    for (sided_modifiers) |modifier| {
+        var left_buf: [8]u8 = undefined;
+        var right_buf: [8]u8 = undefined;
+        const left = std.fmt.bufPrint(&left_buf, "l{s}", .{modifier}) catch unreachable;
+        const right = std.fmt.bufPrint(&right_buf, "r{s}", .{modifier}) catch unreachable;
+        const left_idx = index_of_string(keys.items, left) orelse continue;
+        const right_idx = index_of_string(keys.items, right) orelse continue;
+        keys.items[@min(left_idx, right_idx)] = modifier;
+        _ = keys.orderedRemove(@max(left_idx, right_idx));
+    }
+}
+
+pub fn index_of_string(keys: []const []const u8, key: []const u8) ?usize {
+    for (keys, 0..) |k, i| if (std.mem.eql(u8, k, key)) return i;
+    return null;
+}
+
 const max_key_sequence_time_interval = 1500;
 const max_input_buffer_size = 4096;
 
@@ -1155,19 +1183,14 @@ const BindingSet = struct {
     }
 
     fn build_hints(self: *@This(), allocator: std.mem.Allocator) !void {
-        const hints_map = &self.hints_map;
+        var arena: std.heap.ArenaAllocator = .init(allocator);
+        defer arena.deinit();
+        const temp = arena.allocator();
+        var keys_map: std.StringArrayHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
 
         for (self.press.items) |binding| {
-            const cmd = binding.commands[0].command;
-            var end: usize = 0;
-            var hint: std.Io.Writer.Allocating = if (hints_map.get(cmd)) |previous| blk: {
-                end = previous.len;
-                break :blk .initOwnedSlice(allocator, previous);
-            } else .init(allocator);
-            defer hint.deinit();
-            const writer = &hint.writer;
-            writer.end = end;
-            if (hint.written().len > 0) try writer.writeAll(", ");
+            var key_text: std.Io.Writer.Allocating = .init(temp);
+            const writer = &key_text.writer;
             const count = binding.key_events.len;
             for (binding.key_events, 0..) |key_, n| {
                 var key = key_;
@@ -1181,7 +1204,15 @@ const BindingSet = struct {
                     },
                 }
             }
-            try hints_map.put(allocator, cmd, try hint.toOwnedSlice());
+            const entry = try keys_map.getOrPut(temp, binding.commands[0].command);
+            if (!entry.found_existing) entry.value_ptr.* = .empty;
+            try entry.value_ptr.append(temp, key_text.written());
+        }
+
+        var it = keys_map.iterator();
+        while (it.next()) |entry| {
+            const hint = try format_hint_keys(allocator, entry.value_ptr);
+            if (try self.hints_map.fetchPut(allocator, entry.key_ptr.*, hint)) |previous| allocator.free(previous.value);
         }
     }
 
