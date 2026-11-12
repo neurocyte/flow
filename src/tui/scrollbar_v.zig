@@ -4,12 +4,16 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
+const build_options = @import("build_options");
 const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
+const ScrollLayer = @import("ScrollLayer.zig");
 
+allocator: Allocator,
 plane: Plane,
 pos_scrn: u32 = 0,
 view_scrn: u32 = 8,
@@ -27,6 +31,9 @@ hover: bool = false,
 active: bool = false,
 hidden: bool = false,
 precise: bool = false,
+pixel_track: bool = false,
+track_layer: ?ScrollLayer = null,
+track_layer_id: ?Layer.Id = null,
 style_factory: ?*const fn (self: *Self, theme: *const Widget.Theme) Widget.Theme.Style = null,
 
 const Self = @This();
@@ -35,6 +42,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_source: ?Widget, event_
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
+        .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .event_sink = event_sink,
     };
@@ -49,6 +57,7 @@ pub fn widget(self: *Self) Widget {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    if (self.track_layer) |*l| l.deinit();
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -117,7 +126,7 @@ fn clamp_pos_scrn(self: *const Self, pos_scrn: u32) u32 {
 fn pos_scrn_to_virt(self: *const Self, pos_scrn_: u32) u32 {
     const pos_scrn: f64 = @floatFromInt(self.clamp_pos_scrn(pos_scrn_));
     const size_virt: f64 = @floatFromInt(self.size_virt);
-    const size_scrn: f64 = @floatFromInt(self.plane.dim_y() * eighths_c);
+    const size_scrn: f64 = @floatFromInt(self.track_scrn());
     const ratio = size_virt / size_scrn;
     return @intFromFloat(pos_scrn * ratio);
 }
@@ -205,9 +214,47 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     defer frame.deinit();
     self.plane.set_base_style(style);
     self.plane.erase();
-    if (!(tui.config().scrollbar_auto_hide and self.size_scrn == self.view_scrn))
-        smooth_bar_at(&self.plane, self.pos_scrn, self.view_scrn) catch {};
+    if (self.use_track_layer()) {
+        self.render_track_layer(style);
+        return false;
+    }
+    if (self.bar_visible())
+        smooth_bar_at(&self.plane, self.pos_scrn, self.view_scrn, self.size_scrn) catch {};
     return false;
+}
+
+fn bar_visible(self: *const Self) bool {
+    return !(tui.config().scrollbar_auto_hide and self.size_scrn == self.view_scrn);
+}
+
+fn use_track_layer(self: *const Self) bool {
+    return build_options.gui and self.pixel_track and !self.hidden;
+}
+
+fn track_px(self: *const Self) u32 {
+    return @intCast(@max(0, self.plane.pixel_frame().h));
+}
+
+fn track_scrn(self: *const Self) u32 {
+    if (!self.use_track_layer()) return self.plane.dim_y() * eighths_c;
+    const ch: u32 = @max(1, self.plane.cell_y());
+    return (self.track_px() * eighths_c + ch - 1) / ch;
+}
+
+fn render_track_layer(self: *Self, style: Widget.Theme.Style) void {
+    if (self.track_layer == null)
+        self.track_layer = ScrollLayer.init(self.allocator, &self.track_layer_id) catch return;
+    const track_layer = &self.track_layer.?;
+    const view = self.plane;
+    defer self.plane = view;
+    const ch: u32 = @max(1, view.cell_y());
+    track_layer.prepare(&view, (self.track_px() + ch - 1) / ch, view.dim_x());
+    self.plane = track_layer.plane;
+    self.plane.set_base_style(style);
+    self.plane.erase();
+    if (self.bar_visible())
+        smooth_bar_at(&self.plane, self.pos_scrn, self.view_scrn, self.size_scrn) catch {};
+    track_layer.submit(&view, .{ .col = 0, .row = 0 }, .{ 0, self.track_px() }, .{});
 }
 
 pub fn set(self: *Self, size_virt_: u32, view_virt_: u32, pos_virt_: u32) void {
@@ -218,7 +265,7 @@ pub fn set(self: *Self, size_virt_: u32, view_virt_: u32, pos_virt_: u32) void {
     var size_virt: f64 = @floatFromInt(size_virt_);
     var view_virt: f64 = @floatFromInt(view_virt_);
     const pos_virt: f64 = @floatFromInt(pos_virt_);
-    const size_scrn: f64 = @floatFromInt(self.plane.dim_y() * eighths_c);
+    const size_scrn: f64 = @floatFromInt(self.track_scrn());
     if (size_virt == 0) size_virt = 1;
     if (view_virt_ == 0) view_virt = 1;
     if (view_virt > size_virt) view_virt = size_virt;
@@ -234,10 +281,10 @@ const eighths_b = [_][]const u8{ "█", "▇", "▆", "▅", "▄", "▃", "▂"
 const eighths_t = [_][]const u8{ " ", "▔", "🮂", "🮃", "▀", "🮄", "🮅", "🮆" };
 const eighths_c: u32 = eighths_b.len;
 
-fn smooth_bar_at(plane: *Plane, pos_: u32, size_: u32) !void {
-    const height: u32 = plane.dim_y();
+fn smooth_bar_at(plane: *Plane, pos_: u32, size_: u32, track_: u32) !void {
+    const track = if (track_ > 0) track_ else plane.dim_y() * eighths_c;
     var size = @max(size_, 8);
-    const pos = @min(height * eighths_c -| size, pos_);
+    const pos = @min(track -| size, pos_);
     var pos_y: c_int = @intCast(@divFloor(pos, eighths_c));
     const blk = @mod(pos, eighths_c);
     const b = eighths_b[blk];
