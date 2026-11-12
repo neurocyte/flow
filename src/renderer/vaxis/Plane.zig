@@ -541,6 +541,23 @@ inline fn set_font_style(style: *vaxis.Cell.Style, fs: FontStyle) void {
         .underline => style.ul_style = .single,
         .undercurl => style.ul_style = .curly,
         .strikethrough => style.strikethrough = true,
+        .bold_italic => {
+            style.bold = true;
+            style.italic = true;
+        },
+        .italic_underline => {
+            style.italic = true;
+            style.ul_style = .single;
+        },
+        .bold_underline => {
+            style.bold = true;
+            style.ul_style = .single;
+        },
+        .bold_italic_underline => {
+            style.bold = true;
+            style.italic = true;
+            style.ul_style = .single;
+        },
     }
 }
 

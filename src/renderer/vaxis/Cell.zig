@@ -32,6 +32,23 @@ pub inline fn set_font_style(self: *Cell, fs: FontStyle) void {
         .underline => self.cell.style.ul_style = .single,
         .undercurl => self.cell.style.ul_style = .curly,
         .strikethrough => self.cell.style.strikethrough = true,
+        .bold_italic => {
+            self.cell.style.bold = true;
+            self.cell.style.italic = true;
+        },
+        .italic_underline => {
+            self.cell.style.italic = true;
+            self.cell.style.ul_style = .single;
+        },
+        .bold_underline => {
+            self.cell.style.bold = true;
+            self.cell.style.ul_style = .single;
+        },
+        .bold_italic_underline => {
+            self.cell.style.bold = true;
+            self.cell.style.italic = true;
+            self.cell.style.ul_style = .single;
+        },
     }
 }
 

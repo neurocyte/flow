@@ -244,6 +244,22 @@ fn show_font(self: *Self, font: ?Widget.Theme.FontStyle) void {
             self.plane.set_styles(styles.struck);
             _ = self.plane.print(" strikethrough", .{}) catch return;
         },
+        .bold_italic => {
+            self.plane.set_styles(.{ .bold = true, .italic = true });
+            _ = self.plane.print(" bold italic", .{}) catch return;
+        },
+        .italic_underline => {
+            self.plane.set_styles(.{ .italic = true, .underline = true });
+            _ = self.plane.print(" italic underline", .{}) catch return;
+        },
+        .bold_underline => {
+            self.plane.set_styles(.{ .bold = true, .underline = true });
+            _ = self.plane.print(" bold underline", .{}) catch return;
+        },
+        .bold_italic_underline => {
+            self.plane.set_styles(.{ .bold = true, .italic = true, .underline = true });
+            _ = self.plane.print(" bold italic underline", .{}) catch return;
+        },
     };
     self.plane.set_styles(styles.normal);
 }

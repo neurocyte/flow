@@ -14,7 +14,18 @@ const BlockBuilder = RDoc.BlockBuilder;
 
 const render = @This();
 
-pub const FontStyle = enum { normal, bold, italic, underline, undercurl, strikethrough };
+pub const FontStyle = enum {
+    normal,
+    bold,
+    italic,
+    underline,
+    undercurl,
+    strikethrough,
+    bold_italic,
+    italic_underline,
+    bold_underline,
+    bold_italic_underline,
+};
 
 pub const Token = struct {
     fg: ?u24 = null,
@@ -545,6 +556,23 @@ fn add_bit(style: *Style, fs: FontStyle) void {
         .underline => style.ul_style = .single,
         .undercurl => style.ul_style = .curly,
         .strikethrough => style.strikethrough = true,
+        .bold_italic => {
+            style.bold = true;
+            style.italic = true;
+        },
+        .italic_underline => {
+            style.italic = true;
+            style.ul_style = .single;
+        },
+        .bold_underline => {
+            style.bold = true;
+            style.ul_style = .single;
+        },
+        .bold_italic_underline => {
+            style.bold = true;
+            style.italic = true;
+            style.ul_style = .single;
+        },
     }
 }
 

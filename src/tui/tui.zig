@@ -3827,6 +3827,8 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "keyword.type", .tm = "keyword.structure" },
     .{ .ts = "keyword.function", .tm = "storage.type.function" },
     .{ .ts = "text.title", .tm = "entity.name.section" },
+    .{ .ts = "text.strong", .tm = "markup.bold" },
+    .{ .ts = "text.emphasis", .tm = "markup.italic" },
     .{ .ts = "diff.minus", .tm = "markup.deleted.diff" },
     .{ .ts = "diff.plus", .tm = "markup.inserted.diff" },
 };
