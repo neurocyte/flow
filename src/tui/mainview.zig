@@ -220,6 +220,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         allocator.free(p.value_ptr.*);
     }
     self.vcs_commits.deinit(allocator);
+    self.location_history_.deinit();
     terminal_view.shutdown_all();
     self.commands.deinit();
     self.widgets.deinit(allocator);

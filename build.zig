@@ -1484,6 +1484,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/location_history.zig"),
         .imports = &.{
             .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
 

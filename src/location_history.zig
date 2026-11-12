@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const root = @import("soft_root").root;
 
 const Self = @This();
 const module_name = @typeName(Self);
@@ -29,15 +30,15 @@ pub fn deinit(self: *Self) void {
 }
 
 const Process = struct {
-    arena: std.heap.ArenaAllocator,
     allocator: std.mem.Allocator,
-    backwards: std.ArrayList(Entry),
+    file_path_table: std.StringArrayHashMapUnmanaged(bool) = .empty,
+    backwards: std.ArrayList(Entry) = .empty,
     current: ?Entry = null,
-    forwards: std.ArrayList(Entry),
+    forwards: std.ArrayList(Entry) = .empty,
     receiver: Receiver,
 
     const Receiver = tp.Receiver(*Process);
-    const outer_a = std.heap.page_allocator;
+    const max_entries = 1000;
 
     const Entry = struct {
         file_path: []const u8,
@@ -46,15 +47,13 @@ const Process = struct {
     };
 
     pub fn create() error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
-        const self = try outer_a.create(Process);
+        const allocator = root.get_init().gpa;
+        const self = try allocator.create(Process);
         self.* = .{
-            .arena = std.heap.ArenaAllocator.init(outer_a),
-            .allocator = self.arena.allocator(),
-            .backwards = .empty,
-            .forwards = .empty,
+            .allocator = allocator,
             .receiver = .init(receive, dtor, self),
         };
-        return tp.spawn_link(self.allocator, self, Process.start, module_name);
+        return tp.spawn_link(allocator, self, Process.start, module_name);
     }
 
     fn start(self: *Process) tp.result {
@@ -63,26 +62,52 @@ const Process = struct {
     }
 
     fn dtor(self: *Process) void {
-        self.clear_backwards();
-        self.clear_forwards();
+        for (self.file_path_table.keys()) |file_path| self.allocator.free(file_path);
+        self.file_path_table.deinit(self.allocator);
         self.backwards.deinit(self.allocator);
         self.forwards.deinit(self.allocator);
-        if (self.current) |entry| self.allocator.free(entry.file_path);
-        self.arena.deinit();
-        outer_a.destroy(self);
+        self.allocator.destroy(self);
     }
 
-    fn clear_backwards(self: *Process) void {
-        return self.clear_table(&self.backwards);
+    fn intern(self: *Process, file_path: []const u8) ![]const u8 {
+        if (self.current) |current| if (std.mem.eql(u8, current.file_path, file_path))
+            return current.file_path;
+        const result = try self.file_path_table.getOrPut(self.allocator, file_path);
+        if (!result.found_existing) {
+            result.key_ptr.* = self.allocator.dupe(u8, file_path) catch |e| {
+                self.file_path_table.swapRemoveAt(result.index);
+                return e;
+            };
+            result.value_ptr.* = true;
+        }
+        return result.key_ptr.*;
     }
 
-    fn clear_forwards(self: *Process) void {
-        return self.clear_table(&self.forwards);
+    fn trim(self: *Process) void {
+        const len = self.backwards.items.len;
+        if (len <= 2 * max_entries) return;
+        std.mem.copyForwards(Entry, self.backwards.items[0..max_entries], self.backwards.items[len - max_entries ..]);
+        self.backwards.shrinkRetainingCapacity(max_entries);
+        self.collect_file_paths();
     }
 
-    fn clear_table(self: *Process, table: *std.ArrayList(Entry)) void {
-        for (table.items) |entry| self.allocator.free(entry.file_path);
-        table.clearAndFree(self.allocator);
+    fn collect_file_paths(self: *Process) void {
+        @memset(self.file_path_table.values(), false);
+        if (self.current) |entry| self.mark_file_path(entry);
+        for (self.backwards.items) |entry| self.mark_file_path(entry);
+        for (self.forwards.items) |entry| self.mark_file_path(entry);
+        var i = self.file_path_table.count();
+        while (i > 0) {
+            i -= 1;
+            if (self.file_path_table.values()[i]) continue;
+            const file_path = self.file_path_table.keys()[i];
+            self.file_path_table.swapRemoveAt(i);
+            self.allocator.free(file_path);
+        }
+    }
+
+    fn mark_file_path(self: *Process, entry: Entry) void {
+        if (self.file_path_table.getPtr(entry.file_path)) |used| used.* = true;
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
@@ -110,31 +135,30 @@ const Process = struct {
 
     fn update(self: *Process, entry_: Entry) !void {
         const entry: Entry = .{
-            .file_path = try self.allocator.dupe(u8, entry_.file_path),
+            .file_path = try self.intern(entry_.file_path),
             .cursor = entry_.cursor,
             .selection = entry_.selection,
         };
-        errdefer self.allocator.free(entry.file_path);
-        defer self.current = entry;
-
-        if (isdupe(self.current, entry))
-            return self.allocator.free(self.current.?.file_path);
+        if (isdupe(self.current, entry)) {
+            self.current = entry;
+            return;
+        }
 
         if (isdupe(self.backwards.getLastOrNull(), entry)) {
             if (self.current) |current| self.forwards.append(self.allocator, current) catch {};
-            if (self.backwards.pop()) |top|
-                self.allocator.free(top.file_path);
+            _ = self.backwards.pop();
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "back", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (isdupe(self.forwards.getLastOrNull(), entry)) {
             if (self.current) |current| self.backwards.append(self.allocator, current) catch {};
-            if (self.forwards.pop()) |top|
-                self.allocator.free(top.file_path);
+            _ = self.forwards.pop();
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "forward", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (self.current) |current| {
             try self.backwards.append(self.allocator, current);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "new", current.file_path, current.cursor.row, current.cursor.col, self.backwards.items.len, self.forwards.items.len }));
-            self.clear_forwards();
+            self.forwards.clearRetainingCapacity();
         }
+        self.current = entry;
+        self.trim();
     }
 
     fn isdupe(a_: ?Entry, b: Entry) bool {
