@@ -31,8 +31,8 @@ vt: Terminal,
 env: std.process.Environ.Map,
 write_buf: [4096]u8,
 pty_pid: ?tp.pid = null,
-cwd: std.ArrayListUnmanaged(u8) = .empty,
-title: std.ArrayListUnmanaged(u8) = .empty,
+cwd: std.ArrayList(u8) = .empty,
+title: std.ArrayList(u8) = .empty,
 last_cmd: ?cbor.Raw = null,
 /// App-specified override colours (from OSC 10/11/12). null = use theme.
 app_fg: ?[3]u8 = null,
@@ -433,7 +433,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
     display_cmd: []const u8,
     have_cmd: bool,
     have_arg: bool,
-    argv_list: std.ArrayListUnmanaged([]const u8),
+    argv_list: std.ArrayList([]const u8),
     on_exit: TerminalOnExit,
     working_directory: ?[]const u8,
 
@@ -485,7 +485,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
         null;
     defer if (argv_msg) |msg| allocator.free(msg.buf);
 
-    var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var argv_list: std.ArrayList([]const u8) = .empty;
     errdefer {
         for (argv_list.items) |arg| allocator.free(arg);
         argv_list.deinit(allocator);
@@ -623,7 +623,7 @@ fn re_run_argv(self: *@This()) !void {
     const cmd_argv = self.vt.cmd.argv;
     if (cmd_argv.len == 0) return tp.exit("no command to re-run");
     const allocator = self.vt.allocator;
-    var argv_copy: std.ArrayListUnmanaged([]const u8) = .empty;
+    var argv_copy: std.ArrayList([]const u8) = .empty;
     defer {
         for (argv_copy.items) |arg| allocator.free(arg);
         argv_copy.deinit(allocator);
@@ -653,7 +653,7 @@ pub fn get_profile(self: *const Vt) ?*const Terminal.Profile {
 
 /// All terminal profiles available to launch.
 pub fn available_profiles(allocator: std.mem.Allocator) ![]Terminal.Profile {
-    var list: std.ArrayListUnmanaged(Terminal.Profile) = .empty;
+    var list: std.ArrayList(Terminal.Profile) = .empty;
     errdefer {
         for (list.items) |*p| p.deinit(allocator);
         list.deinit(allocator);
@@ -687,7 +687,7 @@ pub fn free_profiles(allocator: std.mem.Allocator, profiles: []Terminal.Profile)
     Terminal.Profile.free(allocator, profiles);
 }
 
-var profile_keybindings: std.ArrayListUnmanaged(keybind.GlobalId) = .empty;
+var profile_keybindings: std.ArrayList(keybind.GlobalId) = .empty;
 
 pub fn register_profile_keybindings() void {
     const allocator = root.get_init().gpa;

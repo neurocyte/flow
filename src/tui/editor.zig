@@ -98,7 +98,7 @@ pub const Match = struct {
         find,
         highlight_references,
     };
-    const List = std.ArrayListUnmanaged(?Self);
+    const List = std.ArrayList(?Self);
     const Self = @This();
 
     pub fn from_selection(sel: Selection) Self {
@@ -134,7 +134,7 @@ pub const CurSel = struct {
     cursor: Cursor = Cursor{},
     selection: ?Selection = null,
 
-    const List = std.ArrayListUnmanaged(?Self);
+    const List = std.ArrayList(?Self);
     const Self = @This();
 
     pub inline fn invalid() Self {
@@ -397,7 +397,7 @@ pub const Editor = struct {
         pos: CurSel,
         old_primary: CurSel,
         old_primary_reversed: bool,
-        whole_file: ?std.ArrayListUnmanaged(u8),
+        whole_file: ?std.ArrayList(u8),
         bytes: usize = 0,
         chunks: usize = 0,
         eol_mode: Buffer.EolMode = .lf,
@@ -412,7 +412,7 @@ pub const Editor = struct {
     last_find_query_match_type: Match.Type = .none,
     last_find_query_find_mode: Buffer.FindMode = .exact,
     find_mode: ?Buffer.FindMode = null,
-    find_history: ?std.ArrayListUnmanaged([]const u8) = null,
+    find_history: ?std.ArrayList([]const u8) = null,
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
     highlight_references_state: enum { adding, done } = .done,
     highlight_references_pending: Match.List = .empty,
@@ -472,7 +472,7 @@ pub const Editor = struct {
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
 
-    diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
+    diagnostics: std.ArrayList(Diagnostic) = .empty,
     diag_errors: usize = 0,
     diag_warnings: usize = 0,
     diag_info: usize = 0,
@@ -533,7 +533,7 @@ pub const Editor = struct {
     const HoverPos = struct { row: usize, col: usize };
 
     const CompletionState = struct {
-        data: std.ArrayListUnmanaged(u8) = .empty,
+        data: std.ArrayList(u8) = .empty,
         row: usize = 0,
         col: usize = 0,
         is_complete: bool = true,

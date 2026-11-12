@@ -224,7 +224,7 @@ cell_pixel_h: u16 = 0,
 last_printed_buf: [Screen.Grapheme.inline_capacity]u8 = undefined, // for REP (CSI b)
 last_printed_len: u8 = 0,
 /// Scratch buffer for decoding OSC 52 base64 clipboard data.
-osc52_buf: std.ArrayListUnmanaged(u8) = .empty,
+osc52_buf: std.ArrayList(u8) = .empty,
 /// Pending OSC 52 reads. Query eplies are held until a reads end so that
 /// the terminal gets replies in query order.
 osc52_reads: usize = 0,

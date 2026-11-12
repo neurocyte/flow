@@ -6,7 +6,7 @@ const Self = @This();
 pub const State = enum { xon, xoff };
 
 allocator: std.mem.Allocator,
-queue: std.ArrayListUnmanaged([]u8) = .empty,
+queue: std.ArrayList([]u8) = .empty,
 state: State = .xoff,
 
 pub fn init(allocator: std.mem.Allocator) Self {

@@ -206,11 +206,11 @@ fn decode_array(gpa: Allocator, w: *Writer, dec: *Decoder, elem: []const u8) Err
 /// Appends D-Bus encoded bytes; alignment is relative to the buffer start, so
 /// the buffer must begin at the message's first byte.
 pub const Encoder = struct {
-    buf: *std.ArrayListUnmanaged(u8),
+    buf: *std.ArrayList(u8),
     gpa: Allocator,
     endian: Endian,
 
-    pub fn init(gpa: Allocator, buf: *std.ArrayListUnmanaged(u8), endian: Endian) Encoder {
+    pub fn init(gpa: Allocator, buf: *std.ArrayList(u8), endian: Endian) Encoder {
         return .{ .buf = buf, .gpa = gpa, .endian = endian };
     }
 
@@ -377,7 +377,7 @@ fn expectRoundTrip(sig: []const u8, args: anytype) !void {
     const args_cbor = cbor.fmt(&args_buf, args);
 
     // encode cbor args -> dbus bytes (body starts 8-aligned in a real message)
-    var body: std.ArrayListUnmanaged(u8) = .empty;
+    var body: std.ArrayList(u8) = .empty;
     defer body.deinit(allocator);
     var enc = Encoder.init(allocator, &body, .little);
     try encode_sig(&enc, sig, args_cbor);
@@ -415,7 +415,7 @@ test "variant unwraps on decode" {
     var args_buf: [64]u8 = undefined;
     const args_cbor = cbor.fmt(&args_buf, .{.{ "u", @as(u32, 1) }});
 
-    var body: std.ArrayListUnmanaged(u8) = .empty;
+    var body: std.ArrayList(u8) = .empty;
     defer body.deinit(allocator);
     var enc = Encoder.init(allocator, &body, .little);
     try encode_sig(&enc, "v", args_cbor);
@@ -438,7 +438,7 @@ test "dict decodes to map" {
     var args_buf: [128]u8 = undefined;
     const args_cbor = cbor.fmt(&args_buf, .{.{ .k = .{ "u", @as(u32, 2) } }});
 
-    var body: std.ArrayListUnmanaged(u8) = .empty;
+    var body: std.ArrayList(u8) = .empty;
     defer body.deinit(allocator);
     var enc = Encoder.init(allocator, &body, .little);
     try encode_sig(&enc, "a{sv}", args_cbor);

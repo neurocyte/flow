@@ -91,7 +91,7 @@ const CachedFace = struct {
 library: c.FT_Library,
 allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
-faces: std.ArrayListUnmanaged(CachedFace) = .empty,
+faces: std.ArrayList(CachedFace) = .empty,
 generation: u64 = 0,
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,

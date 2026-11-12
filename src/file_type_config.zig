@@ -159,7 +159,7 @@ fn load_all(io: std.Io, allocator: std.mem.Allocator) ![]const []const u8 {
             try names.put(allocator, try allocator.dupe(u8, file_type.name), {});
     }
 
-    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var list: std.ArrayList([]const u8) = .empty;
     defer list.deinit(allocator);
 
     var names_iter = names.keyIterator();

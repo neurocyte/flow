@@ -185,7 +185,7 @@ const Process = struct {
     next_id: i32 = 0,
     requests: std.StringHashMap(tp.pid),
     state: enum { init, running } = .init,
-    init_queue: ?std.ArrayListUnmanaged(struct { tp.pid, []const u8, []const u8, InitQueueType }) = null,
+    init_queue: ?std.ArrayList(struct { tp.pid, []const u8, []const u8, InitQueueType }) = null,
     protocol: ProtocolLevel = .standard,
 
     const InitQueueType = enum { request, notify };

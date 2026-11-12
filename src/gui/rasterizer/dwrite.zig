@@ -150,7 +150,7 @@ cache: std.AutoHashMapUnmanaged(FaceKey, *win32.IDWriteFontFace) = .empty,
 block_and_line_symbols: SymbolRasterizer = .default,
 allow_color_glyphs: bool = true,
 fallback: ?*FallbackResolver = null,
-glyph_scratch: std.ArrayListUnmanaged(u8) = .empty,
+glyph_scratch: std.ArrayList(u8) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var factory: *win32.IDWriteFactory = undefined;
@@ -594,7 +594,7 @@ fn renderFromFace(
     if (src_w <= 0 or src_h <= 0) return .{ .format = result_fmt };
 
     const buf_size: usize = @intCast(src_w * src_h * bytes_per_texel);
-    const scratch: *std.ArrayListUnmanaged(u8) = @constCast(&self.glyph_scratch);
+    const scratch: *std.ArrayList(u8) = @constCast(&self.glyph_scratch);
     scratch.clearRetainingCapacity();
     scratch.ensureTotalCapacity(self.allocator, buf_size) catch return .{ .format = result_fmt };
     scratch.items.len = buf_size;

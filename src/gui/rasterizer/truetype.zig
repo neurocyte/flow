@@ -313,12 +313,12 @@ const CachedData = struct {
 };
 
 allocator: std.mem.Allocator,
-font_data: std.ArrayListUnmanaged(CachedData),
+font_data: std.ArrayList(CachedData),
 generation: u64 = 0,
 regular_path: ?[]u8 = null,
 block_and_line_symbols: SymbolRasterizer = .default,
 fallback: ?*FallbackResolver = null,
-glyph_scratch: std.ArrayListUnmanaged(u8) = .empty,
+glyph_scratch: std.ArrayList(u8) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     return .{
@@ -561,7 +561,7 @@ pub fn render(
 
     const metrics = constraintMetrics(font);
 
-    const scratch: *std.ArrayListUnmanaged(u8) = @constCast(&self.glyph_scratch);
+    const scratch: *std.ArrayList(u8) = @constCast(&self.glyph_scratch);
 
     if (glyph == .notdef and codepoint != 0) {
         if (self.fallbackResolver()) |fb| {
@@ -587,7 +587,7 @@ fn fallbackResolver(self: *const Self) ?*FallbackResolver {
 
 fn rasterizeGlyph(
     allocator: std.mem.Allocator,
-    scratch: *std.ArrayListUnmanaged(u8),
+    scratch: *std.ArrayList(u8),
     tt: *const TrueType,
     scale: f32,
     ascent_px: i32,

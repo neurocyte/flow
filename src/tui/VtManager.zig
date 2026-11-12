@@ -7,7 +7,7 @@ const Vt = @import("Vt.zig");
 const Terminal = @import("Terminal");
 const TerminalOnExit = @import("config").TerminalOnExit;
 
-var vts: std.ArrayListUnmanaged(*Vt) = .empty;
+var vts: std.ArrayList(*Vt) = .empty;
 
 var most_recent: ?*Vt = null;
 var next_id: u64 = 1;

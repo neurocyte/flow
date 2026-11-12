@@ -850,7 +850,7 @@ pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, b
         try writer.writeAll(cb);
     }
     const cb = try cbor_buf.toOwnedSlice();
-    var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
+    var bufs = std.ArrayList([]const u8).fromOwnedSlice(bufs_.*);
     bufs.append(allocator, cb) catch @panic("OOM:read_text_config_file");
     bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_text_config_file");
     return read_cbor_config(T, allocator, conf, file_name, cb);
@@ -865,7 +865,7 @@ fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     defer allocator.free(json);
     _ = try file.readPositionalAll(global_init.io, json, 0);
     const cbor_buf: []u8 = try allocator.alloc(u8, json.len);
-    var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
+    var bufs = std.ArrayList([]const u8).fromOwnedSlice(bufs_.*);
     bufs.append(allocator, cbor_buf) catch @panic("OOM:read_json_config_file");
     bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_json_config_file");
     const cb = try cbor.fromJson(json, cbor_buf);

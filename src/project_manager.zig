@@ -534,7 +534,7 @@ const Process = struct {
     projects: ProjectsMap,
     repos: std.StringHashMapUnmanaged(*Repo) = .empty,
     repo_dirs: std.StringHashMapUnmanaged(?*Repo) = .empty,
-    repo_discoveries: std.ArrayListUnmanaged(*RepoDiscovery) = .empty,
+    repo_discoveries: std.ArrayList(*RepoDiscovery) = .empty,
     /// open files by absolute path, and the repository they hold once discovered
     open_files: std.StringHashMapUnmanaged(?*Repo) = .empty,
     non_indexed: []const []const u8,
@@ -550,8 +550,8 @@ const Process = struct {
 
     const RepoDiscovery = struct {
         dir: []const u8,
-        lines: std.ArrayListUnmanaged([]const u8) = .empty,
-        waiters: std.ArrayListUnmanaged(RepoWaiter) = .empty,
+        lines: std.ArrayList([]const u8) = .empty,
+        waiters: std.ArrayList(RepoWaiter) = .empty,
 
         fn deinit(self: *RepoDiscovery, allocator: std.mem.Allocator) void {
             for (self.lines.items) |line| allocator.free(line);

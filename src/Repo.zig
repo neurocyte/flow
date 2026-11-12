@@ -20,8 +20,8 @@ git_common_dir: []const u8,
 superproject: ?[]const u8,
 logger_git: log.Logger,
 
-vcs_status_files: std.ArrayListUnmanaged(VcsStatusFile) = .empty,
-vcs_status_files_next: std.ArrayListUnmanaged(VcsStatusFile) = .empty,
+vcs_status_files: std.ArrayList(VcsStatusFile) = .empty,
+vcs_status_files_next: std.ArrayList(VcsStatusFile) = .empty,
 
 vcs_watcher: ?file_watcher.Owned = null,
 worktree_watcher: ?file_watcher.Owned = null,
@@ -64,7 +64,7 @@ const VcsStatusFile = struct {
         return true;
     }
 
-    fn free_all(allocator: std.mem.Allocator, files: *std.ArrayListUnmanaged(VcsStatusFile)) void {
+    fn free_all(allocator: std.mem.Allocator, files: *std.ArrayList(VcsStatusFile)) void {
         for (files.items) |file| {
             allocator.free(file.path);
             allocator.free(file.orig_path);
@@ -391,7 +391,7 @@ pub fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemo
             !VcsStatusFile.eql(self.vcs_status_files.items, self.vcs_status_files_next.items);
         std.mem.swap(VcsStatus, &self.status, next);
         next.reset(self.allocator);
-        std.mem.swap(std.ArrayListUnmanaged(VcsStatusFile), &self.vcs_status_files, &self.vcs_status_files_next);
+        std.mem.swap(std.ArrayList(VcsStatusFile), &self.vcs_status_files, &self.vcs_status_files_next);
         VcsStatusFile.free_all(self.allocator, &self.vcs_status_files_next);
         if (changed or self.status_reply)
             parent.send(.{ "vcs_status", self.root, self.status }) catch {};

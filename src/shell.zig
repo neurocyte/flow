@@ -235,8 +235,8 @@ const Process = struct {
     logger: log.Logger,
     stdin_behavior: tp.subprocess.StdIo,
     handlers: Handlers,
-    stdout_line_buffer: std.ArrayListUnmanaged(u8) = .empty,
-    stderr_line_buffer: std.ArrayListUnmanaged(u8) = .empty,
+    stdout_line_buffer: std.ArrayList(u8) = .empty,
+    stderr_line_buffer: std.ArrayList(u8) = .empty,
 
     const Receiver = tp.Receiver(*Process);
 
@@ -340,7 +340,7 @@ const Process = struct {
             self.handle_buffered_output(handler, &self.stderr_line_buffer, bytes);
     }
 
-    fn handle_buffered_output(self: *Process, handler: *const OutputHandler, buffer: *std.ArrayListUnmanaged(u8), bytes: []const u8) error{OutOfMemory}!void {
+    fn handle_buffered_output(self: *Process, handler: *const OutputHandler, buffer: *std.ArrayList(u8), bytes: []const u8) error{OutOfMemory}!void {
         var it = std.mem.splitScalar(u8, bytes, '\n');
         var have_nl = false;
         var prev = it.first();
@@ -365,7 +365,7 @@ const Process = struct {
         self.flush_buffer(self.handlers.err orelse self.handlers.out, &self.stderr_line_buffer);
     }
 
-    fn flush_buffer(self: *Process, handler: *const OutputHandler, buffer: *std.ArrayListUnmanaged(u8)) void {
+    fn flush_buffer(self: *Process, handler: *const OutputHandler, buffer: *std.ArrayList(u8)) void {
         if (!self.handlers.line_buffered) return;
         if (buffer.items.len > 0) handler(self.handlers.context, self.parent.ref(), self.arg0, buffer.items);
         buffer.clearRetainingCapacity();

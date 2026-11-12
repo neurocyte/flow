@@ -23,8 +23,8 @@ const convert_path = LSPClient.convert_path;
 
 allocator: std.mem.Allocator,
 name: []const u8,
-files: std.ArrayListUnmanaged(File) = .empty,
-pending: std.ArrayListUnmanaged(File) = .empty,
+files: std.ArrayList(File) = .empty,
+pending: std.ArrayList(File) = .empty,
 file_index: std.StringHashMapUnmanaged(u32) = .empty,
 files_dirty: bool = false,
 file_store: ?tp.pid = null,

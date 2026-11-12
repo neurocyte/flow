@@ -105,7 +105,7 @@ pub fn status(context_: usize, dir: []const u8) Error!void {
                         const hH = it.next() orelse return;
                         const hI = it.next() orelse return;
 
-                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        var path: std.ArrayList(u8) = .empty;
                         defer path.deinit(allocator);
                         while (it.next()) |path_part| {
                             if (path.items.len > 0) path.append(allocator, ' ') catch return;
@@ -124,7 +124,7 @@ pub fn status(context_: usize, dir: []const u8) Error!void {
                         const hI = it.next() orelse return;
                         const Xscore = it.next() orelse return;
 
-                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        var path: std.ArrayList(u8) = .empty;
                         defer path.deinit(allocator);
                         while (it.next()) |path_part| {
                             if (path.items.len > 0) path.append(allocator, ' ') catch return;
@@ -146,7 +146,7 @@ pub fn status(context_: usize, dir: []const u8) Error!void {
                         const h2 = it.next() orelse return;
                         const h3 = it.next() orelse return;
 
-                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        var path: std.ArrayList(u8) = .empty;
                         defer path.deinit(allocator);
                         while (it.next()) |path_part| {
                             if (path.items.len > 0) path.append(allocator, ' ') catch return;
@@ -156,7 +156,7 @@ pub fn status(context_: usize, dir: []const u8) Error!void {
                         parent.send(.{ module_name, context, tag, "u", XY, sub, m1, m2, m3, mW, h1, h2, h3, path.items }) catch {};
                     },
                     .@"?" => { // untracked file: <path>
-                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        var path: std.ArrayList(u8) = .empty;
                         defer path.deinit(allocator);
                         while (it.next()) |path_part| {
                             if (path.items.len > 0) path.append(allocator, ' ') catch return;
@@ -165,7 +165,7 @@ pub fn status(context_: usize, dir: []const u8) Error!void {
                         parent.send(.{ module_name, context, tag, "?", path.items }) catch {};
                     },
                     .@"!" => { // ignored file: <path>
-                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        var path: std.ArrayList(u8) = .empty;
                         defer path.deinit(allocator);
                         while (it.next()) |path_part| {
                             if (path.items.len > 0) path.append(allocator, ' ') catch return;

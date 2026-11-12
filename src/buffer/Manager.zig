@@ -592,7 +592,7 @@ pub fn list_most_recently_used(self: *Self, allocator: std.mem.Allocator) error{
 }
 
 pub fn list_unordered(self: *const Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
-    var buffers = try std.ArrayListUnmanaged(*Buffer).initCapacity(allocator, self.buffers.size);
+    var buffers = try std.ArrayList(*Buffer).initCapacity(allocator, self.buffers.size);
     var i = self.buffers.iterator();
     while (i.next()) |kv|
         (try buffers.addOne(allocator)).* = kv.value_ptr.*;

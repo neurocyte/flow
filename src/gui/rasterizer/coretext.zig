@@ -287,7 +287,7 @@ cache: std.AutoHashMapUnmanaged(FaceKey, c.Ref) = .empty,
 block_and_line_symbols: SymbolRasterizer = .default,
 allow_color_glyphs: bool = true,
 fallback: FallbackCache = .{},
-glyph_scratch: std.ArrayListUnmanaged(u8) = .empty,
+glyph_scratch: std.ArrayList(u8) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     return .{ .allocator = allocator };
@@ -823,7 +823,7 @@ fn drawGlyph(
             );
         },
         .alpha, .subpixel => blk: {
-            const list: *std.ArrayListUnmanaged(u8) = @constCast(&self.glyph_scratch);
+            const list: *std.ArrayList(u8) = @constCast(&self.glyph_scratch);
             list.clearRetainingCapacity();
             list.ensureTotalCapacity(self.allocator, px) catch return .{ .format = .alpha };
             list.items.len = px;
