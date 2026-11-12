@@ -69,6 +69,7 @@ pub const LayerView = struct {
     cursor: gpu.CursorInfo = .{},
     secondary_cursors: []const gpu.CursorInfo = &.{},
     transparent_bg: bool = false,
+    background: ?u24 = null,
 };
 
 pub const TargetView = struct {
@@ -104,6 +105,9 @@ const LayerSnapshot = struct {
     height: u16,
     cursors: []gpu.CursorInfo,
     transparent_bg: bool,
+    background: ?u24,
+    width_pix: u16,
+    height_pix: u16,
 };
 
 const ScreenSnapshot = struct {
@@ -495,6 +499,9 @@ fn buildLayerSnapshot(
         .height = view.h,
         .cursors = cursors,
         .transparent_bg = lv.transparent_bg,
+        .background = if (lv.view == null) lv.background else null,
+        .width_pix = lv.screen.width_pix,
+        .height_pix = lv.screen.height_pix,
     };
 }
 
@@ -1109,6 +1116,14 @@ fn applyOpacity(theme_a: f32, opacity: f32) f32 {
         theme_a * o
     else
         theme_a + (1.0 - theme_a) * (o - 1.0);
+}
+
+fn layerBackground(color: u24) RGBA {
+    const a: u8 = if (window_transparency)
+        effectiveAlphaU8(0xFF, @bitCast(background_opacity.load(.acquire)), ignore_theme_alpha.load(.acquire))
+    else
+        0xFF;
+    return .init(@truncate(color >> 16), @truncate(color >> 8), @truncate(color), a);
 }
 
 fn effectiveAlphaU8(theme_a_u8: u8, opacity: f32, ignore: bool) u8 {
@@ -1852,6 +1867,9 @@ pub fn renderActorTick(focused: bool, visible: bool) void {
         const pixel_size: @TypeOf(layer_state.pixel_size) = if (idx == 0) .{
             .x = @intCast(ctx.win_size.width),
             .y = @intCast(ctx.win_size.height),
+        } else if (ls.background != null) .{
+            .x = @max(ls.width * font_set.cell_size.x, ls.width_pix),
+            .y = @max(ls.height * font_set.cell_size.y, ls.height_pix),
         } else .{
             .x = ls.width * font_set.cell_size.x,
             .y = ls.height * font_set.cell_size.y,
@@ -1875,6 +1893,7 @@ pub fn renderActorTick(focused: bool, visible: bool) void {
             pixel_size,
             ls.cursors,
             layer_bg_alpha,
+            if (ls.background) |c| layerBackground(c) else null,
             focused,
         );
     }

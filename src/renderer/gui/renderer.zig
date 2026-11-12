@@ -331,6 +331,7 @@ pub fn render(self: *Self, focused: bool) error{}!?i64 {
                 .screen = &t.src.screen,
                 .view = t.src.view,
                 .transparent_bg = t.src.transparent_bg,
+                .background = t.src.background,
             }) catch @panic("OOM render");
         }
 

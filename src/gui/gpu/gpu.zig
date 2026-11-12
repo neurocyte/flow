@@ -598,6 +598,7 @@ pub fn paintLayerOffscreen(
     pixel_size: XY(u16),
     cursors: []const CursorInfo,
     bg_alpha: u8,
+    background: ?RGBA,
     focused: bool,
 ) void {
     if (cols == 0 or rows == 0) return;
@@ -637,7 +638,7 @@ pub fn paintLayerOffscreen(
     cell_data.mip_levels[0] = .{ .ptr = cell_bytes.ptr, .size = cell_bytes.len };
     sg.updateImage(layer_state.cell_image, cell_data);
 
-    const bg_vec = blk: {
+    const bg_vec = if (background) |bg| bg.to_vec4() else blk: {
         var v = global.background.to_vec4();
         v[3] = @as(f32, @floatFromInt(bg_alpha)) / 255.0;
         break :blk v;
