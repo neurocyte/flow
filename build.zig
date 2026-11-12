@@ -249,7 +249,7 @@ pub fn build_exe(
     defer version_info.deinit();
     gen_version_info(b, target, &version_info.writer, optimize, renderer) catch |e| {
         if (b.graph.release_mode != .off)
-            std.debug.panic("gen_version failed: {any}", .{e});
+            std.debug.panic("gen_version_info failed: {any}", .{e});
         version_info.clearRetainingCapacity();
         version_info.writer.writeAll("unknown") catch {};
     };
@@ -1822,56 +1822,52 @@ pub fn build_exe(
     b.default_step.dependOn(lint_step);
 }
 
+fn git(b: *std.Build, argv: []const []const u8) ?[]const u8 {
+    return switch (b.runFallible(argv, .{ .stderr_behavior = .ignore })) {
+        .success => |stdout| std.mem.trimEnd(u8, stdout, "\r\n "),
+        else => null,
+    };
+}
+
 fn gen_version_info(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    writer: anytype,
-    optimize: std.builtin.OptimizeMode,
+    writer: *std.Io.Writer,
+    optimize: std.builtin.Optimize,
     renderer: Renderer,
 ) !void {
-    var code: u8 = 0;
-
-    const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .ignore);
-    const date_ = try b.runAllowFail(&[_][]const u8{ "git", "show", "-s", "--format=%ci", "HEAD" }, &code, .ignore);
-    const branch_ = try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" }, &code, .ignore);
-    const branch = std.mem.trimEnd(u8, branch_, "\r\n ");
-    const tracking_branch_ = blk: {
-        var buf: std.Io.Writer.Allocating = .init(b.allocator);
-        defer buf.deinit();
-        try buf.writer.writeAll(branch);
-        try buf.writer.writeAll("@{upstream}");
-        break :blk (b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", buf.written() }, &code, .ignore) catch "");
-    };
-    const tracking_remote_name = if (std.mem.indexOfScalar(u8, tracking_branch_, '/')) |pos| tracking_branch_[0..pos] else "";
-    const tracking_remote_ = if (tracking_remote_name.len > 0) blk: {
-        var remote_config_path: std.Io.Writer.Allocating = .init(b.allocator);
-        defer remote_config_path.deinit();
-        try remote_config_path.writer.print("remote.{s}.url", .{tracking_remote_name});
-        break :blk b.runAllowFail(&[_][]const u8{ "git", "config", remote_config_path.written() }, &code, .ignore) catch "(remote not found)";
-    } else "";
-    const remote_ = b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .ignore) catch "(origin not found)";
-    const log_ = b.runAllowFail(&[_][]const u8{ "git", "log", "--pretty=oneline", "@{u}..." }, &code, .ignore) catch "";
-    const diff_ = b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .ignore) catch "(git diff failed)";
-    const version = std.mem.trimEnd(u8, describe, "\r\n ");
-    const date = std.mem.trimEnd(u8, date_, "\r\n ");
-    const tracking_branch = std.mem.trimEnd(u8, tracking_branch_, "\r\n ");
-    const tracking_remote = std.mem.trimEnd(u8, tracking_remote_, "\r\n ");
-    const remote = std.mem.trimEnd(u8, remote_, "\r\n ");
-    const base_commit_ = b.runAllowFail(&[_][]const u8{ "git", "merge-base", branch, tracking_branch }, &code, .ignore) catch "";
-    const base_commit = std.mem.trimEnd(u8, base_commit_, "\r\n ");
-    const describe_base_commit_ = b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags", base_commit }, &code, .ignore) catch "unknown";
-    const describe_base_commit = std.mem.trimEnd(u8, describe_base_commit_, "\r\n ");
-    const log = std.mem.trimEnd(u8, log_, "\r\n ");
-    const diff = std.mem.trimEnd(u8, diff_, "\r\n ");
+    const version = git(b, &.{ "git", "describe", "--always", "--tags" }) orelse return error.GitFailure;
+    const date = git(b, &.{ "git", "show", "-s", "--format=%ci", "HEAD" }) orelse return error.GitFailure;
+    const branch = git(b, &.{ "git", "rev-parse", "--abbrev-ref", "HEAD" }) orelse return error.GitFailure;
+    const tracking_branch = git(b, &.{ "git", "rev-parse", "--abbrev-ref", try b.allocator.print("{s}@{{upstream}}", .{branch}) }) orelse "";
+    const tracking_remote = if (std.mem.findScalar(u8, tracking_branch, '/')) |pos|
+        git(b, &.{ "git", "config", try b.allocator.print("remote.{s}.url", .{tracking_branch[0..pos]}) }) orelse "(remote not found)"
+    else
+        "";
+    const remote = git(b, &.{ "git", "config", "remote.origin.url" }) orelse "(origin not found)";
+    const log = git(b, &.{ "git", "log", "--pretty=oneline", "@{u}..." }) orelse "";
+    const diff = git(b, &.{ "git", "diff", "--stat", "--patch", "HEAD" }) orelse "(git diff failed)";
+    const base_commit = git(b, &.{ "git", "merge-base", branch, tracking_branch }) orelse "";
+    const describe_base_commit = git(b, &.{ "git", "describe", "--always", "--tags", base_commit }) orelse "unknown";
     const target_triple = try target.result.zigTriple(b.allocator);
 
-    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\ncommitted: {s}\ntarget: {s}\nrenderer: {t}\n", .{
-        version,
-        if (diff.len > 0) "-dirty" else "",
-        date,
-        target_triple,
-        renderer,
-    });
+    try writer.print(
+        \\Flow Control: a programmer's text editor
+        \\
+        \\version: {s}{s}
+        \\committed: {s}
+        \\target: {s}
+        \\renderer: {t}
+        \\
+    ,
+        .{
+            version,
+            if (diff.len > 0) "-dirty" else "",
+            date,
+            target_triple,
+            renderer,
+        },
+    );
 
     if (branch.len > 0) if (tracking_branch.len > 0)
         try writer.print("branch: {s} tracking {s} at {s}\n", .{ branch, tracking_branch, tracking_remote })
@@ -1882,21 +1878,22 @@ fn gen_version_info(
     try writer.print("build-mode: {t}\n", .{optimize});
 
     if (log.len > 0)
-        try writer.print("\nbranched off {s} @ {s} with the following diverging commits:\n{s}\n", .{ tracking_branch, describe_base_commit, log });
+        try writer.print(
+            \\
+            \\branched off {s} @ {s} with the following diverging commits:
+            \\{s}
+            \\
+        , .{ tracking_branch, describe_base_commit, log });
 
     if (diff.len > 0)
-        try writer.print("\nwith the following uncommited changes:\n\n{s}\n", .{diff});
+        try writer.print("\nwith the following uncommitted changes:\n\n{s}\n", .{diff});
 }
 
 fn gen_version(b: *std.Build, writer: *std.Io.Writer) !void {
-    var code: u8 = 0;
-
-    const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .ignore);
-    const diff_ = try b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .ignore);
-    const diff = std.mem.trimEnd(u8, diff_, "\r\n ");
-    const version = std.mem.trimEnd(u8, describe, "\r\n ");
-
-    try writer.print("{s}{s}", .{ version, if (diff.len > 0) "-dirty" else "" });
+    const version = git(b, &.{ "git", "describe", "--always", "--tags" }) orelse return error.GitFailure;
+    const diff = git(b, &.{ "git", "diff", "--stat", "--patch", "HEAD" }) orelse return error.GitFailure;
+    try writer.writeAll(version);
+    if (diff.len > 0) try writer.writeAll("-dirty");
 }
 
 // Work around https://codeberg.org/ziglang/zig/issues/37250
