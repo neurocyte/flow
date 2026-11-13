@@ -178,10 +178,7 @@ fn fraction_at(self: *const Self, y: i32, ypx: i32) f64 {
 }
 
 fn move_to_fraction(self: *Self, y: i32, ypx: i32) void {
-    const fraction = self.fraction_at(y, ypx);
-    const max_virt: f64 = @floatFromInt(self.size_virt -| self.view_virt);
-    self.set(self.size_virt, self.view_virt, @intFromFloat(fraction * max_virt));
-    _ = self.event_sink.msg(.{ "scroll_to_fraction", fraction }) catch {};
+    _ = self.event_sink.msg(.{ "scroll_to_fraction", self.fraction_at(y, ypx) }) catch {};
 }
 
 fn drag_to(self: *Self, y: i32, ypx: i32) void {

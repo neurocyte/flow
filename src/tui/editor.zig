@@ -984,7 +984,8 @@ pub const Editor = struct {
     }
 
     pub fn scroll_to_fraction(self: *Self, fraction: f64) void {
-        const max: f64 = @floatFromInt(ScrollAnimation.Pos.at(self.max_view_row()).to_px(self.scroll_cell_h()));
+        const lines = (self.buf_root() catch return).lines();
+        const max: f64 = @floatFromInt(ScrollAnimation.Pos.at(lines -| self.view.rows).to_px(self.scroll_cell_h()));
         self.jump_to_px(@intFromFloat(@round(std.math.clamp(fraction, 0, 1) * max)));
     }
 
