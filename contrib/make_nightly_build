@@ -224,7 +224,15 @@ fi
 
 if [ -z "$NO_GITHUB" ]; then
     echo uploading to github.com
-    gh release create "$VERSION" --repo "$repo" --title "$title $VERSION" --notes-file "$release_notes" "$DESTDIR"/*
+    gh release create "$VERSION" --repo "$repo" --title "$title $VERSION" --notes-file "$release_notes" --draft >/dev/null
+    echo "✓ Created release $VERSION in $repo"
+    for a in "$DESTDIR"/*; do
+        gh release upload "$VERSION" --repo "$repo" "$a" >/dev/null
+        size=$(stat -c %s "$a" | awk '{ split("B KiB MiB GiB", u); i = 1; while ($1 >= 1024 && i < 4) { $1 /= 1024; i++ }; if (i == 1) printf "%d B", $1; else printf "%.1f %s", $1, u[i] }')
+        echo "✓ Uploaded $(basename "$a") ($size)"
+    done
+    gh release edit "$VERSION" --repo "$repo" --draft=false >/dev/null
+    gh release view "$VERSION" --repo "$repo" --json url --jq .url
 fi
 
 if [ -z "$NO_AUR" ]; then
