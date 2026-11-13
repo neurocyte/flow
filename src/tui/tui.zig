@@ -281,8 +281,9 @@ fn init(allocator: Allocator) InitError!*Self {
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
     if (frame_rate != 0)
         conf.frame_rate = frame_rate;
-    tp.env.get().num_set("frame-rate", @intCast(conf.frame_rate));
-    const frame_time = std.time.us_per_s / conf.frame_rate;
+    const effective_frame_rate = effective_frame_rate_for(conf.frame_rate);
+    tp.env.get().num_set("frame-rate", @intCast(effective_frame_rate));
+    const frame_time = std.time.us_per_s / effective_frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
     tp.env.get().set("lsp_verbose", conf.lsp_output == .verbose);
@@ -791,9 +792,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         if (new_frame_rate == 0 or new_frame_rate == self.config_.frame_rate)
             return;
         self.config_.frame_rate = new_frame_rate;
-        self.frame_time = std.time.us_per_s / new_frame_rate;
+        const effective_frame_rate = effective_frame_rate_for(new_frame_rate);
+        self.frame_time = std.time.us_per_s / effective_frame_rate;
         @import("VtManager.zig").set_frame_time(self.frame_time);
-        tp.env.get().num_set("frame-rate", @intCast(new_frame_rate));
+        tp.env.get().num_set("frame-rate", @intCast(effective_frame_rate));
         self.frame_clock.stop() catch {};
         self.frame_clock.deinit();
         self.frame_clock = try tp.metronome.init(self.frame_time);
@@ -1841,6 +1843,12 @@ fn reload_theme(self: *Self, color_scheme: Widget.Theme.Type, name: []const u8) 
     if (color_scheme != self.color_scheme) return;
     self.set_terminal_style(&theme_);
     self.logger.print("theme: {s}", .{theme_.description});
+}
+
+const debug_max_frame_rate = 60;
+
+fn effective_frame_rate_for(frame_rate: usize) usize {
+    return if (builtin.mode == .debug) @min(frame_rate, debug_max_frame_rate) else frame_rate;
 }
 
 fn is_reload_skipped_config_field(comptime name: []const u8) bool {

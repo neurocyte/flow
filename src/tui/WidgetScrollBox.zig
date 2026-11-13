@@ -285,8 +285,8 @@ fn update_animation_step(self: *Self) void {
     self.animation_last_time = now;
 
     const distance: f64 = @floatFromInt(@abs(self.scroll_dest_px - self.scroll_px));
-    const frame_rate: f64 = @floatFromInt(@max(1, tui.config().frame_rate));
-    const step_frames = @max(1.0, self.animation_lag * frame_rate);
+    const frame_time: f64 = @floatFromInt(@max(1, tui.get_frame_time()));
+    const step_frames = @max(1.0, self.animation_lag * std.time.us_per_s / frame_time);
     self.animation_step = @intFromFloat(@max(1.0, distance / step_frames));
 }
 
