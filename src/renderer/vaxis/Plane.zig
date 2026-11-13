@@ -342,8 +342,9 @@ pub fn putc_yx(self: *Plane, y: i32, x: i32, cell: *const Cell) usize {
 
 fn write_cell(self: *Plane, col: i32, row: i32, egc: []const u8) void {
     var cell: vaxis.Cell = self.window.readCell(@intCast(col), @intCast(row)) orelse .{ .style = self.style };
-    const w = self.window.gwidth(egc);
-    cell.char.grapheme = self.cache.put(egc);
+    const is_space = egc.len == 1 and egc[0] == ' ';
+    const w = if (is_space) 1 else self.window.gwidth(egc);
+    cell.char.grapheme = if (is_space) " " else self.cache.put(egc);
     cell.char.width = @intCast(w);
     if (self.transparent) {
         cell.style.fg = self.style.fg;

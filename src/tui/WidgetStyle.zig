@@ -190,12 +190,18 @@ pub fn theme_style_from_type(style_type: WidgetType, theme: *const Theme) Theme.
 }
 
 pub fn render_decoration(widget_style: *const @This(), box: Box, widget_type: WidgetType, plane: *Plane, theme: *const Theme) void {
+    render_decoration_fill(widget_style, box, widget_type, plane, theme, .fill);
+}
+
+pub const Fill = enum { fill, skip_fill };
+
+pub fn render_decoration_fill(widget_style: *const @This(), box: Box, widget_type: WidgetType, plane: *Plane, theme: *const Theme, fill: Fill) void {
     const style = theme_style_from_type(widget_type, theme);
     const padding = widget_style.padding;
     const border = widget_style.border;
 
     plane.set_style(style);
-    plane.fill(" ");
+    if (fill == .fill) plane.fill(" ");
 
     if (padding.top > 0 and padding.left > 0) put_at_pos(plane, 0, 0, border.nw);
     if (padding.top > 0 and padding.right > 0) put_at_pos(plane, 0, box.w - 1, border.ne);

@@ -47,6 +47,7 @@ prepare_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widge
 after_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) void = after_resize_default,
 on_layout: *const fn (ctx: ?*anyopaque, self: *Self) Widget.Layout = on_layout_default,
 widget_type: Widget.Type,
+parent_fill: ?Widget.Theme.Style = null,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
     return createHStyled(allocator, parent, name, layout_, .none);
@@ -241,6 +242,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     self.on_render(self.ctx, theme);
     if (self.render_decoration) |render_decoration| render_decoration(self, theme, widget_style);
+    self.parent_fill = null;
+    const filled = self.filled_style(theme);
 
     const client_box = self.deco_box.to_client_box(padding);
     const widget_count = self.widgets.items.len;
@@ -272,6 +275,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
             .static => |size| if (size == 0) continue,
             else => {},
         }
+        if (i < main_count) if (w.widget.dynamic_cast(Self)) |child| {
+            child.parent_fill = if (child.plane.layer == self.plane.layer) filled else null;
+        };
         if (w.widget.render(theme)) more = true;
     }
 
@@ -391,7 +397,18 @@ fn client_frame(self: *Self, client_box: *const Widget.Box, padding: Widget.Styl
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
 fn render_decoration_default(self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void {
-    widget_style.render_decoration(self.deco_box, self.widget_type, &self.plane, theme);
+    const fill: Widget.Style.Fill = if (self.parent_fill_matches(theme)) .skip_fill else .fill;
+    widget_style.render_decoration_fill(self.deco_box, self.widget_type, &self.plane, theme, fill);
+}
+
+fn parent_fill_matches(self: *const Self, theme: *const Widget.Theme) bool {
+    const parent_fill = self.parent_fill orelse return false;
+    return std.meta.eql(parent_fill, Widget.Style.theme_style_from_type(self.widget_type, theme));
+}
+
+fn filled_style(self: *const Self, theme: *const Widget.Theme) ?Widget.Theme.Style {
+    if (self.render_decoration != render_decoration_default or self.plane.transparent) return null;
+    return Widget.Style.theme_style_from_type(self.widget_type, theme);
 }
 
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
