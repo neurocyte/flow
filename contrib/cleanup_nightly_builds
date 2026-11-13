@@ -4,16 +4,16 @@ set -e
 REPO=neurocyte/flow-nightly
 KEEP=7
 
-if [ -n "$1" ]; then
-    TEAARGS="--login $1"
-else
-    TEAARGS="--login codeberg"
-fi
+case "${1:-codeberg}" in
+codeberg) GTARGS="--host https://codeberg.org" ;;
+flow-control) GTARGS="--host https://git.flow-control.dev" ;;
+*) GTARGS="--host $1" ;;
+esac
 
 RELEASES="$(
     page=1
     while :; do
-        data=$(tea api $TEAARGS "repos/${REPO}/releases?page=${page}&limit=50")
+        data=$(gt api $GTARGS "repos/${REPO}/releases?page=${page}&limit=50")
         [ "$(echo "$data" | jq length)" = 0 ] && break
         echo "$data"
         page=$((page + 1))
@@ -44,6 +44,6 @@ echo "$REMOVE" |
         echo "$REMOVE" | jq -r ".[] | select(.id == $release_id) | .assets | .[] | \"\(.id) \(.name)\" " |
             while read -r asset_id asset_name; do
                 echo -n "  $asset_name  "
-                tea api $TEAARGS -X DELETE "/repos/${REPO}/releases/${release_id}/assets/${asset_id}" || true
+                gt api $GTARGS -X DELETE "repos/${REPO}/releases/${release_id}/assets/${asset_id}" || true
             done
     done
