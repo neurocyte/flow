@@ -1,5 +1,6 @@
-const Allocator = @import("std").mem.Allocator;
-const clamp = @import("std").math.clamp;
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const clamp = std.math.clamp;
 const tp = @import("thespian");
 const tracy = @import("tracy");
 
@@ -11,6 +12,7 @@ const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
+const Menu = @import("Menu.zig");
 const ScrollLayer = @import("ScrollLayer.zig");
 
 allocator: Allocator,
@@ -37,6 +39,7 @@ track_layer: ?ScrollLayer = null,
 frame_h: u32 = 0,
 track_layer_id: ?Layer.Id = null,
 style_factory: ?*const fn (self: *Self, theme: *const Widget.Theme) Widget.Theme.Style = null,
+menu: ?*const Menu = null,
 
 const Self = @This();
 
@@ -93,6 +96,12 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.active = true;
         self.update_max_ypx(cell.yoffset);
         self.click_at(cell.row, cell.yoffset);
+        return true;
+    } else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.right, tp.extract(&coord), tp.any })) {
+        const menu = self.menu orelse return false;
+        const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+        tui.open_menu(menu, .below(.{ .y = cell.row, .x = cell.col }), null) catch |e|
+            std.log.err("scrollbar menu: {t}", .{e});
         return true;
     } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.more })) {
         self.active = false;

@@ -9636,6 +9636,7 @@ pub const EditorWidget = struct {
     layer_ids: LayerIds = .{},
     gutter: ?*editor_gutter = null,
     scrollbar: ?*scrollbar_v = null,
+    marks: ?*scrollbar_marks = null,
 
     editor: Editor,
     commands: Commands = undefined,
@@ -9675,12 +9676,15 @@ pub const EditorWidget = struct {
         self.gutter = gutter.dynamic_cast(editor_gutter);
         try container.add(gutter);
         try container.add(editorWidget);
-        try container.add(try scrollbar_marks.create(allocator, container.plane, &self.editor, EventHandler.bind(self, handle_scrollbar_event)));
+        const marks = try scrollbar_marks.create(allocator, container.plane, &self.editor, EventHandler.bind(self, handle_scrollbar_event));
+        self.marks = marks.dynamic_cast(scrollbar_marks);
+        try container.add(marks);
         if (tui.config().show_scrollbars) {
             const scrollbar = try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.bind(self, handle_scrollbar_event));
             if (scrollbar.dynamic_cast(scrollbar_v)) |sb| {
                 sb.precise = true;
                 sb.forward_scroll = true;
+                sb.menu = &scrollbar_marks.menu;
                 self.scrollbar = sb;
             }
             try container.add(scrollbar);
@@ -10058,7 +10062,9 @@ pub const EditorWidget = struct {
         self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
         self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
         self.editor.handle_resize(pos);
-        if (self.scrollbar) |sb| sb.frame_h = if (pos.frame.is_set()) @intCast(@max(0, pos.frame.h)) else 0;
+        const frame_h: u32 = if (pos.frame.is_set()) @intCast(@max(0, pos.frame.h)) else 0;
+        if (self.scrollbar) |sb| sb.frame_h = frame_h;
+        if (self.marks) |marks| marks.frame_h = frame_h;
     }
 
     pub fn subscribe(self: *Self, h: EventHandler) !void {

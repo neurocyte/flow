@@ -1,11 +1,14 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
+const build_options = @import("build_options");
 const Plane = @import("renderer").Plane;
 const MouseEvent = @import("MouseEvent");
 const EventHandler = @import("EventHandler");
 const Buffer = @import("Buffer");
+const command = @import("command");
 const Widget = @import("Widget.zig");
+const Menu = @import("Menu.zig");
 const editor_mod = @import("editor.zig");
 const Editor = editor_mod.Editor;
 const CurSel = editor_mod.CurSel;
@@ -15,12 +18,13 @@ allocator: Allocator,
 plane: Plane,
 editor: *const Editor,
 event_sink: EventHandler,
+frame_h: u32 = 0,
 cells: std.ArrayList(Cell) = .empty,
 events: [kinds.len]std.ArrayList(isize) = @splat(.empty),
 last: struct {
     root: ?Buffer.Root = null,
     lines: usize = 0,
-    rows: usize = 0,
+    positions: usize = 0,
     match_token: usize = 0,
     match_type: @FieldType(Editor, "match_type") = .none,
     matches: usize = 0,
@@ -73,6 +77,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         switch (btn) {
             .wheel_up, .wheel_down, .wheel_left, .wheel_right => self.event_sink.send(from, m) catch {},
             .left => self.click_at(coord.to_cell(self.plane.mouse_geometry()).row),
+            .right => self.open_menu(coord),
             else => {},
         }
     } else if (try m.match(.{ "H", tp.extract(&hover) })) {
@@ -81,12 +86,34 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return true;
 }
 
+pub const menu: Menu = .{ .items = &.{
+    .{ .command = .{ .command = "goto_next_match" } },
+    .{ .command = .{ .command = "goto_prev_match" } },
+    .separator,
+    .{ .command = .{ .command = "toggle_scrollbar_marks" } },
+} };
+
+fn open_menu(self: *Self, coord: MouseEvent.Coord) void {
+    const cell = coord.to_cell(.{ .cell_width = self.plane.cell_x(), .cell_height = self.plane.cell_y() });
+    tui.open_menu(&menu, .below(.{ .y = cell.row, .x = cell.col }), null) catch |e|
+        std.log.err("scrollbar marks menu: {t}", .{e});
+}
+
 fn click_at(self: *Self, y: i32) void {
-    const height = self.plane.dim_y();
-    if (y < 0 or height == 0) return;
+    const positions = self.track_positions();
+    if (y < 0 or positions == 0) return;
     const lines = (self.editor.buf_root() catch return).lines();
-    const row: usize = @intCast(@as(u128, @intCast(y)) * lines / height);
+    const pos = @min(@as(usize, @intCast(y)) * braille_rows.len, positions - 1);
+    const row: usize = @intCast(@as(u128, pos) * lines / positions);
     _ = self.event_sink.msg(.{ "scroll_to", row -| self.editor.view.rows / 2 }) catch {};
+}
+
+fn track_positions(self: *const Self) usize {
+    const cells = self.plane.dim_y() * braille_rows.len;
+    if (!build_options.gui) return cells;
+    const ch: usize = @max(1, self.plane.cell_y());
+    const px: usize = if (self.frame_h > 0) self.frame_h else @intCast(@max(0, self.plane.pixel_frame().h));
+    return @min(cells, px * braille_rows.len / ch);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -114,8 +141,8 @@ fn update(self: *Self) !void {
     const editor = self.editor;
     const root = try editor.buf_root();
     const lines = root.lines();
-    const rows = self.plane.dim_y();
-    if (root == self.last.root and lines == self.last.lines and rows == self.last.rows and
+    const positions = self.track_positions();
+    if (root == self.last.root and lines == self.last.lines and positions == self.last.positions and
         editor.match_token == self.last.match_token and editor.match_type == self.last.match_type and
         editor.matches.items.len == self.last.matches and cursels_eql(self.last.cursels.items, editor.cursels.items))
         return;
@@ -124,14 +151,14 @@ fn update(self: *Self) !void {
     try self.last.cursels.appendSlice(self.allocator, editor.cursels.items);
     self.last.root = root;
     self.last.lines = lines;
-    self.last.rows = rows;
+    self.last.positions = positions;
     self.last.match_token = editor.match_token;
     self.last.match_type = editor.match_type;
     self.last.matches = editor.matches.items.len;
 
-    const positions = rows * braille_rows.len;
-    try self.cells.resize(self.allocator, rows);
+    try self.cells.resize(self.allocator, (positions + braille_rows.len - 1) / braille_rows.len);
     @memset(self.cells.items, .{});
+    if (positions == 0) return;
     for (&self.events) |*events| {
         try events.resize(self.allocator, positions + 1);
         @memset(events.items, 0);
