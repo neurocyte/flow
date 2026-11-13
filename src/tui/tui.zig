@@ -1896,12 +1896,23 @@ fn is_json(content: []const u8) bool {
 }
 
 fn import_vscode_theme_file(self: *Self, file_path: []const u8, output_path: ?[]const u8, color_scheme: enum { current, from_theme }) !void {
-    const theme_ = Widget.load_vscode_theme(self.allocator, file_path) catch return;
+    var theme_ = Widget.load_vscode_theme(self.allocator, file_path) catch return;
     defer Widget.vscode_theme_file.deinit(self.allocator, theme_);
+    const suffix = switch (theme_.type) {
+        .dark => "-dark",
+        .light => "-light",
+    };
+    if (color_scheme == .from_theme and !std.mem.endsWith(u8, theme_.name, suffix)) {
+        const name = try std.mem.concat(self.allocator, u8, &.{ theme_.name, suffix });
+        self.allocator.free(theme_.name);
+        theme_.name = name;
+    }
     Widget.vscode_theme_file.write(self.allocator, theme_, Widget.scopes, output_path) catch return;
     try Widget.add_theme_name(self.allocator, theme_.name);
-    if (color_scheme == .from_theme) self.set_color_scheme_(theme_.type);
-    return self.set_theme_by_name(theme_.name, .store);
+    return switch (color_scheme) {
+        .current => self.set_theme_by_name(theme_.name, .store),
+        .from_theme => self.set_desktop_theme(theme_.name, .store),
+    };
 }
 
 pub fn is_mainview_focused() bool {
@@ -1983,16 +1994,31 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: SetThemeAction) !voi
         self.logger.print("theme not found: {s}", .{name});
         return;
     };
-    switch (self.color_scheme) {
+    return self.apply_theme(self.color_scheme, theme_, action);
+}
+
+fn set_desktop_theme(self: *Self, name: []const u8, action: SetThemeAction) !void {
+    const theme_ = Widget.get_theme_by_name(self.allocator, name) orelse {
+        self.logger.print("theme not found: {s}", .{name});
+        return;
+    };
+    self.set_color_scheme_(theme_.type);
+    return self.apply_theme(theme_.type, theme_, action);
+}
+
+fn apply_theme(self: *Self, color_scheme: Widget.Theme.Type, theme_: Widget.Theme, action: SetThemeAction) !void {
+    switch (color_scheme) {
         .dark => self.dark_theme = theme_,
         .light => self.light_theme = theme_,
     }
-    self.set_terminal_style(&theme_);
-    self.logger.print("theme: {s}", .{theme_.description});
+    if (color_scheme == self.color_scheme) {
+        self.set_terminal_style(&theme_);
+        self.logger.print("theme: {s}", .{theme_.description});
+    }
     switch (action) {
         .none => {},
         .store => {
-            switch (self.color_scheme) {
+            switch (color_scheme) {
                 .dark => self.config_.theme = self.dark_theme.name,
                 .light => self.config_.light_theme = self.light_theme.name,
             }
@@ -2004,7 +2030,7 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: SetThemeAction) !voi
 fn set_desktop_theme_by_name(self: *Self, name: []const u8, action: SetThemeAction) void {
     self.logger.print("desktop theme: {s}", .{name});
     const desktop_theme = @import("DesktopTheme.zig").themes.get(name) orelse {
-        self.set_theme_by_name(name, action) catch {
+        self.set_desktop_theme(name, action) catch {
             std.log.err("unknown desktop theme '{s}'", .{name});
         };
         return;
