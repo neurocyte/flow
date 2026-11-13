@@ -2417,6 +2417,13 @@ const cmds = struct {
     }
     pub const toggle_gutter_diffs_meta: Meta = .{ .description = "Toggle gutter diff markers" };
 
+    pub fn toggle_scrollbar_marks(_: *Self, _: Ctx) Result {
+        const config = tui.config_mut();
+        config.scrollbar_marks = !config.scrollbar_marks;
+        try tui.save_config();
+    }
+    pub const toggle_scrollbar_marks_meta: Meta = .{ .description = "Toggle scrollbar marks" };
+
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.has_panel_view(filelist_view)) {
             const cmd = if (self.active_filelist()) |fl| fl.next_command orelse "goto_next_file" else "goto_next_file";

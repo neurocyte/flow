@@ -197,6 +197,7 @@ const display: Menu = .{ .label = "Editor display", .items = &.{
     .{ .command = .{ .command = "toggle_gutter_diffs", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_inline_diagnostics", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_inline_vcs_blame", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_scrollbar_marks", .on_activate = .keep_open } },
     .separator,
     .{ .command = .{ .command = "scroll_view_center" } },
 } };
