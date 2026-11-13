@@ -1580,10 +1580,9 @@ pub const Editor = struct {
             else => self.logger.err("update_syntax", e),
         };
         if (self.style_cache) |*cache| {
-            if (!std.mem.eql(u8, self.style_cache_theme, theme.name)) {
+            if (self.style_cache_theme.ptr != theme.name.ptr) {
                 cache.deinit();
                 self.style_cache = StyleCache.init(self.allocator);
-                // self.logger.print("style_cache reset {s} -> {s}", .{ self.style_cache_theme, theme.name });
             }
         } else {
             self.style_cache = StyleCache.init(self.allocator);

@@ -2012,6 +2012,7 @@ fn apply_theme(self: *Self, color_scheme: Widget.Theme.Type, theme_: Widget.Them
         .light => self.light_theme = theme_,
     }
     if (color_scheme == self.color_scheme) {
+        need_render(@src());
         self.set_terminal_style(&theme_);
         self.logger.print("theme: {s}", .{theme_.description});
     }

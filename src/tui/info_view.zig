@@ -718,7 +718,7 @@ pub fn update(self: *Self) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    if (!std.mem.eql(u8, self.theme_name, theme.name) and self.has_markdown()) self.restyle() catch {};
+    if (self.theme_name.ptr != theme.name.ptr and self.has_markdown()) self.restyle() catch {};
     const base = if (tui.config().hover_info_mode == .box) theme.editor_widget else theme.panel;
     self.plane.set_base_style(base);
     self.plane.erase();
