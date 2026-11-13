@@ -2408,7 +2408,7 @@ const cmds = struct {
         defer logger.print("inline diagnostics {t}", .{config.inline_diagnostics});
         try tui.save_config();
     }
-    pub const toggle_inline_diagnostics_meta: Meta = .{ .description = "Toggle display of diagnostics inline" };
+    pub const toggle_inline_diagnostics_meta: Meta = .{ .description = "Toggle inline diagnostics" };
 
     pub fn toggle_gutter_diffs(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
