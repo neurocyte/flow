@@ -213,6 +213,7 @@ if [ -z "$NO_FLOWCONTROL" ]; then
 fi
 
 if [ -z "$NO_CODEBERG" ]; then
+    ASSETS=""
     for a in "$DESTDIR"/*; do
         ASSETS="$ASSETS --asset $a"
     done
