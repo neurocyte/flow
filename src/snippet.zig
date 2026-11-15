@@ -68,11 +68,13 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8, resolver: ?Resol
             },
             .escape => {
                 // only '$', '}' and '\' can be escaped, any other backslash is literal
-                if (discard == 0) switch (c) {
-                    '$', '}', '\\' => {},
-                    else => try text.writer.writeByte('\\'),
-                };
-                if (discard == 0) try text.writer.writeByte(c);
+                if (discard == 0) {
+                    switch (c) {
+                        '$', '}', '\\' => {},
+                        else => try text.writer.writeByte('\\'),
+                    }
+                    try text.writer.writeByte(c);
+                }
                 state = state_stack.pop() orelse return error.InvalidState;
             },
             .tabstop => switch (c) {
@@ -214,6 +216,12 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8, resolver: ?Resol
                 else => if (discard == 0) try text.writer.writeByte(c),
             },
         }
+    }
+
+    // a trailing backslash escapes nothing and is literal
+    if (state == .escape) {
+        if (discard == 0) try text.writer.writeByte('\\');
+        state = state_stack.pop() orelse return error.InvalidState;
     }
 
     if (state != .initial) {

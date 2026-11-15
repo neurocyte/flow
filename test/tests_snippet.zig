@@ -340,6 +340,13 @@ test "trailing dollar is invalid" {
     try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "foo$", null));
 }
 
-test "trailing escape is invalid" {
-    try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "foo\\", null));
+test "trailing backslash is literal" {
+    const parsed = try Snippet.parse(allocator, "foo\\", null);
+    defer parsed.deinit(allocator);
+    try expectEqualStrings("foo\\", parsed.text);
+    try expectEqual(0, parsed.tabstops.len);
+}
+
+test "trailing backslash in an unterminated placeholder is invalid" {
+    try expectError(error.UnexpectedEndOfDocument, Snippet.parse(allocator, "${1:foo\\", null));
 }
