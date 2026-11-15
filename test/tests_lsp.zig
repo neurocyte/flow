@@ -569,3 +569,14 @@ test "hover code fence is longer than any backtick run in the value" {
     defer a.free(out);
     try std.testing.expectEqualStrings("`````md\na ``` b\n````\n`````", out);
 }
+
+test "make_URI percent-encodes file paths" {
+    const make_URI = @import("project_manager").test_internal.make_URI;
+    const file_uri_to_path = @import("project_manager").test_internal.file_uri_to_path;
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+    const uri = try make_URI(a, "/home/user/notes", "Café/Meeting Notes #2%.md");
+    defer a.free(uri);
+    try std.testing.expectEqualStrings("file:///home/user/notes/Caf%C3%A9/Meeting%20Notes%20%232%25.md", uri);
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    try std.testing.expectEqualStrings("/home/user/notes/Café/Meeting Notes #2%.md", try file_uri_to_path(uri, &path_buf));
+}

@@ -831,11 +831,16 @@ pub fn make_URI(allocator: std.mem.Allocator, project_name: []const u8, file_pat
 }
 
 pub fn write_URI_path(writer: *std.Io.Writer, path: []const u8) std.Io.Writer.Error!void {
-    for (path) |c| try switch (c) {
-        std.fs.path.sep => writer.writeByte('/'),
-        // ':' => writer.writeAll("%3A"),
-        else => writer.writeByte(c),
-    };
+    for (path) |c| try if (c == std.fs.path.sep or c == '/')
+        writer.writeByte('/')
+    else if (is_URI_path_char(c))
+        writer.writeByte(c)
+    else
+        writer.print("%{X:0>2}", .{c});
+}
+
+fn is_URI_path_char(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '-' or c == '.' or c == '_' or c == '~' or c == ':';
 }
 
 pub fn file_uri_to_path(uri: []const u8, file_path_buf: []u8) error{InvalidTargetURI}![]u8 {

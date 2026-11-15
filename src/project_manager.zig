@@ -44,6 +44,8 @@ pub const write_code_fence = @import("LSPClient.zig").write_code_fence;
 
 pub const test_internal = struct {
     pub const write_workspace_edit = @import("LSPClient.zig").write_workspace_edit;
+    pub const make_URI = @import("LSPClient.zig").make_URI;
+    pub const file_uri_to_path = @import("LSPClient.zig").file_uri_to_path;
     pub const write_diagnostics_in_range = @import("LSPClient.zig").write_diagnostics_in_range;
     pub const ServerCapabilities = @import("LSPClient.zig").ServerCapabilities;
     pub const write_code_actions = @import("LSPClient.zig").write_code_actions;
