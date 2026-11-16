@@ -1563,9 +1563,15 @@ const cmds = struct {
     pub fn create_new_file(self: *Self, ctx: Ctx) Result {
         var name: std.Io.Writer.Allocating = .init(self.allocator);
         defer name.deinit();
-        try command.executeName("create_scratch_buffer", command.fmt(.{try self.unique_buffer_name(&name, .new_file)}));
+        const file_path = try self.unique_buffer_name(&name, .new_file);
+        const language = tp.env.get().str("language");
+        const file_type = if (language.len > 0) language else tui.config().new_file_default_file_type;
+        if (file_type) |file_type_|
+            try command.executeName("create_scratch_buffer", command.fmt(.{ file_path, "", file_type_ }))
+        else
+            try command.executeName("create_scratch_buffer", command.fmt(.{file_path}));
         self.mark_active_buffer_user_created();
-        if (tp.env.get().str("language").len == 0)
+        if (file_type == null)
             try command.executeName("change_file_type", .empty_from(ctx));
     }
     pub const create_new_file_meta: Meta = .{ .description = "New file" };
@@ -1577,6 +1583,7 @@ const cmds = struct {
         var language: ?[]const u8 = null;
         if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&name), tp.extract(&language) }))
             return error.InvalidCreateBufferArgument;
+        if (kind == .new_file and language == null) language = tui.config().new_file_default_file_type;
 
         tui.reset_drag_context();
         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;

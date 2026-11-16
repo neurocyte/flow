@@ -70,6 +70,7 @@ modes_can_change_cursor: bool = true,
 enable_auto_save: bool = false,
 auto_save_mode: AutoSaveMode = .on_focus_change,
 limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
+new_file_default_file_type: ?[]const u8 = null, // null means ask
 enable_prefix_keyhints: bool = true,
 enable_minimode_keyhints: bool = true,
 enable_overlay_keyhints: bool = true,
