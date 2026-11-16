@@ -36,6 +36,15 @@ case-folded.
 
 The selected find mode is persisted between sessions.
 
+Press ctrl+alt+f or f6 (`Search lines in buffer`) to list every line of the
+current buffer. Type space-separated words to keep only lines containing all
+of them, in any order. Words made only of lowercase letters, ASCII or not,
+ignore case. Anything else matches exactly. Lines are shown as `25 | text`,
+and the number and pipe are searched too, so typing 25 finds line 25. Lines
+stay in file order. Moving through the list previews the line. Enter jumps to
+it and selects it, and Escape returns to where you started. The command is
+also in the Edit menu and the command palette.
+
 ## Messages and logs
 
 Messages of issues regarding tasks that are not accomplished, like trying to

@@ -1596,7 +1596,9 @@ pub fn build_exe(
 
     const text_manip_mod = b.createModule(.{
         .root_source_file = b.path("src/text_manip.zig"),
-        .imports = &.{},
+        .imports = &.{
+            .{ .name = "vaxis", .module = vaxis_mod },
+        },
     });
 
     const tui_mod = b.createModule(.{
