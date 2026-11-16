@@ -53,8 +53,8 @@
             .lazy = true,
         },
         .sokol = .{
-            .url = "git+https://github.com/neurocyte/sokol-zig?ref=master#4ef4558d83ad3ef277bac2c0c038306000c30e82",
-            .hash = "sokol-0.1.0-pb1HK-auPwDs4xyozRWPuhIGx0JbYox6gsHlM05ls3uN",
+            .url = "git+https://github.com/neurocyte/sokol-zig?ref=master#24a106fb86cf3ee0cfd08e9f8fbadbf2c6e943df",
+            .hash = "sokol-0.1.0-pb1HKxewPwCjeVc8ZohJwBqSgyR8ZivYHRO9NqnHBhlc",
             .lazy = true,
         },
         .TrueType = .{

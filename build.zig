@@ -3,7 +3,8 @@ const builtin = @import("builtin");
 
 const optimize_deps: std.lang.Optimize = .fast;
 
-var shader_mod_counter: usize = 0;
+const ShaderLang = enum { glsl410, hlsl5 };
+var shader_sources_updated: std.EnumSet(ShaderLang) = .empty;
 
 pub const Renderer = enum { terminal, gui };
 
@@ -681,6 +682,8 @@ pub fn build_exe(
                     if (b.lazyDependency("wio_unix_headers", .{})) |unix_headers|
                         sokol_clib.root_module.addSystemIncludePath(unix_headers.path("."));
                     sokol_clib.root_module.addSystemIncludePath(flow_gui_headers_dep.?.path("include"));
+                } else if (target.result.os.tag == .freebsd) {
+                    sokol_dep.artifact("sokol_clib").root_module.linkSystemLibrary("gl", .{});
                 }
 
                 const cross_macos = target.result.os.tag == .macos and !is_native;
@@ -693,20 +696,37 @@ pub fn build_exe(
                     }
                 }
 
-                const shdc = if (b.lazyImport(@This(), "sokol")) |sokol| sokol.shdc else break :blk tui_renderer_mod;
-                // module counter to disabiguate sokol shader modules in muti-target builds
-                shader_mod_counter += 1;
-                const shader_mod_name = b.fmt("shader_{d}", .{shader_mod_counter});
-                const shader_mod = shdc.createModule(b, shader_mod_name, sokol_mod, .{
-                    .shdc_dep = sokol_dep.builder.dependency("shdc", .{}),
-                    .input = "src/gui/gpu/builtin.glsl",
-                    .output = "builtin.glsl.zig",
-                    .slang = switch (target.result.os.tag) {
-                        .windows => .{ .hlsl5 = true },
-                        else => .{ .glsl410 = true },
-                    },
-                    .format = .sokol_zig,
-                }) catch |e| std.debug.panic("sokol-shdc createModule failed: {s}", .{@errorName(e)});
+                const sokol_build = b.lazyImport(@This(), "sokol") orelse break :blk tui_renderer_mod;
+                const shader_lang: ShaderLang = switch (target.result.os.tag) {
+                    .windows => .hlsl5,
+                    else => .glsl410,
+                };
+                const shader_source = b.fmt("src/gui/gpu/builtin.{t}.zig", .{shader_lang});
+                const shader_path = if (sokol_build.host_has_shdc) shader: {
+                    const shdc = sokol_build.shdc;
+                    const slang: shdc.Slang = switch (shader_lang) {
+                        .glsl410 => .{ .glsl410 = true },
+                        .hlsl5 => .{ .hlsl5 = true },
+                    };
+                    const generated = shdc.compile(b, .{
+                        .shdc_dep = sokol_dep.builder.dependency("shdc", .{}),
+                        .input = "src/gui/gpu/builtin.glsl",
+                        .output = "builtin.glsl.zig",
+                        .slang = slang,
+                        .format = .sokol_zig,
+                    }) catch |e| std.debug.panic("sokol-shdc compile failed: {s}", .{@errorName(e)});
+                    if (!shader_sources_updated.contains(shader_lang)) {
+                        shader_sources_updated.insert(shader_lang);
+                        const update = b.addUpdateSourceFiles();
+                        update.addCopyFileToSource(generated, shader_source);
+                        b.getInstallStep().dependOn(&update.step);
+                    }
+                    break :shader generated;
+                } else b.path(shader_source);
+                const shader_mod = b.createModule(.{
+                    .root_source_file = shader_path,
+                    .imports = &.{.{ .name = "sokol", .module = sokol_mod }},
+                });
 
                 const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
                 const gui_blit_mod = b.createModule(.{
@@ -1815,6 +1835,10 @@ pub fn build_exe(
 
     const lints = b.addFmt(.{
         .paths = &.{ b.path("src"), b.path("test"), b.path("build.zig") },
+        .exclude_paths = &.{
+            b.path("src/gui/gpu/builtin.glsl410.zig"),
+            b.path("src/gui/gpu/builtin.hlsl5.zig"),
+        },
         .check = true,
     });
 
