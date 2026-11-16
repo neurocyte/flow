@@ -37,10 +37,12 @@ pub fn move_left(self: *Self, n: usize) error{Stop}!void {
     } else return error.Stop;
 }
 
+pub fn max_col(self: *const Self, buffer: *const Buffer) usize {
+    return (buffer.longest_line_len + 1) -| self.cols; // +1 to show NL
+}
+
 pub fn move_right(self: *Self, buffer: *const Buffer, n: usize) error{Stop}!void {
-    const max_col = buffer.longest_line_len -| self.cols + 1; // +1 to show NL
-    const new_col = self.col + n;
-    self.col = @min(max_col, new_col);
+    self.col = @min(self.max_col(buffer), self.col + n);
 }
 
 pub fn move_up(self: *Self) !void {

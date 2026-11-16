@@ -934,7 +934,7 @@ pub const Editor = struct {
 
     fn max_view_col(self: *const Self) usize {
         const buffer = self.buffer orelse return 0;
-        return buffer.longest_line_len -| self.view.cols + 1;
+        return self.view.max_col(buffer);
     }
 
     pub fn scroll_by_px_x(self: *Self, delta: f32) void {
