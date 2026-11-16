@@ -75,7 +75,6 @@ pub fn Create(options: type) type {
         value: ValueType = if (@hasDecl(options, "defaultValue")) options.defaultValue else {},
 
         const Entry = options.Entry;
-        const Match = struct { entry: *Entry, positions: ?[]const usize };
         const Self = @This();
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
         const widget_type: Widget.Type = if (@hasDecl(options, "widget_type")) options.widget_type else default_widget_type;
@@ -85,9 +84,34 @@ pub fn Create(options: type) type {
         const has_score_bonus = @hasDecl(options, "score_bonus");
         const has_activate_query = @hasDecl(options, "activate_query");
         const has_skip_entry = @hasDecl(options, "skip_entry");
+        // Opt-in: filter_entry replaces fuzzy matching and keeps order.
+        const has_filter_entry = @hasDecl(options, "filter_entry");
+        // prepare_filter runs first and gives filter_entry the query.
+        const has_prepare_filter = @hasDecl(options, "prepare_filter");
+        // Opt-in: reuse_matches refilters in place and expects a subset.
+        const has_reuse_matches = @hasDecl(options, "reuse_matches");
+        // Opt-in: longest_width replaces label widths, required without labels.
+        const has_longest_width = @hasDecl(options, "longest_width");
         const has_insert = @hasDecl(options, "insert");
         const has_is_selectable = @hasDecl(options, "is_selectable");
         const no_query = @hasDecl(options, "no_query") and options.no_query;
+
+        // Custom filters have no positions, so matches only need the entry.
+        const Match = if (has_filter_entry)
+            struct { entry: *Entry }
+        else
+            struct { entry: *Entry, positions: ?[]const usize };
+
+        fn make_match(entry: *Entry, positions: ?[]const usize) Match {
+            return if (has_filter_entry)
+                .{ .entry = entry }
+            else
+                .{ .entry = entry, .positions = positions };
+        }
+
+        fn match_positions(match: Match) ?[]const usize {
+            return if (has_filter_entry) null else match.positions;
+        }
 
         pub const ListBoxType = ListBox.Options(*Self).ListBoxType;
         pub const ButtonType = ListBoxType.ButtonType;
@@ -540,15 +564,35 @@ pub fn Create(options: type) type {
             if (async_query) return options.query(self, self.inputbox.mini_editor.bytes());
             defer tui.reset_hover(@src());
             defer self.update_count_hint();
-            self.longest = self.inputbox.mini_editor.bytes().len;
-            for (self.entries.items) |entry|
-                self.longest = @max(self.longest, entry.label.len);
-            self.clear_matches();
-            if (self.inputbox.mini_editor.bytes().len == 0) {
-                try self.matches.ensureTotalCapacity(self.allocator, self.entries.items.len);
-                for (self.entries.items) |*entry| self.matches.appendAssumeCapacity(.{ .entry = entry, .positions = null });
+            const query = self.inputbox.mini_editor.bytes();
+            self.longest = query.len;
+            if (has_longest_width) {
+                self.longest = @max(self.longest, options.longest_width(self));
             } else {
-                try self.query_entries(self.inputbox.mini_editor.bytes());
+                for (self.entries.items) |entry|
+                    self.longest = @max(self.longest, entry.label.len);
+            }
+            if (has_filter_entry and has_prepare_filter) options.prepare_filter(self, query);
+            const reuse = has_filter_entry and query.len > 0 and
+                has_reuse_matches and options.reuse_matches(self);
+            if (reuse) {
+                var kept: usize = 0;
+                for (self.matches.items) |match| {
+                    if (has_skip_entry and options.skip_entry(match.entry)) continue;
+                    if (options.filter_entry(self, match.entry)) {
+                        self.matches.items[kept] = match;
+                        kept += 1;
+                    }
+                }
+                self.matches.shrinkRetainingCapacity(kept);
+            } else {
+                self.clear_matches();
+                if (query.len == 0) {
+                    try self.matches.ensureTotalCapacity(self.allocator, self.entries.items.len);
+                    for (self.entries.items) |*entry| self.matches.appendAssumeCapacity(make_match(entry, null));
+                } else {
+                    try self.query_entries(query);
+                }
             }
             self.last_updated = null;
             self.total_items = self.matches.items.len;
@@ -566,11 +610,21 @@ pub fn Create(options: type) type {
         }
 
         fn clear_matches(self: *Self) void {
-            for (self.matches.items) |match| if (match.positions) |p| self.allocator.free(p);
+            if (!has_filter_entry) {
+                for (self.matches.items) |match| if (match.positions) |p| self.allocator.free(p);
+            }
             self.matches.clearRetainingCapacity();
         }
 
         fn query_entries(self: *Self, query: []const u8) error{ OutOfMemory, WriteFailed }!void {
+            if (has_filter_entry) {
+                for (self.entries.items) |*entry| {
+                    if (has_skip_entry and options.skip_entry(entry)) continue;
+                    if (options.filter_entry(self, entry))
+                        (try self.matches.addOne(self.allocator)).* = make_match(entry, null);
+                }
+                return;
+            }
             var searcher = try fuzzig.Ascii.init(
                 self.allocator,
                 self.longest, // haystack max size
@@ -589,10 +643,10 @@ pub fn Create(options: type) type {
                 const match = searcher.scoreMatches(entry.label, query);
                 const bonus: i32 = if (has_score_bonus) options.score_bonus(entry, query) else 0;
                 if (match.score) |score| {
-                    const match_positions = try self.allocator.dupe(usize, match.matches);
-                    errdefer self.allocator.free(match_positions);
+                    const positions = try self.allocator.dupe(usize, match.matches);
+                    errdefer self.allocator.free(positions);
                     (try scored.addOne(self.allocator)).* = .{
-                        .match = .{ .entry = entry, .positions = match_positions },
+                        .match = make_match(entry, positions),
                         .score = score + bonus,
                     };
                 }
@@ -616,7 +670,7 @@ pub fn Create(options: type) type {
             self.list_box.reset_items();
             const end = @min(self.total_items, self.view_pos + self.view_rows + 1);
             for (self.matches.items[@min(self.view_pos, end)..end]) |match|
-                try options.add_list_box_entry(self, match.entry, match.positions);
+                try options.add_list_box_entry(self, match.entry, match_positions(match));
             self.sync_selected();
             const padding = tui.get_widget_style(widget_type).padding;
             self.do_resize(padding);

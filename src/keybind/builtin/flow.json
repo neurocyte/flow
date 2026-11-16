@@ -213,6 +213,8 @@
             ["ctrl+k ctrl+i", "hover"],
             ["ctrl+k ctrl+o", "hover_info_to_panel"],
             ["ctrl+f", "find"],
+            ["ctrl+alt+f", "search_lines"],
+            ["f6", "search_lines"],
             ["ctrl+g", "goto"],
             ["ctrl+d", "add_cursor_next_match"],
             ["alt+d", "add_cursor_prev_match"],

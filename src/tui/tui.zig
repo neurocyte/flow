@@ -2902,6 +2902,11 @@ const cmds = struct {
     }
     pub const find_file_meta: Meta = .{ .description = "Find file" };
 
+    pub fn search_lines(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/line_search_palette.zig").Type, ctx);
+    }
+    pub const search_lines_meta: Meta = .{ .description = "Search lines in buffer" };
+
     pub fn open_recent(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig").Type, ctx);
     }
