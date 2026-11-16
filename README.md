@@ -138,7 +138,7 @@ binary.
 scp zig-out/bin/flow root@otherhost:/usr/local/bin
 ```
 
-Files to load may be specifed on the command line:
+Files to load may be specified on the command line:
 
 ```shell
 flow fileA.zig fileB.zig

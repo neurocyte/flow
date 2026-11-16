@@ -2377,7 +2377,7 @@ const cmds = struct {
         if (mode) |m|
             std.log.info("line number mode {t}", .{m})
         else
-            std.log.info("input mode determins line number mode", .{});
+            std.log.info("input mode determines line number mode", .{});
     }
     pub const gutter_mode_next_meta: Meta = .{ .description = "Next line number mode" };
 

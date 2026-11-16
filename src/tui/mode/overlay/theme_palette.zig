@@ -105,7 +105,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &description_) catch false)) return;
     if (!(cbor.matchString(&iter, &name_) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| palette.logger.err("theme_palette upated", e);
+    tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| palette.logger.err("theme_palette updated", e);
 }
 
 pub fn cancel(palette: *Type, _: command.Context) !void {

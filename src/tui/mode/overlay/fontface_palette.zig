@@ -72,7 +72,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     var label_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &label_) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "set_fontface", .{label_} }) catch |e| palette.logger.err("fontface_palette upated", e);
+    tp.self_pid().send(.{ "cmd", "set_fontface", .{label_} }) catch |e| palette.logger.err("fontface_palette updated", e);
 }
 
 pub fn cancel(palette: *Type, _: command.Context) !void {

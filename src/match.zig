@@ -539,7 +539,7 @@ test "find via f: classes, anchors, repetition suffixes" {
     try testing.expectEqualStrings("baaabaaabaaab", (try f("aabaaabaaabaaaba", "b.*b")).?);
     try testing.expectEqualStrings("baaab", (try f("aabaaabaaabaaaba", "b.-b")).?);
     try testing.expectEqualStrings("xo", (try f("alo xo", ".o$")).?);
-    try testing.expectEqualStrings("?", (try f("um caracter ? extra", "[^%sa-z]")).?);
+    try testing.expectEqualStrings("?", (try f("um character ? extra", "[^%sa-z]")).?);
     try testing.expectEqualStrings("", (try f("", "a?")).?);
     try testing.expectEqualStrings("aa", (try f("aa", "^aa?a?a")).?);
     try testing.expectEqualStrings("\xc3\xa1bl", (try f("\xc3\xa1bl", "[^]]+")).?); // [^]]+ on "ábl"

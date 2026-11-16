@@ -356,7 +356,7 @@ const Process = struct {
             self.write_log("### LSP terminated ###\n", .{});
             try self.term();
         } else if (try cbor.match(m.buf, .{ "set_protocol", tp.extract(&protocol) })) {
-            self.write_log("### LSP protcol {t} ###\n", .{protocol});
+            self.write_log("### LSP protocol {t} ###\n", .{protocol});
             self.protocol = protocol;
         } else if (try cbor.match(m.buf, .{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
             try self.handle_output(bytes);
