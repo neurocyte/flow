@@ -357,8 +357,7 @@ const Process = struct {
         const cmd_owned = try self.allocator.dupe(u8, cmd);
         errdefer self.allocator.free(cmd_owned);
         try self.outstanding.put(self.allocator, request_id, .{ .cmd = cmd_owned, .origin = origin, .reply_to = reply_to });
-        const named = if (self.output) |output| origin == .user and (output.format != .text or reply_to != null) else false;
-        if (named) {
+        if (self.output != null and origin == .user) {
             const name = try self.allocator.dupe(u8, cmd);
             errdefer self.allocator.free(name);
             try self.names.put(self.allocator, request_id, name);
