@@ -2238,6 +2238,23 @@ const cmds = struct {
     }
     pub const get_terminal_state_meta: Meta = .{ .arguments = &.{.integer} };
 
+    pub fn get_buffers(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        const buffers = try self.buffer_manager.list_most_recently_used(self.allocator);
+        defer self.allocator.free(buffers);
+        for (buffers) |buffer| try reply.send(.{
+            "buffer",
+            buffer.id,
+            buffer.get_file_path(),
+            buffer.is_dirty(),
+            buffer.is_hidden(),
+            buffer.ephemeral,
+            buffer.file_type_name,
+            buffer.root.lines(),
+        });
+    }
+    pub const get_buffers_meta: Meta = .{};
+
     pub fn focus_terminal_id(self: *Self, ctx: Ctx) Result {
         var id: u64 = 0;
         if (!try ctx.args.match(.{tp.extract(&id)})) return error.InvalidTerminalIdArgument;
