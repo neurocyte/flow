@@ -2260,6 +2260,26 @@ const cmds = struct {
     }
     pub const get_terminals_meta: Meta = .{};
 
+    pub fn get_focus(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        const mode = if (tui.input_mode()) |m| m.mode else "";
+        if (tui.mini_mode() != null)
+            return reply.send(.{ "focus", "mini_mode", mode, null, mode });
+        if (tui.input_mode_outer() != null)
+            return reply.send(.{ "focus", "overlay", mode, null, mode });
+        if (self.focused_panel()) |panel| {
+            const panel_mode = if (panel.mode()) |m| m.mode else mode;
+            const id: ?u64 = if (panel.cast(terminal_view)) |tv| tv.vt.id else null;
+            return reply.send(.{ "focus", "panel", panel.tag(), id, panel_mode });
+        }
+        if (self.get_active_editor()) |editor| {
+            const buffer = editor.buffer orelse return reply.send(.{ "focus", "editor", null, null, mode });
+            return reply.send(.{ "focus", "editor", buffer.get_file_path(), buffer.id, mode });
+        }
+        return reply.send(.{ "focus", "home", null, null, mode });
+    }
+    pub const get_focus_meta: Meta = .{};
+
     pub fn get_buffers(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
         const buffers = try self.buffer_manager.list_most_recently_used(self.allocator);
