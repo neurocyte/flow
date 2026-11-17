@@ -2255,6 +2255,44 @@ const cmds = struct {
     }
     pub const get_buffers_meta: Meta = .{};
 
+    pub fn get_editors(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        for (0..self.get_view_count()) |n| {
+            const editor = self.get_editor_for_view(n) orelse continue;
+            var cursors: std.Io.Writer.Allocating = .init(self.allocator);
+            defer cursors.deinit();
+            try write_cursors(&cursors.writer, editor);
+            try reply.send(.{
+                "editor",
+                if (editor.buffer) |buffer| buffer.id else null,
+                n,
+                n == self.active_view,
+                cbor.Raw{ .bytes = cursors.written() },
+            });
+        }
+    }
+    pub const get_editors_meta: Meta = .{};
+
+    /// [line, column, selection] for each cursor, primary cursor first, 1-based
+    fn write_cursors(writer: *std.Io.Writer, editor: *ed.Editor) !void {
+        var count: usize = 0;
+        for (editor.cursels.items) |cursel| if (cursel != null) {
+            count += 1;
+        };
+        try cbor.writeArrayHeader(writer, count);
+        var i = editor.cursels.items.len;
+        while (i > 0) : (i -= 1) {
+            const cursel = editor.cursels.items[i - 1] orelse continue;
+            try cbor.writeArrayHeader(writer, 3);
+            try cbor.writeValue(writer, cursel.cursor.row + 1);
+            try cbor.writeValue(writer, cursel.cursor.col + 1);
+            if (cursel.selection) |sel|
+                try cbor.writeValue(writer, .{ sel.begin.row + 1, sel.begin.col + 1, sel.end.row + 1, sel.end.col + 1 })
+            else
+                try cbor.writeValue(writer, null);
+        }
+    }
+
     pub fn focus_terminal_id(self: *Self, ctx: Ctx) Result {
         var id: u64 = 0;
         if (!try ctx.args.match(.{tp.extract(&id)})) return error.InvalidTerminalIdArgument;
