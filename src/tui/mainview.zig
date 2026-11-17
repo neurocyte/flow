@@ -2315,6 +2315,45 @@ const cmds = struct {
     }
     pub const get_editors_meta: Meta = .{};
 
+    /// ["line", number, text] for each line, without the line ending
+    /// long lines (more than max_text_reply) are chunked with the same number
+    pub fn get_buffer_text(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: u64 = 0;
+        var first: usize = 1;
+        var last: usize = std.math.maxInt(usize);
+        if (!(try ctx.args.match(.{tp.extract(&id)}) or
+            try ctx.args.match(.{ tp.extract(&id), tp.extract(&first), tp.extract(&last) }) or
+            try ctx.args.match(.{.{ "BUFID", tp.extract(&id) }}) or
+            try ctx.args.match(.{ .{ "BUFID", tp.extract(&id) }, tp.extract(&first), tp.extract(&last) })))
+            return error.InvalidGetBufferTextArgument;
+        if (first < 1) return error.InvalidGetBufferTextArgument;
+        const buffer = self.buffer_manager.buffer_from_id(@fromBackingInt(id)) orelse return error.BufferNotFound;
+        var lines = std.mem.splitScalar(u8, buffer.store_to_string_cached(buffer.root, .lf), '\n');
+        var line: usize = 1;
+        while (lines.next()) |text| : (line += 1) {
+            if (line < first) continue;
+            if (line > last) break;
+            var rest = text;
+            while (true) {
+                const piece = utf8_prefix(rest, max_text_reply);
+                try reply.send(.{ "line", line, piece });
+                rest = rest[piece.len..];
+                if (rest.len == 0) break;
+            }
+        }
+    }
+    pub const get_buffer_text_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer } };
+
+    const max_text_reply = 16 * 1024;
+
+    fn utf8_prefix(text: []const u8, max: usize) []const u8 {
+        if (text.len <= max) return text;
+        var end = max;
+        while (end > 0 and text[end] & 0xc0 == 0x80) end -= 1;
+        return text[0..if (end == 0) max else end];
+    }
+
     /// [line, column, selection] for each cursor, primary cursor first, 1-based
     fn write_cursors(writer: *std.Io.Writer, editor: *ed.Editor) !void {
         var count: usize = 0;

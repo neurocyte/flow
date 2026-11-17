@@ -919,6 +919,12 @@ pub fn list_deleted_on_disk(self: *const Self, allocator: std.mem.Allocator, exc
     return result.toOwnedSlice(allocator);
 }
 
+pub fn buffer_from_id(self: *const Self, id: Buffer.Id) ?*Buffer {
+    var i = self.buffers.valueIterator();
+    while (i.next()) |buffer| if (buffer.*.id == id) return buffer.*;
+    return null;
+}
+
 pub fn buffer_from_ref(self: *Self, buffer_ref: Buffer.Ref) ?*Buffer {
     var i = self.buffers.iterator();
     while (i.next()) |p|
