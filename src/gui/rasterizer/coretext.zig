@@ -3,6 +3,7 @@
 const std = @import("std");
 const glyph_constraint = @import("glyph_constraint");
 const face_metrics = @import("face_metrics");
+const LoadedFaces = @import("loaded_faces");
 const flow_sprite = @import("flow_sprite");
 const XY = @import("xy").XY;
 const blit = @import("blit");
@@ -453,6 +454,20 @@ pub fn glyphAdvance(_: *const Self, font: Font, codepoint: u21) ?u16 {
     return if (rounded > 0) @intCast(rounded) else null;
 }
 
+var loaded_faces: LoadedFaces = .{};
+
+pub fn writeFallbackFontInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    return loaded_faces.write(writer);
+}
+
+fn fontFilePath(font: c.Ref, buf: []u8) ?[]const u8 {
+    const url = c.CTFontCopyAttribute(font, c.kCTFontURLAttribute) orelse return null;
+    defer c.CFRelease(url);
+    const path = c.CFURLCopyFileSystemPath(url, c.kCFURLPOSIXPathStyle) orelse return null;
+    defer c.CFRelease(path);
+    return cfStringToUtf8(path, buf);
+}
+
 const FallbackCache = struct {
     const max_faces = 255;
     const Key = struct { cp: u21, color: bool };
@@ -473,6 +488,7 @@ const FallbackCache = struct {
         for (self.faces.items) |*e| if (e.font) |f| c.CFRelease(f);
         self.faces.deinit(allocator);
         self.cache.deinit(allocator);
+        loaded_faces.clear(allocator);
     }
 
     fn scaledSize(size_px: u16, scale: f64) u16 {
@@ -502,11 +518,13 @@ const FallbackCache = struct {
         inline for (embedded_fonts) |ef| {
             if (ef.data.len != 0) {
                 if (faceFromData(ef.data, size_px)) |font| {
-                    self.faces.append(allocator, .{
+                    if (self.faces.append(allocator, .{
                         .font = font,
                         .id_hash = std.hash.Wyhash.hash(0, ef.tag),
                         .embedded = true,
-                    }) catch c.CFRelease(font);
+                    })) |_| {
+                        loaded_faces.add(allocator, ef.tag, 0, isColorFace(font), 1.0);
+                    } else |_| c.CFRelease(font);
                 }
             }
         }
@@ -589,6 +607,9 @@ const FallbackCache = struct {
             c.CFRelease(entry.font);
             return self.cacheNegative(allocator, key);
         };
+        var path_buf: [1024]u8 = undefined;
+        const loaded_name = fontFilePath(entry.font, &path_buf) orelse "(unknown)";
+        loaded_faces.add(allocator, loaded_name, 0, isColorFace(entry.font), scale);
         return self.hit(allocator, key, idx);
     }
 };

@@ -147,6 +147,8 @@ pub fn writeFallbackFontInfo(backend: Backend, writer: *std.Io.Writer) std.Io.Wr
             const field = comptime backendField(tag);
             if (comptime std.mem.eql(u8, field, "tt")) return TT.writeFallbackFontInfo(writer);
             if (comptime std.mem.eql(u8, field, "ft")) return FT.writeFallbackFontInfo(writer);
+            if (comptime std.mem.eql(u8, field, "dw")) return DW.writeFallbackFontInfo(writer);
+            if (comptime std.mem.eql(u8, field, "ct")) return CT.writeFallbackFontInfo(writer);
         },
     }
 }

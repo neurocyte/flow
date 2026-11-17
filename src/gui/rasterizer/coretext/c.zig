@@ -120,6 +120,9 @@ pub extern "c" fn CTFontDescriptorCreateWithAttributes(attributes: Ref) Ref;
 pub extern "c" fn CTFontDescriptorCopyAttribute(descriptor: Ref, attribute: Ref) Ref;
 
 pub extern "c" fn CTFontCopyFamilyName(font: Ref) Ref;
+pub extern "c" fn CTFontCopyAttribute(font: Ref, attribute: Ref) Ref;
+pub extern "c" fn CFURLCopyFileSystemPath(url: Ref, path_style: CFIndex) Ref;
+pub const kCFURLPOSIXPathStyle: CFIndex = 0;
 pub extern "c" fn CTFontCopyPostScriptName(font: Ref) Ref;
 pub extern "c" fn CTFontCopyVariation(font: Ref) Ref;
 pub extern "c" fn CTFontGetSymbolicTraits(font: Ref) CTFontSymbolicTraits;
@@ -168,6 +171,7 @@ pub extern "c" fn CTFontCollectionCreateFromAvailableFonts(options: Ref) Ref;
 pub extern "c" fn CTFontCollectionCreateMatchingFontDescriptors(collection: Ref) Ref;
 
 pub extern const kCTFontFamilyNameAttribute: Ref;
+pub extern const kCTFontURLAttribute: Ref;
 pub extern const kCTFontTraitsAttribute: Ref;
 pub extern const kCTFontWeightTrait: Ref;
 pub extern const kCTFontSlantTrait: Ref;

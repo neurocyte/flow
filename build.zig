@@ -736,6 +736,10 @@ pub fn build_exe(
                 });
                 const gui_glyph_constraint_mod = b.createModule(.{ .root_source_file = b.path("src/gui/glyph_constraint.zig") });
                 const gui_face_metrics_mod = b.createModule(.{ .root_source_file = b.path("src/gui/rasterizer/face_metrics.zig") });
+                const gui_loaded_faces_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/loaded_faces.zig"),
+                    .imports = &.{.{ .name = "soft_root", .module = soft_root_mod }},
+                });
                 const gui_cell_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/cell.zig"),
                     .imports = &.{
@@ -836,6 +840,7 @@ pub fn build_exe(
                             .{ .name = "flow_sprite", .module = flow_sprite_mod },
                             .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                             .{ .name = "face_metrics", .module = gui_face_metrics_mod },
+                            .{ .name = "loaded_faces", .module = gui_loaded_faces_mod },
                             .{ .name = "blit", .module = gui_blit_mod },
                             .{ .name = "build_options", .module = gui_embed_options_mod },
                         },
@@ -859,6 +864,7 @@ pub fn build_exe(
                                 .{ .name = "flow_sprite", .module = flow_sprite_mod },
                                 .{ .name = "glyph_constraint", .module = gui_glyph_constraint_mod },
                                 .{ .name = "face_metrics", .module = gui_face_metrics_mod },
+                                .{ .name = "loaded_faces", .module = gui_loaded_faces_mod },
                                 .{ .name = "blit", .module = gui_blit_mod },
                                 .{ .name = "build_options", .module = gui_embed_options_mod },
                             },
@@ -910,7 +916,7 @@ pub fn build_exe(
                         .imports = &.{
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "face_metrics", .module = gui_face_metrics_mod },
-                            .{ .name = "soft_root", .module = soft_root_mod },
+                            .{ .name = "loaded_faces", .module = gui_loaded_faces_mod },
                         },
                     });
 

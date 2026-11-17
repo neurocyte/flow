@@ -3,6 +3,7 @@
 const std = @import("std");
 const glyph_constraint = @import("glyph_constraint");
 const face_metrics = @import("face_metrics");
+const LoadedFaces = @import("loaded_faces");
 const flow_sprite = @import("flow_sprite");
 const win32 = @import("win32").everything;
 const XY = @import("xy").XY;
@@ -110,6 +111,46 @@ fn faceKeyHash(face: *win32.IDWriteFontFace) ?u64 {
         }
     }
     return hasher.final();
+}
+
+var loaded_faces: LoadedFaces = .{};
+
+pub fn writeFallbackFontInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    return loaded_faces.write(writer);
+}
+
+fn faceIsColor(face: *win32.IDWriteFontFace) bool {
+    var face2: *win32.IDWriteFontFace2 = undefined;
+    if (face.IUnknown.QueryInterface(win32.IID_IDWriteFontFace2, @ptrCast(&face2)) < 0) return false;
+    defer _ = face2.IUnknown.Release();
+    return face2.IsColorFont() != 0;
+}
+
+fn faceFilePath(face: *win32.IDWriteFontFace, buf: []u8) ?[]const u8 {
+    var count: u32 = 1;
+    var file_ptr: ?*win32.IDWriteFontFile = null;
+    if (face.GetFiles(&count, @ptrCast(&file_ptr)) < 0) return null;
+    const file = file_ptr orelse return null;
+    defer _ = file.IUnknown.Release();
+
+    var key_ptr: ?*anyopaque = null;
+    var key_size: u32 = 0;
+    if (file.GetReferenceKey(&key_ptr, &key_size) < 0) return null;
+
+    var loader: *win32.IDWriteFontFileLoader = undefined;
+    if (file.GetLoader(&loader) < 0) return null;
+    defer _ = loader.IUnknown.Release();
+    var local: *win32.IDWriteLocalFontFileLoader = undefined;
+    if (loader.IUnknown.QueryInterface(win32.IID_IDWriteLocalFontFileLoader, @ptrCast(&local)) < 0) return null;
+    defer _ = local.IUnknown.Release();
+
+    var wlen: u32 = 0;
+    if (local.GetFilePathLengthFromKey(key_ptr, key_size, &wlen) < 0) return null;
+    var wbuf: [1024:0]u16 = undefined;
+    if (wlen > wbuf.len or wlen * 3 > buf.len) return null;
+    if (local.GetFilePathFromKey(key_ptr, key_size, &wbuf, wlen + 1) < 0) return null;
+    const len = std.unicode.utf16LeToUtf8(buf, wbuf[0..wlen]) catch return null;
+    return buf[0..len];
 }
 
 pub fn constraintMetrics(font: Font) glyph_constraint.Metrics {
@@ -922,6 +963,7 @@ const FallbackResolver = struct {
         if (self.system_collection) |coll| _ = coll.IUnknown.Release();
         self.faces.deinit(allocator);
         self.cache.deinit(allocator);
+        loaded_faces.clear(allocator);
     }
 
     fn resolve(
@@ -936,6 +978,7 @@ const FallbackResolver = struct {
             self.faces.clearRetainingCapacity();
             self.cache.clearRetainingCapacity();
             self.embedded_indices = @splat(null);
+            loaded_faces.clear(allocator);
         }
         self.current_size_px = size_px;
 
@@ -1035,6 +1078,9 @@ const FallbackResolver = struct {
             self.cache.put(allocator, codepoint, .{ .found = false, .index = 0 }) catch {};
             return null;
         };
+        var path_buf: [1024 * 3]u8 = undefined;
+        const name = faceFilePath(face, &path_buf) orelse "(unknown)";
+        loaded_faces.add(allocator, name, @intCast(face.GetIndex()), faceIsColor(face), size_scale);
 
         self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
         return &self.faces.items[idx];
@@ -1077,6 +1123,7 @@ const FallbackResolver = struct {
                 break;
             };
             self.embedded_indices[slot] = idx;
+            loaded_faces.add(allocator, embedded_tags[slot], 0, faceIsColor(ef), scale);
             self.cache.put(allocator, codepoint, .{ .found = true, .index = idx }) catch {};
             return &self.faces.items[idx];
         }
@@ -1196,6 +1243,11 @@ const embedded_fonts = [_]type{
     EmbeddedFont(nerd_font_data),
     EmbeddedFont(noto_emoji_data),
     EmbeddedFont(iosevka_medium),
+};
+const embedded_tags = [embedded_fonts.len][]const u8{
+    "<embedded:nerd_font>",
+    "<embedded:noto_color_emoji>",
+    "<embedded:iosevka>",
 };
 
 const DWRITE_E_ALREADYREGISTERED: u32 = 0x8898000C;
