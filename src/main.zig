@@ -231,11 +231,13 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
 
     if (args.list_languages and args.json) {
+        defer free_loaded_files();
         try list_languages.list_json(a, stdout);
         return 0;
     }
 
     if (args.list_languages) {
+        defer free_loaded_files();
         const NO_COLOR = if (init.environ_map.get("NO_COLOR")) |v| v.len > 0 else false;
         const CLICOLOR_FORCE = if (init.environ_map.get("CLICOLOR_FORCE")) |v| v.len > 0 else false;
         const tty: std.Io.Terminal = .{

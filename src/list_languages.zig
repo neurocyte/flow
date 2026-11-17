@@ -62,8 +62,13 @@ pub fn list(allocator: std.mem.Allocator, tty: std.Io.Terminal) !void {
 pub fn list_json(allocator: std.mem.Allocator, writer: *std.Io.Writer) !void {
     for (file_type_config.get_all_names()) |file_type_name| {
         const file_type = try file_type_config.get(file_type_name) orelse unreachable;
+        var color_buf: [7]u8 = undefined;
+        const color = std.fmt.bufPrint(&color_buf, "#{x:0>6}", .{file_type.color orelse file_type_config.default.color}) catch unreachable;
         try std.json.Stringify.value(.{
             .name = file_type.name,
+            .description = file_type.description,
+            .icon = file_type.icon orelse file_type_config.default.icon,
+            .color = color,
             .extensions = file_type.extensions,
             .language_server = file_type.language_server,
             .language_server_found = if (file_type.language_server) |cmd| bin_path.can_execute(allocator, cmd[0]) else null,
