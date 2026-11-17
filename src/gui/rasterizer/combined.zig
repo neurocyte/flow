@@ -77,12 +77,14 @@ fn applyLineHeightToFace(font: *Font, top_pad: i32, target_h: i32) void {
     const target_h_u: u16 = @intCast(target_h);
     const ul_thk: i32 = @intCast(font.underline_thickness);
     const new_ul: i32 = @max(0, @min(target_h - ul_thk, font.underline_position + top_pad));
+    const bottom_pad: f64 = @floatFromInt(target_h - @as(i32, font.cell_size.y) - top_pad);
     font.cell_size.y = target_h_u;
     font.underline_position = new_ul;
     switch (font.backend) {
         inline else => |*f| {
             f.cell_size.y = target_h_u;
             f.ascent_px += top_pad;
+            f.face_y += bottom_pad;
             f.underline_position = new_ul;
         },
     }
