@@ -34,6 +34,7 @@ pub const application_description = application_title ++ ": " ++ application_sub
 
 pub const std_options: std.Options = .{
     .log_level = if (builtin.mode == .debug) .debug else .info,
+    .log_scope_levels = if (builtin.mode == .debug) &.{.{ .scope = .vaxis, .level = .info }} else &.{},
     .logFn = log.std_log_function,
 };
 
