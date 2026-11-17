@@ -569,7 +569,7 @@ pub fn render(
 
     if (glyph == .notdef and codepoint != 0) {
         if (self.fallbackResolver()) |fb| {
-            if (fb.resolve({}, self.allocator, codepoint, font.size_px, false, font.primary_metrics)) |fb_face| {
+            if (fb.resolve({}, self.allocator, codepoint, font.size_px, false, true, font.primary_metrics)) |fb_face| {
                 const fg = fb_face.tt.codepointGlyphIndex(codepoint);
                 const fscale: f32 = @as(f32, @floatFromInt(fb_face.size_px)) /
                     @as(f32, @floatFromInt(@max(fb_face.units_per_em, 1)));

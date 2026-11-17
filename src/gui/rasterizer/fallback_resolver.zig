@@ -26,10 +26,11 @@ pub fn FallbackResolver(comptime Backend: type) type {
             face: Backend.Face,
             path_hash: u64,
             embedded: bool,
+            color: bool,
             scale: f64 = 1.0,
         };
         const CacheEntry = struct { found: bool, index: u8 };
-        const CacheKey = struct { cp: u21, color: bool };
+        const CacheKey = struct { cp: u21, color: bool, allow_color: bool };
 
         var loaded_mutex: std.Io.Mutex = .init;
         var loaded_text: std.ArrayList(u8) = .empty;
@@ -79,6 +80,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
                             .face = face,
                             .path_hash = std.hash.Wyhash.hash(0, ef.tag),
                             .embedded = true,
+                            .color = ef.is_color,
                         })) |_| {
                             publishLoaded(allocator, ef.tag, 0, ef.is_color, 1.0);
                         } else |_| {
@@ -97,6 +99,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
             codepoint: u21,
             size_px: u16,
             prefer_color_override: bool,
+            allow_color: bool,
             primary: FaceMetrics,
         ) ?*const Backend.Face {
             if (self.current_size_px != 0 and self.current_size_px != size_px) {
@@ -106,8 +109,8 @@ pub fn FallbackResolver(comptime Backend: type) type {
             self.current_size_px = size_px;
             self.loadEmbedded(ctx, allocator, size_px);
 
-            const prefer_color = prefer_color_override or Backend.preferColor(codepoint);
-            const key: CacheKey = .{ .cp = codepoint, .color = prefer_color };
+            const prefer_color = allow_color and (prefer_color_override or Backend.preferColor(codepoint));
+            const key: CacheKey = .{ .cp = codepoint, .color = prefer_color, .allow_color = allow_color };
 
             if (self.cache.get(key)) |entry|
                 return if (entry.found) &self.faces.items[entry.index].face else null;
@@ -122,6 +125,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
             }
 
             for (candidates) |cand| {
+                if (cand.has_color and !allow_color) continue;
                 const path_hash = std.hash.Wyhash.hash(0, cand.path);
 
                 var seen = false;
@@ -149,7 +153,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
                 const adj = scaledSize(size_px, scale);
                 if (adj != size_px) Backend.setFaceSize(ctx, &face, adj);
                 const idx: u8 = @intCast(self.faces.items.len);
-                self.faces.append(allocator, .{ .face = face, .path_hash = path_hash, .embedded = false, .scale = scale }) catch {
+                self.faces.append(allocator, .{ .face = face, .path_hash = path_hash, .embedded = false, .color = cand.has_color, .scale = scale }) catch {
                     Backend.deinitFace(ctx, allocator, &face);
                     return self.cacheNegative(allocator, key);
                 };
@@ -164,8 +168,8 @@ pub fn FallbackResolver(comptime Backend: type) type {
             return self.cacheNegative(allocator, key);
         }
 
-        pub fn resolveExisting(self: *Resolver, codepoint: u21, prefer_color: bool) ?*const Backend.Face {
-            const entry = self.cache.get(.{ .cp = codepoint, .color = prefer_color }) orelse return null;
+        pub fn resolveExisting(self: *Resolver, codepoint: u21, prefer_color: bool, allow_color: bool) ?*const Backend.Face {
+            const entry = self.cache.get(.{ .cp = codepoint, .color = prefer_color and allow_color, .allow_color = allow_color }) orelse return null;
             return if (entry.found) &self.faces.items[entry.index].face else null;
         }
 
@@ -178,6 +182,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
         ) ?*const Backend.Face {
             for (self.faces.items, 0..) |*e, idx| {
                 if (!e.embedded) continue;
+                if (e.color and !key.allow_color) continue;
                 if (!Backend.hasGlyph(&e.face, codepoint)) continue;
                 self.cache.put(allocator, key, .{ .found = true, .index = @intCast(idx) }) catch {};
                 return &self.faces.items[idx].face;

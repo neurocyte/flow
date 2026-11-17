@@ -419,8 +419,14 @@ fn isSpaceLike(cp: u21) bool {
     return cp == ' ' or cp == 0x2002 or cp == 0;
 }
 
+const emoji_constraint: gpu.Constraint = .{
+    .size = .fit,
+    .align_horizontal = .center,
+    .align_vertical = .center,
+};
+
 fn selectConstraint(cp: u21, emoji: bool) gpu.Constraint {
-    if (emoji) return .{};
+    if (emoji) return emoji_constraint;
     if (nerd_font_attributes.getConstraint(cp)) |c| return c;
     if (isSymbol(cp)) return .{ .size = .fit };
     return .{};
@@ -1817,12 +1823,13 @@ pub fn renderActorTick(focused: bool, visible: bool) void {
 
             // Terminal-assigned double-width: generate both halves now
             if (w == 2) {
-                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .{}, 2, .left);
+                const wide_constraint: gpu.Constraint = if (emoji) emoji_constraint else .{};
+                cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, wide_constraint, 2, .left);
                 const same_row = (ci % ls.width) + 1 < ls.width;
                 if (same_row and ci + 1 < layer_cells.len) {
                     const placeholder = &layer_cells[ci + 1];
                     placeholder.* = cell.*;
-                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, .{}, 2, .right);
+                    placeholder.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, emoji, wide_constraint, 2, .right);
                     ci += 1;
                 }
                 layer_prev_cp = cp;

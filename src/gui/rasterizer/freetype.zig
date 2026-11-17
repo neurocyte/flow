@@ -352,7 +352,7 @@ pub fn glyphAdvance(self: *const Self, font: Font, codepoint: u21) ?u16 {
     if (c.FT_Get_Char_Index(face, codepoint) == 0) {
         // Check fallback faces
         if (self.fallback) |fb| {
-            if (fb.resolveExisting(codepoint, false)) |fb_face| {
+            if (fb.resolveExisting(codepoint, false, self.allow_color_glyphs)) |fb_face| {
                 if (c.FT_Load_Char(fb_face.ft_face, codepoint, c.FT_LOAD_DEFAULT) == 0) {
                     const adv: i32 = @intCast((fb_face.ft_face.*.glyph.*.advance.x + 32) >> 6);
                     return if (adv > 0) @intCast(adv) else null;
@@ -406,7 +406,7 @@ pub fn render(
         break :blk new_fb;
     };
     if (resolver) |fb| {
-        if (fb.resolve(self.library, self.allocator, codepoint, font.size_px, want_color, font.primary_metrics)) |fb_face| {
+        if (fb.resolve(self.library, self.allocator, codepoint, font.size_px, want_color, self.allow_color_glyphs, font.primary_metrics)) |fb_face| {
             return renderFromFace(self, fb_face.ft_face, font.ascent_px, .{}, codepoint, constraint, constraint_width, split, font.cell_size, metrics, staging_buf);
         }
     }
