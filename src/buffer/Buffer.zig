@@ -1721,7 +1721,8 @@ fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sani
         if (leaves.len != cur_leaf + 1)
             return error.Unexpected;
 
-        self_.detected_indent_size = detect_indent_size(leaves[0..@min(leaves.len, 1000)]);
+        var lines: LeafLines = .{ .leaves = leaves };
+        self_.detected_indent_size = detect_indent_size(&lines);
         self_.longest_line_len = longest_line_len;
         self_.longest_line_root = null;
 
@@ -1731,12 +1732,28 @@ fn load_owned_timed(self: *const Self, buf_: []u8, eol_mode: *EolMode, utf8_sani
     return root_node;
 }
 
-fn detect_indent_size(leaves: []const Node) ?usize {
+pub fn redetect_indent_size(self: *Self) void {
+    var lines = std.mem.splitScalar(u8, self.store_to_string_cached(self.root, .lf), '\n');
+    self.detected_indent_size = detect_indent_size(&lines);
+}
+
+const LeafLines = struct {
+    leaves: []const Node,
+    i: usize = 0,
+
+    fn next(self: *LeafLines) ?[]const u8 {
+        if (self.i >= self.leaves.len) return null;
+        defer self.i += 1;
+        return self.leaves[self.i].leaf.buf;
+    }
+};
+
+fn detect_indent_size(lines: anytype) ?usize {
     // frequency of each leading-space count (up to 16 spaces).
     const max_spaces = 16;
     var freq = std.mem.zeroes([max_spaces + 1]u32);
-    for (leaves) |leaf_node| {
-        const line = leaf_node.leaf.buf;
+    for (0..1000) |_| {
+        const line = lines.next() orelse break;
         if (line.len == 0) continue;
         if (line[0] == '\t') return null;
         var spaces: usize = 0;
@@ -1767,7 +1784,7 @@ fn detect_indent_size(leaves: []const Node) ?usize {
         }
         if (gcd > 1) return gcd;
     }
-    return if (freq[1] > 0) 1 else null;
+    return null;
 }
 
 pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {

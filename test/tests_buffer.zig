@@ -1353,11 +1353,25 @@ fn detected_indent_size(doc: []const u8) !?usize {
 test "detected_indent_size" {
     try std.testing.expectEqual(null, try detected_indent_size("a\nb\n"));
     try std.testing.expectEqual(null, try detected_indent_size("a\n\tb\n"));
-    try std.testing.expectEqual(1, try detected_indent_size("a\n b\n c\n"));
+    try std.testing.expectEqual(null, try detected_indent_size("a\n b\n c\n"));
     try std.testing.expectEqual(2, try detected_indent_size("a\n b\n  c\n"));
     try std.testing.expectEqual(4, try detected_indent_size("a\n    b\n        c\n    d\n"));
     // block comment continuation lines do not win over the real indent
     try std.testing.expectEqual(4, try detected_indent_size("/*\n * a\n * b\n * c\n */\nf {\n    x\n    y\n}\n"));
     // an odd alignment level does not pull the result down to 1
     try std.testing.expectEqual(2, try detected_indent_size("a\n  b\n  c\n  d\n    e\n    f\n   g\n"));
+}
+
+test "redetect_indent_size" {
+    const now = std.Io.Clock.real.now(std.testing.io);
+    var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
+    const buffer = try Buffer.create(a, now);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string("a\n b\n", &eol_mode, &sanitized), now);
+    try std.testing.expectEqual(null, buffer.detected_indent_size);
+    buffer.update(try buffer.load_from_string("a\n  b\n    c\n", &eol_mode, &sanitized), now);
+    buffer.detected_indent_size = null;
+    buffer.redetect_indent_size();
+    try std.testing.expectEqual(2, buffer.detected_indent_size);
 }

@@ -4521,7 +4521,12 @@ fn set_edit_set_applier(self: *Self) void {
             const self_: *Self = @ptrCast(@alignCast(ctx));
             return self_.apply_text_edits_to_buffer(buffer, edit_set, now);
         }
-    }.apply };
+    }.apply, .reloaded = struct {
+        fn reloaded(ctx: *anyopaque, buffer: *Buffer) void {
+            const self_: *Self = @ptrCast(@alignCast(ctx));
+            if (self_.get_editor_for_buffer(buffer)) |editor| editor.buffer_reloaded();
+        }
+    }.reloaded };
 }
 
 fn set_save_all_hook(self: *Self) void {

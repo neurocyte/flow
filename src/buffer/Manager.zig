@@ -294,6 +294,7 @@ fn add_load(self: *Self, file_path: []const u8, reload_of: @FieldType(PendingLoa
 pub const EditSetApplier = struct {
     ctx: *anyopaque,
     apply: *const fn (ctx: *anyopaque, buffer: *Buffer, edit_set: []const u8, now: std.Io.Timestamp) anyerror!void,
+    reloaded: *const fn (ctx: *anyopaque, buffer: *Buffer) void,
 };
 
 fn start_stream(self: *Self, file_store: *const FileStore, pending: *PendingLoad) FileStore.Error!FileStore.ReadStream {
@@ -403,7 +404,7 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
     self.update_shown(buffer);
     if (buffer.root != reload_of.root)
         return log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path});
-    if (!EditSet.is_empty(.{ .bytes = edit_set }))
+    if (!EditSet.is_empty(.{ .bytes = edit_set })) {
         applier.apply(applier.ctx, buffer, edit_set, now) catch |e| switch (e) {
             error.BaseMismatch => return log.warn("reload {s} dropped: the buffer changed while reloading", .{pending.file_path}),
             else => {
@@ -411,6 +412,9 @@ fn apply_reload_edit_set(self: *Self, pending: *PendingLoad, edit_set: []const u
                 return error.LoadFailed;
             },
         };
+        buffer.redetect_indent_size();
+    }
+    applier.reloaded(applier.ctx, buffer);
     buffer.reloaded(eol_mode, now);
     buffer.update_last_used_time(now);
     self.notify(buffer, "reloaded", .{});

@@ -1082,7 +1082,7 @@ pub const Editor = struct {
             self.apply_editorconfig_values(map) catch |e| self.logger.print_err("editorconfig", "{t}", .{e});
         if (!tui.config().enable_editorconfig and self.has_editorconfig_values())
             self.clear_editorconfig_values();
-        if (self.indent_mode == .auto)
+        if (self.indent_is_detected())
             self.detect_indent_mode(content);
 
         const auto_save = if (self.buffer) |b|
@@ -1105,7 +1105,7 @@ pub const Editor = struct {
                     self.set_value(name, self.config_value(name), .config);
             }
         }
-        if (self.indent_mode == .auto) if (self.buffer) |b|
+        if (self.indent_is_detected()) if (self.buffer) |b|
             self.detect_indent_mode(b.store_to_string_cached(b.root, b.file_eol_mode));
         self.refresh_tab_width();
         self.update_event() catch {};
@@ -1199,6 +1199,19 @@ pub const Editor = struct {
         }
         buffer.enable_auto_save();
         return !buffer.is_ephemeral();
+    }
+
+    fn indent_is_detected(self: *const Self) bool {
+        return tui.config().indent_mode == .auto and
+            self.value_sources.indent_mode == .config and
+            self.value_sources.indent_size == .config;
+    }
+
+    pub fn buffer_reloaded(self: *Self) void {
+        if (!self.indent_is_detected()) return;
+        const b = self.buffer orelse return;
+        self.detect_indent_mode(b.store_to_string_cached(b.root, b.file_eol_mode));
+        self.need_render();
     }
 
     fn detect_indent_mode(self: *Self, content: []const u8) void {
