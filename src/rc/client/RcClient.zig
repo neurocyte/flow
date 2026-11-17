@@ -21,8 +21,32 @@ pub const Options = struct {
     verbose: bool = false,
     terminal: ?u64 = null,
     focus_mode: FocusMode = .auto,
-    /// print every reply to a user request as one JSON line
-    output: ?*std.Io.Writer = null,
+    output: ?Output = null,
+};
+
+pub const Output = struct {
+    writer: *std.Io.Writer,
+    format: Format,
+
+    pub const Format = enum { json, cbor };
+
+    pub fn write(self: Output, allocator: std.mem.Allocator, value: anytype) !void {
+        var buf: std.Io.Writer.Allocating = .init(allocator);
+        defer buf.deinit();
+        try cbor.writeValue(&buf.writer, value);
+        return self.write_raw(.{ .bytes = buf.written() });
+    }
+
+    pub fn write_raw(self: Output, value: cbor.Raw) !void {
+        switch (self.format) {
+            .json => {
+                try cbor.toJsonWriter(value.bytes, self.writer, .{});
+                try self.writer.writeByte('\n');
+            },
+            .cbor => try self.writer.writeAll(value.bytes),
+        }
+        try self.writer.flush();
+    }
 };
 
 pub const FocusMode = enum { auto, always, never };
@@ -89,7 +113,7 @@ const Process = struct {
     tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
     creates: std.AutoHashMapUnmanaged(u64, ?LocalReply) = .empty,
     holds: usize = 0,
-    output: ?*std.Io.Writer,
+    output: ?Output,
     names: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
     receiver: tp.Receiver(*@This()),
 
@@ -390,18 +414,10 @@ const Process = struct {
     }
 
     /// focus requests are internal and have no name, so they do not print
-    fn print_reply(self: *@This(), output: *std.Io.Writer, request_id: u64, payload: cbor.Raw) void {
+    fn print_reply(self: *@This(), output: Output, request_id: u64, payload: cbor.Raw) void {
         const cmd = self.names.get(request_id) orelse return;
-        write_reply(output, request_id, cmd, payload) catch |e| log.err("write reply {d} failed: {t}", .{ request_id, e });
-    }
-
-    fn write_reply(output: *std.Io.Writer, request_id: u64, cmd: []const u8, payload: cbor.Raw) !void {
-        try output.print("{{\"id\":{d},\"command\":", .{request_id});
-        try std.json.Stringify.value(cmd, .{}, output);
-        try output.writeAll(",\"reply\":");
-        try cbor.toJsonWriter(payload.bytes, output, .{});
-        try output.writeAll("}\n");
-        try output.flush();
+        output.write(self.allocator, .{ .id = request_id, .command = cmd, .reply = payload }) catch |e|
+            log.err("write reply {d} failed: {t}", .{ request_id, e });
     }
 
     /// a created buffer replies {"buffer", ref}, acks (maybe more than once) and then sends buffer events until it is closed

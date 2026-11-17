@@ -100,6 +100,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .list_languages = "Show available languages",
             .list_servers = "Show running instances",
             .json = "Output in JSON from script responses",
+            .cbor = "Output in CBOR from script responses",
             .gui = "Open a GUI window",
             .no_syntax = "Disable syntax highlighting",
             .syntax_report_timing = "Report syntax highlighting time",
@@ -159,6 +160,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         list_languages: bool,
         list_servers: bool,
         json: bool,
+        cbor: bool,
         gui: bool,
         no_syntax: bool,
         syntax_report_timing: bool,
@@ -187,6 +189,10 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
     if (args.focus and args.no_focus) {
         std.debug.print("--focus and --no-focus cannot be used together\n", .{});
+        exit(1);
+    }
+    if (args.json and args.cbor) {
+        std.debug.print("--json and --cbor cannot be used together\n", .{});
         exit(1);
     }
     if (args.exec != null and args.exec_file != null) {
@@ -222,18 +228,27 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         return 0;
     }
 
+    const output: ?RcClient.Output = if (args.json)
+        .{ .writer = stdout, .format = .json }
+    else if (args.cbor)
+        .{ .writer = stdout, .format = .cbor }
+    else
+        null;
+
     if (args.list_servers) {
-        list_servers(a, stdout, stderr, args.json) catch |e| {
+        list_servers(a, stdout, stderr, output) catch |e| {
             try stderr.print("--list-servers failed: {t}\n", .{e});
             return 1;
         };
         return 0;
     }
 
-    if (args.list_languages and args.json) {
-        defer free_loaded_files();
-        try list_languages.list_json(a, stdout);
-        return 0;
+    if (args.list_languages) {
+        if (output) |out| {
+            defer free_loaded_files();
+            try list_languages.list_data(a, out);
+            return 0;
+        }
     }
 
     if (args.list_languages) {
@@ -332,7 +347,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     const log_proc = try log.spawn(&ctx, a, env);
     defer log_proc.deinit();
     log.set_std_log_pid(log_proc.ref());
-    if (args.json or script != null) try log_proc.send(.{ "stdout", "stderr" });
+    if (args.json or args.cbor or script != null) try log_proc.send(.{ "stdout", "stderr" });
     defer log.set_std_log_pid(null);
 
     env.set("no-persist", args.no_persist);
@@ -482,7 +497,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .verbose = args.log_stdout,
             .terminal = terminal,
             .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
-            .output = if (args.json) stdout else null,
+            .output = output,
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();
@@ -1504,7 +1519,7 @@ fn get_rc_socket_dir() ![]const u8 {
     return dir;
 }
 
-fn list_servers(allocator: std.mem.Allocator, stdout: *std.Io.Writer, stderr: *std.Io.Writer, json: bool) !void {
+fn list_servers(allocator: std.mem.Allocator, stdout: *std.Io.Writer, stderr: *std.Io.Writer, output: ?RcClient.Output) !void {
     const io = get_io();
     const dir_path = try get_rc_socket_dir();
     var results: std.ArrayList(RcClient.Probe.Result) = .empty;
@@ -1573,15 +1588,14 @@ fn list_servers(allocator: std.mem.Allocator, stdout: *std.Io.Writer, stderr: *s
     for (live.items) |result| {
         const name = server_name(result.path);
         const version_ = std.mem.trimEnd(u8, result.version, "\n");
-        if (json) {
-            try std.json.Stringify.value(.{
+        if (output) |out| {
+            try out.write(allocator, .{
                 .name = name,
                 .pid = result.pid,
                 .version = version_,
                 .socket = result.path,
                 .projects = result.projects,
-            }, .{}, stdout);
-            try stdout.writeByte('\n');
+            });
         } else {
             try stdout.print("{s}", .{name});
             try stdout.splatByteAll(' ', name_width - name.len + 2);

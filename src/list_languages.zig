@@ -8,6 +8,7 @@ const builtin = @import("builtin");
 const RGB = @import("color").RGB;
 
 const bin_path = @import("bin_path");
+const Output = @import("RcClient").Output;
 
 const checkmark_width = if (builtin.os.tag != .windows) 2 else 3;
 
@@ -59,12 +60,12 @@ pub fn list(allocator: std.mem.Allocator, tty: std.Io.Terminal) !void {
     }
 }
 
-pub fn list_json(allocator: std.mem.Allocator, writer: *std.Io.Writer) !void {
+pub fn list_data(allocator: std.mem.Allocator, output: Output) !void {
     for (file_type_config.get_all_names()) |file_type_name| {
         const file_type = try file_type_config.get(file_type_name) orelse unreachable;
         var color_buf: [7]u8 = undefined;
         const color = std.fmt.bufPrint(&color_buf, "#{x:0>6}", .{file_type.color orelse file_type_config.default.color}) catch unreachable;
-        try std.json.Stringify.value(.{
+        try output.write(allocator, .{
             .name = file_type.name,
             .description = file_type.description,
             .icon = file_type.icon orelse file_type_config.default.icon,
@@ -74,8 +75,7 @@ pub fn list_json(allocator: std.mem.Allocator, writer: *std.Io.Writer) !void {
             .language_server_found = if (file_type.language_server) |cmd| bin_path.can_execute(allocator, cmd[0]) else null,
             .formatter = file_type.formatter,
             .formatter_found = if (file_type.formatter) |cmd| bin_path.can_execute(allocator, cmd[0]) else null,
-        }, .{}, writer);
-        try writer.writeByte('\n');
+        });
     }
 }
 
