@@ -2238,6 +2238,28 @@ const cmds = struct {
     }
     pub const get_terminal_state_meta: Meta = .{ .arguments = &.{.integer} };
 
+    pub fn get_terminals(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        for (Vt.Manager.all()) |vt| {
+            const visibility: Panel.Visibility = if (self.is_terminal_visible(vt)) .visible else .hidden;
+            const focus: enum { focused, unfocused } = if (self.terminal_view_of(vt)) |tv|
+                if (tv.panel_input.focused) .focused else .unfocused
+            else
+                .unfocused;
+            try reply.send(.{
+                "terminal",
+                vt.id,
+                vt.get_title(),
+                vt.vt.cmd.argv,
+                vt.cwd.items,
+                vt.get_state(visibility),
+                visibility,
+                focus,
+            });
+        }
+    }
+    pub const get_terminals_meta: Meta = .{};
+
     pub fn get_buffers(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
         const buffers = try self.buffer_manager.list_most_recently_used(self.allocator);
