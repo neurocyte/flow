@@ -265,13 +265,16 @@ const suppressed_errors = std.StaticStringMap(void).initComptime(.{
 });
 
 pub fn executeName(name: []const u8, ctx: Context) tp.result {
-    const id = find_name_id(name) orelse return notFoundError(ID_unknown, name);
+    const id = find_name_id(name) orelse return notFoundError(null, name);
     return execute(id, name, ctx);
 }
 
-fn notFoundError(id: ID, name: []const u8) !void {
-    if (!suppressed_errors.has(name))
-        return tp.exit_fmt("CommandNotFound: {s}({d})", .{ name, id });
+fn notFoundError(id: ?ID, name: []const u8) !void {
+    if (suppressed_errors.has(name)) return;
+    return if (id) |id_|
+        tp.exit_fmt("CommandNotFound: {s}({d})", .{ name, id_ })
+    else
+        tp.exit_fmt("CommandNotFound: {s}", .{name});
 }
 
 fn CmdDef(comptime T: type) type {
