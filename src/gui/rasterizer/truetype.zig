@@ -224,6 +224,10 @@ fn ttFaceMetrics(tt: *const TrueType, size_px: u16) fallback_resolver.FaceMetric
 
 const FallbackResolver = fallback_resolver.FallbackResolver(TtBackend);
 
+pub fn writeFallbackFontInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    return FallbackResolver.writeLoaded(writer);
+}
+
 fn readFontFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const io = root.get_io();
     const f = try std.Io.Dir.cwd().openFile(io, path, .{});

@@ -910,6 +910,7 @@ pub fn build_exe(
                         .imports = &.{
                             .{ .name = "font_finder", .module = font_finder_mod },
                             .{ .name = "face_metrics", .module = gui_face_metrics_mod },
+                            .{ .name = "soft_root", .module = soft_root_mod },
                         },
                     });
 

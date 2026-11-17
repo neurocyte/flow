@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const font_finder = @import("font_finder");
+const root = @import("soft_root").root;
 
 pub const EmbeddedFont = struct {
     data: []const u8,
@@ -30,6 +31,27 @@ pub fn FallbackResolver(comptime Backend: type) type {
         const CacheEntry = struct { found: bool, index: u8 };
         const CacheKey = struct { cp: u21, color: bool };
 
+        var loaded_mutex: std.Io.Mutex = .init;
+        var loaded_text: std.ArrayList(u8) = .empty;
+
+        pub fn writeLoaded(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            const io = root.get_io();
+            loaded_mutex.lockUncancelable(io);
+            defer loaded_mutex.unlock(io);
+            try writer.writeAll(loaded_text.items);
+        }
+
+        fn publishLoaded(allocator: std.mem.Allocator, name: []const u8, face_index: i32, color: bool, scale: f64) void {
+            const io = root.get_io();
+            loaded_mutex.lockUncancelable(io);
+            defer loaded_mutex.unlock(io);
+            var w: std.Io.Writer.Allocating = .fromArrayList(allocator, &loaded_text);
+            defer loaded_text = w.toArrayList();
+            w.writer.print("  {s}", .{name}) catch return;
+            if (face_index != 0) w.writer.print(" face {d}", .{face_index}) catch return;
+            w.writer.print(" ({s}, scale {d:.2})\n", .{ if (color) "color" else "mono", scale }) catch return;
+        }
+
         cache: std.AutoHashMapUnmanaged(CacheKey, CacheEntry) = .empty,
         faces: std.ArrayList(Entry) = .empty,
         failed: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -41,6 +63,10 @@ pub fn FallbackResolver(comptime Backend: type) type {
             self.faces.deinit(allocator);
             self.cache.deinit(allocator);
             self.failed.deinit(allocator);
+            const io = root.get_io();
+            loaded_mutex.lockUncancelable(io);
+            defer loaded_mutex.unlock(io);
+            loaded_text.clearAndFree(allocator);
         }
 
         fn loadEmbedded(self: *Resolver, ctx: Context, allocator: std.mem.Allocator, size_px: u16) void {
@@ -49,14 +75,16 @@ pub fn FallbackResolver(comptime Backend: type) type {
             inline for (Backend.embedded_fonts) |ef| {
                 if (ef.data.len != 0) {
                     if (Backend.loadEmbedded(ctx, allocator, ef.data, size_px, ef.is_color)) |face| {
-                        self.faces.append(allocator, .{
+                        if (self.faces.append(allocator, .{
                             .face = face,
                             .path_hash = std.hash.Wyhash.hash(0, ef.tag),
                             .embedded = true,
-                        }) catch {
+                        })) |_| {
+                            publishLoaded(allocator, ef.tag, 0, ef.is_color, 1.0);
+                        } else |_| {
                             var f = face;
                             Backend.deinitFace(ctx, allocator, &f);
-                        };
+                        }
                     }
                 }
             }
@@ -125,6 +153,7 @@ pub fn FallbackResolver(comptime Backend: type) type {
                     Backend.deinitFace(ctx, allocator, &face);
                     return self.cacheNegative(allocator, key);
                 };
+                publishLoaded(allocator, cand.path, cand.face_index, cand.has_color, scale);
                 if (!Backend.hasGlyph(&self.faces.items[idx].face, codepoint)) continue;
                 self.cache.put(allocator, key, .{ .found = true, .index = idx }) catch {};
                 return &self.faces.items[idx].face;

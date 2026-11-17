@@ -141,6 +141,16 @@ pub fn setBackend(self: *Self, backend: Backend) void {
     self.active = backend;
 }
 
+pub fn writeFallbackFontInfo(backend: Backend, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    switch (backend) {
+        inline else => |tag| {
+            const field = comptime backendField(tag);
+            if (comptime std.mem.eql(u8, field, "tt")) return TT.writeFallbackFontInfo(writer);
+            if (comptime std.mem.eql(u8, field, "ft")) return FT.writeFallbackFontInfo(writer);
+        },
+    }
+}
+
 pub fn setHinting(self: *Self, h: Hinting) void {
     // self.tt is unhinted
     if (have_dw) self.dw.hinting = h;

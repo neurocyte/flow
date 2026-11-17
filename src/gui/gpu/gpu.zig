@@ -185,6 +185,11 @@ pub fn writeFontFileInfo(writer: *std.Io.Writer, name: []const u8, weight: u16) 
     try writer.print("font-file: {s} (face {d})\n", .{ match.path, match.face_index });
 }
 
+pub fn writeFallbackFontInfo(writer: *std.Io.Writer, backend: Rasterizer.Backend) std.Io.Writer.Error!void {
+    try writer.writeAll("fallback-fonts (loaded):\n");
+    try Rasterizer.writeFallbackFontInfo(backend, writer);
+}
+
 pub fn init(allocator: std.mem.Allocator) !void {
     std.debug.assert(!global.init_called);
     global.init_called = true;

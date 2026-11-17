@@ -775,6 +775,7 @@ pub fn writeRuntimeInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("hinting: {t}\n", .{font_hinting});
     try writer.print("font: {s} {d}pt weight {d} line-height {d}%\n", .{ getFontName(), font_size_pt, font_weight, font_line_height });
     try gpu.writeFontFileInfo(writer, getFontName(), font_weight);
+    try gpu.writeFallbackFontInfo(writer, font_backend);
     try writer.print("color-glyphs: {s}\n", .{if (allow_color_glyphs) "yes" else "no"});
     try writer.print("dpi-scale: {d}\n", .{dpi_scale});
     const refresh_rate = display_refresh_rate_mhz.load(.acquire);

@@ -711,3 +711,7 @@ fn ftFaceMetrics(ft_face: c.FT_Face) fallback_resolver.FaceMetrics {
 }
 
 const FallbackResolver = fallback_resolver.FallbackResolver(FtBackend);
+
+pub fn writeFallbackFontInfo(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    return FallbackResolver.writeLoaded(writer);
+}
