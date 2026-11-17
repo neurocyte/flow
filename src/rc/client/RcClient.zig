@@ -333,6 +333,13 @@ const Process = struct {
         if (self.creates.get(request_id)) |reply_to| return self.handle_create_reply(request_id, reply_to, payload);
         if (self.outstanding.get(request_id)) |pending_request| if (pending_request.reply_to) |reply_to| reply_to.send(payload);
         if (try self.handle_event(request_id, payload)) return self.disconnect_when_done();
+        if (!(try cbor.match(payload.bytes, "ok") or try cbor.match(payload.bytes, .{ "error", cbor.any }))) {
+            if (self.outstanding.get(request_id)) |pending_request|
+                log.info("{s}: {f}", .{ pending_request.cmd, tp.message{ .buf = payload.bytes } })
+            else
+                log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
+            return;
+        }
         const entry = self.outstanding.fetchRemove(request_id) orelse {
             log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
             return;
@@ -358,8 +365,6 @@ const Process = struct {
                 log.err("{s} failed: {s}", .{ cmd, reason })
             else
                 log.err("{s} failed: {f}", .{ cmd, tp.message{ .buf = exit_msg.bytes } });
-        } else {
-            log.info("{s}: {f}", .{ cmd, tp.message{ .buf = payload.bytes } });
         }
         return self.disconnect_when_done();
     }
