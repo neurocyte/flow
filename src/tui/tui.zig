@@ -1215,6 +1215,11 @@ fn dispatch_mouse(ctx: *anyopaque, coord: MouseEvent.Coord, cbor_msg: []const u8
 fn dispatch_scroll(self: *Self, scroll: MouseEvent.Scroll.Input) void {
     const pixels_per_step: f32 = @floatFromInt(self.config_.scroll_pixels_per_step);
     const amt = self.scroll.scroll(scroll.unit, scroll.delta, pixels_per_step, self.config_.scroll_delta_multiplier);
+    if (scroll.mods.ctrl and scroll.mods.alt and scroll.delta.y != 0) {
+        if (comptime @hasDecl(renderer, "set_lineheight"))
+            if (amt.step.y != 0) command.executeName("adjust_lineheight", .fmt(.{-10 * amt.step.y})) catch {};
+        return;
+    }
     if (scroll.mods.ctrl and scroll.delta.y != 0) {
         if (comptime @hasDecl(renderer, "adjust_fontsize"))
             if (amt.step.y != 0) self.rdr_.adjust_fontsize(@floatFromInt(-amt.step.y));

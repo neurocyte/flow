@@ -689,6 +689,16 @@ pub fn adjust_fontweight(self: *Self, delta: i32) void {
     app.adjustFontWeight(delta);
 }
 
+pub fn set_lineheight(self: *Self, pct: u8) void {
+    _ = self;
+    app.setLineHeight(pct);
+}
+
+pub fn get_lineheight(self: *Self) u8 {
+    _ = self;
+    return app.getLineHeight();
+}
+
 pub fn reload_config(self: *Self) void {
     _ = self;
     app.reloadConfig();

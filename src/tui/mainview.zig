@@ -3126,6 +3126,40 @@ const cmds = struct {
         .arguments = &.{.integer},
     };
 
+    pub fn adjust_lineheight(_: *Self, ctx: Ctx) Result {
+        var delta: i32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&delta)}))
+            return error.InvalidArgument;
+        if (comptime !@hasDecl(tui.renderer, "set_lineheight")) {
+            std.log.info("adjust_lineheight not supported", .{});
+            return;
+        }
+        const current = tui.rdr().get_lineheight();
+        const pct: u8 = @intCast(std.math.clamp(@as(i32, current) + delta, 50, 200));
+        if (pct == current) return;
+        tui.rdr().set_lineheight(pct);
+        std.log.info("line height {d}%", .{pct});
+    }
+    pub const adjust_lineheight_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "set_lineheight")) "Adjust line height" else &.{},
+        .arguments = &.{.integer},
+    };
+
+    pub fn reset_lineheight(_: *Self, _: Ctx) Result {
+        if (comptime !@hasDecl(tui.renderer, "set_lineheight")) {
+            std.log.info("reset_lineheight not supported", .{});
+            return;
+        }
+        const default = comptime blk: {
+            const field = std.meta.fieldInfo(@import("gui_config"), .lineheight);
+            break :blk field.attrs.defaultValue(field.type).?;
+        };
+        tui.rdr().set_lineheight(default);
+    }
+    pub const reset_lineheight_meta: Meta = .{
+        .description = if (@hasDecl(tui.renderer, "set_lineheight")) "Reset line height to default" else &.{},
+    };
+
     pub fn set_background_opacity(_: *Self, ctx: Ctx) Result {
         var value: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&value)}))
