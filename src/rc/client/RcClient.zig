@@ -6,6 +6,8 @@ const common = @import("common");
 
 const log = std.log.scoped(.client);
 
+pub const Probe = @import("Probe.zig");
+
 pid: ?tp.pid,
 
 const module_name = @typeName(@This());

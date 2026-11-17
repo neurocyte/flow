@@ -2704,6 +2704,24 @@ const cmds = struct {
         .arguments = &.{.string},
     };
 
+    pub fn get_instance_info(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        const project = tp.env.get().str("project");
+        const rsp = try project_manager.request_open_projects(self.allocator);
+        defer self.allocator.free(rsp.buf);
+        var background: std.ArrayList([]const u8) = .empty;
+        defer background.deinit(self.allocator);
+        var iter = rsp.buf;
+        var count = try cbor.decodeArrayHeader(&iter);
+        while (count > 0) : (count -= 1) {
+            var project_directory: []const u8 = undefined;
+            if (!try cbor.matchValue(&iter, cbor.extract(&project_directory))) return error.InvalidOpenProjectsReply;
+            if (!std.mem.eql(u8, project_directory, project)) try background.append(self.allocator, project_directory);
+        }
+        try reply.send(.{ "instance_info", root.get_pid(), project, background.items });
+    }
+    pub const get_instance_info_meta: Meta = .{};
+
     pub fn insert_command_name(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type, ctx);
     }

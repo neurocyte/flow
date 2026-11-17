@@ -98,6 +98,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .log_input = "Log input events",
             .language = "Force the language of the file to be opened",
             .list_languages = "Show available languages",
+            .list_servers = "Show running instances",
+            .json = "Output in JSON from script responses",
             .gui = "Open a GUI window",
             .no_syntax = "Disable syntax highlighting",
             .syntax_report_timing = "Report syntax highlighting time",
@@ -155,6 +157,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         log_input: bool,
         language: ?[]const u8,
         list_languages: bool,
+        list_servers: bool,
+        json: bool,
         gui: bool,
         no_syntax: bool,
         syntax_report_timing: bool,
@@ -215,6 +219,19 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     if (args.version) {
         try stdout.writeAll(version_info);
+        return 0;
+    }
+
+    if (args.list_servers) {
+        list_servers(a, stdout, stderr, args.json) catch |e| {
+            try stderr.print("--list-servers failed: {t}\n", .{e});
+            return 1;
+        };
+        return 0;
+    }
+
+    if (args.list_languages and args.json) {
+        try list_languages.list_json(a, stdout);
         return 0;
     }
 
@@ -1481,6 +1498,112 @@ fn get_rc_socket_dir() ![]const u8 {
     create_dir_path(get_io(), dir) catch |e| return make_dir_error(dir, e);
     local.dir = dir;
     return dir;
+}
+
+fn list_servers(allocator: std.mem.Allocator, stdout: *std.Io.Writer, stderr: *std.Io.Writer, json: bool) !void {
+    const io = get_io();
+    const dir_path = try get_rc_socket_dir();
+    var results: std.ArrayList(RcClient.Probe.Result) = .empty;
+    var inodes: std.ArrayList(std.Io.File.INode) = .empty;
+    defer {
+        for (results.items) |*result| {
+            result.deinit(allocator);
+            allocator.free(result.path);
+        }
+        results.deinit(allocator);
+        inodes.deinit(allocator);
+    }
+
+    {
+        var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
+        defer dir.close(io);
+        var it = dir.iterate();
+        while (try it.next(io)) |entry| {
+            if (entry.kind == .directory or !std.mem.endsWith(u8, entry.name, ".sock")) continue;
+            const path = try std.fmt.allocPrintSentinel(allocator, "{s}{c}{s}", .{ dir_path, sep, entry.name }, 0);
+            errdefer allocator.free(path);
+            try inodes.append(allocator, entry.inode);
+            try results.append(allocator, .{ .path = path });
+        }
+    }
+    if (results.items.len == 0) return;
+
+    {
+        var ctx = try thespian.context.init(allocator, .{});
+        defer ctx.deinit();
+        var eh = thespian.make_exit_handler({}, print_exit_status);
+        try RcClient.Probe.spawn(allocator, &ctx, &eh, results.items);
+        ctx.run();
+    }
+
+    for (results.items, inodes.items) |result, inode| switch (result.state) {
+        .live => {},
+        .not_responding => try stderr.print("{s}: not responding\n", .{result.path}),
+        .failed => if (is_stale_socket(io, result.path, inode)) {
+            const environ = get_init().environ_map;
+            if (environ.get("FLOW_NO_CLEANUP")) |_| {
+                try stderr.print("found stale socket {s}\n", .{result.path});
+            } else {
+                try std.Io.Dir.deleteFileAbsolute(io, result.path);
+                try stderr.print("removed stale socket {s}\n", .{result.path});
+            }
+        } else try stderr.print("{s}: {s}\n", .{ result.path, result.reason }),
+    };
+
+    var live: std.ArrayList(*const RcClient.Probe.Result) = .empty;
+    defer live.deinit(allocator);
+    var name_width: usize = 0;
+    var version_width: usize = 0;
+    var path_width: usize = 0;
+    for (results.items) |*result| if (result.state == .live) {
+        try live.append(allocator, result);
+        name_width = @max(name_width, server_name(result.path).len);
+        version_width = @max(version_width, std.mem.trimEnd(u8, result.version, "\n").len);
+        path_width = @max(path_width, result.path.len);
+    };
+    std.mem.sort(*const RcClient.Probe.Result, live.items, {}, struct {
+        fn less(_: void, l: *const RcClient.Probe.Result, r: *const RcClient.Probe.Result) bool {
+            return std.mem.lessThan(u8, server_name(l.path), server_name(r.path));
+        }
+    }.less);
+    for (live.items) |result| {
+        const name = server_name(result.path);
+        const version_ = std.mem.trimEnd(u8, result.version, "\n");
+        if (json) {
+            try std.json.Stringify.value(.{
+                .name = name,
+                .pid = result.pid,
+                .version = version_,
+                .socket = result.path,
+                .projects = result.projects,
+            }, .{}, stdout);
+            try stdout.writeByte('\n');
+        } else {
+            try stdout.print("{s}", .{name});
+            try stdout.splatByteAll(' ', name_width - name.len + 2);
+            try stdout.print("{d: >7}  {s}", .{ @as(u64, @intCast(@max(result.pid, 0))), version_ });
+            try stdout.splatByteAll(' ', version_width - version_.len + 2);
+            try stdout.print("{s}", .{result.path});
+            try stdout.splatByteAll(' ', path_width - result.path.len);
+            for (result.projects) |project| try stdout.print("  {s}", .{project});
+            try stdout.writeByte('\n');
+        }
+    }
+}
+
+fn server_name(path: []const u8) []const u8 {
+    const base = std.fs.path.basename(path);
+    return base[0 .. base.len - ".sock".len];
+}
+
+fn is_stale_socket(io: std.Io, path: []const u8, inode: std.Io.File.INode) bool {
+    const address = std.Io.net.UnixAddress.init(path) catch return false;
+    if (address.connect(io)) |stream| {
+        stream.close(io);
+        return false;
+    } else |e| if (e != error.ConnectionRefused) return false;
+    const stat = std.Io.Dir.cwd().statFile(io, path, .{ .follow_symlinks = false }) catch return false;
+    return stat.inode == inode;
 }
 
 fn get_rc_socket_path(server: ?[]const u8, buf: []u8) !?[]const u8 {

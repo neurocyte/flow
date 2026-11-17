@@ -59,6 +59,21 @@ pub fn list(allocator: std.mem.Allocator, tty: std.Io.Terminal) !void {
     }
 }
 
+pub fn list_json(allocator: std.mem.Allocator, writer: *std.Io.Writer) !void {
+    for (file_type_config.get_all_names()) |file_type_name| {
+        const file_type = try file_type_config.get(file_type_name) orelse unreachable;
+        try std.json.Stringify.value(.{
+            .name = file_type.name,
+            .extensions = file_type.extensions,
+            .language_server = file_type.language_server,
+            .language_server_found = if (file_type.language_server) |cmd| bin_path.can_execute(allocator, cmd[0]) else null,
+            .formatter = file_type.formatter,
+            .formatter_found = if (file_type.formatter) |cmd| bin_path.can_execute(allocator, cmd[0]) else null,
+        }, .{}, writer);
+        try writer.writeByte('\n');
+    }
+}
+
 fn args_string_length(args_: ?[]const []const u8) usize {
     const args = args_ orelse return 0;
     var len: usize = 0;

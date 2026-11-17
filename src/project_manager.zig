@@ -211,6 +211,10 @@ pub fn request_path_files(max: usize, path: []const u8) (ProjectManagerError || 
     return send(.{ "request_path_files", project, max, path });
 }
 
+pub fn request_open_projects(allocator: std.mem.Allocator) (ProjectManagerError || CallError)!tp.message {
+    return (try get()).pid.call(root.get_io(), allocator, request_timeout, .{"request_open_projects"});
+}
+
 pub fn request_language_servers(allocator: std.mem.Allocator) (ProjectManagerError || CallError)!tp.message {
     return (try get()).pid.call(root.get_io(), allocator, request_timeout, .{"request_language_servers"});
 }
@@ -854,6 +858,8 @@ const Process = struct {
             self.request_path_files(from, project_directory, max, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{"request_repositories"})) {
             self.request_repositories(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{"request_open_projects"})) {
+            self.request_open_projects(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{"request_language_servers"})) {
             self.request_language_servers(from) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_tasks", tp.extract(&project_directory) })) {
@@ -1484,6 +1490,19 @@ const Process = struct {
         try cbor.writeArrayHeader(&message.writer, self.repos.count());
         var i = self.repos.valueIterator();
         while (i.next()) |repo| try repo.*.write_info(&message.writer, self.is_watched_by_project(repo.*.root));
+        try from.send_raw(.{ .buf = message.written() });
+    }
+
+    fn request_open_projects(self: *Process, from: tp.pid_ref) (OutOfMemoryError || std.Io.Writer.Error || error{Exit})!void {
+        var projects: std.ArrayList(RecentProject) = .empty;
+        defer projects.deinit(self.allocator);
+        var i = self.projects.valueIterator();
+        while (i.next()) |project| try projects.append(self.allocator, .{ .name = project.*.name, .last_used = project.*.last_used });
+        self.sort_projects_by_last_used(&projects);
+        var message: std.Io.Writer.Allocating = .init(self.allocator);
+        defer message.deinit();
+        try cbor.writeArrayHeader(&message.writer, projects.items.len);
+        for (projects.items) |project| try cbor.writeValue(&message.writer, project.name);
         try from.send_raw(.{ .buf = message.written() });
     }
 

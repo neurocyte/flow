@@ -111,7 +111,7 @@ const Process = struct {
 
         if (try m.match(.{ "hello", tp.extract(&client_version) })) {
             log.info("client connected: {s}", .{client_version});
-            try from.send(.{ "hello", common.build_version });
+            from.send(.{ "hello", common.build_version }) catch |e| log.info("client gone before hello: {t}", .{e});
         } else if (try m.match(.{ "request", tp.extract(&request_id), tp.extract(&cmd), tp.extract(&args) })) {
             try self.parent.send(.{ "cmd", cmd, args, .{ "reply", from.instance_id(), request_id } });
         } else if (self.is_listener(from) and try m.match(.{ "connected", tp.extract(&conn_id) })) {
