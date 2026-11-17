@@ -2722,6 +2722,16 @@ const cmds = struct {
     }
     pub const get_instance_info_meta: Meta = .{};
 
+    pub fn get_commands(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        const hints = if (self.input_mode_) |*mode| mode.keybind_hints else null;
+        for (command.commands.items) |cmd_| if (cmd_) |cmd| {
+            const hint = if (hints) |h| h.get(cmd.name) orelse "" else "";
+            try reply.send(.{ "command", cmd.name, cmd.meta.description, cmd.meta.arguments, hint });
+        };
+    }
+    pub const get_commands_meta: Meta = .{};
+
     pub fn insert_command_name(self: *Self, ctx: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type, ctx);
     }
