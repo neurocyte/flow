@@ -1809,7 +1809,8 @@ const cmds = struct {
         if (file_name.len == 0) return;
         const remove_session = tp.env.get().is("remove-session-file");
         defer if (remove_session) std.Io.Dir.deleteFileAbsolute(root.get_io(), file_name) catch {};
-        self.read_restore_info(root.get_io(), root.get_now(), file_name) catch |e|
+        const color_scheme: tui.RestoreColorScheme = if (remove_session) .restore else .skip;
+        self.read_restore_info(root.get_io(), root.get_now(), file_name, color_scheme) catch |e|
             return discard_restore_info(logger, file_name, e);
         logger.print("session restored", .{});
         tui.need_render(@src());
@@ -3826,7 +3827,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     try cbor.writeValue(writer, self.bottom_bar_hidden);
 }
 
-fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp, file_name: []const u8) !void {
+fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp, file_name: []const u8, color_scheme: tui.RestoreColorScheme) !void {
     const file = try std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only });
     defer file.close(io);
     const stat = try file.stat(io);
@@ -3836,7 +3837,7 @@ fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp, file_name: 
     defer self.allocator.free(buf);
     var iter: []const u8 = buf;
 
-    try self.extract_state(&iter, .with_project, now);
+    try self.extract_state(&iter, .with_project, now, color_scheme);
 }
 
 fn discard_restore_info(logger: log.Logger, file_name: []const u8, err: anyerror) void {
@@ -3852,10 +3853,10 @@ fn discard_restore_info(logger: log.Logger, file_name: []const u8, err: anyerror
 
 fn restore_state(self: *Self, state: []const u8, now: std.Io.Timestamp) !void {
     var iter = state;
-    try self.extract_state(&iter, .no_project, now);
+    try self.extract_state(&iter, .no_project, now, .skip);
 }
 
-fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_project }, now: std.Io.Timestamp) !void {
+fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_project }, now: std.Io.Timestamp, color_scheme: tui.RestoreColorScheme) !void {
     const logger = log.logger("extract_state");
     defer logger.deinit();
     tp.trace(tp.channel.debug, .{ "mainview", "extract" });
@@ -3915,7 +3916,7 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     self.lsp_info.extract_state(iter) catch |e|
         logger.print_err("mainview", "failed to restore LSP info: {}", .{e});
 
-    tui.extract_state(iter) catch |e|
+    tui.extract_state(iter, color_scheme) catch |e|
         logger.print_err("mainview", "failed to restore TUI : {}", .{e});
 
     self.filelists.restore_state(iter) catch {};

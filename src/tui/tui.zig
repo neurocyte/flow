@@ -4418,12 +4418,19 @@ pub fn write_state(writer: *std.Io.Writer) error{WriteFailed}!void {
     try cbor.writeValue(writer, self.color_scheme_locked);
 }
 
-pub fn extract_state(iter: *[]const u8) (error{MatchTuiStateFailed} || cbor.Error)!void {
+pub const RestoreColorScheme = enum { restore, skip };
+
+pub fn extract_state(iter: *[]const u8, restore: RestoreColorScheme) (error{MatchTuiStateFailed} || cbor.Error)!void {
     const self = current();
+    var color_scheme: Widget.Theme.Type = undefined;
+    var color_scheme_locked: bool = undefined;
     if (!try cbor.matchValue(iter, .{
-        cbor.extract(&self.color_scheme),
-        cbor.extract(&self.color_scheme_locked),
+        cbor.extract(&color_scheme),
+        cbor.extract(&color_scheme_locked),
     })) return error.MatchTuiStateFailed;
+    if (restore == .skip) return;
+    self.color_scheme = color_scheme;
+    self.color_scheme_locked = color_scheme_locked;
 }
 
 pub fn terminal_has_focus() bool {
