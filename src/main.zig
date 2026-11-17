@@ -497,7 +497,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .verbose = args.log_stdout,
             .terminal = terminal,
             .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
-            .output = output,
+            .output = output orelse .{ .writer = stdout, .format = .text },
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();

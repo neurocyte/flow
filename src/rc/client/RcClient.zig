@@ -28,7 +28,7 @@ pub const Output = struct {
     writer: *std.Io.Writer,
     format: Format,
 
-    pub const Format = enum { json, cbor };
+    pub const Format = enum { json, cbor, text };
 
     pub fn write(self: Output, allocator: std.mem.Allocator, value: anytype) !void {
         var buf: std.Io.Writer.Allocating = .init(allocator);
@@ -44,8 +44,31 @@ pub const Output = struct {
                 try self.writer.writeByte('\n');
             },
             .cbor => try self.writer.writeAll(value.bytes),
+            .text => try write_text(self.writer, value.bytes),
         }
         try self.writer.flush();
+    }
+
+    fn write_text(writer: *std.Io.Writer, value: []const u8) !void {
+        var iter = value;
+        const len = cbor.decodeArrayHeader(&iter) catch {
+            try write_text_value(writer, value);
+            return writer.writeByte('\n');
+        };
+        for (0..len) |i| {
+            if (i > 0) try writer.writeByte('\t');
+            const start = iter;
+            try cbor.skipValue(&iter);
+            try write_text_value(writer, start[0 .. start.len - iter.len]);
+        }
+        try writer.writeByte('\n');
+    }
+
+    fn write_text_value(writer: *std.Io.Writer, value: []const u8) !void {
+        var iter = value;
+        var str: []const u8 = undefined;
+        if (cbor.matchString(&iter, &str) catch false) return writer.writeAll(str);
+        return cbor.toJsonWriter(value, writer, .{});
     }
 };
 
@@ -334,7 +357,8 @@ const Process = struct {
         const cmd_owned = try self.allocator.dupe(u8, cmd);
         errdefer self.allocator.free(cmd_owned);
         try self.outstanding.put(self.allocator, request_id, .{ .cmd = cmd_owned, .origin = origin, .reply_to = reply_to });
-        if (self.output != null and origin == .user) {
+        const named = if (self.output) |output| origin == .user and (output.format != .text or reply_to != null) else false;
+        if (named) {
             const name = try self.allocator.dupe(u8, cmd);
             errdefer self.allocator.free(name);
             try self.names.put(self.allocator, request_id, name);
@@ -416,8 +440,11 @@ const Process = struct {
     /// focus requests are internal and have no name, so they do not print
     fn print_reply(self: *@This(), output: Output, request_id: u64, payload: cbor.Raw) void {
         const cmd = self.names.get(request_id) orelse return;
-        output.write(self.allocator, .{ .id = request_id, .command = cmd, .reply = payload }) catch |e|
-            log.err("write reply {d} failed: {t}", .{ request_id, e });
+        const result = switch (output.format) {
+            .text => if (is_ack(payload) catch true) {} else output.write_raw(payload),
+            .json, .cbor => output.write(self.allocator, .{ .id = request_id, .command = cmd, .reply = payload }),
+        };
+        result catch |e| log.err("write reply {d} failed: {t}", .{ request_id, e });
     }
 
     /// a created buffer replies {"buffer", ref}, acks (maybe more than once) and then sends buffer events until it is closed
