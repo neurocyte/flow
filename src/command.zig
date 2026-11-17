@@ -28,6 +28,11 @@ pub const Context = struct {
     io: std.Io,
     now: std.Io.Timestamp,
     reply: ?Reply = null,
+    async_response: ?*bool = null,
+
+    pub fn set_async_response(self: @This()) void {
+        if (self.async_response) |p| p.* = true;
+    }
 
     pub fn init(args: tp.message) @This() {
         const io = root.get_io();

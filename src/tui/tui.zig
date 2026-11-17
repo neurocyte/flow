@@ -647,9 +647,10 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     };
 }
 
-fn send_command_result(self: *Self, cmd: []const u8, reply: command.Reply, result: tp.result) void {
+fn send_command_result(self: *Self, cmd: []const u8, reply: command.Reply, result: tp.result, async_response: bool) void {
     need_render(@src());
     if (result) |_| {
+        if (async_response) return;
         reply.send("ok") catch {};
     } else |e| {
         const msg: tp.message = if (e == error.Exit) .{ .buf = tp.error_message() } else tp.exit_message(e, null);
@@ -703,16 +704,19 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
     if (!self.delayed_init_done and try m.match(.{ "cmd", tp.any, tp.any, .{ "reply", tp.more } }))
         return self.on_init.post_raw(m);
+    var async_response = false;
     if (try m.match(.{ "cmd", tp.extract(&cmd), tp.extract_cbor(&arg), .{ "reply", tp.extract(&reply.piid), tp.extract(&reply.id) } })) {
         ctx.args = .{ .buf = arg };
         ctx.reply = reply;
-        return self.send_command_result(cmd, reply, command.executeName(cmd, ctx));
+        ctx.async_response = &async_response;
+        return self.send_command_result(cmd, reply, command.executeName(cmd, ctx), async_response);
     }
     if (try m.match(.{ "cmd", tp.extract(&cmd_id), tp.extract_cbor(&arg), .{ "reply", tp.extract(&reply.piid), tp.extract(&reply.id) } })) {
         ctx.args = .{ .buf = arg };
         ctx.reply = reply;
+        ctx.async_response = &async_response;
         const name = command.get_name(cmd_id) orelse "(unknown)";
-        return self.send_command_result(name, reply, command.execute(cmd_id, name, ctx));
+        return self.send_command_result(name, reply, command.execute(cmd_id, name, ctx), async_response);
     }
 
     if (try m.match(.{ "dbus", tp.more }))
