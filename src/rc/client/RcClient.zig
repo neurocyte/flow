@@ -21,6 +21,8 @@ pub const Options = struct {
     verbose: bool = false,
     terminal: ?u64 = null,
     focus_mode: FocusMode = .auto,
+    /// print every reply to a user request as one JSON line
+    output: ?*std.Io.Writer = null,
 };
 
 pub const FocusMode = enum { auto, always, never };
@@ -87,6 +89,8 @@ const Process = struct {
     tracked_buffers: std.AutoHashMapUnmanaged(u64, void) = .empty,
     creates: std.AutoHashMapUnmanaged(u64, ?LocalReply) = .empty,
     holds: usize = 0,
+    output: ?*std.Io.Writer,
+    names: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
     receiver: tp.Receiver(*@This()),
 
     const Request = struct {
@@ -148,6 +152,7 @@ const Process = struct {
             .verbose = args.options.verbose,
             .terminal = args.options.terminal,
             .focus_mode = args.options.focus_mode,
+            .output = args.options.output,
             .receiver = .init(receive_fn, @This().deinit, self),
         };
         errdefer self.deinit();
@@ -165,6 +170,9 @@ const Process = struct {
         var it = self.outstanding.valueIterator();
         while (it.next()) |pending_request| self.allocator.free(pending_request.cmd);
         self.outstanding.deinit(self.allocator);
+        var names = self.names.valueIterator();
+        while (names.next()) |name| self.allocator.free(name.*);
+        self.names.deinit(self.allocator);
         self.tracked_requests.deinit(self.allocator);
         self.tracked_buffers.deinit(self.allocator);
         self.creates.deinit(self.allocator);
@@ -302,6 +310,11 @@ const Process = struct {
         const cmd_owned = try self.allocator.dupe(u8, cmd);
         errdefer self.allocator.free(cmd_owned);
         try self.outstanding.put(self.allocator, request_id, .{ .cmd = cmd_owned, .origin = origin, .reply_to = reply_to });
+        if (self.output != null and origin == .user) {
+            const name = try self.allocator.dupe(u8, cmd);
+            errdefer self.allocator.free(name);
+            try self.names.put(self.allocator, request_id, name);
+        }
         var tracked_args: std.Io.Writer.Allocating = .init(self.allocator);
         defer tracked_args.deinit();
         const request_args = if (self.track != .none and std.mem.eql(u8, cmd, "navigate")) blk: {
@@ -330,10 +343,12 @@ const Process = struct {
     }
 
     fn handle_reply(self: *@This(), request_id: u64, payload: cbor.Raw) !void {
+        if (self.output) |output| self.print_reply(output, request_id, payload);
         if (self.creates.get(request_id)) |reply_to| return self.handle_create_reply(request_id, reply_to, payload);
         if (self.outstanding.get(request_id)) |pending_request| if (pending_request.reply_to) |reply_to| reply_to.send(payload);
         if (try self.handle_event(request_id, payload)) return self.disconnect_when_done();
-        if (!(try cbor.match(payload.bytes, "ok") or try cbor.match(payload.bytes, .{ "error", cbor.any }))) {
+        if (!try is_ack(payload)) {
+            if (self.output != null) return;
             if (self.outstanding.get(request_id)) |pending_request|
                 log.info("{s}: {f}", .{ pending_request.cmd, tp.message{ .buf = payload.bytes } })
             else
@@ -341,7 +356,7 @@ const Process = struct {
             return;
         }
         const entry = self.outstanding.fetchRemove(request_id) orelse {
-            log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
+            if (self.output == null) log.info("reply {d}: {f}", .{ request_id, tp.message{ .buf = payload.bytes } });
             return;
         };
         const cmd = entry.value.cmd;
@@ -369,10 +384,30 @@ const Process = struct {
         return self.disconnect_when_done();
     }
 
+    /// only the ack ("ok" or an error) ends a request, data replies come before it
+    fn is_ack(payload: cbor.Raw) !bool {
+        return try cbor.match(payload.bytes, "ok") or try cbor.match(payload.bytes, .{ "error", cbor.any });
+    }
+
+    /// focus requests are internal and have no name, so they do not print
+    fn print_reply(self: *@This(), output: *std.Io.Writer, request_id: u64, payload: cbor.Raw) void {
+        const cmd = self.names.get(request_id) orelse return;
+        write_reply(output, request_id, cmd, payload) catch |e| log.err("write reply {d} failed: {t}", .{ request_id, e });
+    }
+
+    fn write_reply(output: *std.Io.Writer, request_id: u64, cmd: []const u8, payload: cbor.Raw) !void {
+        try output.print("{{\"id\":{d},\"command\":", .{request_id});
+        try std.json.Stringify.value(cmd, .{}, output);
+        try output.writeAll(",\"reply\":");
+        try cbor.toJsonWriter(payload.bytes, output, .{});
+        try output.writeAll("}\n");
+        try output.flush();
+    }
+
     /// a created buffer replies {"buffer", ref}, acks (maybe more than once) and then sends buffer events until it is closed
     fn handle_create_reply(self: *@This(), request_id: u64, reply_to: ?LocalReply, payload: cbor.Raw) !void {
         if (reply_to) |local| local.send(payload);
-        if (self.outstanding.fetchRemove(request_id)) |entry| self.allocator.free(entry.value.cmd);
+        if (try is_ack(payload)) if (self.outstanding.fetchRemove(request_id)) |entry| self.allocator.free(entry.value.cmd);
         var exit_msg: cbor.Raw = .empty;
         var event: []const u8 = "";
         var path: []const u8 = "";

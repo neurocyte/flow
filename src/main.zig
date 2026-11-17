@@ -332,6 +332,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     const log_proc = try log.spawn(&ctx, a, env);
     defer log_proc.deinit();
     log.set_std_log_pid(log_proc.ref());
+    if (args.json or script != null) try log_proc.send(.{ "stdout", "stderr" });
     defer log.set_std_log_pid(null);
 
     env.set("no-persist", args.no_persist);
@@ -481,6 +482,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .verbose = args.log_stdout,
             .terminal = terminal,
             .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
+            .output = if (args.json) stdout else null,
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();

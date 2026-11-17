@@ -13,6 +13,7 @@ fba: std.heap.FixedBufferAllocator,
 msg_store: MsgStore,
 no_stdout: bool = false,
 no_stderr: bool = false,
+stdout_target: enum { stdout, stderr } = .stdout,
 
 const MsgStore = std.DoublyLinkedList;
 const MsgStoreEntry = struct {
@@ -108,7 +109,11 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         }
         if (!self.no_stdout) {
             var stdout_buffer: [1024]u8 = undefined;
-            var stdout_writer = std.Io.File.stdout().writerStreaming(std.Options.debug_io, &stdout_buffer);
+            const file = switch (self.stdout_target) {
+                .stdout => std.Io.File.stdout(),
+                .stderr => std.Io.File.stderr(),
+            };
+            var stdout_writer = file.writerStreaming(std.Options.debug_io, &stdout_buffer);
             stdout_writer.interface.print("flow {s}: {s}\n", .{ src, output }) catch {};
             stdout_writer.interface.flush() catch {};
         }
@@ -126,6 +131,8 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         self.no_stdout = false;
     } else if (try m.match(.{ "stdout", "disable" })) {
         self.no_stdout = true;
+    } else if (try m.match(.{ "stdout", "stderr" })) {
+        self.stdout_target = .stderr;
     } else if (try m.match(.{ "stderr", "enable" })) {
         self.no_stderr = false;
     } else if (try m.match(.{ "stderr", "disable" })) {
@@ -237,7 +244,7 @@ pub fn unsubscribe() tp.result {
     return tp.env.get().proc("log").send(.{"unsubscribe"});
 }
 
-pub fn stdout(state: enum { enable, disable }) void {
+pub fn stdout(state: enum { enable, disable, stderr }) void {
     tp.env.get().proc("log").send(.{ "stdout", state }) catch {};
 }
 
