@@ -637,6 +637,7 @@ pub fn setFontSize(size_px: f32) void {
 pub fn adjustFontSize(delta: f32) void {
     const new: f32 = @as(f32, @floatFromInt(font_size_pt)) + delta;
     setFontSize(new);
+    log.info("font size {d}pt", .{font_size_pt});
 }
 
 pub fn resetFontSize() void {
@@ -645,6 +646,7 @@ pub fn resetFontSize() void {
         break :blk field.attrs.defaultValue(field.type).?;
     };
     setFontSize(@floatFromInt(default));
+    log.info("font size {d}pt", .{font_size_pt});
 }
 
 pub fn setBackgroundOpacity(value: f32) void {
