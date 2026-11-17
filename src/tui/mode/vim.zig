@@ -176,6 +176,24 @@ const cmds_ = struct {
     }
     pub const select_around_word_meta: Meta = .{ .description = "Select around word" };
 
+    pub fn select_inside_long_word(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_long_word_textobject, ed.metrics);
+    }
+    pub const select_inside_long_word_meta: Meta = .{ .description = "Select inside WORD" };
+
+    pub fn select_around_long_word(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_long_word_textobject, ed.metrics);
+    }
+    pub const select_around_long_word_meta: Meta = .{ .description = "Select around WORD" };
+
     pub fn select_inside_parentheses(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -321,6 +339,26 @@ const cmds_ = struct {
         try ed.cut_internal_vim(ctx);
     }
     pub const cut_around_word_meta: Meta = .{ .description = "Cut around word" };
+
+    pub fn cut_inside_long_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_long_word_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_inside_long_word_meta: Meta = .{ .description = "Cut inside WORD" };
+
+    pub fn cut_around_long_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_long_word_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_around_long_word_meta: Meta = .{ .description = "Cut around WORD" };
 
     pub fn cut_inside_parentheses(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -481,6 +519,26 @@ const cmds_ = struct {
         try ed.copy_internal_vim(ctx);
     }
     pub const copy_around_word_meta: Meta = .{ .description = "Copy around word" };
+
+    pub fn copy_inside_long_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_long_word_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_inside_long_word_meta: Meta = .{ .description = "Copy inside WORD" };
+
+    pub fn copy_around_long_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_long_word_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_around_long_word_meta: Meta = .{ .description = "Copy around WORD" };
 
     pub fn copy_inside_parentheses(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -684,6 +742,140 @@ fn select_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Me
     sel.end = next;
     cursel.*.cursor = next;
 }
+
+fn is_long_word_char(c: []const u8) bool {
+    return !Editor.is_whitespace(c);
+}
+
+fn is_long_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    return cursor.test_at(root, is_long_word_char, metrics);
+}
+
+/// Scan the bounds of the WORD at (or right of) the cursor.
+/// `next` ends up after the last WORD character, `prev` on its first character.
+fn scan_word_bounds(root: Buffer.Root, prev: *Cursor, next: *Cursor, metrics: Buffer.Metrics, line_width: usize) void {
+    // scan right over word chars to the WORD end (stops at EOL)
+    while (next.col < line_width and is_long_word_char_at_cursor(root, next, metrics)) {
+        next.move_right(root, metrics) catch break;
+    }
+    // scan left over word chars to the WORD start
+    var start = next.*;
+    while (start.col > 0) {
+        start.move_left(root, metrics) catch break;
+        if (start.test_at(root, Editor.is_whitespace, metrics))
+            break;
+    }
+    if (start.test_at(root, Editor.is_whitespace, metrics))
+        start.move_right(root, metrics) catch {};
+    prev.* = start;
+}
+
+/// Scan the whitespace run that holds the cursor: `prev` ends up on its
+/// first character, `next` on the first character after the run.
+fn scan_whitespace_run(root: Buffer.Root, prev: *Cursor, next: *Cursor, metrics: Buffer.Metrics, line_width: usize) void {
+    var start = prev.*;
+    while (start.col > 0) {
+        start.move_left(root, metrics) catch break;
+        if (!start.test_at(root, Editor.is_whitespace, metrics)) {
+            start.move_right(root, metrics) catch {};
+            break;
+        }
+    }
+    var end = prev.*;
+    while (end.col < line_width and end.test_at(root, Editor.is_whitespace, metrics)) {
+        end.move_right(root, metrics) catch break;
+    }
+    prev.* = start;
+    next.* = end;
+}
+
+/// Extend the selection over the whitespace that belongs to it: the trailing
+/// whitespace run of a WORD, or - at the end of a line - the leading
+/// whitespace run, but only when it is bounded by a word on the left.
+fn extend_over_whitespace(root: Buffer.Root, prev: *Cursor, next: *Cursor, metrics: Buffer.Metrics) void {
+    if (next.test_at(root, is_tab_or_space, metrics)) {
+        // include trailing whitespace up to (not including) the next WORD
+        Editor.move_cursor_right_until(root, next, is_not_tab_or_space_at_cursor, metrics);
+    } else if (prev.col > 0) {
+        // at EOL: include the leading whitespace run, but only when it is
+        // bounded by a word on the left, like vim does
+        const word_start = prev.*;
+        prev.move_left(root, metrics) catch {};
+        if (prev.test_at(root, is_tab_or_space, metrics)) {
+            Editor.move_cursor_left_until(root, prev, is_not_tab_or_space_at_cursor, metrics);
+            if (prev.test_at(root, Editor.is_whitespace, metrics)) {
+                // the run reaches the start of the line: keep the WORD only
+                prev.* = word_start;
+            } else {
+                prev.move_right(root, metrics) catch {};
+            }
+        }
+    }
+}
+
+fn select_long_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, scope: enum { inside, around }) !void {
+    var cursor = cursel.cursor;
+    cursor.clamp_to_buffer(root, metrics);
+    const line_width = root.line_width(cursor.row, metrics) catch 0;
+    const at_eol = cursor.col >= line_width;
+    var prev = cursor;
+    var next = cursor;
+
+    // the unit the cursor is in: a whitespace run or a WORD
+    var unit_is_whitespace = false;
+    if (!at_eol and cursor.test_at(root, Editor.is_whitespace, metrics)) {
+        // cursor on whitespace
+        unit_is_whitespace = true;
+        scan_whitespace_run(root, &prev, &next, metrics, line_width);
+    } else if (at_eol) {
+        // cursor at the end of the line: the unit is whatever ends it
+        var left = cursor;
+        left.move_left(root, metrics) catch {};
+        if (left.test_at(root, Editor.is_whitespace, metrics)) {
+            unit_is_whitespace = true;
+            scan_whitespace_run(root, &prev, &next, metrics, line_width);
+        }
+    }
+    if (!unit_is_whitespace) {
+        // cursor on a WORD char
+        scan_word_bounds(root, &prev, &next, metrics, line_width);
+    }
+
+    if (scope == .around) {
+        if (unit_is_whitespace) {
+            // include the WORD that follows the whitespace run; vim selects
+            // nothing when there is none
+            if (next.col < line_width) {
+                while (next.col < line_width and is_long_word_char_at_cursor(root, &next, metrics)) {
+                    next.move_right(root, metrics) catch break;
+                }
+            } else {
+                prev = next;
+            }
+        } else {
+            extend_over_whitespace(root, &prev, &next, metrics);
+        }
+    }
+
+    const sel = cursel.enable_selection_normal();
+    sel.begin = prev;
+    sel.end = next;
+    cursel.*.cursor = next;
+}
+
+fn select_inside_long_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_long_word_textobject(root, cursel, metrics, .inside);
+}
+
+fn select_around_long_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_long_word_textobject(root, cursel, metrics, .around);
+}
+
+const private = @This();
+pub const test_internal = struct {
+    pub const select_inside_long_word_textobject = private.select_inside_long_word_textobject;
+    pub const select_around_long_word_textobject = private.select_around_long_word_textobject;
+};
 
 fn select_inside_parentheses_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
     return try select_scope_textobject(root, cursel, metrics, "(", ")", .inside);
