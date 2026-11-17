@@ -32,6 +32,9 @@ pub fn build(b: *std.Build) void {
         .lint_step = b.step("lint", "Run lints"),
     };
 
+    const bench_step = b.step("bench", "Run micro benchmarks");
+    add_bench(b, bench_step);
+
     const version_file = gen_version_file(b, "version", "version", &.{});
 
     const release = switch (b.graph.release_mode) {
@@ -1896,4 +1899,31 @@ fn gen_version_file(b: *std.Build, mode: []const u8, name: []const u8, args: []c
 // Work around https://codeberg.org/ziglang/zig/issues/37250
 noinline fn isDarwin(target: std.Build.ResolvedTarget) bool {
     return target.result.os.tag.isDarwin();
+}
+
+fn add_bench(b: *std.Build, bench_step: *std.Build.Step) void {
+    // Benchmarks run natively and optimized, whatever the app build mode.
+    const target = b.graph.host;
+    const vaxis = b.dependency("vaxis", .{
+        .target = target,
+        .optimize = .ReleaseFast,
+    }).module("vaxis");
+    const text_manip = b.createModule(.{
+        .root_source_file = b.path("src/text_manip.zig"),
+        .imports = &.{
+            .{ .name = "vaxis", .module = vaxis },
+        },
+    });
+    const bench = b.addExecutable(.{
+        .name = "bench-text_manip",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/bench_text_manip.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "text_manip", .module = text_manip },
+            },
+        }),
+    });
+    bench_step.dependOn(&b.addRunArtifact(bench).step);
 }
