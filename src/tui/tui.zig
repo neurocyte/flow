@@ -3105,7 +3105,15 @@ const cmds = struct {
         if (!(ctx.args.match(.{tp.extract(&link_text)}) catch false))
             return error.InvalidNavigateFileLinkArgument;
         const link = file_link.parse(link_text) catch return;
-        return file_link.navigate(tp.self_pid(), &link);
+        const file = switch (link) {
+            .file => |file| file,
+            else => return file_link.navigate(tp.self_pid(), &link),
+        };
+        var args_buf: [tp.max_message_size]u8 = undefined;
+        var navigate_ctx = ctx;
+        navigate_ctx.args = .{ .buf = cbor.fmt(&args_buf, file_link.navigate_args(file)) };
+        try command.executeName("navigate", navigate_ctx);
+        return file_link.select(tp.self_pid(), file);
     }
     pub const navigate_file_link_meta: Meta = .{ .arguments = &.{.string} };
 

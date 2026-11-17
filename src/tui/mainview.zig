@@ -291,11 +291,14 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column), tp.extract(&offset) })) {
         defer self.navigation_done();
-        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, null, .deferred, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column), tp.extract(&offset), tp.extract(&listener.track), tp.extract(&listener.piid), tp.extract(&listener.id) })) {
         defer self.navigation_done();
-        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, listener, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        cmds.navigate_complete(self, null, path, goto_args, line, column, offset, listener, .deferred, root.get_now()) catch |e| {
+            _ = listener.send(.{ "error", cbor.Raw{ .bytes = tp.exit_message(e, null).buf } });
+            return tp.exit_error(e, @errorReturnTrace());
+        };
         return true;
     } else if (try m.match(.{"navigate_failed"})) {
         defer self.navigation_done();
@@ -304,7 +307,9 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ "navigate_failed", tp.extract(&path), tp.extract(&listener.track), tp.extract(&listener.piid), tp.extract(&listener.id) })) {
         defer self.navigation_done();
         self.unblock_navigate_render();
-        _ = listener.send(.{ "navigation", "failed", path });
+        var reason_buf: [std.fs.max_path_bytes + 16]u8 = undefined;
+        const reason = std.fmt.bufPrint(&reason_buf, "open {s} failed", .{path}) catch "open failed";
+        _ = listener.send(.{ "error", .{ "exit", reason } });
         return true;
     } else if (try m.match(.{ "vt", "gone" })) {
         if (self.quit_on_terminal_exit) _ = self.quit_if_idle();
@@ -1042,7 +1047,7 @@ const cmds = struct {
             try open_project_cwd(self, .empty_from(ctx));
         }
 
-        const listener: ?BufferManager.Listener = if (track == .none) null else if (ctx.reply) |reply|
+        const listener: ?BufferManager.Listener = if (ctx.reply) |reply|
             .{ .piid = reply.piid, .id = reply.id, .track = track }
         else
             null;
@@ -1107,11 +1112,14 @@ const cmds = struct {
 
             try project_manager.get_mru_position(self.allocator, f, ctx_);
             self.pending_navigations += 1;
+            if (listener != null) ctx.set_async_response();
             return;
         }
 
-        return cmds.navigate_complete(self, view, f, goto_args, line, column, offset, listener, ctx.now);
+        return cmds.navigate_complete(self, view, f, goto_args, line, column, offset, listener, .{ .command = ctx }, ctx.now);
     }
+
+    const NavigateResponse = union(enum) { command: Ctx, deferred };
     pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
     fn navigate_complete(
@@ -1123,6 +1131,7 @@ const cmds = struct {
         column: ?i64,
         offset: ?i64,
         listener: ?BufferManager.Listener,
+        response: NavigateResponse,
         now: std.Io.Timestamp,
     ) Result {
         errdefer self.unblock_navigate_render();
@@ -1143,6 +1152,10 @@ const cmds = struct {
                 };
                 try self.buffer_manager.load(f, .{ .then = then, .on_error = on_error });
                 self.pending_navigations += 1;
+                if (listener != null) switch (response) {
+                    .command => |ctx| ctx.set_async_response(),
+                    .deferred => {},
+                };
                 return;
             }
             if (self.get_active_editor()) |editor| {
@@ -1167,10 +1180,12 @@ const cmds = struct {
         tui.need_render(@src());
         self.location_update_from_editor();
         self.unblock_navigate_render();
-        if (listener) |l| if (self.buffer_manager.get_buffer_for_file(f)) |buffer| {
+        const l = listener orelse return;
+        if (l.track != .none) if (self.buffer_manager.get_buffer_for_file(f)) |buffer| {
             try self.buffer_manager.add_listener(buffer, l);
             _ = l.send(.{ "navigation", "complete", buffer.id, buffer.get_file_path() });
         };
+        if (response == .deferred) _ = l.send("ok");
     }
 
     pub fn open_help(self: *Self, ctx: Ctx) Result {

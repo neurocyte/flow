@@ -404,21 +404,24 @@ pub fn write_file_link(writer: *std.Io.Writer, file: FileDest) std.Io.Writer.Err
 pub fn navigate(to: tp.pid_ref, link: *const Dest) anyerror!void {
     switch (link.*) {
         .file => |file| {
-            if (file.offset) |offset| {
-                return to.send(.{ "cmd", "navigate", .{ .file = file.path, .offset = offset } });
-            }
-            if (file.line) |l| {
-                if (file.column) |col| {
-                    try to.send(.{ "cmd", "navigate", .{ .file = file.path, .line = l, .column = col } });
-                    // a link without an end line ends on the line it starts on
-                    if (file.end_column) |end|
-                        try to.send(.{ "A", l, col -| 1, file.end_line orelse l, end -| 1 });
-                    return;
-                }
-                return to.send(.{ "cmd", "navigate", .{ .file = file.path, .line = l } });
-            }
-            return to.send(.{ "cmd", "navigate", .{ .file = file.path } });
+            try to.send(.{ "cmd", "navigate", navigate_args(file) });
+            return select(to, file);
         },
         else => {},
     }
+}
+
+pub fn navigate_args(file: FileDest) struct { file: []const u8, line: ?usize, column: ?usize, offset: ?usize } {
+    if (file.offset) |offset| return .{ .file = file.path, .line = null, .column = null, .offset = offset };
+    const line = file.line orelse return .{ .file = file.path, .line = null, .column = null, .offset = null };
+    return .{ .file = file.path, .line = line, .column = file.column, .offset = null };
+}
+
+pub fn select(to: tp.pid_ref, file: FileDest) tp.result {
+    if (file.offset != null) return;
+    const line = file.line orelse return;
+    const col = file.column orelse return;
+    const end = file.end_column orelse return;
+    // a link without an end line ends on the line it starts on
+    return to.send(.{ "A", line, col -| 1, file.end_line orelse line, end -| 1 });
 }
