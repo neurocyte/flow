@@ -2265,6 +2265,25 @@ const cmds = struct {
     }
     pub const get_terminals_meta: Meta = .{};
 
+    /// ["line", number, text] for each line of scrollback of a terminal (unwrapped)
+    /// long lines (more than max_text_reply) are chunked with the same number
+    pub fn get_terminal_text(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: u64 = 0;
+        var first: usize = 1;
+        var last: usize = std.math.maxInt(usize);
+        if (!(try ctx.args.match(.{tp.extract(&id)}) or
+            try ctx.args.match(.{ tp.extract(&id), tp.extract(&first), tp.extract(&last) })))
+            return error.InvalidGetTerminalTextArgument;
+        if (first < 1) return error.InvalidGetTerminalTextArgument;
+        const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(self.allocator);
+        try vt.extract_text(self.allocator, &text);
+        try send_lines(reply, text.items, first, last);
+    }
+    pub const get_terminal_text_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer } };
+
     pub fn get_focus(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
         const mode = if (tui.input_mode()) |m| m.mode else "";
