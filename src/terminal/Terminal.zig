@@ -725,6 +725,9 @@ pub const CommandOutputRange = struct {
     start: usize,
     end: usize,
     exit_code: ?i32,
+    state: State = .done,
+
+    pub const State = enum { done, running };
 };
 
 /// all prompt marks of the primary screen, oldest first, with row numbers
@@ -804,7 +807,7 @@ pub fn lastCommandOutputRange(marks: []const CommandMark, end_row: usize) ?Comma
             .prompt_start => return .{ .start = marks[i].row, .end = later.row, .exit_code = null },
             else => {},
         };
-        return .{ .start = marks[i].row, .end = end_row, .exit_code = null };
+        return .{ .start = marks[i].row, .end = end_row, .exit_code = null, .state = .running };
     }
     return null;
 }
@@ -828,7 +831,7 @@ pub fn commandOutputRangeAt(marks: []const CommandMark, top_row: usize, end_row:
             null,
         else => {},
     };
-    return if (output_start) |s| .{ .start = s, .end = end_row, .exit_code = null } else null;
+    return if (output_start) |s| .{ .start = s, .end = end_row, .exit_code = null, .state = .running } else null;
 }
 
 /// print a stream of encoded lines into `screen`
