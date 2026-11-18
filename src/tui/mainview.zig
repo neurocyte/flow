@@ -2332,19 +2332,7 @@ const cmds = struct {
             return error.InvalidGetBufferTextArgument;
         if (first < 1) return error.InvalidGetBufferTextArgument;
         const buffer = self.buffer_manager.buffer_from_id(id) orelse return error.BufferNotFound;
-        var lines = std.mem.splitScalar(u8, buffer.store_to_string_cached(buffer.root, .lf), '\n');
-        var line: usize = 1;
-        while (lines.next()) |text| : (line += 1) {
-            if (line < first) continue;
-            if (line > last) break;
-            var rest = text;
-            while (true) {
-                const piece = utf8_prefix(rest, max_text_reply);
-                try reply.send(.{ "line", line, piece });
-                rest = rest[piece.len..];
-                if (rest.len == 0) break;
-            }
-        }
+        try send_lines(reply, buffer.store_to_string_cached(buffer.root, .lf), first, last);
     }
     pub const get_buffer_text_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer } };
 
@@ -2412,6 +2400,23 @@ const cmds = struct {
     pub const get_selection_text_meta: Meta = .{ .arguments = &.{.integer} };
 
     const max_text_reply = 16 * 1024;
+
+    /// ["line", number, text] for lines first to last (1-based) of text, without the line ending
+    fn send_lines(reply: command.Reply, text: []const u8, first: usize, last: usize) !void {
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        var line: usize = 1;
+        while (lines.next()) |line_text| : (line += 1) {
+            if (line < first) continue;
+            if (line > last) break;
+            var rest = line_text;
+            while (true) {
+                const piece = utf8_prefix(rest, max_text_reply);
+                try reply.send(.{ "line", line, piece });
+                rest = rest[piece.len..];
+                if (rest.len == 0) break;
+            }
+        }
+    }
 
     fn utf8_prefix(text: []const u8, max: usize) []const u8 {
         if (text.len <= max) return text;
