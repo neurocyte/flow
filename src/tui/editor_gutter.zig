@@ -705,13 +705,21 @@ fn process_line_words(self: *Self, first_line: usize, words: []const u8) !void {
     const lines = try cbor.decodeArrayHeader(&iter);
     for (first_line..first_line + lines) |line| {
         var changes: []const u8 = undefined;
-        if (!try cbor.matchValue(&iter, .{ cbor.extract_cbor(&changes), cbor.any })) return;
+        var deletions: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, .{ cbor.extract_cbor(&changes), cbor.extract_cbor(&deletions) })) return;
         var count = try cbor.decodeArrayHeader(&changes);
         while (count > 0) : (count -= 1) {
             var begin: usize = undefined;
             var end: usize = undefined;
             if (!try cbor.matchValue(&changes, .{ cbor.extract(&begin), cbor.extract(&end) })) return;
             try self.editor.add_word_change(line, begin, end);
+        }
+        count = try cbor.decodeArrayHeader(&deletions);
+        while (count > 0) : (count -= 1) {
+            var point: usize = undefined;
+            var text: []const u8 = undefined;
+            if (!try cbor.matchValue(&deletions, .{ cbor.extract(&point), cbor.extract(&text) })) return;
+            try self.editor.add_word_deletion(line, point, text);
         }
     }
 }

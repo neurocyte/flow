@@ -131,6 +131,11 @@ pub const Match = struct {
     }
 };
 
+const WordDeletion = struct {
+    match: Match,
+    width: usize,
+};
+
 pub const CurSel = struct {
     cursor: Cursor = Cursor{},
     selection: ?Selection = null,
@@ -517,6 +522,7 @@ pub const Editor = struct {
 
     changes: std.ArrayList(Diff) = .empty,
     word_changes: Match.List = .empty,
+    word_deletions: std.ArrayList(?WordDeletion) = .empty,
 
     checked_formatter: bool = false,
     formatter: ?[]const []const u8 = null,
@@ -831,6 +837,7 @@ pub const Editor = struct {
         if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
         self.word_changes.deinit(self.allocator);
+        self.word_deletions.deinit(self.allocator);
         self.clear_event_triggers();
         if (self.syntax) |syn| syn.destroy();
         if (self.syntax_worker) |*worker| worker.deinit();
@@ -866,6 +873,14 @@ pub const Editor = struct {
 
     pub fn clear_word_changes(self: *Self) void {
         self.word_changes.clearRetainingCapacity();
+        self.word_deletions.clearRetainingCapacity();
+    }
+
+    pub fn add_word_deletion(self: *Self, row: usize, point: usize, text: []const u8) error{OutOfMemory}!void {
+        const root = self.buf_root() catch return;
+        const match: Match = .from_pos(.{ .begin = .{ .row = row, .col = point }, .end = .{ .row = row, .col = point } }, root, self.metrics);
+        const width = self.metrics.egc_chunk_width(self.metrics, text, match.begin.col);
+        (try self.word_deletions.addOne(self.allocator)).* = .{ .match = match, .width = width };
     }
 
     pub fn add_word_change(self: *Self, row: usize, begin: usize, end: usize) error{OutOfMemory}!void {
@@ -1807,6 +1822,8 @@ pub const Editor = struct {
             .with_diffs => self.render_diff_words(theme, root) catch {},
             else => {},
         }
+        if (tui.config().inline_vcs_diff == .words_and_deletions)
+            self.render_word_deletions(theme);
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         const pc_row_diag = if (tui.config().inline_diagnostics.show_undercurl())
             self.render_diagnostics(theme, pc_row, hl_row, ctx_.cell_map)
@@ -1971,6 +1988,27 @@ pub const Editor = struct {
             if (is_vcs_changed_row(changes, &idx, row)) {
                 line.* = .inserted;
             };
+    }
+
+    /// underlines deleted text
+    fn render_word_deletions(self: *Self, theme: *const Widget.Theme) void {
+        const color = (theme.diff_editor_removed_text.bg orelse return).color;
+        for (self.word_deletions.items) |deletion_| {
+            const deletion = deletion_ orelse continue;
+            const row = deletion.match.begin.row;
+            if (!self.is_row_drawn(row)) continue;
+            const begin = deletion.match.begin.col;
+            for (begin..begin + deletion.width) |col| {
+                if (col < self.view.col) continue;
+                const x = col - self.view.col;
+                if (x >= self.draw_cols()) break;
+                self.plane.cursor_move_yx(@intCast(row - self.view.row), @intCast(x));
+                var cell = self.plane.cell_init();
+                _ = self.plane.at_cursor_cell(&cell) catch return;
+                cell.set_underline(color);
+                _ = self.plane.putc(&cell) catch {};
+            }
+        }
     }
 
     fn render_matches(self: *const Self, last_idx: *usize, theme: *const Widget.Theme, cell: *Cell) void {
@@ -3620,6 +3658,8 @@ pub const Editor = struct {
             match.nudge_insert(nudge);
         for (self.word_changes.items) |*match_| if (match_.*) |*match|
             match.nudge_insert(nudge);
+        for (self.word_deletions.items) |*deletion_| if (deletion_.*) |*deletion|
+            deletion.match.nudge_insert(nudge);
         for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
             cursel.nudge_insert(nudge);
     }
@@ -3633,6 +3673,10 @@ pub const Editor = struct {
         for (self.word_changes.items) |*match_| if (match_.*) |*match|
             if (!match.nudge_delete(nudge)) {
                 match_.* = null;
+            };
+        for (self.word_deletions.items) |*deletion_| if (deletion_.*) |*deletion|
+            if (!deletion.match.nudge_delete(nudge)) {
+                deletion_.* = null;
             };
         outer: for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
             if (!cursel.nudge_delete(nudge)) {

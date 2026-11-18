@@ -17,7 +17,7 @@ pub const Detail = enum {
     words, // line marks & word diffs
 };
 
-const max_word_diff_budget = 1024 * 1024;
+const max_word_diff_budget = 2 * 1024 * 1024;
 const max_diff_cost = 400_000_000;
 
 pub fn create() !AsyncDiffer {
