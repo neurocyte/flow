@@ -252,6 +252,10 @@ pub fn request_vcs_diff(repo_root: []const u8, file_path: []const u8, orig_path:
     return send(.{ "request_vcs_diff", repo_root, file_path, orig_path, mode, context_lines });
 }
 
+pub fn request_vcs_hunk_headers(repo_root: []const u8, file_path: []const u8, mode: VcsDiffMode) ProjectManagerError!void {
+    return send(.{ "request_vcs_hunk_headers", repo_root, file_path, mode });
+}
+
 pub const VcsIndexUpdate = Project.VcsIndexUpdate;
 
 pub fn request_vcs_update_index(repo_root: []const u8, update: VcsIndexUpdate, file_paths: []const []const u8) ProjectManagerError!void {
@@ -872,6 +876,8 @@ const Process = struct {
             self.request_vcs_apply_patch(from, repo_root, index_update, patch) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_diff", tp.extract(&repo_root), tp.extract(&path), tp.extract(&orig_path), tp.extract(&diff_mode), tp.extract(&context_lines) })) {
             self.request_vcs_diff(from, repo_root, path, orig_path, diff_mode, context_lines) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_hunk_headers", tp.extract(&repo_root), tp.extract(&path), tp.extract(&diff_mode) })) {
+            self.request_vcs_hunk_headers(from, repo_root, path, diff_mode) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_first_change", tp.extract(&repo_root), tp.extract(&path), tp.extract(&staged) })) {
             self.request_vcs_first_change(from, repo_root, path, staged) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_id", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -1560,6 +1566,11 @@ const Process = struct {
     fn request_vcs_diff(self: *Process, _: tp.pid_ref, repo_root: []const u8, file_path: []const u8, orig_path: []const u8, mode: VcsDiffMode, context_lines: usize) (RepoError || Project.RequestError)!void {
         const repo = self.repos.get(repo_root) orelse return error.NoRepo;
         try repo.request_vcs_diff(file_path, orig_path, mode, context_lines);
+    }
+
+    fn request_vcs_hunk_headers(self: *Process, _: tp.pid_ref, repo_root: []const u8, file_path: []const u8, mode: VcsDiffMode) (RepoError || Project.RequestError)!void {
+        const repo = self.repos.get(repo_root) orelse return error.NoRepo;
+        try repo.request_vcs_hunk_headers(file_path, mode);
     }
 
     fn request_vcs_first_change(self: *Process, _: tp.pid_ref, repo_root: []const u8, file_path: []const u8, staged: bool) (RepoError || Project.RequestError)!void {

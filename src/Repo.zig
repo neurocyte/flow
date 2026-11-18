@@ -514,12 +514,21 @@ pub const VcsFirstChangeRequest = struct {
 pub const VcsDiffMode = git.DiffMode;
 
 pub fn request_vcs_diff(self: *Self, file_path: []const u8, orig_path: []const u8, mode: VcsDiffMode, context_lines: usize) OutOfMemoryError!void {
+    return self.request_diff(.diff, file_path, orig_path, mode, context_lines);
+}
+
+pub fn request_vcs_hunk_headers(self: *Self, file_path: []const u8, mode: VcsDiffMode) OutOfMemoryError!void {
+    return self.request_diff(.hunk_headers, file_path, "", mode, 0);
+}
+
+fn request_diff(self: *Self, reply: VcsDiffRequest.Reply, file_path: []const u8, orig_path: []const u8, mode: VcsDiffMode, context_lines: usize) OutOfMemoryError!void {
     const request = try self.allocator.create(VcsDiffRequest);
     request.* = .{
         .allocator = self.allocator,
         .repo = @intFromPtr(self),
         .file_path = try self.allocator.dupe(u8, file_path),
         .mode = mode,
+        .reply = reply,
     };
     git.diff(@intFromPtr(request), self.root, mode, file_path, orig_path, context_lines) catch |e| {
         self.logger_git.print_err("diff", "failed: {t}", .{e});
@@ -532,7 +541,10 @@ pub const VcsDiffRequest = struct {
     repo: usize,
     file_path: []const u8,
     mode: VcsDiffMode,
+    reply: Reply,
     output: std.ArrayList(u8) = .empty,
+
+    const Reply = enum { diff, hunk_headers };
 
     pub fn deinit(self: *@This()) void {
         self.output.deinit(self.allocator);
@@ -662,7 +674,11 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     } else if (try m.match(.{ tp.any, tp.extract(&context), "diff", tp.null_ })) {
         const request: *VcsDiffRequest = @ptrFromInt(context);
         defer request.deinit();
-        parent.send(.{ "PRJ", "vcs_diff", request.file_path, request.mode, request.output.items }) catch {};
+        const reply = switch (request.reply) {
+            .diff => "vcs_diff",
+            .hunk_headers => "vcs_hunk_headers",
+        };
+        parent.send(.{ "PRJ", reply, request.file_path, request.mode, request.output.items }) catch {};
     } else if (try m.match(.{ tp.any, tp.extract(&context), "first_change", tp.extract(&line) })) {
         const request: *VcsFirstChangeRequest = @ptrFromInt(context);
         if (request.line == null) request.line = line;
