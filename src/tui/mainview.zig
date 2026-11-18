@@ -1508,6 +1508,23 @@ const cmds = struct {
     }
     pub const open_lsp_settings_project_meta: Meta = .{ .description = "Edit LSP settings (project)" };
 
+    pub fn open_lsp_log(self: *Self, _: Ctx) Result {
+        const editor = self.get_active_editor() orelse return no_lsp_error();
+        const file_type = editor.file_type orelse return no_lsp_error();
+        const language_server = file_type.language_server orelse return no_lsp_error();
+        if (language_server.len == 0) return no_lsp_error();
+        const lsp_name = language_server[0];
+        const file_name = try lsp_config.get_log_file_path(self.allocator, lsp_name);
+        defer self.allocator.free(file_name);
+        std.Io.Dir.accessAbsolute(root.get_io(), file_name, .{}) catch {
+            const logger = log.logger("editor");
+            defer logger.deinit();
+            return logger.print("no log file for LSP '{s}'", .{lsp_name});
+        };
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+    }
+    pub const open_lsp_log_meta: Meta = .{ .description = "Language: Open language server log" };
+
     pub fn cleanup_crash_log(self: *Self, _: Ctx) Result {
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
         const path = try crash.log_file_path(&path_buf);

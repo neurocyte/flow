@@ -53,6 +53,13 @@ pub fn get_settings_file_path(project: ?[]const u8, lsp_name: []const u8, scope:
     return get_file_path(project, lsp_name, scope, mode, .settings);
 }
 
+pub fn get_log_file_path(allocator_: std.mem.Allocator, lsp_name: []const u8) ![]u8 {
+    var stream: std.Io.Writer.Allocating = .init(allocator_);
+    defer stream.deinit();
+    try stream.writer.print("{s}{c}lsp-{s}.log", .{ try root.get_state_dir(), std.fs.path.sep, lsp_name });
+    return stream.toOwnedSlice();
+}
+
 fn get_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode: Mode, kind: Kind) ![]u8 {
     const config_dir_path = try get_config_dir_path(project, scope, mode);
     defer allocator.free(config_dir_path);

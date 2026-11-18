@@ -287,6 +287,7 @@ pub const language: Menu = .{ .label = "Language", .items = &.{
     .{ .command = .{ .command = "toggle_auto_hover" } },
     .{ .command = .{ .command = "toggle_format_on_save" } },
     .separator,
+    .{ .command = .{ .command = "open_lsp_log" } },
     .{ .command = .{ .command = "restart_language_server" } },
 } };
 

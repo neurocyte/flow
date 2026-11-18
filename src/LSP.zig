@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const root = @import("soft_root").root;
 const tracy = @import("tracy");
 const ProtocolLevel = @import("file_type_config").ProtocolLevel;
+const lsp_config = @import("lsp_config");
 
 allocator: std.mem.Allocator,
 pid: tp.pid,
@@ -283,13 +284,11 @@ const Process = struct {
         self.sp = tp.subprocess.init(root.get_io(), self.allocator, self.cmd, self.sp_tag, .pipe) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
 
-        var log_file_path: std.Io.Writer.Allocating = .init(self.allocator);
-        defer log_file_path.deinit();
-        const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        log_file_path.writer.print("{s}{c}lsp-{s}.log", .{ state_dir, std.fs.path.sep, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        const log_file_path = lsp_config.get_log_file_path(self.allocator, self.tag) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        errdefer self.allocator.free(log_file_path);
         const io = root.get_io();
-        self.log_file = std.Io.Dir.cwd().createFile(io, log_file_path.written(), .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.log_file_path = log_file_path.toOwnedSlice() catch null;
+        self.log_file = std.Io.Dir.cwd().createFile(io, log_file_path, .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.log_file_path = log_file_path;
         if (self.log_file) |log_file| self.log_file_writer = log_file.writer(io, &self.log_file_writer_buf);
     }
 
