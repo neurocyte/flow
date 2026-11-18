@@ -1426,6 +1426,15 @@ const cmds = struct {
     }
     pub const dump_widget_tree_meta: Meta = .{ .description = "Dump widget tree info" };
 
+    pub fn get_widget_tree(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var widget_tree: std.Io.Writer.Allocating = .init(self.allocator);
+        defer widget_tree.deinit();
+        try tui.dump_widget_tree(&widget_tree.writer);
+        try send_lines(reply, std.mem.trimEnd(u8, widget_tree.written(), "\n"), 1, std.math.maxInt(usize));
+    }
+    pub const get_widget_tree_meta: Meta = .{};
+
     pub fn change_file_type(_: *Self, ctx: Ctx) Result {
         return tui.open_overlay(@import("mode/overlay/file_type_palette.zig").Variant("set_file_type", "Select file type", false).Type, ctx);
     }
