@@ -232,6 +232,7 @@ pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
     var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
+        self.render_focused_line(pos, linenum - 1);
         if (highlight() and linenum == self.line + 1)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
@@ -256,6 +257,7 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
         }
         self.plane.cursor_move_yx(@intCast(pos), 0);
         try self.print_digits(linenum, self.line_number_style);
+        self.render_focused_line(pos, linenum - 1);
         if (highlight() and linenum == self.line + 1)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
@@ -283,6 +285,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
         else
             self.print_digits(val, self.line_number_style) catch {};
 
+        self.render_focused_line(pos, abs_linenum - 1);
         if (highlight() and linenum == 0)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, abs_linenum, theme);
@@ -304,8 +307,9 @@ pub fn render_current(self: *Self, theme: *const Widget.Theme) void {
             self.plane.set_style(.{ .fg = theme.editor_gutter_active.fg });
             self.plane.on_styles(styles.bold);
             try self.print_digits(linenum, self.line_number_style);
-            if (highlight()) self.render_line_highlight(pos, theme);
         }
+        self.render_focused_line(pos, linenum - 1);
+        if (highlight() and linenum == self.line + 1) self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
         pos += 1;
         linenum += 1;
@@ -331,8 +335,9 @@ pub fn render_multiples_of_n(self: *Self, theme: *const Widget.Theme, n: u32) vo
                 self.plane.off_styles(styles.bold);
             }
             try self.print_digits(linenum, self.line_number_style);
-            if (current_line and highlight()) self.render_line_highlight(pos, theme);
         }
+        self.render_focused_line(pos, linenum - 1);
+        if (current_line and highlight()) self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
         pos += 1;
         linenum += 1;
@@ -357,6 +362,18 @@ fn render_diff_line_backgrounds(self: *Self, theme: *const Widget.Theme) void {
             cell.set_style_bg(line_style);
             _ = self.plane.putc(&cell) catch {};
         }
+    }
+}
+
+fn render_focused_line(self: *Self, pos: usize, row: usize) void {
+    if (!self.editor.is_focused_line(row)) return;
+    const alpha = tui.config().highlight_columns_alpha;
+    for (0..self.get_width()) |i| {
+        self.plane.cursor_move_yx(@intCast(pos), @intCast(i));
+        var cell = self.plane.cell_init();
+        _ = self.plane.at_cursor_cell(&cell) catch return;
+        cell.dim_bg(alpha);
+        _ = self.plane.putc(&cell) catch {};
     }
 }
 

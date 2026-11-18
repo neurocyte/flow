@@ -136,6 +136,11 @@ const WordDeletion = struct {
     width: usize,
 };
 
+const FocusedLines = struct {
+    first: usize,
+    last: usize,
+};
+
 pub const CurSel = struct {
     cursor: Cursor = Cursor{},
     selection: ?Selection = null,
@@ -523,6 +528,7 @@ pub const Editor = struct {
     changes: std.ArrayList(Diff) = .empty,
     word_changes: Match.List = .empty,
     word_deletions: std.ArrayList(?WordDeletion) = .empty,
+    focused_lines: ?FocusedLines = null,
 
     checked_formatter: bool = false,
     formatter: ?[]const []const u8 = null,
@@ -1049,6 +1055,7 @@ pub const Editor = struct {
         self.get_primary().reset();
         try self.set_file_path(file_path);
         if (self.buffer) |_| try self.close();
+        self.focused_lines = null;
         self.buffer = new_buf;
         const file_type = file_type_ orelse new_buf.file_type_name;
         const buffer_meta = if (self.buffer) |buffer| buffer.get_meta() else null;
@@ -1716,6 +1723,7 @@ pub const Editor = struct {
                         else => .character,
                     };
                     const vcs_changed = is_vcs_changed_row(ctx.vcs_changes, &ctx.vcs_change_idx, ctx.buf_row);
+                    self_.render_focused_line_cell(ctx.buf_row, c);
                     if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                         self_.render_line_highlight_cell(ctx.theme, c);
                     if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, c);
@@ -1742,6 +1750,7 @@ pub const Editor = struct {
                         if (ctx.x >= self_.draw_cols()) break;
                         var cell_ = n.cell_init();
                         const c_ = &cell_;
+                        self_.render_focused_line_cell(ctx.buf_row, c_);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, c_);
                         if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, c_);
@@ -1762,6 +1771,7 @@ pub const Editor = struct {
                     if (ctx.buf_col >= view.col) {
                         const vcs_changed = is_vcs_changed_row(ctx.vcs_changes, &ctx.vcs_change_idx, ctx.buf_row);
                         var c = ctx.self.render_eol(n);
+                        self_.render_focused_line_cell(ctx.buf_row, &c);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, &c);
                         if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, &c);
@@ -1769,6 +1779,7 @@ pub const Editor = struct {
                         self_.render_selections(ctx.theme, &c);
                         _ = n.putc(&c) catch {};
                         var term_cell = render_terminator(n, ctx.theme);
+                        self_.render_focused_line_cell(ctx.buf_row, &term_cell);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, &term_cell);
                         if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, &term_cell);
@@ -1812,6 +1823,7 @@ pub const Editor = struct {
 
             self.plane.set_base_style(theme.editor);
             self.plane.erase();
+            self.render_focused_lines();
             if (hl_row) |row|
                 self.render_line_highlight(row, theme) catch {};
             self.render_vcs_changed_lines(theme);
@@ -1932,6 +1944,28 @@ pub const Editor = struct {
                 }
             };
         }
+    }
+
+    fn render_focused_lines(self: *Self) void {
+        const lines = self.focused_lines orelse return;
+        const first = @max(lines.first, self.view.row);
+        const last = @min(lines.last + 1, self.view.row + self.draw_rows());
+        for (first..@max(first, last)) |row| for (0..self.draw_cols()) |x| {
+            self.plane.cursor_move_yx(@intCast(row - self.view.row), @intCast(x));
+            var cell = self.plane.cell_init();
+            _ = self.plane.at_cursor_cell(&cell) catch return;
+            self.render_focused_line_cell(row, &cell);
+            _ = self.plane.putc(&cell) catch {};
+        };
+    }
+
+    inline fn render_focused_line_cell(self: *const Self, row: usize, cell: *Cell) void {
+        if (self.is_focused_line(row)) cell.dim_bg(tui.config().highlight_columns_alpha);
+    }
+
+    pub fn is_focused_line(self: *const Self, row: usize) bool {
+        const lines = self.focused_lines orelse return false;
+        return lines.first <= row and row <= lines.last;
     }
 
     fn render_line_highlight(self: *Self, pc_row: usize, theme: *const Widget.Theme) !void {
@@ -8454,21 +8488,38 @@ pub const Editor = struct {
 
         self.cancel_all_matches();
         self.add_match_internal(sel.begin.row + 1, sel.begin.col, sel.end.row + 1, sel.end.col);
-        const cursor = sel.begin;
-        const range_height = sel.end.row - sel.begin.row + 1;
+        self.scroll_rows_to_center(sel.begin.row, sel.end.row, ctx.now);
+    }
+    pub const focus_on_range_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
+
+    fn scroll_rows_to_center(self: *Self, first_row: usize, last_row: usize, now: std.Io.Timestamp) void {
+        const range_height = last_row -| first_row + 1;
         const view_height = self.view.rows;
         const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const offset = if (range_height > view_height - @min(view_height, scroll_cursor_min_border_distance * 2))
             scroll_cursor_min_border_distance
         else
             (view_height / 2) - (range_height / 2);
-        const row = if (cursor.row > offset)
-            cursor.row - offset
-        else
-            0;
-        self.update_scroll_dest_abs(row, ctx.now);
+        self.update_scroll_dest_abs(first_row -| offset, now);
     }
-    pub const focus_on_range_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
+
+    pub fn focus_on_lines(self: *Self, ctx: Context) Result {
+        var first: usize = 0;
+        var last: usize = 0;
+        if (!try ctx.args.match(.{ tp.extract(&first), tp.extract(&last) }) or first == 0 or last < first)
+            return error.InvalidFocusOnLinesArgument;
+        self.focused_lines = .{ .first = first - 1, .last = last - 1 };
+        self.scroll_rows_to_center(first - 1, last - 1, ctx.now);
+        self.need_render();
+    }
+    pub const focus_on_lines_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
+    pub fn clear_focused_lines(self: *Self, _: Context) Result {
+        if (self.focused_lines == null) return;
+        self.focused_lines = null;
+        self.need_render();
+    }
+    pub const clear_focused_lines_meta: Meta = .{};
 
     pub fn select_range(self: *Self, ctx: Context) Result {
         var sel: Selection = .{};

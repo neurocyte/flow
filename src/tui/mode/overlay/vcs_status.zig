@@ -125,8 +125,21 @@ const LineMap = struct {
 const Hunk = struct {
     label: []const u8,
     line: usize,
+    lines: usize,
     new_line: usize,
     patch: []const u8,
+
+    /// the lines of the new side of the hunk
+    fn new_lines(self: *const Hunk) struct { usize, usize } {
+        const range = vcs_hunks.parse_header(self.label) orelse return .{ self.new_line, self.new_line };
+        const first = @max(range.new_start, 1);
+        return .{ first, first + range.new_count -| 1 };
+    }
+
+    fn focus_in_diff(self: *const Hunk, palette: *Type) void {
+        send(palette, .{ "cmd", "goto_line", .{self.line} });
+        send(palette, .{ "cmd", "focus_on_lines", .{ self.line, self.line + self.lines -| 1 } });
+    }
 
     fn deinit(self: *const Hunk, allocator: std.mem.Allocator) void {
         allocator.free(self.label);
@@ -268,6 +281,7 @@ fn clear_hunks(palette: *Type) void {
 }
 
 pub fn deinit(palette: *Type) void {
+    send(palette, .{ "cmd", "clear_focused_lines" });
     save(palette);
     tui.message_filters().remove_ptr(palette);
     clear_entries(palette);
@@ -401,8 +415,7 @@ fn select_goto_hunk(palette: *Type, mode: project_manager.VcsDiffMode) !void {
     };
     palette.value.pending_target_done = true;
     if (!palette.value.diff_buffer_open) return;
-    send(palette, .{ "cmd", "goto_line", .{palette.value.hunks.items[idx].line} });
-    send(palette, .{ "cmd", "scroll_view_top" });
+    palette.value.hunks.items[idx].focus_in_diff(palette);
 }
 
 /// the number of lines between a line and the new side of a hunk, 0 if the hunk contains it
@@ -849,27 +862,31 @@ fn selected_item(palette: *Type) ?Item {
 
 fn show_in_editor(palette: *Type, item: *const Item) void {
     if (item.status == 'D') return;
-    const line = switch (item.kind) {
-        .file => if (item.section == .untracked) 1 else first_hunk_line(palette, item) orelse return,
-        .hunk => (hunk_for(palette, item.path, item.section, item.hunk) orelse return).new_line,
+    if (item.kind == .file and item.section == .untracked) {
+        send(palette, .{ "cmd", "navigate", .{ .file = item.path, .line = 1 } });
+        return send(palette, .{ "cmd", "clear_focused_lines" });
+    }
+    const hunk = switch (item.kind) {
+        .file => hunk_for(palette, item.path, item.section, 0),
+        .hunk => hunk_for(palette, item.path, item.section, item.hunk),
         .header, .empty, .repo => return,
-    };
-    const editor_line = if (item.section == .staged) working_tree_line(palette, item.path, line) orelse return else line;
-    send(palette, .{ "cmd", "navigate", .{ .file = item.path, .line = editor_line } });
+    } orelse return;
+    const ranges = if (item.section == .staged) working_tree_ranges(palette, item.path) orelse return else &.{};
+    const first, const last = hunk.new_lines();
+    const editor_first = vcs_hunks.map_line(ranges, first);
+    const editor_last = @max(editor_first, vcs_hunks.map_line(ranges, last + 1) -| 1);
+    send(palette, .{ "cmd", "navigate", .{ .file = item.path, .line = vcs_hunks.map_line(ranges, hunk.new_line) } });
+    send(palette, .{ "cmd", "focus_on_lines", .{ editor_first, editor_last } });
 }
 
-fn first_hunk_line(palette: *Type, item: *const Item) ?usize {
-    const hunk = hunk_for(palette, item.path, item.section, 0) orelse return null;
-    return hunk.new_line;
-}
-
-fn working_tree_line(palette: *Type, path: []const u8, line: usize) ?usize {
+/// the unstaged hunks that map index lines to working tree lines, null until they arrive
+fn working_tree_ranges(palette: *Type, path: []const u8) ?[]const vcs_hunks.Range {
     const file = for (palette.value.files.items) |*file| {
         if (std.mem.eql(u8, file.path, path)) break file;
-    } else return line;
-    if (file.status(.unstaged) == null) return line;
+    } else return &.{};
+    if (file.status(.unstaged) == null) return &.{};
     if (palette.value.line_map) |*map| if (std.mem.eql(u8, map.path, path))
-        return vcs_hunks.map_line(map.ranges, line);
+        return map.ranges;
     if (palette.value.line_map_pending) |pending| if (std.mem.eql(u8, pending, path)) return null;
     request_line_map(palette, path);
     return null;
@@ -920,6 +937,7 @@ fn shown_diff_gone(palette: *Type) bool {
 fn close_diff(palette: *Type) void {
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     palette.value.pending_diff = null;
+    send(palette, .{ "cmd", "clear_focused_lines" });
     const diff = palette.value.shown_diff orelse return;
     palette.value.shown_diff = null;
     defer palette.allocator.free(diff.path);
@@ -940,8 +958,7 @@ fn show_hunk(palette: *Type, item: *const Item) void {
     show_diff(palette, item);
     if (!palette.value.diff_buffer_open) return;
     const hunk = hunk_for(palette, item.path, item.section, item.hunk) orelse return;
-    send(palette, .{ "cmd", "goto_line", .{hunk.line} });
-    send(palette, .{ "cmd", "scroll_view_top" });
+    hunk.focus_in_diff(palette);
 }
 
 fn open_hunk(palette: *Type, item: *const Item) void {
@@ -1068,6 +1085,7 @@ fn add_hunk(palette: *Type, header: []const u8, text: []const u8, line: usize) !
     (try palette.value.hunks.addOne(allocator)).* = .{
         .label = hunk_label,
         .line = line,
+        .lines = std.mem.count(u8, std.mem.trimEnd(u8, text, "\n"), "\n") + 1,
         .new_line = first_changed_line(text),
         .patch = patch,
     };
@@ -1184,13 +1202,7 @@ fn browse_diff_view(palette: *Type) void {
 }
 
 fn browse_editor(palette: *Type) void {
-    if (browse_mode() == .editor) {
-        if (palette.value.shown_diff != null)
-            send(palette, .{ "cmd", "palette_menu_cancel" })
-        else
-            send(palette, .{ "cmd", "palette_menu_activate_alternate" });
-        return;
-    }
+    if (browse_mode() == .editor) return;
     set_browse_mode(palette, .editor);
     const diff = palette.value.shown_diff orelse return;
     close_diff_buffer(palette, &diff);
