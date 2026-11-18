@@ -235,6 +235,15 @@ fn inject_output_end(self: *@This(), code: u8) void {
     self.inject(s);
 }
 
+/// the text of the active screen, un-wrapped, including scrollback.
+/// alt-screen gives just the viewport
+pub fn extract_text(self: *@This(), allocator: std.mem.Allocator, out: *std.ArrayList(u8)) !void {
+    const screen = self.vt.back_screen;
+    var last = screen.visible_top + screen.height;
+    while (last > 0 and screen.rowIsBlank(last - 1)) last -= 1;
+    try self.vt.extractRangeText(allocator, 0, self.vt.rowNumber(last), out);
+}
+
 pub fn get_title(self: *@This()) []const u8 {
     if (self.title.items.len > 0) return self.title.items;
     if (self.profile) |p| if (p.name.len > 0) return p.name;

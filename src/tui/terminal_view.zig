@@ -1311,17 +1311,9 @@ const cmds = struct {
     pub const terminal_open_file_links_meta: Meta = .{ .description = "Terminal: Open file links" };
 
     pub fn terminal_open_scrollback_buffer(self: *Self, _: Ctx) Result {
-        // Use the active back screen so an alt-screen app (vim/htop/...)
-        // gets a screenshot of just the visible viewport, while the
-        // primary screen also includes scrollback history.
-        const screen = self.vt.vt.back_screen;
-        // clip trailing blank rows
-        var last = screen.visible_top + screen.height;
-        while (last > 0 and screen.rowIsBlank(last - 1)) last -= 1;
-
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        try self.vt.vt.extractRangeText(self.allocator, 0, self.vt.vt.rowNumber(last), &content);
+        try self.vt.extract_text(self.allocator, &content);
         try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
