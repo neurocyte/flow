@@ -2963,6 +2963,21 @@ const cmds = struct {
             try ctx.args.match(.{ tp.extract_cbor(&workspace_edit), tp.extract_cbor(&reply), tp.extract(&step) })))
             return error.InvalidApplyWorkspaceEditArgument;
 
+        var remote_reply_buf: [64]u8 = undefined;
+        if (reply.len == 0) if (ctx.reply) |remote| {
+            reply = cbor.fmt(&remote_reply_buf, .{ "remote_reply", remote.piid, remote.id });
+            ctx.set_async_response();
+        };
+        apply_workspace_edit_files(self, workspace_edit, reply, step, ctx) catch |e| {
+            // a resumed step has no dispatcher to ack the error to the remote client
+            if (ctx.reply == null) self.workspace_edit_done(reply, .failed, "", @errorName(e));
+            return e;
+        };
+    }
+    pub const apply_workspace_edit_meta: Meta = .{ .arguments = &.{.array} };
+
+    fn apply_workspace_edit_files(self: *Self, workspace_edit: []const u8, reply: []const u8, step_arg: WorkspaceEditStep, ctx: Ctx) Result {
+        var step = step_arg;
         var iter = workspace_edit;
         var files = try cbor.decodeArrayHeader(&iter);
         while (files > 0) : (files -= 1) {
@@ -3013,15 +3028,14 @@ const cmds = struct {
                     else => @errorName(e),
                 }, reply);
         }
-        self.workspace_edit_done(reply, .applied, "");
+        self.workspace_edit_done(reply, .applied, "", "");
     }
-    pub const apply_workspace_edit_meta: Meta = .{ .arguments = &.{.array} };
 
     pub fn apply_workspace_edit_cancelled(self: *Self, ctx: Ctx) Result {
         var reply: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract_cbor(&reply)}))
             return error.InvalidApplyWorkspaceEditArgument;
-        self.workspace_edit_done(reply, .failed, "cancelled");
+        self.workspace_edit_done(reply, .failed, "", "cancelled");
     }
     pub const apply_workspace_edit_cancelled_meta: Meta = .{ .arguments = &.{.array} };
 
@@ -4834,8 +4848,23 @@ fn mark_active_buffer_user_created(self: *Self) void {
     self.buffer_manager.mark_user_created(editor.buffer orelse return);
 }
 
-fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.ApplyEditResult, reason: []const u8) void {
+fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.ApplyEditResult, file_path: []const u8, reason: []const u8) void {
     if (reply.len == 0 or (cbor.match(reply, cbor.null_) catch false)) return;
+    var remote: command.Reply = undefined;
+    if (cbor.match(reply, .{ "remote_reply", cbor.extract(&remote.piid), cbor.extract(&remote.id) }) catch false) {
+        (switch (result) {
+            .applied => remote.send("ok"),
+            .failed => blk: {
+                var buf: [std.fs.max_path_bytes + 256]u8 = undefined;
+                const text = if (file_path.len > 0)
+                    std.fmt.bufPrint(&buf, "failed to apply edit to {s}: {s}", .{ file_path, reason }) catch reason
+                else
+                    std.fmt.bufPrint(&buf, "failed to apply edit: {s}", .{reason}) catch reason;
+                break :blk remote.send(.{ "error", .{ "exit", text } });
+            },
+        }) catch {};
+        return;
+    }
     project_manager.workspace_edit_done(.{ .bytes = reply }, result, reason) catch |e|
         std.log.err("workspace_edit_done failed: {t}", .{e});
 }
@@ -5240,7 +5269,7 @@ fn workspace_edit_failed(self: *Self, file_path: []const u8, text_edits_: []cons
         .Error,
         .foreground,
     );
-    self.workspace_edit_done(reply, .failed, reason);
+    self.workspace_edit_done(reply, .failed, file_path, reason);
 }
 
 pub fn completion_resolve_provider_update(self: *Self, m: tp.message) void {
