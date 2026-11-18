@@ -2324,16 +2324,14 @@ const cmds = struct {
     /// long lines (more than max_text_reply) are chunked with the same number
     pub fn get_buffer_text(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
-        var id: u64 = 0;
+        var id: Buffer.Id = undefined;
         var first: usize = 1;
         var last: usize = std.math.maxInt(usize);
-        if (!(try ctx.args.match(.{tp.extract(&id)}) or
-            try ctx.args.match(.{ tp.extract(&id), tp.extract(&first), tp.extract(&last) }) or
-            try ctx.args.match(.{.{ "BUFID", tp.extract(&id) }}) or
-            try ctx.args.match(.{ .{ "BUFID", tp.extract(&id) }, tp.extract(&first), tp.extract(&last) })))
+        if (!(try ctx.args.match(.{Buffer.Id.extractCoerce(&id)}) or
+            try ctx.args.match(.{ Buffer.Id.extractCoerce(&id), tp.extract(&first), tp.extract(&last) })))
             return error.InvalidGetBufferTextArgument;
         if (first < 1) return error.InvalidGetBufferTextArgument;
-        const buffer = self.buffer_manager.buffer_from_id(@fromBackingInt(id)) orelse return error.BufferNotFound;
+        const buffer = self.buffer_manager.buffer_from_id(id) orelse return error.BufferNotFound;
         var lines = std.mem.splitScalar(u8, buffer.store_to_string_cached(buffer.root, .lf), '\n');
         var line: usize = 1;
         while (lines.next()) |text| : (line += 1) {
