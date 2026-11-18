@@ -183,6 +183,10 @@ fn set_hint_mode(self: *Self, hint_mode: HintMode) HintMode {
     return previous;
 }
 
+pub fn keyhints_input_mode() ?*const Mode {
+    return current().hints_input_mode();
+}
+
 fn hints_input_mode(self: *const Self) ?*const Mode {
     if (self.mini_mode_ == null and self.input_mode_outer_ == null)
         if (focused_panel_mode()) |mode| return mode;

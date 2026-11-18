@@ -1439,6 +1439,35 @@ const cmds = struct {
     }
     pub const dump_widget_tree_meta: Meta = .{ .description = "Dump widget tree info" };
 
+    pub fn dump_keybinds(self: *Self, ctx: Ctx) Result {
+        var content: std.Io.Writer.Allocating = .init(self.allocator);
+        defer content.deinit();
+        try write_keybinds(self.allocator, &content.writer, ctx);
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", command.fmt(.{ "keybinds", content.written(), "text" }));
+        tui.need_render(@src());
+        self.location_update_from_editor();
+    }
+    pub const dump_keybinds_meta: Meta = .{ .description = "Dump keybindings", .arguments = &.{.string} };
+
+    pub fn get_keybinds(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var content: std.Io.Writer.Allocating = .init(self.allocator);
+        defer content.deinit();
+        try write_keybinds(self.allocator, &content.writer, ctx);
+        try send_lines(reply, std.mem.trimEnd(u8, content.written(), "\n"), 1, std.math.maxInt(usize));
+    }
+    pub const get_keybinds_meta: Meta = .{ .arguments = &.{.string} };
+
+    fn write_keybinds(allocator: std.mem.Allocator, writer: *std.Io.Writer, ctx: Ctx) !void {
+        const keyhints = @import("keyhints.zig");
+        var filter: keyhints.Filter = .all;
+        if (!(try ctx.args.match(.{}) or try ctx.args.match(.{tp.extract(&filter)})))
+            return error.InvalidKeybindsArgument;
+        const mode = tui.keyhints_input_mode() orelse return error.NoInputMode;
+        try keyhints.write(allocator, writer, mode, filter);
+    }
+
     pub fn get_widget_tree(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
         var widget_tree: std.Io.Writer.Allocating = .init(self.allocator);

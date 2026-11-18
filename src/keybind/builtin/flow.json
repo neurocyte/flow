@@ -26,6 +26,7 @@
             ["ctrl+?", "toggle_keybind_hints"],
             ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
+            ["alt+?", "dump_keybinds"],
             ["ctrl+alt+shift+r", "restart"],
             ["ctrl+e", "find_file"],
             ["ctrl+shift+n", "create_new_file"],

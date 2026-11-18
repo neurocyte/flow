@@ -34,12 +34,7 @@ pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Al
             return render(title.buffered(), prefix.buffered(), rows, theme);
         }
     }
-    const bindings = switch (filter) {
-        .prefix => return hide(),
-        .mode => mode.current_mode_bindings(allocator, select_mode) catch return,
-        .all => mode.current_bindings(allocator, select_mode) catch return,
-        .global => keybind.current_global_bindings(allocator, select_mode) catch return,
-    };
+    const bindings = (bindings_for(mode, allocator, filter, select_mode) catch return) orelse return hide();
     defer allocator.free(bindings);
     const rows = build_rows(arena.allocator(), bindings, 0, switch (details) {
         .auto => if (filter == .all) .shown else .hidden,
@@ -51,6 +46,43 @@ pub fn render_input_mode(input_mode: ?*const keybind.Mode, allocator: std.mem.Al
         .global => "global",
         else => title.buffered(),
     }, "", rows, theme);
+}
+
+fn bindings_for(mode: *const keybind.Mode, allocator: std.mem.Allocator, filter: Filter, select_mode: keybind.SelectMode) error{OutOfMemory}!?[]const keybind.Binding {
+    return switch (filter) {
+        .prefix => null,
+        .mode => try mode.current_mode_bindings(allocator, select_mode),
+        .all => try mode.current_bindings(allocator, select_mode),
+        .global => try keybind.current_global_bindings(allocator, select_mode),
+    };
+}
+
+pub fn write(allocator: std.mem.Allocator, writer: *std.Io.Writer, mode: *const keybind.Mode, filter: Filter) !void {
+    var arena: std.heap.ArenaAllocator = .init(allocator);
+    defer arena.deinit();
+    const bindings = try bindings_for(mode, allocator, filter, .all) orelse return error.InvalidKeybindFilter;
+    defer allocator.free(bindings);
+    const rows = try build_rows(arena.allocator(), bindings, 0, .shown);
+    if (filter == .global)
+        try writer.writeAll("global\n\n")
+    else
+        try writer.print("{s}/{s}\n\n", .{ keybind.get_namespace(), mode.bindings.config_section });
+    var keys_width: usize = 0;
+    var description_width: usize = 0;
+    var command_width: usize = 0;
+    for (rows) |row| {
+        keys_width = @max(keys_width, tui.egc_chunk_width(row.text, 0, 1));
+        description_width = @max(description_width, tui.egc_chunk_width(row.description, 0, 1));
+        command_width = @max(command_width, tui.egc_chunk_width(row.command, 0, 1));
+    }
+    for (rows) |row| {
+        try writer.splatByteAll(' ', keys_width - tui.egc_chunk_width(row.text, 0, 1));
+        try writer.print("{s}  {s}", .{ row.text, row.description });
+        try writer.splatByteAll(' ', description_width - tui.egc_chunk_width(row.description, 0, 1) + 2);
+        try writer.writeAll(row.command);
+        try writer.splatByteAll(' ', command_width - tui.egc_chunk_width(row.command, 0, 1) + 2);
+        try writer.print("{s}\n", .{row.sources});
+    }
 }
 
 const Row = struct {
