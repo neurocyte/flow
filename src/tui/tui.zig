@@ -991,6 +991,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
+    if (try m.match(.{ "line_number_style", tp.more })) // drop broadcast messages
+        return;
+
     if (try m.match(.{ "inline_vcs_diff", tp.more })) // drop broadcast messages
         return;
 
