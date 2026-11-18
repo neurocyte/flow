@@ -669,6 +669,11 @@ pub fn save_screenshot(self: *Self, path: []const u8, announce: ScreenshotAnnoun
     app.requestScreenshot(path, announce);
 }
 
+pub fn request_screenshot_reply(self: *Self, piid: tp.piid, id: u64) void {
+    _ = self;
+    app.requestScreenshotReply(.{ .piid = piid, .id = id });
+}
+
 pub fn adjust_fontsize(self: *Self, amount: f32) void {
     _ = self;
     app.adjustFontSize(amount);

@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const remote = @import("remote");
 const common = @import("common");
+const z2d = @import("z2d");
 
 const log = std.log.scoped(.client);
 
@@ -23,6 +24,7 @@ pub const Options = struct {
     focus_mode: FocusMode = .auto,
     output: ?Output = null,
     when_done: WhenDone = .disconnect,
+    io: ?std.Io = null,
 };
 
 pub const WhenDone = enum { disconnect, keep_open };
@@ -141,8 +143,16 @@ const Process = struct {
     holds: usize = 0,
     output: ?Output,
     when_done: WhenDone,
+    io: ?std.Io,
+    screenshot: ?Screenshot = null,
     names: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
     receiver: tp.Receiver(*@This()),
+
+    const Screenshot = struct {
+        request_id: u64,
+        pixels: std.ArrayList(u8) = .empty,
+        next: usize = 0,
+    };
 
     const Request = struct {
         cmd: []const u8,
@@ -205,6 +215,7 @@ const Process = struct {
             .focus_mode = args.options.focus_mode,
             .output = args.options.output,
             .when_done = args.options.when_done,
+            .io = args.options.io,
             .receiver = .init(receive_fn, @This().deinit, self),
         };
         errdefer self.deinit();
@@ -228,6 +239,7 @@ const Process = struct {
         self.tracked_requests.deinit(self.allocator);
         self.tracked_buffers.deinit(self.allocator);
         self.creates.deinit(self.allocator);
+        if (self.screenshot) |*s| s.pixels.deinit(self.allocator);
         if (self.server) |p| p.deinit();
         if (self.connection) |p| p.deinit();
         if (self.connector) |p| p.deinit();
@@ -395,6 +407,7 @@ const Process = struct {
     }
 
     fn handle_reply(self: *@This(), request_id: u64, payload: cbor.Raw) !void {
+        if (try self.handle_screenshot(request_id, payload)) return;
         if (self.output) |output| self.print_reply(output, request_id, payload);
         if (self.creates.get(request_id)) |reply_to| return self.handle_create_reply(request_id, reply_to, payload);
         if (self.outstanding.get(request_id)) |pending_request| if (pending_request.reply_to) |reply_to| reply_to.send(payload);
@@ -434,6 +447,65 @@ const Process = struct {
                 log.err("{s} failed: {f}", .{ cmd, tp.message{ .buf = exit_msg.bytes } });
         }
         return self.disconnect_when_done();
+    }
+
+    fn handle_screenshot(self: *@This(), request_id: u64, payload: cbor.Raw) !bool {
+        var idx: usize = 0;
+        var chunk: cbor.Bytes = .empty;
+        if (try cbor.match(payload.bytes, .{ "screenshot", cbor.extract(&idx), cbor.extract(&chunk) })) {
+            const s = try self.screenshot_for(request_id);
+            if (idx != s.next) return error.ScreenshotChunkOutOfOrder;
+            try s.pixels.appendSlice(self.allocator, chunk.data);
+            s.next += 1;
+            return true;
+        }
+        var format: []const u8 = "";
+        var width: u16 = 0;
+        var height: u16 = 0;
+        if (try cbor.match(payload.bytes, .{ "screenshot", cbor.extract(&idx), "done", cbor.extract(&format), cbor.extract(&width), cbor.extract(&height) })) {
+            const s = try self.screenshot_for(request_id);
+            defer {
+                s.pixels.deinit(self.allocator);
+                self.screenshot = null;
+            }
+            if (idx != s.next) return error.ScreenshotIncomplete;
+            if (!std.mem.eql(u8, format, "rgba8")) return error.UnsupportedScreenshotFormat;
+            const path = try self.write_screenshot(s.pixels.items, width, height);
+            defer self.allocator.free(path);
+            var buf: [std.fs.max_path_bytes + 32]u8 = undefined;
+            const done: cbor.Raw = .{ .bytes = cbor.fmt(&buf, .{ "screenshot", path }) };
+            if (self.output) |output| self.print_reply(output, request_id, done) else log.info("screenshot saved to {s}", .{path});
+            return true;
+        }
+        if (self.screenshot) |*s| if (s.request_id == request_id and try cbor.match(payload.bytes, .{ "error", cbor.any })) {
+            s.pixels.deinit(self.allocator);
+            self.screenshot = null;
+        };
+        return false;
+    }
+
+    fn screenshot_for(self: *@This(), request_id: u64) !*Screenshot {
+        if (self.screenshot) |*s| {
+            if (s.request_id != request_id) return error.ScreenshotAlreadyActive;
+            return s;
+        }
+        self.screenshot = .{ .request_id = request_id };
+        return &self.screenshot.?;
+    }
+
+    fn write_screenshot(self: *@This(), bytes: []const u8, width: u16, height: u16) ![]const u8 {
+        const io = self.io orelse return error.ScreenshotNeedsIo;
+        if (width == 0 or height == 0 or bytes.len != @as(usize, width) * height * @sizeOf(z2d.pixel.RGBA))
+            return error.ScreenshotSizeMismatch;
+        const pixels = try self.allocator.alloc(z2d.pixel.RGBA, @as(usize, width) * height);
+        defer self.allocator.free(pixels);
+        @memcpy(std.mem.sliceAsBytes(pixels), bytes);
+        const surface: z2d.surface.ImageSurface(z2d.pixel.RGBA) = .{ .width = width, .height = height, .buf = pixels };
+        const now = std.Io.Clock.real.now(io).toMilliseconds();
+        const path = try std.fmt.allocPrint(self.allocator, "flow-screenshot-{d}.png", .{now});
+        errdefer self.allocator.free(path);
+        try z2d.png_exporter.writeToPNGFile(io, surface.asSurfaceInterface(), path, .{});
+        return path;
     }
 
     /// only the ack ("ok" or an error) ends a request, data replies come before it

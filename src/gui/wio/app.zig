@@ -121,8 +121,22 @@ var screen_snap: ?ScreenSnapshot = null;
 var screenshot_mutex: std.Io.Mutex = .init;
 var screenshot_path: ?[]const u8 = null;
 var screenshot_announce: ScreenshotAnnounce = .announce;
+var screenshot_reply: ?ScreenshotReply = null;
 
 pub const ScreenshotAnnounce = enum { announce, quiet };
+
+pub const ScreenshotReply = struct {
+    piid: thespian.piid,
+    id: u64,
+
+    fn send(self: ScreenshotReply, payload: anytype) void {
+        const pid = thespian.pid.from_id(self.piid) orelse return;
+        defer pid.deinit();
+        pid.send(.{ "reply", self.id, payload }) catch {};
+    }
+};
+
+const screenshot_chunk_size = 16 * 1024;
 var tui_pid: thespian.pid = undefined;
 var render_pid: ?thespian.pid = null;
 var last_mods: input_translate.Mods = .{};
@@ -601,24 +615,64 @@ pub fn requestScreenshot(path: []const u8, announce: ScreenshotAnnounce) void {
     requestRender();
 }
 
+pub fn requestScreenshotReply(reply: ScreenshotReply) void {
+    const io = root.get_io();
+    screenshot_mutex.lockUncancelable(io);
+    const prev = screenshot_reply;
+    screenshot_reply = reply;
+    screenshot_mutex.unlock(io);
+    if (prev) |p| p.send(.{ "error", .{ "exit", "screenshot replaced by a newer request" } });
+    requestRender();
+}
+
+fn sendScreenshot(ctx: *RenderCtx, reply: ScreenshotReply) void {
+    sendScreenshotChunks(ctx, reply) catch |e| {
+        var buf: [64]u8 = undefined;
+        const reason = std.fmt.bufPrint(&buf, "screenshot failed: {t}", .{e}) catch "screenshot failed";
+        return reply.send(.{ "error", .{ "exit", reason } });
+    };
+    reply.send("ok");
+}
+
+fn sendScreenshotChunks(ctx: *RenderCtx, reply: ScreenshotReply) !void {
+    const allocator = root.get_init().gpa;
+    const pixels = try readbackRoot(ctx, allocator);
+    defer allocator.free(pixels.data);
+    var idx: usize = 0;
+    var rest: []const u8 = std.mem.sliceAsBytes(pixels.data);
+    while (rest.len > 0) : (idx += 1) {
+        const chunk = rest[0..@min(rest.len, screenshot_chunk_size)];
+        reply.send(.{ "screenshot", idx, cbor.Bytes.init(chunk) });
+        rest = rest[chunk.len..];
+    }
+    reply.send(.{ "screenshot", idx, "done", "rgba8", pixels.width, pixels.height });
+}
+
 fn saveScreenshot(ctx: *RenderCtx) void {
     const allocator = root.get_init().gpa;
     const io = root.get_io();
     screenshot_mutex.lockUncancelable(io);
     const path_ = screenshot_path;
     const announce = screenshot_announce;
+    const reply = screenshot_reply;
     screenshot_path = null;
+    screenshot_reply = null;
     screenshot_mutex.unlock(io);
+    if (reply) |r| sendScreenshot(ctx, r);
     const path = path_ orelse return;
     defer allocator.free(path);
     writeScreenshot(ctx, allocator, io, path) catch |e| return log.err("screenshot {s} failed: {t}", .{ path, e });
     if (announce == .announce) log.info("screenshot saved to {s}", .{path});
 }
 
-fn writeScreenshot(ctx: *RenderCtx, allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
+fn readbackRoot(ctx: *RenderCtx, allocator: std.mem.Allocator) !gpu.Pixels {
     const layer_id = ctx.root_layer orelse return error.NoFrame;
     const layer_state = ctx.layers.getPtr(layer_id) orelse return error.NoFrame;
-    const pixels = try gpu.readbackLayer(allocator, layer_state);
+    return gpu.readbackLayer(allocator, layer_state);
+}
+
+fn writeScreenshot(ctx: *RenderCtx, allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
+    const pixels = try readbackRoot(ctx, allocator);
     defer allocator.free(pixels.data);
     const surface: z2d.surface.ImageSurface(z2d.pixel.RGBA) = .{
         .width = pixels.width,

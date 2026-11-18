@@ -2833,6 +2833,39 @@ const cmds = struct {
     }
     pub const follow_trace_meta: Meta = .{ .arguments = &.{.integer} };
 
+    /// TUI: ["screen", cols, rows], ["cursor", row, col, visible, shape] and ["line", row, text] for each row
+    /// of the last frame sent to the terminal (1-based, trailing spaces trimmed)
+    /// GUI: raw pixels as ["screenshot", idx, bytes] chunks and ["screenshot", count, "done", format, width, height],
+    /// which the client saves as a PNG
+    pub fn get_screen(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        if (!try ctx.args.match(.{})) return error.InvalidGetScreenArgument;
+        if (comptime !@hasDecl(renderer, "last_frame")) {
+            // the GUI composites on the GPU, so it sends a PNG screenshot instead (the client saves it)
+            if (comptime !@hasDecl(renderer, "request_screenshot_reply")) return error.GetScreenNotSupported;
+            self.rdr_.request_screenshot_reply(reply.piid, reply.id);
+            return ctx.set_async_response();
+        }
+        const frame = self.rdr_.last_frame();
+        const frame_screen = frame.screen;
+        try reply.send(.{ "screen", frame_screen.width, frame_screen.height });
+        if (frame.cursor) |cursor|
+            try reply.send(.{ "cursor", cursor.row + 1, cursor.col + 1, true, cursor.shape })
+        else
+            try reply.send(.{ "cursor", null, null, false, null });
+        var line: std.ArrayList(u8) = .empty;
+        defer line.deinit(self.allocator);
+        for (0..frame_screen.height) |row| {
+            line.clearRetainingCapacity();
+            for (frame_screen.buf[row * frame_screen.width ..][0..frame_screen.width]) |cell| {
+                if (cell.skipped) continue;
+                try line.appendSlice(self.allocator, if (cell.char.items.len > 0) cell.char.items else " ");
+            }
+            try reply.send(.{ "line", row + 1, std.mem.trimEnd(u8, line.items, " ") });
+        }
+    }
+    pub const get_screen_meta: Meta = .{};
+
     /// ["actor", instance_id, name] for each live actor
     pub fn get_actors(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;

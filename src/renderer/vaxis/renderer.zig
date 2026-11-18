@@ -37,6 +37,7 @@ tty_buffer: []u8,
 cache_storage: *GraphemeCache.Storage,
 targets: std.ArrayList(Layer.Target) = .empty,
 crash_cleanup: ?crash.CleanupHandle = null,
+last_cursor: ?LastCursor = null,
 
 no_alternate: bool,
 config_enable_terminal_cursor: bool,
@@ -291,11 +292,31 @@ pub fn render(self: *Self, focused: bool) !?i64 {
         self.paint_all_cell_cursors(order);
     }
 
+    self.last_cursor = if (self.vx.screen.cursor_vis) .{
+        .row = self.vx.screen.cursor.row,
+        .col = self.vx.screen.cursor.col,
+        .shape = self.vx.screen.cursor_shape,
+    } else null;
     try self.vx.render(self.tty.writer());
     try self.tty.writer().flush();
     self.reset_all_cursors();
     self.targets.clearRetainingCapacity();
     return null;
+}
+
+pub const LastCursor = struct {
+    row: u16,
+    col: u16,
+    shape: vaxis.Cell.CursorShape,
+};
+
+pub const LastFrame = struct {
+    screen: *const vaxis.AllocatingScreen,
+    cursor: ?LastCursor,
+};
+
+pub fn last_frame(self: *const Self) LastFrame {
+    return .{ .screen = &self.vx.screen_last, .cursor = self.last_cursor };
 }
 
 fn reset_all_cursors(self: *Self) void {

@@ -505,6 +505,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
             .output = if (script != null) output orelse .{ .writer = stdout, .format = .text } else null,
             .when_done = if (args.keep_open) .keep_open else .disconnect,
+            .io = io,
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();

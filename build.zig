@@ -496,6 +496,11 @@ pub fn build_exe(
             .{ .name = "common", .module = rc_common_mod },
         },
     });
+    if (b.lazyDependency("flow_sprite", .{ .target = target, .optimize = optimize_deps })) |flow_sprite_dep|
+        RcClient_mod.addImport("z2d", flow_sprite_dep.builder.dependency("z2d", .{
+            .target = target,
+            .optimize = optimize_deps,
+        }).module("z2d"));
 
     const syntax_validator_mod = b.createModule(.{
         .root_source_file = b.path("src/syntax_validator.zig"),
