@@ -149,6 +149,7 @@ markdown_preview_file_links: bool = false,
 
 palette_placement: PalettePlacement = .top_center,
 vcs_status_placement: PalettePlacement = .top_right,
+vcs_status_browse_mode: VcsStatusBrowseMode = .diff_view,
 palette_opacity: f32 = 0.75,
 
 show_menu: ShowMenu = .left,
@@ -445,6 +446,11 @@ pub const MacosLoginShell = enum {
     login,
     argv0,
     none,
+};
+
+pub const VcsStatusBrowseMode = enum {
+    diff_view,
+    editor,
 };
 
 pub const PalettePlacement = enum {

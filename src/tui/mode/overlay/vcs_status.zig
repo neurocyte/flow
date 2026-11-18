@@ -9,6 +9,7 @@ const MouseEvent = @import("MouseEvent");
 const tui = @import("../../tui.zig");
 const MessageFilter = @import("../../MessageFilter.zig");
 const vcs_repo = @import("../../vcs_repo.zig");
+const vcs_hunks = @import("vcs_hunks.zig");
 pub const Type = @import("palette.zig").Create(@This());
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
@@ -83,6 +84,10 @@ pub const ValueType = struct {
     pending_diff: ?Diff = null,
     shown_diff: ?Diff = null,
     shown_diff_hash: u64 = 0,
+    diff_buffer_open: bool = false,
+    exit_after_diff: bool = false,
+    line_map: ?LineMap = null,
+    line_map_pending: ?[]const u8 = null,
     diff_stale: bool = false,
     pending_target: ?Target = null,
     pending_target_done: bool = false,
@@ -106,6 +111,16 @@ const GotoHunk = struct {
     };
 };
 pub const defaultValue: ValueType = .{};
+
+const LineMap = struct {
+    path: []const u8,
+    ranges: []vcs_hunks.Range,
+
+    fn deinit(self: *const LineMap, allocator: std.mem.Allocator) void {
+        allocator.free(self.path);
+        allocator.free(self.ranges);
+    }
+};
 
 const Hunk = struct {
     label: []const u8,
@@ -265,6 +280,7 @@ pub fn deinit(palette: *Type) void {
     if (palette.value.pending_open) |path| palette.allocator.free(path);
     if (palette.value.pending_diff) |diff| palette.allocator.free(diff.path);
     if (palette.value.shown_diff) |diff| palette.allocator.free(diff.path);
+    clear_line_map(palette);
     set_root(palette, "") catch {};
     if (palette.value.repo_path) |path| palette.allocator.free(path);
     clear_goto_hunk(palette);
@@ -384,6 +400,7 @@ fn select_goto_hunk(palette: *Type, mode: project_manager.VcsDiffMode) !void {
         .hunk = idx,
     };
     palette.value.pending_target_done = true;
+    if (!palette.value.diff_buffer_open) return;
     send(palette, .{ "cmd", "goto_line", .{palette.value.hunks.items[idx].line} });
     send(palette, .{ "cmd", "scroll_view_top" });
 }
@@ -393,7 +410,7 @@ fn nearest_hunk(palette: *Type, line: usize) ?usize {
     var best: ?usize = null;
     var best_distance: usize = std.math.maxInt(usize);
     for (palette.value.hunks.items, 0..) |*hunk, i| {
-        const distance = hunk_distance(hunk.label, line);
+        const distance = vcs_hunks.distance(hunk.label, line);
         if (distance < best_distance) {
             best = i;
             best_distance = distance;
@@ -408,22 +425,6 @@ fn hunk_at_diff_line(palette: *Type, line: usize) ?usize {
         found = i;
     };
     return found;
-}
-
-fn hunk_distance(hunk_header: []const u8, line: usize) usize {
-    const start_pos = (std.mem.indexOf(u8, hunk_header, " +") orelse return std.math.maxInt(usize)) + 2;
-    var pos = start_pos;
-    while (pos < hunk_header.len and std.ascii.isDigit(hunk_header[pos])) pos += 1;
-    const start = std.fmt.parseInt(usize, hunk_header[start_pos..pos], 10) catch return std.math.maxInt(usize);
-    var count: usize = 1;
-    if (pos < hunk_header.len and hunk_header[pos] == ',') {
-        const count_pos = pos + 1;
-        pos = count_pos;
-        while (pos < hunk_header.len and std.ascii.isDigit(hunk_header[pos])) pos += 1;
-        count = std.fmt.parseInt(usize, hunk_header[count_pos..pos], 10) catch 1;
-    }
-    const end = start + @max(count, 1);
-    return if (line < start) start - line else if (line >= end) line - end + 1 else 0;
 }
 
 fn clear_pending_target(palette: *Type) void {
@@ -481,6 +482,8 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         try append_file(palette, file_path, orig_path, file_icon, file_color, x[0], y[0], file_kind);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_diff", tp.extract(&file_path), tp.extract(&diff_mode), tp.extract(&diff_output) })) {
         show_pending_diff(palette, file_path, diff_mode, diff_output);
+    } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_hunk_headers", tp.extract(&file_path), tp.any, tp.extract(&diff_output) })) {
+        try set_line_map(palette, file_path, diff_output);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.extract(&line) })) {
         open_pending(palette, file_path, line);
     } else if (try cbor.match(m.buf, .{ "PRJ", "vcs_first_change", tp.extract(&file_path), tp.null_ })) {
@@ -495,6 +498,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         clear_files(palette, &palette.value.files);
         std.mem.swap(std.ArrayList(File), &palette.value.files, &palette.value.files_next);
         palette.value.diff_stale = true;
+        clear_line_map(palette);
         if (shown_diff_gone(palette)) close_diff(palette) else try update_entries(palette);
         if (palette.value.files.items.len > 0) palette.value.reset_selection = false;
         request_goto_diff(palette);
@@ -802,7 +806,7 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
         // switching rebuilds the list and would free this button while it is still in use
         .repo => send(palette, .{ "cmd", "palette_menu_action", .{ "switch_repo", item.path } }),
         .hunk => switch (activate) {
-            .normal => show_hunk(palette, &item),
+            .normal => send(palette, .{ "cmd", "palette_menu_action", .{"close_diff"} }),
             .alternate => open_hunk(palette, &item),
         },
         .header, .empty => {},
@@ -827,6 +831,77 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
         .hunk => show_hunk(palette, &item),
         .header, .empty, .repo => {},
     }
+    if (browse_mode() == .editor and !palette.value.exit_after_diff) show_in_editor(palette, &item);
+}
+
+fn browse_mode() @import("config").VcsStatusBrowseMode {
+    return tui.config().vcs_status_browse_mode;
+}
+
+fn set_browse_mode(palette: *Type, mode: @import("config").VcsStatusBrowseMode) void {
+    tui.config_mut().vcs_status_browse_mode = mode;
+    tui.save_config() catch |e| palette.logger.err(module_name, e);
+}
+
+fn selected_item(palette: *Type) ?Item {
+    return Item.decode(palette.list_box.get_selected() orelse return null);
+}
+
+fn show_in_editor(palette: *Type, item: *const Item) void {
+    if (item.status == 'D') return;
+    const line = switch (item.kind) {
+        .file => if (item.section == .untracked) 1 else first_hunk_line(palette, item) orelse return,
+        .hunk => (hunk_for(palette, item.path, item.section, item.hunk) orelse return).new_line,
+        .header, .empty, .repo => return,
+    };
+    const editor_line = if (item.section == .staged) working_tree_line(palette, item.path, line) orelse return else line;
+    send(palette, .{ "cmd", "navigate", .{ .file = item.path, .line = editor_line } });
+}
+
+fn first_hunk_line(palette: *Type, item: *const Item) ?usize {
+    const hunk = hunk_for(palette, item.path, item.section, 0) orelse return null;
+    return hunk.new_line;
+}
+
+fn working_tree_line(palette: *Type, path: []const u8, line: usize) ?usize {
+    const file = for (palette.value.files.items) |*file| {
+        if (std.mem.eql(u8, file.path, path)) break file;
+    } else return line;
+    if (file.status(.unstaged) == null) return line;
+    if (palette.value.line_map) |*map| if (std.mem.eql(u8, map.path, path))
+        return vcs_hunks.map_line(map.ranges, line);
+    if (palette.value.line_map_pending) |pending| if (std.mem.eql(u8, pending, path)) return null;
+    request_line_map(palette, path);
+    return null;
+}
+
+fn request_line_map(palette: *Type, path: []const u8) void {
+    const pending = palette.allocator.dupe(u8, path) catch |e| return palette.logger.err(module_name, e);
+    if (palette.value.line_map_pending) |p| palette.allocator.free(p);
+    palette.value.line_map_pending = pending;
+    project_manager.request_vcs_hunk_headers(palette.value.root, path, .unstaged) catch |e| {
+        palette.logger.err(module_name, e);
+        set_line_map(palette, path, "") catch {};
+    };
+}
+
+fn set_line_map(palette: *Type, path: []const u8, output: []const u8) !void {
+    const pending = palette.value.line_map_pending orelse return;
+    if (!std.mem.eql(u8, pending, path)) return;
+    palette.value.line_map_pending = null;
+    errdefer palette.allocator.free(pending);
+    const ranges = try vcs_hunks.parse_headers(palette.allocator, output);
+    if (palette.value.line_map) |*map| map.deinit(palette.allocator);
+    palette.value.line_map = .{ .path = pending, .ranges = ranges };
+    if (browse_mode() == .editor and palette.value.shown_diff != null)
+        if (selected_item(palette)) |item| show_in_editor(palette, &item);
+}
+
+fn clear_line_map(palette: *Type) void {
+    if (palette.value.line_map) |*map| map.deinit(palette.allocator);
+    palette.value.line_map = null;
+    if (palette.value.line_map_pending) |p| palette.allocator.free(p);
+    palette.value.line_map_pending = null;
 }
 
 fn is_shown_diff(palette: *Type, item: *const Item) bool {
@@ -850,6 +925,12 @@ fn close_diff(palette: *Type) void {
     defer palette.allocator.free(diff.path);
     clear_hunks(palette);
     update_entries(palette) catch |e| palette.logger.err(module_name, e);
+    close_diff_buffer(palette, &diff);
+}
+
+fn close_diff_buffer(palette: *Type, diff: *const Diff) void {
+    if (!palette.value.diff_buffer_open) return;
+    palette.value.diff_buffer_open = false;
     const buffer_name = diff.buffer_name(palette.allocator) catch |e| return palette.logger.err(module_name, e);
     defer palette.allocator.free(buffer_name);
     send(palette, .{ "cmd", "close_buffer", .{buffer_name} });
@@ -857,6 +938,7 @@ fn close_diff(palette: *Type) void {
 
 fn show_hunk(palette: *Type, item: *const Item) void {
     show_diff(palette, item);
+    if (!palette.value.diff_buffer_open) return;
     const hunk = hunk_for(palette, item.path, item.section, item.hunk) orelse return;
     send(palette, .{ "cmd", "goto_line", .{hunk.line} });
     send(palette, .{ "cmd", "scroll_view_top" });
@@ -911,19 +993,23 @@ fn show_pending_diff(palette: *Type, file_path: []const u8, mode: project_manage
     const previous = palette.value.shown_diff;
     palette.value.shown_diff = pending;
     defer if (previous) |diff| allocator.free(diff.path);
-    if (previous) |*diff| if (diff.eql(file_path, mode) and palette.value.shown_diff_hash == hash) return;
+    const was_open = palette.value.diff_buffer_open;
+    const open = browse_mode() == .diff_view or palette.value.exit_after_diff;
+    if (previous) |*diff| if (diff.eql(file_path, mode) and palette.value.shown_diff_hash == hash and was_open == open) return;
     palette.value.shown_diff_hash = hash;
+    defer if (palette.value.exit_after_diff) send(palette, .{ "cmd", "exit_overlay_mode" });
     defer update_hunks(palette, mode, output);
 
     const buffer_name = pending.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
     defer allocator.free(buffer_name);
-    send(palette, .{ "cmd", "replace_scratch_buffer", .{ buffer_name, output, "diff" } });
-    if (previous) |*diff| {
-        const previous_name = diff.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
-        defer allocator.free(previous_name);
-        if (!std.mem.eql(u8, previous_name, buffer_name))
-            send(palette, .{ "cmd", "close_buffer", .{previous_name} });
-    }
+    palette.value.diff_buffer_open = open;
+    if (open) send(palette, .{ "cmd", "replace_scratch_buffer", .{ buffer_name, output, "diff" } });
+    if (!was_open) return;
+    const diff = previous orelse return;
+    const previous_name = diff.buffer_name(allocator) catch |e| return palette.logger.err(module_name, e);
+    defer allocator.free(previous_name);
+    if (!open or !std.mem.eql(u8, previous_name, buffer_name))
+        send(palette, .{ "cmd", "close_buffer", .{previous_name} });
 }
 
 fn update_hunks(palette: *Type, mode: project_manager.VcsDiffMode, output: []const u8) void {
@@ -1037,11 +1123,16 @@ fn navigate(palette: *Type, file_path: []const u8, line: ?usize) void {
 
 pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void {
     if (try ctx.args.match(.{"close_diff"})) return close_diff(palette);
+    if (try ctx.args.match(.{"browse_diff_view"})) return browse_diff_view(palette);
+    if (try ctx.args.match(.{"browse_editor"})) return browse_editor(palette);
+    if (try ctx.args.match(.{"keep_diff"})) return keep_diff(palette);
     if (try ctx.args.match(.{"revert"})) return revert(palette);
     var repo_path: []const u8 = undefined;
     if (try ctx.args.match(.{ "switch_repo", tp.extract(&repo_path) })) return switch_repo(palette, repo_path);
     if (try ctx.args.match(.{"cancel"})) {
-        if (palette.value.shown_diff != null or palette.value.pending_diff != null)
+        if (browse_mode() == .editor)
+            send(palette, .{ "cmd", "palette_menu_cancel" })
+        else if (palette.value.shown_diff != null or palette.value.pending_diff != null)
             close_diff(palette)
         else
             send(palette, .{ "cmd", "palette_menu_cancel" });
@@ -1082,6 +1173,44 @@ pub fn action(palette: *Type, _: ?*Type.ButtonType, ctx: command.Context) !void 
         .unstaged, .untracked => .stage,
     };
     try project_manager.request_vcs_update_index(palette.value.root, update, paths.items);
+}
+
+fn browse_diff_view(palette: *Type) void {
+    if (browse_mode() == .diff_view) return;
+    set_browse_mode(palette, .diff_view);
+    const diff = palette.value.shown_diff orelse return;
+    palette.value.diff_stale = true;
+    request_diff(palette, diff.path, diff.mode);
+}
+
+fn browse_editor(palette: *Type) void {
+    if (browse_mode() == .editor) {
+        if (palette.value.shown_diff != null)
+            send(palette, .{ "cmd", "palette_menu_cancel" })
+        else
+            send(palette, .{ "cmd", "palette_menu_activate_alternate" });
+        return;
+    }
+    set_browse_mode(palette, .editor);
+    const diff = palette.value.shown_diff orelse return;
+    close_diff_buffer(palette, &diff);
+    if (selected_item(palette)) |item| show_in_editor(palette, &item);
+}
+
+fn keep_diff(palette: *Type) void {
+    const item = selected_item(palette) orelse return;
+    if (item.kind != .file and item.kind != .hunk) return;
+    const mode = section_diff_mode(item.section);
+    if (palette.value.diff_buffer_open and is_shown_diff(palette, &item))
+        return send(palette, .{ "cmd", "exit_overlay_mode" });
+    if (item.kind == .hunk) if (hunk_for(palette, item.path, item.section, item.hunk)) |hunk| {
+        clear_goto_hunk(palette);
+        const path = palette.allocator.dupe(u8, item.path) catch |e| return palette.logger.err(module_name, e);
+        palette.value.goto_hunk = .{ .path = path, .section = item.section, .location = .{ .file_line = hunk.new_line } };
+    };
+    palette.value.exit_after_diff = true;
+    palette.value.diff_stale = true;
+    request_diff(palette, item.path, mode);
 }
 
 fn apply_hunk(palette: *Type, idx: usize) !void {
