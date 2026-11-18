@@ -98,6 +98,7 @@ pub const ArgumentType = enum {
     boolean,
     object,
     array,
+    any,
 };
 
 pub fn Closure(comptime T: type) type {

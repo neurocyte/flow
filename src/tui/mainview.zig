@@ -1010,7 +1010,12 @@ const cmds = struct {
         var goto_args: []const u8 = &.{};
         var track: BufferManager.Track = .none;
 
-        var iter = ctx.args.buf;
+        var args = ctx.args;
+        var arg: cbor.Raw = .empty;
+        // unwrap a single value if args is an array, otherwise we just use the scalar arg
+        if (try args.match(.{tp.extract(&arg)})) args = .{ .buf = arg.bytes };
+
+        var iter = args.buf;
         if (cbor.decodeMapHeader(&iter)) |len_| {
             var len = len_;
             while (len > 0) : (len -= 1) {
@@ -1039,7 +1044,7 @@ const cmds = struct {
                     try cbor.skipValue(&iter);
                 }
             }
-        } else |_| if (ctx.args.match(tp.extract(&file_name)) catch false) {
+        } else |_| if (args.match(tp.extract(&file_name)) catch false) {
             file = file_name;
         } else return error.InvalidNavigateArgument;
 
@@ -1118,9 +1123,9 @@ const cmds = struct {
 
         return cmds.navigate_complete(self, view, f, goto_args, line, column, offset, listener, .{ .command = ctx }, ctx.now);
     }
+    pub const navigate_meta: Meta = .{ .arguments = &.{.any} };
 
     const NavigateResponse = union(enum) { command: Ctx, deferred };
-    pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
     fn navigate_complete(
         self: *Self,
