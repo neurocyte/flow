@@ -130,6 +130,7 @@
             ["ctrl+shift+g F", "vcs_fetch"],
             ["ctrl+alt+a ctrl+alt+f", "vcs_fetch"],
             ["ctrl+shift+g P", "vcs_push"],
+            ["ctrl+shift+g d", "toggle_inline_vcs_diff"],
             ["ctrl+alt+a ctrl+alt+p", "vcs_push"],
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+page_down", "next_tab"],
