@@ -22,7 +22,10 @@ pub const Options = struct {
     terminal: ?u64 = null,
     focus_mode: FocusMode = .auto,
     output: ?Output = null,
+    when_done: WhenDone = .disconnect,
 };
+
+pub const WhenDone = enum { disconnect, keep_open };
 
 pub const Output = struct {
     writer: *std.Io.Writer,
@@ -137,6 +140,7 @@ const Process = struct {
     creates: std.AutoHashMapUnmanaged(u64, ?LocalReply) = .empty,
     holds: usize = 0,
     output: ?Output,
+    when_done: WhenDone,
     names: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
     receiver: tp.Receiver(*@This()),
 
@@ -200,6 +204,7 @@ const Process = struct {
             .terminal = args.options.terminal,
             .focus_mode = args.options.focus_mode,
             .output = args.options.output,
+            .when_done = args.options.when_done,
             .receiver = .init(receive_fn, @This().deinit, self),
         };
         errdefer self.deinit();
@@ -505,6 +510,7 @@ const Process = struct {
 
     fn disconnect_when_done(self: *@This()) !void {
         if (!self.disconnecting or self.server == null) return;
+        if (self.when_done == .keep_open and self.failed == 0) return;
         if (self.outstanding.count() > 0 or self.tracked_requests.count() > 0 or self.tracked_buffers.count() > 0) return;
         if (self.holds > 0 or (self.track != .none and self.creates.count() > 0)) return;
         if (try self.restore_terminal_state()) return;

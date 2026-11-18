@@ -83,6 +83,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .no_connect = "Do not connect to a remote instance (same as --connect disable)",
             .wait = "Wait for remote instance (default)",
             .no_wait = "Do not wait for remote instance",
+            .keep_open = "Stay connected after script completes",
             .focus = "Unfocus the terminal and unmaximize the panel (default when opening files)",
             .no_focus = "Leave the terminal focus and panel unchanged",
             .no_sleep = "Do not sleep the main loop when idle",
@@ -143,6 +144,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         no_connect: bool,
         wait: bool,
         no_wait: bool,
+        keep_open: bool,
         focus: bool,
         no_focus: bool,
         no_sleep: bool,
@@ -185,6 +187,10 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
     if (args.wait and args.no_wait) {
         std.debug.print("--wait and --no-wait cannot be used together\n", .{});
+        exit(1);
+    }
+    if (args.keep_open and args.no_wait) {
+        std.debug.print("--keep-open and --no-wait cannot be used together\n", .{});
         exit(1);
     }
     if (args.focus and args.no_focus) {
@@ -498,6 +504,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .terminal = terminal,
             .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
             .output = if (script != null) output orelse .{ .writer = stdout, .format = .text } else null,
+            .when_done = if (args.keep_open) .keep_open else .disconnect,
         })).pid.?;
     } else try tui.spawn(a, &ctx, &eh, env);
     defer main_proc.deinit();
