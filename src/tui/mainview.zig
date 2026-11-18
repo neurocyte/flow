@@ -2348,6 +2348,36 @@ const cmds = struct {
     }
     pub const get_buffer_text_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer } };
 
+    /// ["diagnostic", BUFID, severity, [begin_line, begin_column, end_line, end_column], source, code, message]
+    pub fn get_diagnostics(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: Buffer.Id = undefined;
+        const filter = if (try ctx.args.match(.{Buffer.Id.extractCoerce(&id)}))
+            self.buffer_manager.buffer_from_id(id) orelse return error.BufferNotFound
+        else if (try ctx.args.match(.{}))
+            null
+        else
+            return error.InvalidGetDiagnosticsArgument;
+        for (0..self.get_view_count()) |n| {
+            const editor = self.get_editor_for_view(n) orelse continue;
+            const buffer = editor.buffer orelse continue;
+            if (filter) |b| if (b != buffer) continue;
+            for (editor.diagnostics.items) |*diag| {
+                const sel = diag.sel;
+                try reply.send(.{
+                    "diagnostic",
+                    buffer.id,
+                    diag.get_severity(),
+                    .{ sel.begin.row + 1, sel.begin.col + 1, sel.end.row + 1, sel.end.col + 1 },
+                    diag.source,
+                    diag.code,
+                    diag.message,
+                });
+            }
+        }
+    }
+    pub const get_diagnostics_meta: Meta = .{ .arguments = &.{.integer} };
+
     const max_text_reply = 16 * 1024;
 
     fn utf8_prefix(text: []const u8, max: usize) []const u8 {
