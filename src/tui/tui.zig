@@ -2805,6 +2805,16 @@ const cmds = struct {
     }
     pub const follow_log_meta: Meta = .{ .arguments = &.{.integer} };
 
+    /// ["actor", instance_id, name] for each live actor
+    pub fn get_actors(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        if (!try ctx.args.match(.{})) return error.InvalidGetActorsArgument;
+        const instances = try tp.live_instances(self.allocator);
+        defer tp.free_instances(self.allocator, instances);
+        for (instances) |instance| try reply.send(.{ "actor", instance.id, instance.name });
+    }
+    pub const get_actors_meta: Meta = .{};
+
     pub fn get_commands(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
         const hints = if (self.input_mode_) |*mode| mode.keybind_hints else null;
