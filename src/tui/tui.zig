@@ -124,6 +124,7 @@ frames_rendered_: usize = 0,
 clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
 paste_requests: std.ArrayList(PasteRequest) = .empty,
+log_followers: std.ArrayList(command.Reply) = .empty,
 expired_paste_requests: std.ArrayList(PasteRequest) = .empty,
 next_paste_request_id: u64 = 1,
 color_scheme: Widget.Theme.Type = .dark,
@@ -536,6 +537,7 @@ fn deinit(self: *Self) void {
     root.free_config(self.allocator, self.config_bufs);
     self.clipboard_deinit();
     self.paste_requests.deinit(self.allocator);
+    self.log_followers.deinit(self.allocator);
     self.expired_paste_requests.deinit(self.allocator);
     if (builtin.mode == .debug) {
         Widget.deinit_themes(self.allocator);
@@ -688,7 +690,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "log", tp.more })) {
         // no error logging to avoid a log loop
+        const known = logview.entries().len;
         logview.process_log(m) catch {};
+        self.send_to_log_followers(logview.entries()[known..]);
         _ = self.message_filters_.filter(from, m) catch {};
         return;
     }
@@ -2784,10 +2788,22 @@ const cmds = struct {
         if (!(try ctx.args.match(.{}) or try ctx.args.match(.{tp.extract(&count)})))
             return error.InvalidGetLogArgument;
         const log_entries = logview.entries();
-        for (log_entries[log_entries.len -| count..]) |entry|
-            try reply.send(.{ "log", entry.time, entry.level, entry.src, MainView.utf8_prefix(entry.msg, MainView.max_text_reply) });
+        for (log_entries[log_entries.len -| count..]) |entry| try send_log_entry(reply, entry);
     }
     pub const get_log_meta: Meta = .{ .arguments = &.{.integer} };
+
+    /// scubscribe to all new log message events and optionally n previous events
+    /// the subscription continues until the client disconnects
+    pub fn follow_log(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var count: usize = 0;
+        if (!(try ctx.args.match(.{}) or try ctx.args.match(.{tp.extract(&count)})))
+            return error.InvalidFollowLogArgument;
+        const log_entries = logview.entries();
+        for (log_entries[log_entries.len -| count..]) |entry| try send_log_entry(reply, entry);
+        try self.log_followers.append(self.allocator, reply);
+    }
+    pub const follow_log_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn get_commands(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
@@ -3428,6 +3444,25 @@ fn current() *Self {
 
 pub fn rdr() *renderer {
     return &current().rdr_;
+}
+
+fn send_log_entry(reply: command.Reply, entry: logview.Entry) tp.result {
+    return reply.send(.{ "log", entry.time, entry.level, entry.src, MainView.utf8_prefix(entry.msg, MainView.max_text_reply) });
+}
+
+fn send_to_log_followers(self: *Self, new_entries: []const logview.Entry) void {
+    if (new_entries.len == 0) return;
+    var i: usize = 0;
+    while (i < self.log_followers.items.len) {
+        const follower = self.log_followers.items[i];
+        const pid = tp.pid.from_id(follower.piid) orelse {
+            _ = self.log_followers.swapRemove(i);
+            continue;
+        };
+        pid.deinit();
+        for (new_entries) |entry| send_log_entry(follower, entry) catch {};
+        i += 1;
+    }
 }
 
 pub fn message_filters() *MessageFilter.List {
