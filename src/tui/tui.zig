@@ -125,6 +125,7 @@ clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
 paste_requests: std.ArrayList(PasteRequest) = .empty,
 log_followers: std.ArrayList(command.Reply) = .empty,
+trace_followers: std.ArrayList(TraceFollower) = .empty,
 expired_paste_requests: std.ArrayList(PasteRequest) = .empty,
 next_paste_request_id: u64 = 1,
 color_scheme: Widget.Theme.Type = .dark,
@@ -538,6 +539,7 @@ fn deinit(self: *Self) void {
     self.clipboard_deinit();
     self.paste_requests.deinit(self.allocator);
     self.log_followers.deinit(self.allocator);
+    self.trace_followers.deinit(self.allocator);
     self.expired_paste_requests.deinit(self.allocator);
     if (builtin.mode == .debug) {
         Widget.deinit_themes(self.allocator);
@@ -687,6 +689,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "VT", tp.more }))
         return @import("Vt.zig").Manager.receive_event(from, m) catch |e| self.logger.err("vt", e);
+
+    if (try m.match(.{ "debug_tap_id", tp.more }))
+        return self.send_to_trace_followers(m);
 
     if (try m.match(.{ "log", tp.more })) {
         // no error logging to avoid a log loop
@@ -2805,6 +2810,25 @@ const cmds = struct {
     }
     pub const follow_log_meta: Meta = .{ .arguments = &.{.integer} };
 
+    /// ["trace", "recv"|"send", peer_instance_id, peer_name, message] for every message the actor receives or sends
+    /// ["trace", "exit", null, "", message] when it exits
+    /// the subscription continues until the client disconnects
+    /// a message too large for one reply is sent as ["too_large", bytes]
+    pub fn follow_trace(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: tp.piid = undefined;
+        if (!try ctx.args.match(.{tp.piid.extractCoerce(&id)})) return error.InvalidFollowTraceArgument;
+        const name = try actor_name(self.allocator, id) orelse return error.ActorNotFound;
+        defer self.allocator.free(name);
+        // tracing an actor that carries the replies would trace its own stream
+        if (id == tp.self_pid().instance_id()) return error.CannotTraceTheTui;
+        for ([_][]const u8{ "RcServer", "endpoint_connection", "proxy" }) |stream_actor|
+            if (std.mem.eql(u8, name, stream_actor)) return error.CannotTraceRemoteControlActors;
+        tp.tap_instance(id);
+        try self.trace_followers.append(self.allocator, .{ .reply = reply, .target = id });
+    }
+    pub const follow_trace_meta: Meta = .{ .arguments = &.{.integer} };
+
     /// ["actor", instance_id, name] for each live actor
     pub fn get_actors(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
@@ -3458,6 +3482,55 @@ pub fn rdr() *renderer {
 
 fn send_log_entry(reply: command.Reply, entry: logview.Entry) tp.result {
     return reply.send(.{ "log", entry.time, entry.level, entry.src, MainView.utf8_prefix(entry.msg, MainView.max_text_reply) });
+}
+
+const TraceFollower = struct {
+    reply: command.Reply,
+    target: tp.piid,
+};
+
+fn actor_name(allocator: Allocator, id: tp.piid) !?[]const u8 {
+    const instances = try tp.live_instances(allocator);
+    defer tp.free_instances(allocator, instances);
+    for (instances) |instance| if (instance.id == id) return try allocator.dupe(u8, instance.name);
+    return null;
+}
+
+fn send_to_trace_followers(self: *Self, m: tp.message) void {
+    var id: usize = 0;
+    var direction: []const u8 = "";
+    var peer_id: usize = 0;
+    var peer_name: []const u8 = "";
+    var msg: cbor.Raw = .empty;
+    if (!(m.match(.{ "debug_tap_id", tp.extract(&id), tp.extract(&direction), tp.extract(&peer_id), tp.extract(&peer_name), tp.extract(&msg) }) catch false))
+        return;
+    const target: tp.piid = .fromInt(id);
+    const exited = std.mem.eql(u8, direction, "exit");
+    const peer: ?tp.piid = if (peer_id == 0) null else .fromInt(peer_id);
+    var i: usize = 0;
+    while (i < self.trace_followers.items.len) {
+        const follower = self.trace_followers.items[i];
+        if (follower.target != target) {
+            i += 1;
+            continue;
+        }
+        const pid = tp.pid.from_id(follower.reply.piid) orelse {
+            self.remove_trace_follower(i);
+            continue;
+        };
+        pid.deinit();
+        (if (msg.bytes.len > MainView.max_text_reply)
+            follower.reply.send(.{ "trace", direction, peer, peer_name, .{ "too_large", msg.bytes.len } })
+        else
+            follower.reply.send(.{ "trace", direction, peer, peer_name, msg })) catch {};
+        if (exited) self.remove_trace_follower(i) else i += 1;
+    }
+}
+
+fn remove_trace_follower(self: *Self, i: usize) void {
+    const target = self.trace_followers.swapRemove(i).target;
+    for (self.trace_followers.items) |follower| if (follower.target == target) return;
+    _ = tp.untap_instance(target);
 }
 
 fn send_to_log_followers(self: *Self, new_entries: []const logview.Entry) void {
