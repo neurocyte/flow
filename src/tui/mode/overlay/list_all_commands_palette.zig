@@ -80,5 +80,5 @@ fn select(list_box: **Type.ListBoxType, button: *Type.ButtonType, _: Type.Pos) v
         cbor.skipValue(&iter) catch break;
     if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| list_box.*.opts.ctx.logger.err("command_palette", e);
-    tp.self_pid().send(.{ "cmd", "paste", .{command.get_name(command_id) orelse return} }) catch {};
+    tui.paste(command.get_name(command_id) orelse return, .{}) catch {};
 }
