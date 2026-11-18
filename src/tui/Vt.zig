@@ -244,6 +244,16 @@ pub fn extract_text(self: *@This(), allocator: std.mem.Allocator, out: *std.Arra
     try self.vt.extractRangeText(allocator, 0, self.vt.rowNumber(last), out);
 }
 
+/// the text of last command output, from shell marks
+pub fn extract_last_command_output(self: *@This(), allocator: std.mem.Allocator, out: *std.ArrayList(u8)) !?Terminal.CommandOutputRange {
+    const marks = try self.vt.commandMarks(allocator);
+    defer allocator.free(marks);
+    const end_row = self.vt.liveHistoryRows() + self.vt.back_screen_pri.height;
+    const range = Terminal.lastCommandOutputRange(marks, end_row) orelse return null;
+    try self.vt.extractRangeText(allocator, range.start, range.end, out);
+    return range;
+}
+
 pub fn get_title(self: *@This()) []const u8 {
     if (self.title.items.len > 0) return self.title.items;
     if (self.profile) |p| if (p.name.len > 0) return p.name;

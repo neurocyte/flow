@@ -1347,14 +1347,9 @@ const cmds = struct {
     pub const terminal_open_scrollback_buffer_meta: Meta = .{ .description = "Terminal: Open scrollback buffer" };
 
     pub fn terminal_open_last_command_output(self: *Self, _: Ctx) Result {
-        const marks = try self.vt.vt.commandMarks(self.allocator);
-        defer self.allocator.free(marks);
-        const end_row = self.vt.vt.liveHistoryRows() + self.vt.vt.back_screen_pri.height;
-        const range = Vt.Terminal.lastCommandOutputRange(marks, end_row) orelse return;
-
         var content: std.ArrayList(u8) = .empty;
         defer content.deinit(self.allocator);
-        try self.vt.vt.extractRangeText(self.allocator, range.start, range.end, &content);
+        _ = try self.vt.extract_last_command_output(self.allocator, &content) orelse return;
         try content.append(self.allocator, '\n');
 
         var buffer_name: std.ArrayList(u8) = .empty;
