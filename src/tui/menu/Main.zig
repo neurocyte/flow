@@ -190,6 +190,7 @@ const panel: Menu = .{ .label = "Panel", .items = &.{
 const display: Menu = .{ .label = "Editor display", .items = &.{
     .{ .command = .{ .command = "toggle_whitespace_mode", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_highlight_columns", .on_activate = .keep_open } },
+    .{ .command = .{ .command = "toggle_highlight_current_line", .on_activate = .keep_open } },
     .{ .command = .{ .command = "toggle_syntax_highlighting", .on_activate = .keep_open } },
     .separator,
     .{ .command = .{ .command = "gutter_mode_next", .on_activate = .keep_open } },

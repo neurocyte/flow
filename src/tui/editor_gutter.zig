@@ -37,7 +37,6 @@ view_top: u32 = 1,
 line: usize = 0,
 line_number_mode: ?LineNumberMode = null,
 line_number_style: DigitStyle,
-highlight: bool,
 symbols: bool,
 width: usize,
 editor: *ed.Editor,
@@ -59,7 +58,6 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .parent = parent,
         .line_number_mode = tui.config().gutter_line_numbers_mode,
         .line_number_style = tui.config().gutter_line_numbers_style,
-        .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
         .width = undefined,
         .editor = editor,
@@ -234,7 +232,7 @@ pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
     var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
-        if (self.highlight and linenum == self.line + 1)
+        if (highlight() and linenum == self.line + 1)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
         pos += 1;
@@ -258,7 +256,7 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
         }
         self.plane.cursor_move_yx(@intCast(pos), 0);
         try self.print_digits(linenum, self.line_number_style);
-        if (self.highlight and linenum == self.line + 1)
+        if (highlight() and linenum == self.line + 1)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
         pos += 1;
@@ -285,7 +283,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
         else
             self.print_digits(val, self.line_number_style) catch {};
 
-        if (self.highlight and linenum == 0)
+        if (highlight() and linenum == 0)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, abs_linenum, theme);
         pos += 1;
@@ -306,7 +304,7 @@ pub fn render_current(self: *Self, theme: *const Widget.Theme) void {
             self.plane.set_style(.{ .fg = theme.editor_gutter_active.fg });
             self.plane.on_styles(styles.bold);
             try self.print_digits(linenum, self.line_number_style);
-            if (self.highlight) self.render_line_highlight(pos, theme);
+            if (highlight()) self.render_line_highlight(pos, theme);
         }
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
         pos += 1;
@@ -333,7 +331,7 @@ pub fn render_multiples_of_n(self: *Self, theme: *const Widget.Theme, n: u32) vo
                 self.plane.off_styles(styles.bold);
             }
             try self.print_digits(linenum, self.line_number_style);
-            if (current_line and self.highlight) self.render_line_highlight(pos, theme);
+            if (current_line and highlight()) self.render_line_highlight(pos, theme);
         }
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
         pos += 1;
@@ -771,3 +769,7 @@ pub fn print_digit(plane: *Plane, n: anytype, style_: DigitStyle) !void {
 }
 
 const get_digit = @import("fonts.zig").get_digit;
+
+fn highlight() bool {
+    return tui.config().highlight_current_line_gutter;
+}

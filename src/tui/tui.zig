@@ -2384,6 +2384,26 @@ const cmds = struct {
     }
     pub const toggle_highlight_columns_meta: Meta = .{ .description = "Toggle highlight columns" };
 
+    pub fn toggle_highlight_current_line(self: *Self, _: Ctx) Result {
+        const editor = self.config_.highlight_current_line;
+        const gutter = self.config_.highlight_current_line_gutter;
+        self.config_.highlight_current_line, self.config_.highlight_current_line_gutter = if (editor and gutter)
+            .{ true, false }
+        else if (editor)
+            .{ false, true }
+        else if (gutter)
+            .{ false, false }
+        else
+            .{ true, true };
+        defer self.logger.print("highlight current line {s}", .{
+            if (self.config_.highlight_current_line)
+                if (self.config_.highlight_current_line_gutter) "enabled" else "editor only"
+            else if (self.config_.highlight_current_line_gutter) "gutter only" else "disabled",
+        });
+        try save_config();
+    }
+    pub const toggle_highlight_current_line_meta: Meta = .{ .description = "Toggle highlight current line" };
+
     pub fn toggle_centered_view(self: *Self, _: Ctx) Result {
         defer self.logger.print("centered view {s}", .{if (self.config_.centered_view) "enabled" else "disabled"});
         self.config_.centered_view = !self.config_.centered_view;
