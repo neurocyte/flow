@@ -3495,6 +3495,13 @@ pub fn query_cache() *syntax.QueryCache {
     return current().query_cache_;
 }
 
+pub fn is_restore_last_cursor_position_excluded(file_path: []const u8) bool {
+    const basename = std.fs.path.basename(file_path);
+    for (config().restore_last_cursor_position_exclusions) |exclusion|
+        if (std.mem.eql(u8, basename, exclusion)) return true;
+    return false;
+}
+
 pub fn config() *const @import("config") {
     return &current().config_;
 }

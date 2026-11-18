@@ -601,7 +601,8 @@ fn diff_update(self: *Self, clear: bool) !void {
         .version = buffer.version(),
     };
     errdefer self.allocator.free(ctx.file_path);
-    const detail: diff.Detail = switch (self.inline_vcs_diff) {
+    const inline_vcs_diff = if (self.editor.inline_vcs_diff() == .none) .none else self.inline_vcs_diff;
+    const detail: diff.Detail = switch (inline_vcs_diff) {
         .none => .lines,
         .words, .words_and_deletions => .words,
     };
@@ -671,7 +672,7 @@ pub fn process_diff(self: *Self, cb: []const u8, version: usize) MessageFilter.E
     var iter = cb;
     self.diff_symbols_clear();
     const buffer = self.editor.buffer orelse return;
-    const current = buffer.version() == version and self.inline_vcs_diff != .none;
+    const current = buffer.version() == version and self.inline_vcs_diff != .none and self.editor.inline_vcs_diff() != .none;
     if (current) self.editor.clear_word_changes();
     var count = try cbor.decodeArrayHeader(&iter);
     while (count > 0) : (count -= 1) {

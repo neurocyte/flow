@@ -1822,7 +1822,7 @@ pub const Editor = struct {
             .with_diffs => self.render_diff_words(theme, root) catch {},
             else => {},
         }
-        if (tui.config().inline_vcs_diff == .words_and_deletions)
+        if (self.inline_vcs_diff() == .words_and_deletions)
             self.render_word_deletions(theme);
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         const pc_row_diag = if (tui.config().inline_diagnostics.show_undercurl())
@@ -1967,7 +1967,14 @@ pub const Editor = struct {
 
     /// the vcs changes that the editor shows as changed lines
     fn vcs_changes(self: *const Self) []const Diff {
-        return if (tui.config().inline_vcs_diff == .none) &.{} else self.changes.items;
+        return if (self.inline_vcs_diff() == .none) &.{} else self.changes.items;
+    }
+
+    /// files excluded from cursor position restore get no inline diff
+    pub fn inline_vcs_diff(self: *const Self) @import("config").InlineVcsDiff {
+        const file_path = self.file_path orelse return .none;
+        if (tui.is_restore_last_cursor_position_excluded(file_path)) return .none;
+        return tui.config().inline_vcs_diff;
     }
 
     /// `changes` are in line order and `idx` keeps the position from one row to the next

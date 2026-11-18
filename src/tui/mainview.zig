@@ -1067,12 +1067,7 @@ const cmds = struct {
         const view = self.get_view_for_file(f);
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
-        const basename = std.fs.path.basename(f);
-        var is_excluded = false;
-        for (tui.config().restore_last_cursor_position_exclusions) |exclusion| if (std.mem.eql(u8, basename, exclusion)) {
-            is_excluded = true;
-            break;
-        };
+        const is_excluded = tui.is_restore_last_cursor_position_excluded(f);
 
         if (is_excluded and view == null and line == null and offset == null and goto_args.len == 0) {
             line = 1;
