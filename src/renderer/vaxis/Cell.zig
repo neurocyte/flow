@@ -56,6 +56,11 @@ pub inline fn set_under_color(self: *Cell, arg_rgb: c_uint) void {
     self.cell.style.ul = vaxis.Cell.Color.rgbFromUint(@intCast(arg_rgb));
 }
 
+pub inline fn set_underline(self: *Cell, arg_rgb: c_uint) void {
+    self.cell.style.ul_style = .single;
+    self.set_under_color(arg_rgb);
+}
+
 inline fn apply_alpha(base_vaxis: vaxis.Cell.Color, over_theme: Color) vaxis.Cell.Color {
     const alpha = over_theme.alpha;
     return if (alpha == 0xFF or base_vaxis != .rgb)
