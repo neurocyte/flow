@@ -990,6 +990,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
         return;
 
+    if (try m.match(.{ "inline_vcs_diff", tp.more })) // drop broadcast messages
+        return;
+
     if (try m.match(.{ "MINI", tp.more })) // drop late mini mode replies
         return;
 
@@ -1806,6 +1809,7 @@ fn reload_config(self: *Self) void {
     const conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(self.allocator, conf_bufs);
     const enable_editorconfig = self.config_.enable_editorconfig;
+    const inline_vcs_diff = self.config_.inline_vcs_diff;
 
     if (!std.mem.eql(u8, conf.theme, self.dark_theme.name))
         self.reload_theme(.dark, conf.theme);
@@ -1831,6 +1835,8 @@ fn reload_config(self: *Self) void {
     }
     if (self.config_.enable_editorconfig != enable_editorconfig)
         self.enable_editorconfig_changed();
+    if (self.config_.inline_vcs_diff != inline_vcs_diff)
+        tp.self_pid().send(.{ "inline_vcs_diff", self.config_.inline_vcs_diff }) catch {};
     self.run_commands("idle", self.config_.idle_commands);
 }
 

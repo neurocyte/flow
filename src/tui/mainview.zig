@@ -2660,6 +2660,19 @@ const cmds = struct {
     }
     pub const toggle_inline_vcs_blame_meta: Meta = .{ .description = "Toggle inline VCS blame info" };
 
+    pub fn toggle_inline_vcs_diff(_: *Self, _: Ctx) Result {
+        const config = tui.config_mut();
+        config.inline_vcs_diff = switch (config.inline_vcs_diff) {
+            .none => .words,
+            .words => .words_and_deletions,
+            .words_and_deletions => .none,
+        };
+        try tui.save_config();
+        try tp.self_pid().send(.{ "inline_vcs_diff", config.inline_vcs_diff });
+        std.log.info("inline diff {t}", .{config.inline_vcs_diff});
+    }
+    pub const toggle_inline_vcs_diff_meta: Meta = .{ .description = "Toggle inline VCS diff" };
+
     pub fn toggle_inline_diagnostics(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
         config.inline_diagnostics = switch (config.inline_diagnostics) {

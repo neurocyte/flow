@@ -10,6 +10,15 @@ pub const LineDiff = EditSet.LineMark;
 pub const LineDiffKind = EditSet.LineMark.Kind;
 
 const Diff = LineDiff;
+pub const LineWords = EditSet.LineWords;
+
+pub const Detail = enum {
+    lines, // just line marks
+    words, // line marks & word diffs
+};
+
+const max_word_diff_budget = 1024 * 1024;
+const max_diff_cost = 400_000_000;
 
 pub fn create() !AsyncDiffer {
     return .{ .pid = try Process.create() };
@@ -26,16 +35,16 @@ pub const AsyncDiffer = struct {
         }
     }
 
-    pub const CallBack = fn (from: tp.pid_ref, data: usize, edits: []Diff) void;
+    pub const CallBack = fn (from: tp.pid_ref, data: usize, edits: []Diff, words: []const LineWords) void;
 
-    pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *Buffer) error{Exit}!bool {
+    pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *Buffer, detail: Detail) error{Exit}!bool {
         const pid = self.pid orelse return false;
         const eol_mode = buffer.file_eol_mode;
         const text_src = (buffer.share_diff_base(eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace())) orelse return false;
         errdefer text_src.release();
         const text_dst = buffer.share_text(eol_mode);
         errdefer text_dst.release();
-        try pid.send(.{ "D", @intFromPtr(cb), cb_data, @intFromPtr(text_dst), @intFromPtr(text_src) });
+        try pid.send(.{ "D", @intFromPtr(cb), cb_data, @intFromPtr(text_dst), @intFromPtr(text_src), detail });
         return true;
     }
 };
@@ -68,42 +77,50 @@ const Process = struct {
         var cb_data: usize = 0;
         var text_dst_ptr: usize = 0;
         var text_src_ptr: usize = 0;
+        var detail: Detail = .lines;
 
-        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&cb_data), tp.extract(&text_dst_ptr), tp.extract(&text_src_ptr) })) blk: {
+        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&cb_data), tp.extract(&text_dst_ptr), tp.extract(&text_src_ptr), tp.extract(&detail) })) blk: {
             const text_dst: *Buffer.SharedText = @ptrFromInt(text_dst_ptr);
             defer text_dst.release();
             const text_src: *Buffer.SharedText = @ptrFromInt(text_src_ptr);
             defer text_src.release();
             const cb_: *AsyncDiffer.CallBack = if (cb == 0) return else @ptrFromInt(cb);
-            break :blk do_diff_async(from, cb_, cb_data, text_dst.text, text_src.text) catch |e| {
-                cb_(from, cb_data, &.{});
+            break :blk do_diff_async(from, cb_, cb_data, text_dst.text, text_src.text, detail) catch |e| {
+                cb_(from, cb_data, &.{}, &.{});
                 break :blk tp.exit_error(e, @errorReturnTrace());
             };
         } else if (try m.match(.{"shutdown"}))
             tp.exit_normal();
     }
 
-    fn do_diff_async(from: tp.pid_ref, cb: *AsyncDiffer.CallBack, cb_data: usize, text_dst: []const u8, text_src: []const u8) !void {
+    fn do_diff_async(from: tp.pid_ref, cb: *AsyncDiffer.CallBack, cb_data: usize, text_dst: []const u8, text_src: []const u8, detail: Detail) !void {
         var arena_ = std.heap.ArenaAllocator.init(allocator);
         defer arena_.deinit();
         const arena = arena_.allocator();
 
-        const edits = try diff(arena, text_dst, text_src);
-        cb(from, cb_data, edits);
+        const result = try diff(arena, text_dst, text_src, detail);
+        cb(from, cb_data, result.edits, result.words);
     }
 };
 
-/// above this estimated cost a diff takes too long and there are no marks
-const max_diff_cost = 400_000_000;
+pub const Result = struct {
+    edits: []Diff = &.{},
+    words: []const LineWords = &.{},
+};
 
-pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) error{OutOfMemory}![]Diff {
+pub fn diff(arena: std.mem.Allocator, dst: []const u8, src: []const u8, detail: Detail) error{OutOfMemory}!Result {
     const frame = tracy.initZone(@src(), .{ .name = "diff" });
     defer frame.deinit();
-    if ((try EditSet.estimate(allocator, src, dst)).cost() > max_diff_cost) return &.{};
-    const blocks = EditSet.line_blocks(allocator, src, dst) catch |e| switch (e) {
+    if ((try EditSet.estimate(arena, src, dst)).cost() > max_diff_cost) return .{};
+    const blocks = EditSet.line_blocks(arena, src, dst) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.InputTooLarge => return &.{},
+        error.InputTooLarge => return .{},
     };
-    defer allocator.free(blocks);
-    return EditSet.line_marks(allocator, blocks);
+    return .{
+        .edits = try EditSet.line_marks(arena, blocks),
+        .words = switch (detail) {
+            .lines => &.{},
+            .words => try EditSet.line_words(arena, src, dst, blocks, max_word_diff_budget),
+        },
+    };
 }

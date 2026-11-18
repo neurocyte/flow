@@ -774,6 +774,63 @@ pub fn line_marks(allocator: std.mem.Allocator, blocks: []const LineBlock) error
     return marks.toOwnedSlice(allocator);
 }
 
+pub const LineWords = struct {
+    line: usize,
+    changes: []const ByteRange,
+    deletions: []const LineDeletion,
+};
+
+pub const LineDeletion = struct {
+    point: usize,
+    text: []const u8,
+};
+
+pub fn line_words(arena: std.mem.Allocator, src: []const u8, dst: []const u8, blocks: []const LineBlock, budget: usize) error{OutOfMemory}![]LineWords {
+    var result: std.ArrayList(LineWords) = .empty;
+    var src_lines: LineIterator = .{ .text = src };
+    var dst_lines: LineIterator = .{ .text = dst };
+    var used: usize = 0;
+    for (blocks) |block| {
+        const modified = @min(block.src_rows, block.dst_rows);
+        if (modified == 0) continue;
+        src_lines.seek(block.src_row);
+        dst_lines.seek(block.dst_row);
+        const pairs = try arena.alloc([2][]const u8, modified);
+        for (pairs) |*pair| {
+            pair.* = .{ src_lines.next(), dst_lines.next() };
+            const size = pair[0].len + pair[1].len;
+            if (size <= max_word_diff_bytes) used += size;
+        }
+        if (used > budget) break;
+        for (pairs, 0..) |pair, i| {
+            const changes = try word_changes(arena, pair[0], pair[1]);
+            const deletions = try arena.alloc(LineDeletion, changes.deletions.len);
+            for (deletions, changes.deletions) |*deletion, d|
+                deletion.* = .{ .point = d.point, .text = pair[0][d.src.begin..d.src.end] };
+            (try result.addOne(arena)).* = .{ .line = block.dst_row + i, .changes = changes.dst, .deletions = deletions };
+        }
+    }
+    return result.items;
+}
+
+const LineIterator = struct {
+    text: []const u8,
+    row: usize = 0,
+    pos: usize = 0,
+
+    fn seek(self: *LineIterator, row: usize) void {
+        while (self.row < row) _ = self.next();
+    }
+
+    fn next(self: *LineIterator) []const u8 {
+        const end = std.mem.indexOfScalarPos(u8, self.text, self.pos, '\n') orelse self.text.len;
+        const line = std.mem.trimEnd(u8, self.text[self.pos..end], "\r");
+        self.pos = @min(end + 1, self.text.len);
+        self.row += 1;
+        return line;
+    }
+};
+
 pub const WordChanges = struct {
     src: []ByteRange,
     dst: []ByteRange,
@@ -1643,4 +1700,58 @@ test "word_changes: a deletion bridged to an insert is no deletion" {
 test "word_changes: lines over the size limit have no deletions" {
     const long: [max_word_diff_bytes + 1]u8 = @splat('x');
     try expect_deletions(&long, "", &.{});
+}
+
+fn expect_line_words(src: []const u8, dst: []const u8, budget: usize, expected: []const LineWords) !void {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const blocks = try line_blocks(arena.allocator(), src, dst);
+    const result = try line_words(arena.allocator(), src, dst, blocks, budget);
+    try testing.expectEqual(expected.len, result.len);
+    for (expected, result) |want, got| {
+        try testing.expectEqual(want.line, got.line);
+        try testing.expectEqualSlices(ByteRange, want.changes, got.changes);
+        try testing.expectEqual(want.deletions.len, got.deletions.len);
+        for (want.deletions, got.deletions) |want_deletion, got_deletion| {
+            try testing.expectEqual(want_deletion.point, got_deletion.point);
+            try testing.expectEqualStrings(want_deletion.text, got_deletion.text);
+        }
+    }
+}
+
+test "line_words: a changed word" {
+    try expect_line_words("a\nold word\nc\n", "a\nnew word\nc\n", 1024, &.{
+        .{ .line = 1, .changes = &.{.{ .begin = 0, .end = 3 }}, .deletions = &.{} },
+    });
+}
+
+test "line_words: a deletion holds the deleted text" {
+    try expect_line_words("keep this\n", "keep\n", 1024, &.{
+        .{ .line = 0, .changes = &.{}, .deletions = &.{.{ .point = 4, .text = " this" }} },
+    });
+}
+
+test "line_words: only the modified lines of a block" {
+    try expect_line_words("x\none a\n", "x\none b\ntwo\n", 1024, &.{
+        .{ .line = 1, .changes = &.{.{ .begin = 4, .end = 5 }}, .deletions = &.{} },
+    });
+}
+
+test "line_words: every modified line has an entry" {
+    try expect_line_words("a b\nsame\n", "a c\nother\n", 1024, &.{
+        .{ .line = 0, .changes = &.{.{ .begin = 2, .end = 3 }}, .deletions = &.{} },
+        .{ .line = 1, .changes = &.{.{ .begin = 0, .end = 5 }}, .deletions = &.{} },
+    });
+}
+
+test "line_words: blocks after the budget have none" {
+    try expect_line_words("a b\nkeep\nc d\n", "a x\nkeep\nc y\n", 6, &.{
+        .{ .line = 0, .changes = &.{.{ .begin = 2, .end = 3 }}, .deletions = &.{} },
+    });
+}
+
+test "line_words: line ends are not part of a line" {
+    try expect_line_words("a b\r\n", "a c\r\n", 1024, &.{
+        .{ .line = 0, .changes = &.{.{ .begin = 2, .end = 3 }}, .deletions = &.{} },
+    });
 }

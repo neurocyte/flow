@@ -516,6 +516,7 @@ pub const Editor = struct {
     } = .{},
 
     changes: std.ArrayList(Diff) = .empty,
+    word_changes: Match.List = .empty,
 
     checked_formatter: bool = false,
     formatter: ?[]const []const u8 = null,
@@ -829,6 +830,7 @@ pub const Editor = struct {
         self.completions.deinit(self.allocator);
         if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
+        self.word_changes.deinit(self.allocator);
         self.clear_event_triggers();
         if (self.syntax) |syn| syn.destroy();
         if (self.syntax_worker) |*worker| worker.deinit();
@@ -860,6 +862,16 @@ pub const Editor = struct {
             self.cursels_saved = try self.cursels.clone(self.allocator);
         }
         return self.buffer orelse error.Stop;
+    }
+
+    pub fn clear_word_changes(self: *Self) void {
+        self.word_changes.clearRetainingCapacity();
+    }
+
+    pub fn add_word_change(self: *Self, row: usize, begin: usize, end: usize) error{OutOfMemory}!void {
+        const root = self.buf_root() catch return;
+        const match: Match = .{ .begin = .{ .row = row, .col = begin }, .end = .{ .row = row, .col = end } };
+        (try self.word_changes.addOne(self.allocator)).* = match.from_pos(root, self.metrics);
     }
 
     pub fn buf_root(self: *const Self) error{Stop}!Buffer.Root {
@@ -1632,6 +1644,9 @@ pub const Editor = struct {
             y: usize = 0,
             x: usize = 0,
             match_idx: usize = 0,
+            word_change_idx: usize = 0,
+            vcs_change_idx: usize = 0,
+            vcs_changes: []const Diff,
             theme: *const Widget.Theme,
             hl_row: ?usize,
             leading: bool = true,
@@ -1685,8 +1700,11 @@ pub const Editor = struct {
                         9 => .tab,
                         else => .character,
                     };
+                    const vcs_changed = is_vcs_changed_row(ctx.vcs_changes, &ctx.vcs_change_idx, ctx.buf_row);
                     if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                         self_.render_line_highlight_cell(ctx.theme, c);
+                    if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, c);
+                    self_.render_word_changes(&ctx.word_change_idx, ctx.theme, c);
                     self_.render_matches(&ctx.match_idx, ctx.theme, c);
                     self_.render_selections(ctx.theme, c);
 
@@ -1711,6 +1729,8 @@ pub const Editor = struct {
                         const c_ = &cell_;
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, c_);
+                        if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, c_);
+                        self_.render_word_changes(&ctx.word_change_idx, ctx.theme, c_);
                         self_.render_matches(&ctx.match_idx, ctx.theme, c_);
                         self_.render_selections(ctx.theme, c_);
                         _ = n.putc(c_) catch {};
@@ -1725,15 +1745,18 @@ pub const Editor = struct {
 
                 if (leaf.eol) {
                     if (ctx.buf_col >= view.col) {
+                        const vcs_changed = is_vcs_changed_row(ctx.vcs_changes, &ctx.vcs_change_idx, ctx.buf_row);
                         var c = ctx.self.render_eol(n);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, &c);
+                        if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, &c);
                         self_.render_matches(&ctx.match_idx, ctx.theme, &c);
                         self_.render_selections(ctx.theme, &c);
                         _ = n.putc(&c) catch {};
                         var term_cell = render_terminator(n, ctx.theme);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, &term_cell);
+                        if (vcs_changed) self_.render_vcs_changed_line_cell(ctx.theme, &term_cell);
                         _ = n.putc(&term_cell) catch {};
                         ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = .eol });
                     }
@@ -1763,6 +1786,7 @@ pub const Editor = struct {
             .theme = theme,
             .hl_row = hl_row,
             .cell_map = CellMap.init(self.allocator, self.draw_rows(), self.draw_cols()) catch @panic("OOM"),
+            .vcs_changes = self.vcs_changes(),
         };
         defer ctx_.cell_map.deinit(self.allocator);
         const root = self.buf_root() catch return;
@@ -1775,6 +1799,7 @@ pub const Editor = struct {
             self.plane.erase();
             if (hl_row) |row|
                 self.render_line_highlight(row, theme) catch {};
+            self.render_vcs_changed_lines(theme);
             self.plane.home();
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.metrics) catch {};
         }
@@ -1904,23 +1929,77 @@ pub const Editor = struct {
         }
     }
 
+    fn render_vcs_changed_lines(self: *Self, theme: *const Widget.Theme) void {
+        const changes = self.vcs_changes();
+        var idx: usize = 0;
+        for (self.view.row..self.view.row + self.draw_rows()) |row| {
+            if (!is_vcs_changed_row(changes, &idx, row)) continue;
+            for (0..self.draw_cols()) |x| {
+                self.plane.cursor_move_yx(@intCast(row - self.view.row), @intCast(x));
+                var cell = self.plane.cell_init();
+                _ = self.plane.at_cursor_cell(&cell) catch return;
+                self.render_vcs_changed_line_cell(theme, &cell);
+                _ = self.plane.putc(&cell) catch {};
+            }
+        }
+    }
+
+    inline fn render_vcs_changed_line_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
+        cell.set_style_bg(theme.diff_editor_inserted_line);
+    }
+
+    /// the vcs changes that the editor shows as changed lines
+    fn vcs_changes(self: *const Self) []const Diff {
+        return if (tui.config().inline_vcs_diff == .none) &.{} else self.changes.items;
+    }
+
+    /// `changes` are in line order and `idx` keeps the position from one row to the next
+    fn is_vcs_changed_row(changes: []const Diff, idx: *usize, row: usize) bool {
+        while (idx.* < changes.len) : (idx.* += 1) {
+            const change = changes[idx.*];
+            if (change.kind == .delete or change.line + change.lines <= row) continue;
+            return change.line <= row;
+        }
+        return false;
+    }
+
+    /// marks the rows from `first_row` that the vcs changes show as changed lines
+    pub fn get_vcs_changed_lines(self: *const Self, first_row: usize, lines: []?DiffLine) void {
+        const changes = self.vcs_changes();
+        var idx: usize = 0;
+        for (lines, first_row..) |*line, row|
+            if (is_vcs_changed_row(changes, &idx, row)) {
+                line.* = .inserted;
+            };
+    }
+
     fn render_matches(self: *const Self, last_idx: *usize, theme: *const Widget.Theme, cell: *Cell) void {
+        if (self.match_at_cell(self.matches.items, last_idx)) |match|
+            self.render_match_cell(theme, cell, match);
+    }
+
+    fn render_word_changes(self: *const Self, last_idx: *usize, theme: *const Widget.Theme, cell: *Cell) void {
+        if (self.match_at_cell(self.word_changes.items, last_idx)) |_|
+            cell.set_style_bg(theme.diff_editor_inserted_text);
+    }
+
+    /// `matches` are in buffer order and `last_idx` keeps the position from one cell to the next
+    fn match_at_cell(self: *const Self, matches: []const ?Match, last_idx: *usize) ?Match {
         var y: i32 = undefined;
         var x: i32 = undefined;
         self.plane.cursor_yx(&y, &x);
-        while (true) {
-            if (last_idx.* >= self.matches.items.len)
-                return;
-            const sel = if (self.matches.items[last_idx.*]) |sel_| sel_ else {
+        while (last_idx.* < matches.len) {
+            const match = matches[last_idx.*] orelse {
                 last_idx.* += 1;
                 continue;
             };
-            if (self.is_point_before_selection(sel, y, x))
-                return;
-            if (self.is_point_in_selection(sel, y, x))
-                return self.render_match_cell(theme, cell, sel);
+            if (self.is_point_before_selection(match, y, x))
+                return null;
+            if (self.is_point_in_selection(match, y, x))
+                return match;
             last_idx.* += 1;
         }
+        return null;
     }
 
     fn render_selections(self: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
@@ -3539,6 +3618,8 @@ pub const Editor = struct {
         nudge_insert_cursels(self.cursels.items, nudge, exclude);
         for (self.matches.items) |*match_| if (match_.*) |*match|
             match.nudge_insert(nudge);
+        for (self.word_changes.items) |*match_| if (match_.*) |*match|
+            match.nudge_insert(nudge);
         for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
             cursel.nudge_insert(nudge);
     }
@@ -3548,6 +3629,10 @@ pub const Editor = struct {
         for (self.matches.items, 0..) |*match_, i| if (match_.*) |*match|
             if (!match.nudge_delete(nudge)) {
                 self.matches.items[i] = null;
+            };
+        for (self.word_changes.items) |*match_| if (match_.*) |*match|
+            if (!match.nudge_delete(nudge)) {
+                match_.* = null;
             };
         outer: for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
             if (!cursel.nudge_delete(nudge)) {

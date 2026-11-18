@@ -24,6 +24,7 @@ const ed = @import("editor.zig");
 const ScrollLayer = @import("ScrollLayer.zig");
 const DigitStyle = @import("config").DigitStyle;
 const LineNumberMode = @import("config").LineNumberMode;
+const InlineVcsDiff = @import("config").InlineVcsDiff;
 
 var width_global: usize = 0;
 
@@ -45,6 +46,7 @@ editor_widget: ?Widget = null,
 indicator_hover: bool = false,
 change_hover: ?Diff = null,
 differ: diff.AsyncDiffer,
+inline_vcs_diff: InlineVcsDiff,
 
 const Self = @This();
 
@@ -62,6 +64,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .width = undefined,
         .editor = editor,
         .differ = try diff.create(),
+        .inline_vcs_diff = tui.config().inline_vcs_diff,
     };
     self.scroll_layer = try ScrollLayer.init(allocator, layer_id);
     self.update_width();
@@ -106,6 +109,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var mods: MouseEvent.Modifiers = .{};
     var line_number_mode: ?LineNumberMode = null;
     var line_number_style: DigitStyle = undefined;
+    var inline_vcs_diff: InlineVcsDiff = undefined;
 
     var hover: bool = false;
 
@@ -139,6 +143,10 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     }
     if (try m.match(.{ "line_number_style", tp.extract(&line_number_style) })) {
         self.line_number_style = line_number_style;
+        return false;
+    }
+    if (try m.match(.{ "inline_vcs_diff", tp.extract(&inline_vcs_diff) })) {
+        self.set_inline_vcs_diff(inline_vcs_diff) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return false;
     }
 
@@ -338,6 +346,7 @@ fn render_diff_line_backgrounds(self: *Self, theme: *const Widget.Theme) void {
     const lines = self.allocator.alloc(?ed.DiffLine, self.view_rows()) catch return;
     defer self.allocator.free(lines);
     self.editor.get_diff_lines(self.view_top, lines);
+    self.editor.get_vcs_changed_lines(self.view_top, lines);
     for (lines, 0..) |line, pos| {
         const line_style = switch (line orelse continue) {
             .inserted => theme.diff_editor_gutter_inserted_line,
@@ -570,9 +579,19 @@ fn mouse_click_button5(self: *Self, mods: MouseEvent.Modifiers) error{Exit}!bool
     return true;
 }
 
+fn set_inline_vcs_diff(self: *Self, value: InlineVcsDiff) !void {
+    if (value == self.inline_vcs_diff) return;
+    const previous = self.inline_vcs_diff;
+    self.inline_vcs_diff = value;
+    tui.need_render(@src());
+    if (value == .none) return self.editor.clear_word_changes();
+    if (previous == .none) return self.diff_update(self.lines == 0);
+}
+
 fn diff_update(self: *Self, clear: bool) !void {
     if (clear or self.lines > root.max_diff_lines) {
         self.diff_symbols_clear();
+        self.editor.clear_word_changes();
         return;
     }
     const buffer = self.editor.buffer orelse return;
@@ -581,14 +600,20 @@ fn diff_update(self: *Self, clear: bool) !void {
     ctx.* = .{
         .allocator = self.allocator,
         .file_path = try self.allocator.dupe(u8, self.editor.file_path orelse ""),
+        .version = buffer.version(),
     };
     errdefer self.allocator.free(ctx.file_path);
-    if (!try self.differ.diff_buffer(diff_result, @intFromPtr(ctx), buffer)) ctx.deinit();
+    const detail: diff.Detail = switch (self.inline_vcs_diff) {
+        .none => .lines,
+        .words, .words_and_deletions => .words,
+    };
+    if (!try self.differ.diff_buffer(diff_result, @intFromPtr(ctx), buffer, detail)) ctx.deinit();
 }
 
 const DiffContext = struct {
     allocator: std.mem.Allocator,
     file_path: []u8,
+    version: usize,
 
     fn deinit(self: *@This()) void {
         self.allocator.free(self.file_path);
@@ -596,39 +621,65 @@ const DiffContext = struct {
     }
 };
 
-fn diff_result(from: tp.pid_ref, data: usize, edits: []Diff) void {
+fn diff_result(from: tp.pid_ref, data: usize, edits: []Diff, words: []const diff.LineWords) void {
     const ctx: *DiffContext = @ptrFromInt(data);
     defer ctx.deinit();
-    diff_result_send(from, ctx, edits) catch |e| @import("log").err(@typeName(Self), "diff", e);
+    diff_result_send(from, ctx, edits, words) catch |e| @import("log").err(@typeName(Self), "diff", e);
 }
 
-fn diff_result_send(from: tp.pid_ref, ctx: *DiffContext, edits: []Diff) !void {
+fn diff_result_send(from: tp.pid_ref, ctx: *DiffContext, edits: []Diff, words: []const diff.LineWords) !void {
     var buf: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
     defer buf.deinit();
-    try cbor.writeArrayHeader(&buf.writer, 3);
-    try cbor.writeValue(&buf.writer, "DIFF");
-    try cbor.writeValue(&buf.writer, ctx.file_path);
-    try cbor.writeArrayHeader(&buf.writer, edits.len);
+    const writer = &buf.writer;
+    try cbor.writeArrayHeader(writer, 4);
+    try cbor.writeValue(writer, "DIFF");
+    try cbor.writeValue(writer, ctx.file_path);
+    try cbor.writeArrayHeader(writer, edits.len);
+    var next_words = words;
     for (edits) |edit| {
-        try cbor.writeArrayHeader(&buf.writer, 3);
-        try cbor.writeValue(&buf.writer, switch (edit.kind) {
+        const edit_words = if (edit.kind == .modify and next_words.len >= edit.lines and next_words[0].line == edit.line)
+            next_words[0..edit.lines]
+        else
+            null;
+        try cbor.writeArrayHeader(writer, if (edit_words == null) 3 else 4);
+        try cbor.writeValue(writer, switch (edit.kind) {
             .insert => "I",
             .modify => "M",
             .delete => "D",
         });
-        try cbor.writeValue(&buf.writer, edit.line);
-        try cbor.writeValue(&buf.writer, edit.lines);
+        try cbor.writeValue(writer, edit.line);
+        try cbor.writeValue(writer, edit.lines);
+        if (edit_words) |line_words| {
+            try write_line_words(writer, line_words);
+            next_words = next_words[edit.lines..];
+        }
     }
+    try cbor.writeValue(writer, ctx.version);
     from.send_raw(tp.message{ .buf = buf.written() }) catch return;
 }
 
-pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
+fn write_line_words(writer: *std.Io.Writer, words: []const diff.LineWords) !void {
+    try cbor.writeArrayHeader(writer, words.len);
+    for (words) |line| {
+        try cbor.writeArrayHeader(writer, 2);
+        try cbor.writeArrayHeader(writer, line.changes.len);
+        for (line.changes) |range| try cbor.writeValue(writer, .{ range.begin, range.end });
+        try cbor.writeArrayHeader(writer, line.deletions.len);
+        for (line.deletions) |deletion| try cbor.writeValue(writer, .{ deletion.point, deletion.text });
+    }
+}
+
+pub fn process_diff(self: *Self, cb: []const u8, version: usize) MessageFilter.Error!void {
     var iter = cb;
     self.diff_symbols_clear();
+    const buffer = self.editor.buffer orelse return;
+    const current = buffer.version() == version and self.inline_vcs_diff != .none;
+    if (current) self.editor.clear_word_changes();
     var count = try cbor.decodeArrayHeader(&iter);
     while (count > 0) : (count -= 1) {
         var line: usize = undefined;
         var lines: usize = undefined;
+        var words: []const u8 = undefined;
         if (try cbor.matchValue(&iter, .{ "I", cbor.extract(&line), cbor.extract(&lines) })) {
             try self.process_edit(.insert, line, lines);
             continue;
@@ -637,9 +688,30 @@ pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
             try self.process_edit(.modify, line, lines);
             continue;
         }
+        if (try cbor.matchValue(&iter, .{ "M", cbor.extract(&line), cbor.extract(&lines), cbor.extract_cbor(&words) })) {
+            try self.process_edit(.modify, line, lines);
+            if (current) try self.process_line_words(line, words);
+            continue;
+        }
         if (try cbor.matchValue(&iter, .{ "D", cbor.extract(&line), cbor.extract(&lines) })) {
             try self.process_edit(.delete, line, lines);
             continue;
+        }
+    }
+}
+
+fn process_line_words(self: *Self, first_line: usize, words: []const u8) !void {
+    var iter = words;
+    const lines = try cbor.decodeArrayHeader(&iter);
+    for (first_line..first_line + lines) |line| {
+        var changes: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, .{ cbor.extract_cbor(&changes), cbor.any })) return;
+        var count = try cbor.decodeArrayHeader(&changes);
+        while (count > 0) : (count -= 1) {
+            var begin: usize = undefined;
+            var end: usize = undefined;
+            if (!try cbor.matchValue(&changes, .{ cbor.extract(&begin), cbor.extract(&end) })) return;
+            try self.editor.add_word_change(line, begin, end);
         }
     }
 }
@@ -651,9 +723,10 @@ fn process_edit(self: *Self, kind: Kind, line: usize, lines: usize) !void {
 pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     var file_path: []const u8 = undefined;
     var cb: []const u8 = undefined;
-    if (cbor.match(m.buf, .{ "DIFF", tp.extract(&file_path), tp.extract_cbor(&cb) }) catch false) {
+    var version: usize = undefined;
+    if (cbor.match(m.buf, .{ "DIFF", tp.extract(&file_path), tp.extract_cbor(&cb), tp.extract(&version) }) catch false) {
         if (std.mem.eql(u8, file_path, self.editor.file_path orelse return false)) {
-            try self.process_diff(cb);
+            try self.process_diff(cb, version);
             tui.need_render(@src());
             return true;
         }
