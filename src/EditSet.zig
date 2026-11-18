@@ -809,13 +809,34 @@ pub fn word_changes(allocator: std.mem.Allocator, src: []const u8, dst: []const 
         var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
         const scratch = try arena.alloc(u32, 4 * (context.src_words.len + context.dst_words.len) + 2);
         try dizzy.Differ(WordContext).diff(arena, &dizzy_edits, @intCast(context.src_words.len), @intCast(context.dst_words.len), scratch, context);
-        for (dizzy_edits.items) |dizzy_edit| {
-            const range = dizzy_edit.range;
-            switch (dizzy_edit.kind) {
-                .equal => {},
+        const edits = dizzy_edits.items;
+        var dst_pos: u32 = 0;
+        var i: usize = 0;
+        while (i < edits.len) {
+            const range = edits[i].range;
+            switch (edits[i].kind) {
+                .equal => {
+                    var end = i + 1;
+                    while (end < edits.len and edits[end].kind == .equal) end += 1;
+                    const bridge = is_space_bridge(context, edits, i, end);
+                    for (edits[i..end]) |edit| {
+                        const len = edit.range.end - edit.range.start;
+                        if (bridge) {
+                            try add_word_range(allocator, &src_ranges, context.src_words[edit.range.start..edit.range.end]);
+                            try add_word_range(allocator, &dst_ranges, context.dst_words[dst_pos .. dst_pos + len]);
+                        }
+                        dst_pos += len;
+                    }
+                    i = end;
+                    continue;
+                },
                 .delete => try add_word_range(allocator, &src_ranges, context.src_words[range.start..range.end]),
-                .insert => try add_word_range(allocator, &dst_ranges, context.dst_words[range.start..range.end]),
+                .insert => {
+                    try add_word_range(allocator, &dst_ranges, context.dst_words[range.start..range.end]);
+                    dst_pos = range.end;
+                },
             }
+            i += 1;
         }
     }
 
@@ -836,6 +857,15 @@ const WordContext = struct {
         return std.mem.eql(u8, self.src[a.begin..a.end], self.dst[b.begin..b.end]);
     }
 };
+
+/// an unchanged run of only spaces between two changes counts as changed
+fn is_space_bridge(context: WordContext, edits: []const dizzy.Edit, begin: usize, end: usize) bool {
+    if (begin == 0 or end == edits.len) return false;
+    for (edits[begin..end]) |edit|
+        for (context.src_words[edit.range.start..edit.range.end]) |word|
+            if (word_class(context.src[word.begin]) != .space) return false;
+    return true;
+}
 
 const WordClass = enum { word, space, other };
 
@@ -1530,4 +1560,8 @@ test "word_changes: multibyte characters stay inside their word" {
 
 test "word_changes: separate changes stay separate" {
     try expect_word_changes("a b c", "x b y", &.{ .{ .begin = 0, .end = 1 }, .{ .begin = 4, .end = 5 } }, &.{ .{ .begin = 0, .end = 1 }, .{ .begin = 4, .end = 5 } });
+}
+
+test "word_changes: spaces between changes count as changed" {
+    try expect_word_changes("a b", "x y", &.{.{ .begin = 0, .end = 3 }}, &.{.{ .begin = 0, .end = 3 }});
 }
