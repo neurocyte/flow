@@ -2,14 +2,12 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const MouseEvent = @import("MouseEvent");
-const log = @import("log");
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
-const logview = @import("../logview.zig");
 const OverlayLine = @import("../OverlayLine.zig");
 
 plane: Plane,
@@ -37,9 +35,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
         .msg = .init(allocator),
         .on_event = event_handler,
     };
-    logview.init(allocator);
     try tui.message_filters().add(MessageFilter.bind(self, receive_log));
-    log.subscribe() catch return error.WidgetInitFailed;
     return Widget.to(self);
 }
 
@@ -51,7 +47,6 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         self.clear_timer = null;
     }
     self.msg.deinit();
-    log.unsubscribe() catch {};
     tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
@@ -126,7 +121,6 @@ fn bar_hidden(self: *Self) bool {
 fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     var clear_msg_num: usize = 0;
     if (try cbor.match(m.buf, .{ "log", tp.more })) {
-        try logview.process_log(m);
         try self.process_log(m);
         return true;
     } else if (try cbor.match(m.buf, .{ "message", tp.more })) {

@@ -29,6 +29,7 @@ const syntax = @import("syntax");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
+const logview = @import("logview.zig");
 pub const Menu = @import("Menu.zig");
 pub const MiniEditor = @import("MiniEditor.zig");
 pub const MenuPopup = @import("mode/overlay/MenuPopup.zig");
@@ -332,6 +333,9 @@ fn init(allocator: Allocator) InitError!*Self {
     instance_ = self;
     defer instance_ = null;
 
+    logview.init(allocator);
+    log.subscribe() catch |e| self.logger.err("log subscribe", e);
+
     if (@hasDecl(renderer, "spawn"))
         self.render_pid = try renderer.spawn(root.get_io(), root.get_init().gpa);
 
@@ -464,6 +468,7 @@ fn deinit_stdio_capture(self: *Self) void {
 }
 
 fn deinit(self: *Self) void {
+    log.unsubscribe() catch {};
     if (self.rc_server) |*rcs| rcs.shutdown();
     if (@TypeOf(self.dbus_client) != void) if (self.dbus_client) |*dbc| {
         dbc.deinit();
@@ -534,7 +539,7 @@ fn deinit(self: *Self) void {
     self.expired_paste_requests.deinit(self.allocator);
     if (builtin.mode == .debug) {
         Widget.deinit_themes(self.allocator);
-        @import("logview.zig").deinit_persistent_buffer();
+        logview.deinit_persistent_buffer();
         @import("Vt.zig").deinit_profile_keybindings();
         if (self.input_mode_outer_) |*m| {
             m.deinit_command = null;
@@ -680,6 +685,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "VT", tp.more }))
         return @import("Vt.zig").Manager.receive_event(from, m) catch |e| self.logger.err("vt", e);
+
+    if (try m.match(.{ "log", tp.more })) {
+        // no error logging to avoid a log loop
+        logview.process_log(m) catch {};
+        _ = self.message_filters_.filter(from, m) catch {};
+        return;
+    }
 
     if (self.message_filters_.filter(from, m) catch |e| return self.logger.err("filter", e))
         return;
@@ -2771,7 +2783,7 @@ const cmds = struct {
         var count: usize = std.math.maxInt(usize);
         if (!(try ctx.args.match(.{}) or try ctx.args.match(.{tp.extract(&count)})))
             return error.InvalidGetLogArgument;
-        const log_entries = @import("logview.zig").entries();
+        const log_entries = logview.entries();
         for (log_entries[log_entries.len -| count..]) |entry|
             try reply.send(.{ "log", entry.time, entry.level, entry.src, MainView.utf8_prefix(entry.msg, MainView.max_text_reply) });
     }
