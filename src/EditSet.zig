@@ -777,10 +777,29 @@ pub fn line_marks(allocator: std.mem.Allocator, blocks: []const LineBlock) error
 pub const WordChanges = struct {
     src: []ByteRange,
     dst: []ByteRange,
+    deletions: []Deletion,
 
     pub fn deinit(self: WordChanges, allocator: std.mem.Allocator) void {
         allocator.free(self.src);
         allocator.free(self.dst);
+        allocator.free(self.deletions);
+    }
+};
+
+pub const Deletion = struct {
+    point: usize,
+    src: ByteRange,
+};
+
+const DeletionGroup = struct {
+    point: usize,
+    src: ?ByteRange = null,
+    has_dst: bool = false,
+
+    fn add_src(self: *DeletionGroup, words: []const ByteRange) void {
+        const begin = words[0].begin;
+        const end = words[words.len - 1].end;
+        self.src = if (self.src) |src| .{ .begin = src.begin, .end = end } else .{ .begin = begin, .end = end };
     }
 };
 
@@ -798,6 +817,8 @@ pub fn word_changes(allocator: std.mem.Allocator, src: []const u8, dst: []const 
     defer src_ranges.deinit(allocator);
     var dst_ranges: std.ArrayList(ByteRange) = .empty;
     defer dst_ranges.deinit(allocator);
+    var deletions: std.ArrayList(Deletion) = .empty;
+    defer deletions.deinit(allocator);
 
     if (src.len + dst.len <= max_word_diff_bytes) {
         const context: WordContext = .{
@@ -811,14 +832,23 @@ pub fn word_changes(allocator: std.mem.Allocator, src: []const u8, dst: []const 
         try dizzy.Differ(WordContext).diff(arena, &dizzy_edits, @intCast(context.src_words.len), @intCast(context.dst_words.len), scratch, context);
         const edits = dizzy_edits.items;
         var dst_pos: u32 = 0;
+        var group: ?DeletionGroup = null;
         var i: usize = 0;
         while (i < edits.len) {
             const range = edits[i].range;
+            if (edits[i].kind != .equal and group == null)
+                group = .{ .point = if (dst_pos < context.dst_words.len) context.dst_words[dst_pos].begin else dst.len };
             switch (edits[i].kind) {
                 .equal => {
                     var end = i + 1;
                     while (end < edits.len and edits[end].kind == .equal) end += 1;
                     const bridge = is_space_bridge(context, edits, i, end);
+                    if (bridge) {
+                        group.?.has_dst = true;
+                    } else {
+                        try add_deletion(allocator, &deletions, group);
+                        group = null;
+                    }
                     for (edits[i..end]) |edit| {
                         const len = edit.range.end - edit.range.start;
                         if (bridge) {
@@ -830,19 +860,32 @@ pub fn word_changes(allocator: std.mem.Allocator, src: []const u8, dst: []const 
                     i = end;
                     continue;
                 },
-                .delete => try add_word_range(allocator, &src_ranges, context.src_words[range.start..range.end]),
+                .delete => {
+                    try add_word_range(allocator, &src_ranges, context.src_words[range.start..range.end]);
+                    group.?.add_src(context.src_words[range.start..range.end]);
+                },
                 .insert => {
                     try add_word_range(allocator, &dst_ranges, context.dst_words[range.start..range.end]);
+                    group.?.has_dst = true;
                     dst_pos = range.end;
                 },
             }
             i += 1;
         }
+        try add_deletion(allocator, &deletions, group);
     }
 
     const src_owned = try src_ranges.toOwnedSlice(allocator);
     errdefer allocator.free(src_owned);
-    return .{ .src = src_owned, .dst = try dst_ranges.toOwnedSlice(allocator) };
+    const dst_owned = try dst_ranges.toOwnedSlice(allocator);
+    errdefer allocator.free(dst_owned);
+    return .{ .src = src_owned, .dst = dst_owned, .deletions = try deletions.toOwnedSlice(allocator) };
+}
+
+fn add_deletion(allocator: std.mem.Allocator, deletions: *std.ArrayList(Deletion), group: ?DeletionGroup) error{OutOfMemory}!void {
+    const g = group orelse return;
+    if (g.has_dst) return;
+    (try deletions.addOne(allocator)).* = .{ .point = g.point, .src = g.src orelse return };
 }
 
 const WordContext = struct {
@@ -1564,4 +1607,40 @@ test "word_changes: separate changes stay separate" {
 
 test "word_changes: spaces between changes count as changed" {
     try expect_word_changes("a b", "x y", &.{.{ .begin = 0, .end = 3 }}, &.{.{ .begin = 0, .end = 3 }});
+}
+
+fn expect_deletions(src: []const u8, dst: []const u8, expected: []const Deletion) !void {
+    const changes = try word_changes(testing.allocator, src, dst);
+    defer changes.deinit(testing.allocator);
+    try testing.expectEqualSlices(Deletion, expected, changes.deletions);
+}
+
+test "word_changes: a deleted word" {
+    try expect_deletions("foo bar baz", "foo baz", &.{.{ .point = 4, .src = .{ .begin = 4, .end = 8 } }});
+}
+
+test "word_changes: a replaced word is no deletion" {
+    try expect_deletions("const a = 1;", "const b = 1;", &.{});
+}
+
+test "word_changes: a deletion at the start of a line" {
+    try expect_deletions("old new", "new", &.{.{ .point = 0, .src = .{ .begin = 0, .end = 4 } }});
+}
+
+test "word_changes: a deletion at the end of a line" {
+    try expect_deletions("keep this", "keep", &.{.{ .point = 4, .src = .{ .begin = 4, .end = 9 } }});
+}
+
+test "word_changes: a deletion next to a replacement" {
+    try expect_deletions("(a Y)", "(X a)", &.{.{ .point = 4, .src = .{ .begin = 2, .end = 4 } }});
+}
+
+test "word_changes: a deletion bridged to an insert is no deletion" {
+    try expect_word_changes(" Y", "X ", &.{.{ .begin = 0, .end = 2 }}, &.{.{ .begin = 0, .end = 2 }});
+    try expect_deletions(" Y", "X ", &.{});
+}
+
+test "word_changes: lines over the size limit have no deletions" {
+    const long: [max_word_diff_bytes + 1]u8 = @splat('x');
+    try expect_deletions(&long, "", &.{});
 }
