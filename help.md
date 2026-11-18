@@ -410,30 +410,58 @@ an editor, but not to files in background tabs.
 
 To disable EditorConfig, set `enable_editorconfig false`.
 
-## Clicks in shell prompts
+## Shell integration
+
+A shell can mark its prompt, its command line and the output of each command
+with OSC 133 escape sequences. Flow Control uses these marks for prompt
+clicks and for the output of the last command. Task terminals always have
+the marks. Fish 4.0 and later sends the marks itself.
+
+Bash and zsh do not mark their prompt. To add the marks to bash, add these
+lines to `~/.bashrc`, after the lines that set `PS1`:
+
+```bash
+PS1='\[\e]133;D;$?\e\\\]\[\e]133;A;cl=line\e\\\]'"$PS1"'\[\e]133;B\e\\\]'
+PS0='\[\e]133;C\e\\\]'
+```
+
+`133;D;$?` marks the end of the output of the previous command, with its
+exit code. It must come first in `PS1`, before anything changes `$?`.
+`133;A` marks the start of the prompt, and `cl=line` asks for arrow keys.
+`133;B` marks the start of the command line. `133;C` in `PS0` marks the
+start of the command output.
+
+To add the same marks to zsh, add these lines to `~/.zshrc`, after the lines
+that set `PS1`:
+
+```zsh
+autoload -Uz add-zsh-hook
+_flow_133_precmd() { print -n "\e]133;D;$?\e\\\e]133;A;cl=line\e\\" }
+_flow_133_preexec() { print -n "\e]133;C\e\\" }
+add-zsh-hook precmd _flow_133_precmd
+add-zsh-hook preexec _flow_133_preexec
+PS1+=$'%{\e]133;B\e\\%}'
+```
+
+### Last command output
+
+`Terminal: Open last command output` opens the output of the last command in
+a scratch buffer. Without `133;D`, the output ends at the next prompt.
+
+### Clicks in shell prompts
 
 In a terminal panel, a left click on the command line of a shell prompt
 moves the shell's cursor to the clicked character. This works only if the
-shell marks its prompt with OSC 133 escape sequences. Fish 4.1 and later
-receives the click and moves its cursor itself. For other shells that mark
-their prompt, Flow Control sends left or right arrow keys. The arrow keys
-only move the cursor inside the current line.
+shell marks its prompt. Fish 4.1 and later receives the click and moves its
+cursor itself. For other shells that mark their prompt, Flow Control sends
+left or right arrow keys. The arrow keys only move the cursor inside the
+current line.
 
 A click with a modifier key, a double click and a drag select text as
 before.
 
-Bash does not mark its prompt. To add the marks, add these lines to
-`~/.bashrc`:
-
-```bash
-PS1='\[\e]133;A;cl=line\e\\\]'"$PS1"'\[\e]133;B\e\\\]'
-PS0='\[\e]133;C\e\\\]'
-```
-
-`133;A` marks the start of the prompt, and `cl=line` asks for arrow keys.
-`133;B` marks the start of the command line. `133;C` in `PS0` marks the
-start of the command output. Without `133;C`, Flow Control does not know
-that a command is running, and a click sends arrow keys to the command.
+Without `133;C`, Flow Control does not know that a command is running, and a
+click sends arrow keys to the command.
 
 These options control prompt clicks:
 
