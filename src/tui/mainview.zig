@@ -2378,6 +2378,39 @@ const cmds = struct {
     }
     pub const get_diagnostics_meta: Meta = .{ .arguments = &.{.integer} };
 
+    /// ["selection", number, text] for each selection of the active
+    /// editor, or editor of the supplied buffer. Long selections (more
+    /// than max_text_reply) are chunked with the same number
+    pub fn get_selection_text(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: Buffer.Id = undefined;
+        const editor = if (try ctx.args.match(.{Buffer.Id.extractCoerce(&id)}))
+            self.get_editor_for_buffer(self.buffer_manager.buffer_from_id(id) orelse return error.BufferNotFound)
+        else if (try ctx.args.match(.{}))
+            self.get_active_editor()
+        else
+            return error.InvalidGetSelectionTextArgument;
+        const ed_ = editor orelse return;
+        var number: usize = 0;
+        var i = ed_.cursels.items.len;
+        while (i > 0) : (i -= 1) {
+            const cursel = ed_.cursels.items[i - 1] orelse continue;
+            number += 1;
+            var sel = cursel.selection orelse continue;
+            sel.normalize();
+            const text = try ed_.get_selection(sel, self.allocator);
+            defer self.allocator.free(text);
+            var rest: []const u8 = text;
+            while (true) {
+                const piece = utf8_prefix(rest, max_text_reply);
+                try reply.send(.{ "selection", number, piece });
+                rest = rest[piece.len..];
+                if (rest.len == 0) break;
+            }
+        }
+    }
+    pub const get_selection_text_meta: Meta = .{ .arguments = &.{.integer} };
+
     const max_text_reply = 16 * 1024;
 
     fn utf8_prefix(text: []const u8, max: usize) []const u8 {
