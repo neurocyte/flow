@@ -1410,6 +1410,14 @@ fn dispatch_paste(self: *Self, event: PasteEvent) !void {
     return paste_to_editor(event.content);
 }
 
+pub const PasteOptions = struct { source_type: PasteEvent.SourceType = .clipboard };
+
+/// generate a queued paste event
+pub fn paste(text: []const u8, opts: PasteOptions) error{Exit}!void {
+    const event: PasteEvent = .{ .source = .internal, .source_type = opts.source_type, .content = text };
+    return event.send(tp.self_pid());
+}
+
 pub fn paste_to_editor(text: []const u8) !void {
     const self = current();
     if (command.get_id("paste") == null) {
