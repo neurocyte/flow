@@ -2764,6 +2764,19 @@ const cmds = struct {
     }
     pub const get_instance_info_meta: Meta = .{};
 
+    /// ["log", time, level, source, message] for the last count entries of the log
+    /// time is in microseconds since the epoch, long messages are truncated
+    pub fn get_log(_: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var count: usize = std.math.maxInt(usize);
+        if (!(try ctx.args.match(.{}) or try ctx.args.match(.{tp.extract(&count)})))
+            return error.InvalidGetLogArgument;
+        const log_entries = @import("logview.zig").entries();
+        for (log_entries[log_entries.len -| count..]) |entry|
+            try reply.send(.{ "log", entry.time, entry.level, entry.src, MainView.utf8_prefix(entry.msg, MainView.max_text_reply) });
+    }
+    pub const get_log_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn get_commands(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
         const hints = if (self.input_mode_) |*mode| mode.keybind_hints else null;

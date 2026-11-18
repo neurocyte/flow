@@ -2430,8 +2430,6 @@ const cmds = struct {
     }
     pub const get_selection_text_meta: Meta = .{ .arguments = &.{.integer} };
 
-    const max_text_reply = 16 * 1024;
-
     /// ["line", number, text] for lines first to last (1-based) of text, without the line ending
     fn send_lines(reply: command.Reply, text: []const u8, first: usize, last: usize) !void {
         var lines = std.mem.splitScalar(u8, text, '\n');
@@ -2447,13 +2445,6 @@ const cmds = struct {
                 if (rest.len == 0) break;
             }
         }
-    }
-
-    fn utf8_prefix(text: []const u8, max: usize) []const u8 {
-        if (text.len <= max) return text;
-        var end = max;
-        while (end > 0 and text[end] & 0xc0 == 0x80) end -= 1;
-        return text[0..if (end == 0) max else end];
     }
 
     /// [line, column, selection] for each cursor, primary cursor first, 1-based
@@ -3734,6 +3725,15 @@ pub fn get_view_count(self: *const Self) usize {
 
 pub fn get_active_editor(self: *Self) ?*ed.Editor {
     return self.get_editor_for_view(self.active_view);
+}
+
+pub const max_text_reply = 16 * 1024;
+
+pub fn utf8_prefix(text: []const u8, max: usize) []const u8 {
+    if (text.len <= max) return text;
+    var end = max;
+    while (end > 0 and text[end] & 0xc0 == 0x80) end -= 1;
+    return text[0..if (end == 0) max else end];
 }
 
 pub fn get_editor_for_view(self: *Self, view_idx: usize) ?*ed.Editor {

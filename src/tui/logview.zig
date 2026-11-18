@@ -37,7 +37,7 @@ var last_count: u64 = 0;
 
 const Self = @This();
 
-const Entry = struct {
+pub const Entry = struct {
     src: []u8,
     msg: []u8,
     time: i64,
@@ -46,7 +46,7 @@ const Entry = struct {
 };
 const Buffer = array_list.Managed(Entry);
 
-const Level = enum {
+pub const Level = enum {
     info,
     err,
 };
@@ -234,6 +234,10 @@ fn append_json(buffer: *Buffer, src: []const u8, m: tp.message) MessageFilter.Er
     var sfa: @import("std").heap.BufferFirstAllocator = .init(&sfa_buf, arena.allocator());
     const msg = try cbor.toJsonAlloc(sfa.allocator(), m.buf);
     try append(buffer, src, msg, .err);
+}
+
+pub fn entries() []const Entry {
+    return if (persistent_buffer) |*p| p.items else &.{};
 }
 
 fn get_buffer() *Buffer {
