@@ -2284,6 +2284,23 @@ const cmds = struct {
     }
     pub const get_terminal_text_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer } };
 
+    /// ["command_output", exit_code, state] for the last command of a terminal (from shell marks)
+    /// then ["line", number, text] for each line of its output
+    /// long lines (more than max_text_reply) are chunked with the same number
+    pub fn get_terminal_output(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: u64 = 0;
+        if (!try ctx.args.match(.{tp.extract(&id)})) return error.InvalidGetTerminalOutputArgument;
+        const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(self.allocator);
+        const range = try vt.extract_last_command_output(self.allocator, &text) orelse return;
+        try reply.send(.{ "command_output", range.exit_code, range.state });
+        const output = std.mem.trimEnd(u8, text.items, "\n");
+        if (output.len > 0) try send_lines(reply, output, 1, std.math.maxInt(usize));
+    }
+    pub const get_terminal_output_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn get_focus(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
         const mode = if (tui.input_mode()) |m| m.mode else "";
