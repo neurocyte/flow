@@ -1382,14 +1382,27 @@ const cmds = struct {
         try self.create_editor(ctx.now);
         var content: std.Io.Writer.Allocating = .init(self.allocator);
         defer content.deinit();
-        try content.writer.writeAll(root.version_info);
-        if (!std.mem.endsWith(u8, root.version_info, "\n")) try content.writer.writeByte('\n');
-        try @import("environment_info.zig").write(self.allocator, &content.writer);
+        try write_version_info(self.allocator, &content.writer);
         try command.executeName("open_scratch_buffer", command.fmt(.{ "version", content.written(), "gitcommit" }));
         tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const open_version_info_meta: Meta = .{ .description = "Version" };
+
+    pub fn get_version_info(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var content: std.Io.Writer.Allocating = .init(self.allocator);
+        defer content.deinit();
+        try write_version_info(self.allocator, &content.writer);
+        try send_lines(reply, std.mem.trimEnd(u8, content.written(), "\n"), 1, std.math.maxInt(usize));
+    }
+    pub const get_version_info_meta: Meta = .{};
+
+    fn write_version_info(allocator: std.mem.Allocator, writer: *std.Io.Writer) !void {
+        try writer.writeAll(root.version_info);
+        if (!std.mem.endsWith(u8, root.version_info, "\n")) try writer.writeByte('\n');
+        try @import("environment_info.zig").write(allocator, writer);
+    }
 
     pub fn open_config(_: *Self, _: Ctx) Result {
         var file_name_buffer: [std.posix.PATH_MAX]u8 = undefined;
