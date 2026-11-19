@@ -3,10 +3,19 @@ Name=Flow Control
 Comment=A programmer's text editor.
 GenericName=Text Editor
 Type=Application
-Keywords=editor;flow
+Keywords=editor;flow;terminal
 Exec=flow-gui %F
 Icon=flow-control
-Type=Application
-Categories=TextEditor;Development;IDE;
+Categories=TextEditor;Development;IDE;TerminalEmulator;
 StartupNotify=false
 Terminal=false
+Actions=terminal;
+X-TerminalArgExec=-e
+X-TerminalArgAppId=--class
+X-TerminalArgTitle=--title
+X-TerminalArgDir=--dir
+X-TerminalArgHold=--wait-after-command
+
+[Desktop Action terminal]
+Name=New Terminal
+Exec=flow-gui --terminal
