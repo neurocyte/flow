@@ -30,6 +30,7 @@ max_ypx: i32 = 8,
 
 event_sink: EventHandler,
 hover: bool = false,
+pointer_over: bool = false,
 active: bool = false,
 hidden: bool = false,
 precise: bool = false,
@@ -82,7 +83,6 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var coord: MouseEvent.Coord = undefined;
     var btn: MouseEvent.Button = .none;
-    const old_hover = self.hover;
 
     if (self.forward_scroll and (try m.match(.{ "scroll", tp.more }) or
         (try m.match(.{ MouseEvent.Type.press, tp.extract(&btn), tp.more }) and is_wheel(btn))))
@@ -105,6 +105,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.more })) {
         self.active = false;
+        self.set_hover(self.pointer_over);
+        tui.need_render(@src());
         return true;
     } else if (try m.match(.{ MouseEvent.Type.drag, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         const cell = coord.to_cell(self.plane.mouse_geometry());
@@ -112,14 +114,19 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.update_max_ypx(cell.yoffset);
         self.drag_to(cell.row, cell.yoffset);
         return true;
-    } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-        tui.rdr().request_mouse_cursor(.default, self.hover);
-        if (old_hover != self.hover)
-            tui.need_render(@src());
+    } else if (try m.match(.{ "H", tp.extract(&self.pointer_over) })) {
+        if (!self.active) self.set_hover(self.pointer_over);
         return true;
     }
 
     return false;
+}
+
+fn set_hover(self: *Self, hover: bool) void {
+    tui.rdr().request_mouse_cursor(.default, hover);
+    if (self.hover == hover) return;
+    self.hover = hover;
+    tui.need_render(@src());
 }
 
 fn is_wheel(btn: MouseEvent.Button) bool {
