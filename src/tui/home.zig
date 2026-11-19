@@ -583,6 +583,9 @@ const cmds = struct {
     }
     pub const goto_prev_diagnostic_meta: Meta = .{};
 
+    pub fn clear_focused_lines(_: *Self, _: Ctx) Result {}
+    pub const clear_focused_lines_meta: Meta = .{};
+
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.move_list_box_selection(.down);
     }
