@@ -3697,30 +3697,49 @@ const cmds = struct {
         self.quit_on_terminal_exit = true;
     }
     pub const start_terminal_mode_meta: Meta = .{};
+
+    pub fn open_terminal_argv(self: *Self, ctx: Ctx) Result {
+        var argv: []const u8 = undefined;
+        var on_exit: TerminalModeExit = undefined;
+        var title: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title) }))
+            return error.InvalidOpenTerminalArgvArgument;
+        const tv = if (try join_argv(self.allocator, argv)) |command_line| blk: {
+            defer self.allocator.free(command_line);
+            const terminal_on_exit: @import("config").TerminalOnExit = if (on_exit == .wait) .hold else tui.config().terminal_on_exit;
+            break :blk try self.run_in_terminal(command.fmt(.{ command_line, terminal_on_exit }));
+        } else try self.run_in_terminal(.empty());
+        if (title.len > 0) if (tv) |v| v.vt.set_title(title);
+    }
+    pub const open_terminal_argv_meta: Meta = .{};
 };
 
 const TerminalModeExit = enum { quit, wait };
 
-fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8, on_exit: TerminalModeExit) !void {
+fn join_argv(allocator: std.mem.Allocator, argv_cbor: []const u8) !?[]u8 {
     var argv: std.ArrayList([]const u8) = .empty;
-    defer argv.deinit(self.allocator);
+    defer argv.deinit(allocator);
     var iter = argv_cbor;
     var len = try cbor.decodeArrayHeader(&iter);
     while (len > 0) : (len -= 1) {
         var arg: []const u8 = undefined;
-        if (!try cbor.matchValue(&iter, cbor.extract(&arg))) return error.InvalidStartTerminalModeArgument;
-        try argv.append(self.allocator, arg);
+        if (!try cbor.matchValue(&iter, cbor.extract(&arg))) return error.InvalidTerminalArgv;
+        try argv.append(allocator, arg);
     }
+    if (argv.items.len == 0) return null;
+    return try Vt.Terminal.command_line.join(allocator, argv.items);
+}
 
+fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8, on_exit: TerminalModeExit) !void {
     var profile = try Vt.Profile.get_default(self.allocator);
     defer profile.deinit(self.allocator);
-    if (argv.items.len > 0) {
-        const command_line = try Vt.Terminal.command_line.join(self.allocator, argv.items);
+    const have_command = if (try join_argv(self.allocator, argv_cbor)) |command_line| blk: {
         self.allocator.free(profile.command);
         profile.command = command_line;
-    }
+        break :blk true;
+    } else false;
     if (on_exit == .wait) profile.on_exit = .hold;
-    if (title.len > 0 or argv.items.len > 0) {
+    if (title.len > 0 or have_command) {
         const name = try self.allocator.dupe(u8, title);
         self.allocator.free(profile.name);
         profile.name = name;

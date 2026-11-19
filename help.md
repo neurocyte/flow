@@ -505,6 +505,13 @@ These options work like the same options of other terminals:
 Terminal mode always opens a new window, and `flow --terminal` starts
 flow-gui.
 
+To run a command in a terminal panel without terminal mode, use
+`-r`/`--run-in-terminal CMD ARGS...`. It works in the TUI and in the GUI. It
+does not maximize the panel, and flow does not quit when the command exits.
+With `--connect`, or from inside a flow terminal, the command runs in a
+panel of that running instance. `-H`/`--hold` and `--title` also work with
+`-r`.
+
 To make flow-gui the default terminal on desktops that use
 `xdg-terminal-exec`, put this line at the top of
 `~/.config/xdg-terminals.list`:

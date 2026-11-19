@@ -108,6 +108,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .syntax_report_timing = "Report syntax highlighting time",
             .exec = "Execute commands",
             .run_command = "Run remaining command line as a command in a terminal",
+            .run_in_terminal = "Run remaining command line in a terminal panel",
             .terminal = "Open a terminal (GUI) window",
             .hold = "Keep terminal window open",
             .wait_after_command = "Same as --hold",
@@ -132,6 +133,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .trace_level = 't',
             .language = 'l',
             .run_command = 'e',
+            .run_in_terminal = 'r',
             .hold = 'H',
             .literal = 'L',
             .scratch = 'S',
@@ -177,6 +179,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         exec: ?[]const u8,
         exec_file: ?[]const u8,
         run_command: bool,
+        run_in_terminal: bool,
         terminal: bool,
         hold: bool,
         wait_after_command: bool,
@@ -227,12 +230,16 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
     const terminal_mode = args.terminal or args.run_command;
     if (args.wait_after_command) args.hold = true;
-    if (args.hold and !terminal_mode) {
-        std.debug.print("--hold needs --terminal or -e/--run-command\n", .{});
+    if (args.run_in_terminal and terminal_mode) {
+        std.debug.print("-r/--run-in-terminal cannot be used with --terminal or -e/--run-command\n", .{});
         exit(1);
     }
-    if (args.title != null and !terminal_mode) {
-        std.debug.print("--title needs --terminal or -e/--run-command\n", .{});
+    if (args.hold and !terminal_mode and !args.run_in_terminal) {
+        std.debug.print("--hold needs --terminal, -e/--run-command or -r/--run-in-terminal\n", .{});
+        exit(1);
+    }
+    if (args.title != null and !terminal_mode and !args.run_in_terminal) {
+        std.debug.print("--title needs --terminal, -e/--run-command or -r/--run-in-terminal\n", .{});
         exit(1);
     }
     if (terminal_mode and args.connect != null) {
@@ -452,7 +459,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     var prev: ?*file_link.Dest = null;
     var line_next: ?usize = null;
     var offset_next: ?usize = null;
-    const link_args: []const []const u8 = if (args.run_command) &.{} else args.positional.trailing;
+    const link_args: []const []const u8 = if (args.run_command or args.run_in_terminal) &.{} else args.positional.trailing;
     for (link_args) |arg| {
         if (arg.len == 0) continue;
 
@@ -526,7 +533,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
 
     if (connect != null and args.project == null and links.items.len == 0 and script == null and
-        !create_buffer and !args.dark and !args.light)
+        !create_buffer and !args.dark and !args.light and !args.run_in_terminal)
     {
         std.debug.print("nothing to do\n", .{});
         exit(1);
@@ -586,6 +593,14 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         const command_argv: []const []const u8 = if (args.run_command) args.positional.trailing else &.{};
         const on_exit: enum { quit, wait } = if (args.hold) .wait else .quit;
         try main_proc.send(.{ "cmd", "start_terminal_mode", .{ command_argv, on_exit, args.title orelse "" } });
+    }
+    if (args.run_in_terminal) {
+        const on_exit: enum { quit, wait } = if (args.hold) .wait else .quit;
+        const run_args = .{ args.positional.trailing, on_exit, args.title orelse "" };
+        if (connect != null)
+            try main_proc.send(.{ "request", "open_terminal_argv", run_args })
+        else
+            try main_proc.send(.{ "cmd", "open_terminal_argv", run_args });
     }
 
     if (args.dark or args.light) {
