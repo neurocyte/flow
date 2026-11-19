@@ -1867,6 +1867,7 @@ fn reload_config(self: *Self) void {
     if (self.config_.inline_vcs_diff != inline_vcs_diff)
         tp.self_pid().send(.{ "inline_vcs_diff", self.config_.inline_vcs_diff }) catch {};
     self.run_commands("idle", self.config_.idle_commands);
+    need_render(@src());
 }
 
 fn config_arena(self: *Self) error{OutOfMemory}!*std.heap.ArenaAllocator {
