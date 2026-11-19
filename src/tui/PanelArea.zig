@@ -383,7 +383,7 @@ pub fn remove(self: *Self, f: Found, focus_mode: RemoveFocus) void {
         self.show();
         self.focus_active();
     };
-    tui.need_render(@src());
+    tui.resize();
 }
 
 pub fn focus_active(self: *Self) void {
