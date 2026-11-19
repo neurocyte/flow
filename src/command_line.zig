@@ -1,9 +1,10 @@
-//! Splitting a command line string into argv.
+//! Splitting a command line string into argv, and joining argv into one.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
 pub const split = if (builtin.os.tag == .windows) splitWindows else splitPosix;
+pub const join = if (builtin.os.tag == .windows) joinWindows else joinPosix;
 
 pub fn free(allocator: std.mem.Allocator, argv: []const []const u8) void {
     for (argv) |arg| allocator.free(arg);
@@ -133,6 +134,69 @@ pub fn splitPosix(allocator: std.mem.Allocator, cmd_line: []const u8) std.mem.Al
     return argv.toOwnedSlice(allocator);
 }
 
+/// Join argv into a command line that splitPosix splits back into the same argv.
+pub fn joinPosix(allocator: std.mem.Allocator, argv: []const []const u8) std.mem.Allocator.Error![]u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    const w = &out.writer;
+    for (argv, 0..) |arg, i| {
+        if (i > 0) w.writeByte(' ') catch return error.OutOfMemory;
+        writeArgPosix(w, arg) catch return error.OutOfMemory;
+    }
+    return out.toOwnedSlice();
+}
+
+fn writeArgPosix(w: *std.Io.Writer, arg: []const u8) std.Io.Writer.Error!void {
+    const plain = arg.len > 0 and for (arg) |c| {
+        if (!isPlainPosix(c)) break false;
+    } else true;
+    if (plain) return w.writeAll(arg);
+    try w.writeByte('\'');
+    for (arg) |c| if (c == '\'') try w.writeAll("'\\''") else try w.writeByte(c);
+    try w.writeByte('\'');
+}
+
+fn isPlainPosix(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or switch (c) {
+        '_', '-', '+', '=', '@', '%', ':', ',', '.', '/' => true,
+        else => false,
+    };
+}
+
+/// Join argv into a command line that splitWindows splits back into the same argv.
+pub fn joinWindows(allocator: std.mem.Allocator, argv: []const []const u8) std.mem.Allocator.Error![]u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    const w = &out.writer;
+    for (argv, 0..) |arg, i| {
+        if (i > 0) w.writeByte(' ') catch return error.OutOfMemory;
+        writeArgWindows(w, arg) catch return error.OutOfMemory;
+    }
+    return out.toOwnedSlice();
+}
+
+fn writeArgWindows(w: *std.Io.Writer, arg: []const u8) std.Io.Writer.Error!void {
+    const plain = arg.len > 0 and std.mem.indexOfAny(u8, arg, " \t\"") == null;
+    if (plain) return w.writeAll(arg);
+    try w.writeByte('"');
+    var slashes: usize = 0;
+    for (arg) |c| switch (c) {
+        '\\' => slashes += 1,
+        '"' => {
+            try w.splatByteAll('\\', slashes * 2 + 1);
+            try w.writeByte('"');
+            slashes = 0;
+        },
+        else => {
+            try w.splatByteAll('\\', slashes);
+            try w.writeByte(c);
+            slashes = 0;
+        },
+    };
+    try w.splatByteAll('\\', slashes * 2);
+    try w.writeByte('"');
+}
+
 fn freeList(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8)) void {
     for (list.items) |arg| allocator.free(arg);
     list.deinit(allocator);
@@ -229,4 +293,42 @@ test "posix: empty input and quoted empty argument" {
     try expectSplit(splitPosix, "", &.{});
     try expectSplit(splitPosix, "   ", &.{});
     try expectSplit(splitPosix, "a '' b", &.{ "a", "", "b" });
+}
+
+fn expectRoundTrip(
+    comptime joinFn: fn (std.mem.Allocator, []const []const u8) std.mem.Allocator.Error![]u8,
+    comptime splitFn: fn (std.mem.Allocator, []const u8) std.mem.Allocator.Error![][]const u8,
+    argv: []const []const u8,
+) !void {
+    const cmd_line = try joinFn(std.testing.allocator, argv);
+    defer std.testing.allocator.free(cmd_line);
+    try expectSplit(splitFn, cmd_line, argv);
+}
+
+const round_trip_cases: []const []const []const u8 = &.{
+    &.{"htop"},
+    &.{ "htop", "-d", "5" },
+    &.{ "sh", "-c", "echo \"$HOME\" 'x' `pwd`" },
+    &.{ "a b", "c\td", "" },
+    &.{ "it's", "\"", "\\", "a\\", "a\\\"b", "\\\\\"" },
+    &.{ "C:\\Program Files\\x.exe", "/k", "dir \"C:\\\"" },
+    &.{ "*.zig", "~", "a;b", "a|b", "a&b", "(x)", "!x", "#x" },
+    &.{"line\nbreak"},
+};
+
+test "posix: join round trip" {
+    for (round_trip_cases) |argv| try expectRoundTrip(joinPosix, splitPosix, argv);
+}
+
+test "windows: join round trip" {
+    for (round_trip_cases) |argv| try expectRoundTrip(joinWindows, splitWindows, argv);
+}
+
+test "join leaves plain arguments unquoted" {
+    const posix = try joinPosix(std.testing.allocator, &.{ "htop", "-d", "5", "/usr/bin/x" });
+    defer std.testing.allocator.free(posix);
+    try std.testing.expectEqualStrings("htop -d 5 /usr/bin/x", posix);
+    const windows = try joinWindows(std.testing.allocator, &.{ "C:\\x.exe", "/k" });
+    defer std.testing.allocator.free(windows);
+    try std.testing.expectEqualStrings("C:\\x.exe /k", windows);
 }

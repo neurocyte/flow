@@ -106,6 +106,9 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .no_syntax = "Disable syntax highlighting",
             .syntax_report_timing = "Report syntax highlighting time",
             .exec = "Execute commands",
+            .run_command = "Run remaining command line as a command in a terminal",
+            .terminal = "Open a terminal (GUI) window",
+            .wait_after_command = "Keep terminal window open",
             .exec_file = "Execute commands from a file",
             .literal = "Disable :LINE and +LINE syntax",
             .scratch = "Open a scratch (temporary) buffer on start",
@@ -125,7 +128,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .frame_rate = 'f',
             .trace_level = 't',
             .language = 'l',
-            .exec = 'e',
+            .run_command = 'e',
             .literal = 'L',
             .scratch = 'S',
             .new_file = 'n',
@@ -168,6 +171,9 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         syntax_report_timing: bool,
         exec: ?[]const u8,
         exec_file: ?[]const u8,
+        run_command: bool,
+        terminal: bool,
+        wait_after_command: bool,
         literal: bool,
         scratch: bool,
         new_file: bool,
@@ -205,8 +211,18 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         std.debug.print("--exec and --exec-file cannot be used together\n", .{});
         exit(1);
     }
+    const terminal_mode = args.terminal or args.run_command;
+    if (args.wait_after_command and !terminal_mode) {
+        std.debug.print("--wait-after-command needs --terminal or -e/--run-command\n", .{});
+        exit(1);
+    }
+    if (terminal_mode and args.connect != null) {
+        std.debug.print("--terminal and --connect cannot be used together\n", .{});
+        exit(1);
+    }
+    if (terminal_mode) args.connect = "disable";
     if (args.no_connect) {
-        if (args.connect != null) {
+        if (args.connect != null and !terminal_mode) {
             std.debug.print("--connect and --no-connect cannot be used together\n", .{});
             exit(1);
         }
@@ -269,7 +285,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         return 0;
     }
 
-    if (!build_options.gui and args.gui)
+    if (!build_options.gui and (args.gui or terminal_mode))
         launch_gui();
 
     if (init.environ_map.get("JITDEBUG")) |_| crash.set_jit_debugger(true);
@@ -417,7 +433,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     var prev: ?*file_link.Dest = null;
     var line_next: ?usize = null;
     var offset_next: ?usize = null;
-    for (args.positional.trailing) |arg| {
+    const link_args: []const []const u8 = if (args.run_command) &.{} else args.positional.trailing;
+    for (link_args) |arg| {
         if (arg.len == 0) continue;
 
         if (!args.literal and arg[0] == '+') {
@@ -545,6 +562,11 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         if (!have_project)
             try main_proc.send(.{ "cmd", "open_project_cwd" });
         try main_proc.send(.{ "cmd", "show_home" });
+    }
+    if (terminal_mode) {
+        const command_argv: []const []const u8 = if (args.run_command) args.positional.trailing else &.{};
+        const on_exit: enum { quit, wait } = if (args.wait_after_command) .wait else .quit;
+        try main_proc.send(.{ "cmd", "start_terminal_mode", .{ command_argv, on_exit } });
     }
 
     if (args.dark or args.light) {

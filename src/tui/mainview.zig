@@ -3670,7 +3670,48 @@ const cmds = struct {
         self.quit_on_document_close = true;
     }
     pub const enable_quit_on_document_close_meta: Meta = .{};
+
+    pub fn start_terminal_mode(self: *Self, ctx: Ctx) Result {
+        var argv: []const u8 = undefined;
+        var on_exit: TerminalModeExit = undefined;
+        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit) }))
+            return error.InvalidStartTerminalModeArgument;
+        if (!conpty_downloader.allow_new_terminal()) return;
+        self.start_terminal_mode_terminal(argv) catch |e| {
+            std.log.err("terminal mode: cannot start the terminal: {t}", .{e});
+            self.block_quit_render();
+            command.executeName("quit_confirmed", .empty()) catch {};
+            return;
+        };
+        if (on_exit == .quit) self.quit_on_terminal_exit = true;
+    }
+    pub const start_terminal_mode_meta: Meta = .{};
 };
+
+const TerminalModeExit = enum { quit, wait };
+
+fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8) !void {
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(self.allocator);
+    var iter = argv_cbor;
+    var len = try cbor.decodeArrayHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var arg: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, cbor.extract(&arg))) return error.InvalidStartTerminalModeArgument;
+        try argv.append(self.allocator, arg);
+    }
+
+    var profile = try Vt.Profile.get_default(self.allocator);
+    defer profile.deinit(self.allocator);
+    if (argv.items.len > 0) {
+        const command_line = try Vt.Terminal.command_line.join(self.allocator, argv.items);
+        self.allocator.free(profile.command);
+        profile.command = command_line;
+    }
+    const vt = try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
+    _ = try self.open_terminal_panel(vt, .{ .focus = true });
+    self.bottom_area.set_maximized(true);
+}
 
 fn no_lsp_error() void {
     const logger = log.logger("editor");
