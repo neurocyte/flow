@@ -6,6 +6,7 @@ const optimize_deps: std.lang.Optimize = .fast;
 const ShaderLang = enum { glsl410, hlsl5 };
 var shader_sources_updated: std.EnumSet(ShaderLang) = .empty;
 var crlf2lf_tool: ?*std.Build.Step.Compile = null;
+var lint_fmt_step: ?*std.Build.Step = null;
 
 pub const Renderer = enum { terminal, gui };
 
@@ -741,6 +742,7 @@ pub fn build_exe(
                         const update = b.addUpdateSourceFiles();
                         update.addCopyFileToSource(normalized, shader_source);
                         b.getInstallStep().dependOn(&update.step);
+                        lint_fmt(b, lint_step).dependOn(&update.step);
                     }
                     break :shader normalized;
                 } else b.path(shader_source);
@@ -1861,6 +1863,12 @@ pub fn build_exe(
     test_step.dependOn(&richdoc_test_run_cmd.step);
     if (stdio_capture_test_run_cmd) |cmd| test_step.dependOn(&cmd.step);
 
+    _ = lint_fmt(b, lint_step);
+    b.default_step.dependOn(lint_step);
+}
+
+fn lint_fmt(b: *std.Build, lint_step: *std.Build.Step) *std.Build.Step {
+    if (lint_fmt_step) |step| return step;
     const lints = b.addFmt(.{
         .paths = &.{ b.path("src"), b.path("test"), b.path("build.zig") },
         .exclude_paths = &.{
@@ -1869,9 +1877,9 @@ pub fn build_exe(
         },
         .check = true,
     });
-
     lint_step.dependOn(&lints.step);
-    b.default_step.dependOn(lint_step);
+    lint_fmt_step = &lints.step;
+    return &lints.step;
 }
 
 fn git(b: *std.Build, argv: []const []const u8) ?[]const u8 {
