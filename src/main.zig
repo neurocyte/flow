@@ -73,6 +73,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
 
         pub const descriptions = .{
             .project = "Set project directory (default: cwd)",
+            .dir = "Set project directory (same as --project)",
             .no_persist = "Do not persist new projects",
             .frame_rate = "Set target frame rate (default: 60)",
             .debug_wait = "Wait for key press before starting UI",
@@ -109,6 +110,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .run_command = "Run remaining command line as a command in a terminal",
             .terminal = "Open a terminal (GUI) window",
             .wait_after_command = "Keep terminal window open",
+            .title = "Set the initial terminal window title",
             .exec_file = "Execute commands from a file",
             .literal = "Disable :LINE and +LINE syntax",
             .scratch = "Open a scratch (temporary) buffer on start",
@@ -137,6 +139,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         };
 
         project: ?[]const u8,
+        dir: ?[]const u8,
         no_persist: bool,
         frame_rate: ?usize,
         debug_wait: bool,
@@ -174,6 +177,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         run_command: bool,
         terminal: bool,
         wait_after_command: bool,
+        title: ?[]const u8,
         literal: bool,
         scratch: bool,
         new_file: bool,
@@ -211,9 +215,20 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         std.debug.print("--exec and --exec-file cannot be used together\n", .{});
         exit(1);
     }
+    if (args.dir) |dir| {
+        if (args.project != null) {
+            std.debug.print("--project and --dir cannot be used together\n", .{});
+            exit(1);
+        }
+        args.project = dir;
+    }
     const terminal_mode = args.terminal or args.run_command;
     if (args.wait_after_command and !terminal_mode) {
         std.debug.print("--wait-after-command needs --terminal or -e/--run-command\n", .{});
+        exit(1);
+    }
+    if (args.title != null and !terminal_mode) {
+        std.debug.print("--title needs --terminal or -e/--run-command\n", .{});
         exit(1);
     }
     if (terminal_mode and args.connect != null) {
@@ -566,7 +581,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     if (terminal_mode) {
         const command_argv: []const []const u8 = if (args.run_command) args.positional.trailing else &.{};
         const on_exit: enum { quit, wait } = if (args.wait_after_command) .wait else .quit;
-        try main_proc.send(.{ "cmd", "start_terminal_mode", .{ command_argv, on_exit } });
+        try main_proc.send(.{ "cmd", "start_terminal_mode", .{ command_argv, on_exit, args.title orelse "" } });
     }
 
     if (args.dark or args.light) {

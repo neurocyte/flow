@@ -3674,10 +3674,11 @@ const cmds = struct {
     pub fn start_terminal_mode(self: *Self, ctx: Ctx) Result {
         var argv: []const u8 = undefined;
         var on_exit: TerminalModeExit = undefined;
-        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit) }))
+        var title: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title) }))
             return error.InvalidStartTerminalModeArgument;
         if (!conpty_downloader.allow_new_terminal()) return;
-        self.start_terminal_mode_terminal(argv) catch |e| {
+        self.start_terminal_mode_terminal(argv, title) catch |e| {
             std.log.err("terminal mode: cannot start the terminal: {t}", .{e});
             self.block_quit_render();
             command.executeName("quit_confirmed", .empty()) catch {};
@@ -3690,7 +3691,7 @@ const cmds = struct {
 
 const TerminalModeExit = enum { quit, wait };
 
-fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8) !void {
+fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8) !void {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(self.allocator);
     var iter = argv_cbor;
@@ -3707,6 +3708,11 @@ fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8) !void {
         const command_line = try Vt.Terminal.command_line.join(self.allocator, argv.items);
         self.allocator.free(profile.command);
         profile.command = command_line;
+    }
+    if (title.len > 0 or argv.items.len > 0) {
+        const name = try self.allocator.dupe(u8, title);
+        self.allocator.free(profile.name);
+        profile.name = name;
     }
     const vt = try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
     _ = try self.open_terminal_panel(vt, .{ .focus = true });
