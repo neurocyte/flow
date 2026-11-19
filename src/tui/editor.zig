@@ -2151,7 +2151,7 @@ pub const Editor = struct {
         while (space_begin > 0) : (space_begin -= 1)
             if (cell_map.get_yx(pos.row, space_begin).cell_type != .empty) break;
         if (screen_width > min_diagnostic_view_len and space_begin < screen_width - min_diagnostic_view_len)
-            self.render_diagnostic_message(diag.message, pos.row, screen_width - space_begin, style);
+            self.render_diagnostic_message(diag.message, pos.row, screen_width - space_begin - 1, style);
     }
 
     fn render_diagnostic_message(self: *Self, message_: []const u8, y: usize, max_space: usize, style: Widget.Theme.Style) void {
@@ -2159,10 +2159,10 @@ pub const Editor = struct {
         var iter = std.mem.splitScalar(u8, message_, '\n');
         if (iter.next()) |message| {
             switch (tui.config().inline_diagnostics_alignment) {
-                .right => _ = self.plane.print_aligned_right(@intCast(y), " • {s}", .{message[0..@min(max_space - 3, message.len)]}) catch {},
+                .right => _ = self.plane.print_aligned_right(@intCast(y), " • {s}", .{message[0..@min(max_space - 4, message.len)]}) catch {},
                 .left => {
                     const width = self.plane.window.width;
-                    self.plane.cursor_move_yx(@intCast(y), @intCast(width -| max_space + 2));
+                    self.plane.cursor_move_yx(@intCast(y), @intCast(width -| max_space + 1));
                     _ = self.plane.print(" • {s}", .{message}) catch 0;
                 },
             }
