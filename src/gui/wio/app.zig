@@ -364,11 +364,14 @@ pub fn updateScreen(
     screen_mutex.lockUncancelable(io);
     defer screen_mutex.unlock(io);
 
-    if (screen_snap) |*old| freeScreenSnapshot(allocator, old);
-    screen_snap = .{
+    var snap: ScreenSnapshot = .{
         .layers = snapshot_layers,
         .targets = snapshot_targets,
     };
+    if (render_shutdown_done.load(.acquire)) return freeScreenSnapshot(allocator, &snap);
+
+    if (screen_snap) |*old| freeScreenSnapshot(allocator, old);
+    screen_snap = snap;
 
     screen_pending.store(true, .release);
     if (render_pid) |*rp| rp.send(.{ "tick", @as(usize, 0) }) catch {};
@@ -2102,6 +2105,11 @@ pub fn renderActorShutdown() void {
         sg.shutdown();
         render_ctx = null;
     }
+    const io = root.get_io();
+    screen_mutex.lockUncancelable(io);
+    defer screen_mutex.unlock(io);
+    if (screen_snap) |*snap| freeScreenSnapshot(root.get_init().gpa, snap);
+    screen_snap = null;
     render_shutdown_done.store(true, .release);
 }
 
