@@ -1836,6 +1836,7 @@ pub const Editor = struct {
         }
         if (self.inline_vcs_diff() != .none and tui.config().inline_vcs_diff_show_deletions)
             self.render_word_deletions(theme);
+        self.render_cursors(ctx_.cell_map, focused) catch {};
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         const pc_row_diag = if (tui.config().inline_diagnostics.show_undercurl())
             self.render_diagnostics(theme, pc_row, hl_row, ctx_.cell_map)
@@ -1845,7 +1846,6 @@ pub const Editor = struct {
             self.render_blame(theme, hl_row, ctx_.cell_map, now) catch {};
         self.render_column_highlights() catch {};
         self.render_jump_labels(theme);
-        self.render_cursors(ctx_.cell_map, focused) catch {};
         self.render_file_link_highlight(theme);
     }
 
