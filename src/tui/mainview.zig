@@ -3694,7 +3694,7 @@ const cmds = struct {
             tui.post_on_ui_ready(.{ "cmd", "quit_confirmed" });
             return;
         };
-        if (on_exit == .quit) self.quit_on_terminal_exit = true;
+        self.quit_on_terminal_exit = true;
     }
     pub const start_terminal_mode_meta: Meta = .{};
 };
