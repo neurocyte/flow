@@ -20,6 +20,7 @@ const module_name = @typeName(Self);
 const widget_type: Widget.Type = .menu;
 const submenu_hint = "▸";
 const icon_column = 3;
+const hover_delay_ms = 200;
 
 allocator: std.mem.Allocator,
 mode: keybind.Mode,
@@ -30,6 +31,10 @@ closed: std.ArrayList(Closed) = .empty,
 logger: log.Logger,
 owner: ?Owner,
 hints: ?*const tui.KeybindHints,
+hover_target: ?ItemRef = null,
+hover_timer: ?tp.timeout = null,
+
+const ItemRef = struct { level_idx: usize, pos: usize };
 
 pub const Owner = struct {
     ctx: *anyopaque,
@@ -98,6 +103,7 @@ pub fn create(allocator: std.mem.Allocator, menu: *const Menu, anchor: Anchor, o
 
 pub fn deinit(self: *Self) void {
     tui.input_listeners().remove_ptr(self);
+    self.cancel_hover_timer();
     self.commands.deinit();
     while (self.levels.items.len > 0) self.close_level();
     self.levels.deinit(self.allocator);
@@ -133,6 +139,7 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
     level.* = .{
         .popup = self,
         .menu = menu,
+        .source = menu,
         .layer = layer,
         .label = menu.label,
         .list_box = try ListBox.create(*Level, self.allocator, layer.inner_plane(), .{
@@ -156,6 +163,9 @@ fn open_level(self: *Self, menu: *const Menu, anchor: Anchor) !void {
 
 fn close_level(self: *Self) void {
     const level = self.levels.pop() orelse return;
+    if (self.hover_target) |target| if (target.level_idx >= self.levels.items.len) {
+        self.hover_target = null;
+    };
     if (tui.mainview()) |mv| mv.floating_views.remove(level.layer.widget());
     level.items.deinit(self.allocator);
     self.allocator.destroy(level);
@@ -163,7 +173,7 @@ fn close_level(self: *Self) void {
 
 fn close_submenu(self: *Self) void {
     const level = self.top();
-    self.closed.append(self.allocator, .{ .menu = level.menu, .selected = level.list_box.selected }) catch {};
+    self.closed.append(self.allocator, .{ .menu = level.source, .selected = level.list_box.selected }) catch {};
     self.close_level();
 }
 
@@ -203,6 +213,43 @@ fn open_submenu(self: *Self, level_idx: usize) !void {
         .offset_px = level.offset_px,
         .flip_offset_px = level.offset_px,
     });
+}
+
+fn cancel_hover_timer(self: *Self) void {
+    if (self.hover_timer) |*timer| {
+        timer.cancel() catch {};
+        timer.deinit();
+    }
+    self.hover_timer = null;
+}
+
+fn on_hover(self: *Self, target: ItemRef) void {
+    if (self.hover_target) |current| if (std.meta.eql(current, target)) return;
+    self.hover_target = target;
+    self.cancel_hover_timer();
+    self.hover_timer = tp.timeout.init_ms(hover_delay_ms, tp.message.fmt(.{
+        "cmd", "menu_hover_item", .{ target.level_idx, target.pos },
+    })) catch |e| return self.logger.err("hover", e);
+}
+
+fn hover_open(self: *Self, level_idx: usize, pos: usize) !void {
+    if (level_idx >= self.levels.items.len) return;
+    const level = self.levels.items[level_idx];
+    if (pos >= level.items.items.len) return;
+    switch (level.items.items[pos].*) {
+        .separator => {},
+        .command => {
+            level.list_box.selected = pos;
+            self.close_levels_above(level_idx);
+        },
+        .submenu => |submenu| {
+            level.list_box.selected = pos;
+            if (self.levels.items.len > level_idx + 1 and self.levels.items[level_idx + 1].source == submenu) return;
+            self.closed.clearRetainingCapacity();
+            try self.open_submenu(level_idx);
+            self.top().list_box.selected = null;
+        },
+    }
 }
 
 fn activate(self: *Self, level_idx: usize, pos: usize) !void {
@@ -245,6 +292,7 @@ fn get_hint(hints: ?*const tui.KeybindHints, cmd: *const Menu.Command) []const u
 const Level = struct {
     popup: *Self,
     menu: *const Menu,
+    source: *const Menu,
     layer: *tui.WidgetLayerBox,
     list_box: *ListBox.State(*Level),
     anchor: Anchor,
@@ -457,6 +505,7 @@ const Level = struct {
             },
             .submenu => |submenu| .{ submenu.label, null, submenu_hint },
         };
+        if (button.hover) self.popup.on_hover(.{ .level_idx = self.index(), .pos = pos });
         const style_label_ = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
         const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label_;
         const disabled = switch (self.items.items[pos].*) {
@@ -539,6 +588,17 @@ const cmds = struct {
     }
     pub const menu_activate_item_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 
+    pub fn menu_hover_item(self: *Self, ctx: Ctx) Result {
+        var level_idx: usize = 0;
+        var pos: usize = 0;
+        if (!try ctx.args.match(.{ tp.extract(&level_idx), tp.extract(&pos) }))
+            return error.InvalidMenuHoverItemArgument;
+        self.cancel_hover_timer();
+        try self.hover_open(level_idx, pos);
+        tui.need_render(@src());
+    }
+    pub const menu_hover_item_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
     pub fn menu_cancel(self: *Self, _: Ctx) Result {
         if (self.levels.items.len > 1)
             self.close_submenu()
@@ -554,6 +614,9 @@ const cmds = struct {
             return error.InvalidMenuUpdateArgument;
         for (self.levels.items, 0..) |level, level_idx| if (@intFromPtr(level.menu) == from) {
             self.close_levels_above(level_idx);
+            if (self.hover_target) |target| if (target.level_idx >= level_idx) {
+                self.hover_target = null;
+            };
             try level.set_menu(@ptrFromInt(to));
             level.resize();
             return;
