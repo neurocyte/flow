@@ -2718,8 +2718,7 @@ const cmds = struct {
         const config = tui.config_mut();
         config.inline_vcs_diff = switch (config.inline_vcs_diff) {
             .none => .words,
-            .words => .words_and_deletions,
-            .words_and_deletions => .none,
+            .words => .none,
         };
         try tui.save_config();
         try tp.self_pid().send(.{ "inline_vcs_diff", config.inline_vcs_diff });

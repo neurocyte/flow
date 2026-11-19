@@ -47,7 +47,8 @@ inline_diagnostics_alignment: Alignment = .right,
 inline_vcs_blame: bool = false,
 inline_vcs_blame_alignment: Alignment = .right,
 inline_vcs_blame_age: AgeFormat = .short,
-inline_vcs_diff: InlineVcsDiff = .words_and_deletions,
+inline_vcs_diff: InlineVcsDiff = .words,
+inline_vcs_diff_show_deletions: bool = true,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 300, //milliseconds
 scroll_motion: ScrollMotion = .pixels,
@@ -433,7 +434,6 @@ pub const AgeFormat = enum {
 pub const InlineVcsDiff = enum {
     none,
     words,
-    words_and_deletions,
 };
 
 pub const TerminalOnExit = enum {

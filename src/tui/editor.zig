@@ -1834,7 +1834,7 @@ pub const Editor = struct {
             .with_diffs => self.render_diff_words(theme, root) catch {},
             else => {},
         }
-        if (self.inline_vcs_diff() == .words_and_deletions)
+        if (self.inline_vcs_diff() != .none and tui.config().inline_vcs_diff_show_deletions)
             self.render_word_deletions(theme);
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         const pc_row_diag = if (tui.config().inline_diagnostics.show_undercurl())

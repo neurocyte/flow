@@ -621,7 +621,7 @@ fn diff_update(self: *Self, clear: bool) !void {
     const inline_vcs_diff = if (self.editor.inline_vcs_diff() == .none) .none else self.inline_vcs_diff;
     const detail: diff.Detail = switch (inline_vcs_diff) {
         .none => .lines,
-        .words, .words_and_deletions => .words,
+        .words => .words,
     };
     if (!try self.differ.diff_buffer(diff_result, @intFromPtr(ctx), buffer, detail)) ctx.deinit();
 }
