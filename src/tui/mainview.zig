@@ -345,7 +345,7 @@ fn quit_if_idle(self: *Self) bool {
     if (self.buffer_manager.has_any_non_hidden_buffers()) return false;
     if (Vt.Manager.any_terminals()) return false;
     self.block_quit_render();
-    command.executeName("quit_confirmed", .empty()) catch {};
+    tui.post_on_ui_ready(.{ "cmd", "quit_confirmed" });
     return true;
 }
 
@@ -3691,7 +3691,7 @@ const cmds = struct {
         self.start_terminal_mode_terminal(argv, title) catch |e| {
             std.log.err("terminal mode: cannot start the terminal: {t}", .{e});
             self.block_quit_render();
-            command.executeName("quit_confirmed", .empty()) catch {};
+            tui.post_on_ui_ready(.{ "cmd", "quit_confirmed" });
             return;
         };
         if (on_exit == .quit) self.quit_on_terminal_exit = true;
