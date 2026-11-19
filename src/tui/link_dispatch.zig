@@ -147,7 +147,7 @@ fn suffix_number(path: []const u8) ?struct { path: []const u8, number: usize } {
 
 fn is_markdown(path: []const u8) bool {
     const ext = std.fs.path.extension(path);
-    return std.ascii.eqlIgnoreCase(ext, ".md") or std.ascii.eqlIgnoreCase(ext, ".markdown");
+    return std.ascii.eqlIgnoreCase(ext, ".md") or std.ascii.eqlIgnoreCase(ext, ".markdown") or std.ascii.eqlIgnoreCase(ext, ".smd");
 }
 
 fn starts_with_ignore_case(text: []const u8, prefix: []const u8) bool {

@@ -4657,7 +4657,8 @@ fn preview_anchor(editor: *ed.Editor, buffer: *const Buffer) info_view.SourceAnc
 }
 
 fn is_markdown(buffer: *const Buffer) bool {
-    return std.mem.eql(u8, buffer.file_type_name orelse return false, "markdown");
+    const name = buffer.file_type_name orelse return false;
+    return std.mem.eql(u8, name, "markdown") or std.mem.eql(u8, name, "supermd");
 }
 
 fn write_buffer_as_markdown(writer: *std.Io.Writer, buffer: *Buffer) !void {
