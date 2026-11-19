@@ -71,6 +71,12 @@ fn send(message: anytype) ProjectManagerError!void {
     return (try get()).pid.send(message) catch error.ProjectManagerFailed;
 }
 
+fn send_if_running(message: anytype) ProjectManagerError!void {
+    const pid = tp.env.get().proc(module_name);
+    if (pid.expired()) return;
+    return pid.send(message) catch error.ProjectManagerFailed;
+}
+
 fn create() SpawnError!Self {
     const pid = try Process.create();
     defer pid.deinit();
@@ -87,7 +93,7 @@ pub fn subscribe_lsp_status() ProjectManagerError!void {
 }
 
 pub fn unsubscribe_lsp_status() ProjectManagerError!void {
-    return send(.{"unsubscribe_lsp_status"});
+    return send_if_running(.{"unsubscribe_lsp_status"});
 }
 
 pub fn shutdown() void {
