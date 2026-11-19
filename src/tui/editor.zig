@@ -950,6 +950,14 @@ pub const Editor = struct {
         sl.submit(&self.plane, .{ .row = 0, .col = 0, .xoffset = self.hscroll_anim.pos.offset, .yoffset = self.scroll_offset() }, self.view_px, .{ .parent = parent });
     }
 
+    pub fn update_scrollbar(self: *const Self, sb: *scrollbar_v) void {
+        const cell_h = self.scroll_cell_h();
+        if (cell_h <= 1) return;
+        const root = self.buf_root() catch return;
+        const view_h: usize = if (self.view_px[1] > 0) self.view_px[1] else @as(usize, self.view.rows) * cell_h;
+        sb.set(@intCast(root.lines() * cell_h), @intCast(view_h), @intCast(@max(0, self.scroll_anim.pos.to_px(cell_h))));
+    }
+
     fn scroll_cell_h(self: *const Self) u16 {
         return if (self.scroll_layer != null) tui.scroll_cell_size().h else 1;
     }
@@ -9954,7 +9962,9 @@ pub const EditorWidget = struct {
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-        return self.editor.render(theme, self.focused and tui.is_mainview_focused(), root_mod.get_now());
+        const more = self.editor.render(theme, self.focused and tui.is_mainview_focused(), root_mod.get_now());
+        if (self.scrollbar) |sb| self.editor.update_scrollbar(sb);
+        return more;
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
