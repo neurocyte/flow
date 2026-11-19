@@ -458,11 +458,13 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
 
     env_owned: bool = true,
     expanded_cmd_arg: []const u8,
+    expanded_cwd: []const u8,
     profile: ?Terminal.Profile = null,
 
     fn deinit(self: *@This(), a: std.mem.Allocator) void {
         if (self.env_owned) self.env.deinit();
         a.free(self.expanded_cmd_arg);
+        a.free(self.expanded_cwd);
         for (self.argv_list.items) |arg| a.free(arg);
         self.argv_list.deinit(a);
         if (self.profile) |*p| p.deinit(a);
@@ -512,6 +514,8 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
     var profile: ?Terminal.Profile = null;
     errdefer if (profile) |*p| p.deinit(allocator);
     var have_cmd = false;
+    var expanded_cwd: []const u8 = "";
+    errdefer allocator.free(expanded_cwd);
     if (profile_override) |po| {
         // Launch a specific profile's shell (not a command).
         const shell_argv = profileArgv(allocator, po) catch |e| switch (e) {
@@ -536,6 +540,14 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
         for (shell_argv) |arg| try argv_list.append(allocator, arg);
     }
 
+    if (working_directory.len == 0) if (profile) |p| {
+        expanded_cwd = @import("expansion.zig").expand(allocator, p.cwd) catch |e| switch (e) {
+            error.Unavailable, error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        working_directory = expanded_cwd;
+    };
+
     // Resolve command with no path
     if (argv_list.items.len > 0) {
         const arg0 = argv_list.items[0];
@@ -554,6 +566,7 @@ pub fn prepare_cmd(allocator: std.mem.Allocator, ctx: command.Context, profile_o
         .env = env,
         .display_cmd = display_cmd,
         .expanded_cmd_arg = expanded_cmd_arg,
+        .expanded_cwd = expanded_cwd,
         .have_cmd = have_cmd,
         .have_arg = have_arg,
         .argv_list = argv_list,
