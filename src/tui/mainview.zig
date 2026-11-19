@@ -3688,7 +3688,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title) }))
             return error.InvalidStartTerminalModeArgument;
         if (!conpty_downloader.allow_new_terminal()) return;
-        self.start_terminal_mode_terminal(argv, title) catch |e| {
+        self.start_terminal_mode_terminal(argv, title, on_exit) catch |e| {
             std.log.err("terminal mode: cannot start the terminal: {t}", .{e});
             self.block_quit_render();
             tui.post_on_ui_ready(.{ "cmd", "quit_confirmed" });
@@ -3701,7 +3701,7 @@ const cmds = struct {
 
 const TerminalModeExit = enum { quit, wait };
 
-fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8) !void {
+fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8, on_exit: TerminalModeExit) !void {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(self.allocator);
     var iter = argv_cbor;
@@ -3719,6 +3719,7 @@ fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []con
         self.allocator.free(profile.command);
         profile.command = command_line;
     }
+    if (on_exit == .wait) profile.on_exit = .hold;
     if (title.len > 0 or argv.items.len > 0) {
         const name = try self.allocator.dupe(u8, title);
         self.allocator.free(profile.name);
