@@ -591,6 +591,9 @@ pub fn addPromptMark(
 ) !void {
     const row: u32 = @intCast(self.visible_top + self.cursor.row);
     const col: u16 = self.cursor.col;
+    // shells pad a partial last output line with spaces until it wraps (because! yEaH!)
+    if (kind == .prompt_start and col == 0 and row > 0 and self.width > 0)
+        self.buf[row * self.width - 1].wrapped = false;
     if (self.prompt_marks.items.len > 0) {
         const last = self.prompt_marks.items[self.prompt_marks.items.len - 1];
         if (last.kind == kind and last.row == row and last.col == col) return;
@@ -1849,6 +1852,24 @@ test "extractRangeText joins soft-wrapped rows and trims hard lines" {
     defer out.deinit(alloc);
     try screen.extractRangeText(alloc, 0, screen.contentRows(), &out);
     try testing.expectEqualStrings("abcdef\nxy", out.items);
+}
+
+test "a prompt start ends a line that the shell padded until it wrapped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try Screen.initScrollback(alloc, 4, 3, 10);
+    defer screen.deinit(alloc);
+
+    try printAll(&screen, "ab   ");
+    screen.cursor.col = 0;
+    try screen.addPromptMark(alloc, .prompt_start, null, .none);
+    try printAll(&screen, "$ x");
+
+    try testing.expect(!screen.rowWrapped(0));
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(alloc);
+    try screen.extractRangeText(alloc, 0, screen.contentRows(), &out);
+    try testing.expectEqualStrings("ab\n$ x", out.items);
 }
 
 test "full scrollback evicts logical lines into the cold store" {
