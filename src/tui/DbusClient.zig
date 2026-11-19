@@ -116,17 +116,8 @@ fn on_read_reply(args: cbor.Raw) void {
 // SettingChanged body is [namespace, key, value].
 fn on_setting_changed(args: cbor.Raw) void {
     var value: i64 = undefined;
-    var ns: []const u8 = undefined;
-    var key: []const u8 = undefined;
-    var raw: cbor.Raw = undefined;
-
-    if (cbor.match(args.bytes, .{ appearance_ns, color_scheme_key, cbor.extract(&value) }) catch false) {
+    if (cbor.match(args.bytes, .{ appearance_ns, color_scheme_key, cbor.extract(&value) }) catch false)
         set_color_scheme_on_change(value);
-    } else if (cbor.match(args.bytes, .{ cbor.extract(&ns), cbor.extract(&key), cbor.extract(&raw) }) catch false) {
-        var buf: [4096]u8 = undefined;
-        const json = cbor.toJson(raw.bytes, &buf) catch "?";
-        log.info("setting changed: {s}/{s} = {s}", .{ ns, key, json });
-    }
 }
 
 fn set_color_scheme_on_change(value: i64) void {
