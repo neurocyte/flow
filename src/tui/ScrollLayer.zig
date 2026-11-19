@@ -18,6 +18,8 @@ pub const Options = struct {
     margin_cols: usize = 0,
     /// composite into the layer of the view, submit after it
     parent: ?Layer.Handle = null,
+    top_px: u16 = 0,
+    top_clip_px: u16 = 0,
 };
 
 pub fn init(allocator: Allocator, id: *?Layer.Id) error{OutOfMemory}!Self {
@@ -66,12 +68,14 @@ pub fn submit(self: *Self, view: *const Plane, pos: MouseEvent.Cell, view_px: st
         }
     }
     const w: i32 = if (view_px[0] > 0) @intCast(view_px[0]) else @as(i32, @intCast(view.dim_x())) * cw;
-    const h: i32 = if (view_px[1] > 0) @intCast(view_px[1]) else @as(i32, @intCast(view.dim_y())) * ch;
+    const top: i32 = opts.top_px;
+    const top_clip: i32 = @min(opts.top_clip_px, opts.top_px);
+    const h: i32 = (if (view_px[1] > 0) @as(i32, @intCast(view_px[1])) else @as(i32, @intCast(view.dim_y())) * ch) + top_clip;
     const margin: i32 = @as(i32, @intCast(opts.margin_cols)) * cw;
-    const clip: Layer.Frame = .{ .x = x + margin, .y = y, .w = @max(0, w - margin), .h = h };
+    const clip: Layer.Frame = .{ .x = x + margin, .y = y + top - top_clip, .w = @max(0, w - margin), .h = h };
     const ox = x - pos.xoffset;
-    const oy = y - pos.yoffset;
-    self.layer.clip = .{ .x = abs_x + margin, .y = abs_y, .w = clip.w, .h = clip.h };
+    const oy = y + top - pos.yoffset;
+    self.layer.clip = .{ .x = abs_x + margin, .y = abs_y + top - top_clip, .w = clip.w, .h = clip.h };
     self.layer.z_index = z;
     _ = tui.submit_layer(.{
         .src = self.layer,

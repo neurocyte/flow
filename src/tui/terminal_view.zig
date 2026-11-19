@@ -33,10 +33,13 @@ allocator: Allocator,
 plane: Plane,
 panel_input: PanelInput,
 scroller: Scroller = .{ .pixel_offsets = true },
+layer_box: *tui.WidgetLayerBox,
 scroll_layer: ScrollLayer = undefined,
 scroll_layer_id: ?Layer.Id = null,
 display_top: usize = 0,
 display_shift: u16 = 0,
+gap_px: u16 = 0,
+overdraw_px: u16 = 0,
 hover: bool = false,
 vt: *Vt,
 commands: Commands = undefined,
@@ -94,10 +97,7 @@ pub const panel_tag = "terminal";
 const close_confirm_ms = 3000;
 
 pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
-    const layer = try tui.WidgetLayerBox.create(allocator, parent, .{
-        .name = "terminal.layer",
-        .placement = .bottom_left,
-    });
+    const layer = try tui.WidgetLayerBox.create(allocator, parent, .{ .name = "terminal.layer" });
     layer.prepare_resize = stack_above_parent;
     errdefer layer.deinit(allocator);
 
@@ -112,6 +112,7 @@ pub fn create(allocator: Allocator, parent: Plane, vt: *Vt) !Panel {
         .plane = plane,
         .panel_input = try PanelInput.init(allocator, "terminal"),
         .vt = vt,
+        .layer_box = layer,
     };
     self.commands.init_unregistered(self);
     self.scroll_layer = try ScrollLayer.init(allocator, &self.scroll_layer_id);
@@ -540,8 +541,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     const widget_plane = self.plane;
     defer self.plane = widget_plane;
+    self.layer_box.layer.background = if (theme.editor.bg) |bg| bg.color else null;
     self.plane.erase();
-    self.scroll_layer.prepare(&widget_plane, widget_plane.dim_y() + 1, widget_plane.dim_x());
+    self.scroll_layer.prepare(&widget_plane, widget_plane.dim_y() + Vt.Terminal.max_top_rows, widget_plane.dim_x());
     self.plane = self.scroll_layer.plane;
 
     // Blit the terminal's front screen into our vaxis.Window.
@@ -587,18 +589,17 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn update_display_top(self: *Self) void {
     const frame = self.vt.vt.frameView();
-    const top_row = @intFromBool(frame.top_row);
-    self.display_top = frame.history -| frame.scroll_offset -| top_row;
+    self.display_top = frame.history -| frame.scroll_offset -| frame.top_rows;
     const ch: i64 = @intCast(@max(1, tui.plane().cell_y()));
     const pos = self.scroller.pos();
     const shift = @as(i64, pos.row) * ch + pos.yoffset - @as(i64, @intCast(self.display_top)) * ch;
-    const max_shift: i64 = if (frame.top_row) ch else 0;
+    const max_shift: i64 = @as(i64, frame.top_rows) * ch;
     self.display_shift = @intCast(if (shift >= 0 and shift <= max_shift) shift else max_shift);
 }
 
 fn after_layer_submit(ctx: ?*anyopaque, handle: Layer.Handle) void {
     const self: *Self = @ptrCast(@alignCast(ctx orelse return));
-    self.scroll_layer.submit(&self.plane, .{ .row = 0, .col = 0, .yoffset = self.display_shift }, .{ 0, 0 }, .{ .parent = handle });
+    self.scroll_layer.submit(&self.plane, .{ .row = 0, .col = 0, .yoffset = self.display_shift }, .{ 0, 0 }, .{ .parent = handle, .top_px = self.gap_px, .top_clip_px = self.overdraw_px });
 }
 
 pub fn update(self: *Self) void {
@@ -608,7 +609,14 @@ pub fn update(self: *Self) void {
     self.scroller.set_size(history + view_rows, view_rows);
     self.scroller.sync(history -| vt.scrollOffset());
     self.scroller.update();
-    self.vt.set_top_row(self.scroller.pos().yoffset > 0);
+    const yoffset: i64 = self.scroller.pos().yoffset;
+    self.overdraw_px = switch (tui.config().terminal_overdraw_grid) {
+        .always => self.gap_px,
+        .scrollback => if (yoffset > 0 or vt.scrollOffset() > 0) self.gap_px else 0,
+        .none => 0,
+    };
+    const gap: i64 = self.overdraw_px;
+    self.vt.set_top_rows(@as(u8, @intFromBool(yoffset > 0 or gap > 0)) + @intFromBool(yoffset > 0 and yoffset < gap));
     const top = self.scroller.take_owner_top_ceil() orelse return;
     const current = history -| vt.scrollOffset();
     _ = self.vt.scroll(@intCast(@as(i64, @intCast(current)) - @as(i64, @intCast(top))));
@@ -1125,6 +1133,7 @@ fn byte_offset_for_col(col_at_byte: []const u16, col: u16) ?usize {
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.clear_selection();
+    self.gap_px = pos.extra_y;
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.scroller.resize_overlay(pos);

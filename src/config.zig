@@ -20,6 +20,7 @@ terminal_TERM: []const u8 = "xterm-256color",
 terminal_scrollback_mb: u16 = 8,
 terminal_persist_scrollback: bool = true,
 terminal_reflow_on_resize: bool = true,
+terminal_overdraw_grid: TerminalOverdrawGrid = .always,
 terminal_input_delay_ms: u16 = 3,
 terminal_on_exit: TerminalOnExit = .hold_on_error,
 terminal_macos_login_shell: MacosLoginShell = .login,
@@ -440,6 +441,12 @@ pub const TerminalOnExit = enum {
     hold_on_error,
     close,
     hold,
+};
+
+pub const TerminalOverdrawGrid = enum {
+    always,
+    scrollback,
+    none,
 };
 
 pub const MacosLoginShell = enum {

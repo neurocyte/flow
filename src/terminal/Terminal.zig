@@ -164,7 +164,7 @@ back_screen_alt: Screen,
 scroll_offset: std.atomic.Value(usize) = .init(0),
 /// history rows of the last published frame
 history_rows: std.atomic.Value(usize) = .init(0),
-want_top_row: std.atomic.Value(bool) = .init(false),
+want_top_rows: std.atomic.Value(u8) = .init(0),
 cold_view: ?ColdView = null,
 back_mutex: std.Io.Mutex = .init,
 // dirty is protected by back_mutex. Only access this field when you hold that mutex
@@ -857,7 +857,7 @@ const Frames = struct {
     rows: u16,
     scroll_offsets: [3]usize = @splat(0),
     frame_rows: [3]u16 = @splat(0),
-    top_rows: [3]bool = @splat(false),
+    top_rows: [3]u8 = @splat(0),
     histories: [3]usize = @splat(0),
     writer: u8 = 0,
     reader: u8 = 1,
@@ -870,7 +870,7 @@ const Frames = struct {
         var screens: [3]Screen = undefined;
         var count: usize = 0;
         errdefer for (screens[0..count]) |*screen| screen.deinit(allocator);
-        while (count < screens.len) : (count += 1) screens[count] = try .init(allocator, cols, rows + 1);
+        while (count < screens.len) : (count += 1) screens[count] = try .init(allocator, cols, rows + max_top_rows);
         return .{ .screens = screens, .rows = rows };
     }
 
@@ -932,7 +932,7 @@ fn publishLocked(self: *Terminal, mode: PublishMode, context: *Event.HandlerCont
     }
     var scroll_offset: usize = 0;
     var history: usize = 0;
-    var top_row = false;
+    var top_rows: usize = 0;
     if (self.back_screen == &self.back_screen_pri) {
         history = self.back_screen_pri.historySize();
         scroll_offset = self.scrollOffset();
@@ -941,13 +941,13 @@ fn publishLocked(self: *Terminal, mode: PublishMode, context: *Event.HandlerCont
             scroll_offset = history;
         }
         self.history_rows.store(history, .release);
-        top_row = self.want_top_row.load(.acquire) and scroll_offset < history;
+        top_rows = @min(self.want_top_rows.load(.acquire), history - scroll_offset);
     }
-    const rows: usize = @as(usize, self.back_screen.height) + @intFromBool(top_row);
-    try self.copyView(self.frames.back(), scroll_offset + @intFromBool(top_row), rows);
+    const rows: usize = @as(usize, self.back_screen.height) + top_rows;
+    try self.copyView(self.frames.back(), scroll_offset + top_rows, rows);
     self.frames.scroll_offsets[self.frames.writer] = scroll_offset;
     self.frames.frame_rows[self.frames.writer] = @intCast(rows);
-    self.frames.top_rows[self.frames.writer] = top_row;
+    self.frames.top_rows[self.frames.writer] = @intCast(top_rows);
     self.frames.histories[self.frames.writer] = history;
     self.dirty = false;
     self.last_publish_us = now;
@@ -1003,7 +1003,7 @@ pub fn draw(
         const cur_col = front.cursor.col;
         const live_row = front.cursor.row;
         const visual_row = @as(usize, live_row) + self.frames.scroll_offsets[self.frames.reader] +
-            @intFromBool(self.frames.top_rows[self.frames.reader]);
+            self.frames.top_rows[self.frames.reader];
         const visible: ?u16 = if (visual_row < rows)
             @intCast(visual_row)
         else
@@ -1016,14 +1016,17 @@ pub fn draw(
     }
 }
 
-pub fn setTopRow(self: *Terminal, want: bool) bool {
-    return self.want_top_row.swap(want, .acq_rel) != want;
+pub fn setTopRows(self: *Terminal, want: u8) bool {
+    const n = @min(want, max_top_rows);
+    return self.want_top_rows.swap(n, .acq_rel) != n;
 }
+
+pub const max_top_rows = 2;
 
 pub const FrameView = struct {
     history: usize,
     scroll_offset: usize,
-    top_row: bool,
+    top_rows: u8,
     rows: u16,
 };
 
@@ -1032,7 +1035,7 @@ pub fn frameView(self: *const Terminal) FrameView {
     return .{
         .history = self.frames.histories[i],
         .scroll_offset = self.frames.scroll_offsets[i],
-        .top_row = self.frames.top_rows[i],
+        .top_rows = self.frames.top_rows[i],
         .rows = self.frames.frame_rows[i],
     };
 }

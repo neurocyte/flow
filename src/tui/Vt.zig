@@ -161,8 +161,8 @@ pub fn scroll_to_bottom(self: *@This()) bool {
     return true;
 }
 
-pub fn set_top_row(self: *@This(), want: bool) void {
-    if (self.vt.setTopRow(want)) self.request_publish();
+pub fn set_top_rows(self: *@This(), want: u8) void {
+    if (self.vt.setTopRows(want)) self.request_publish();
 }
 
 fn request_publish(self: *@This()) void {
