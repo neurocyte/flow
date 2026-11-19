@@ -24,6 +24,7 @@ const Self = @This();
 
 const Level = enum {
     info,
+    warn,
     err,
 };
 
@@ -78,8 +79,13 @@ fn overlay_needed(self: *Self) bool {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const style_normal = theme.statusbar;
     const style_info: Widget.Theme.Style = .{ .fg = theme.statusbar.fg, .fs = theme.editor_information.fs };
+    const style_warning: Widget.Theme.Style = .{ .fg = theme.editor_warning.fg, .fs = theme.editor_warning.fs };
     const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs };
-    const msg_style = if (self.level == .err) style_error else style_info;
+    const msg_style = switch (self.level) {
+        .info => style_info,
+        .warn => style_warning,
+        .err => style_error,
+    };
     self.plane.set_base_style(theme.editor);
     self.plane.erase();
     self.plane.home();
@@ -102,8 +108,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn render_overlay(self: *Self, theme: *const Widget.Theme, msg: []const u8, msg_style: Widget.Theme.Style) !void {
     if (tui.mainview()) |mv| if (mv.link_line_shown()) return;
-    if (self.bar_hidden()) if (tui.mainview()) |mv|
+    if (self.bar_hidden()) if (tui.mainview()) |mv| {
+        if (mv.is_panel_maximized() and self.level == .info) return;
         return self.overlay.render(self.msg.allocator, theme, mv.hidden_bar_area(), .right, msg, msg_style);
+    };
     const screen = tui.screen();
     const cw: i32 = self.plane.cell_x();
     const ch: i32 = self.plane.cell_y();
@@ -139,7 +147,7 @@ fn process_log(self: *Self, m: tp.message) MessageFilter.Error!void {
     var context: []const u8 = undefined;
     var msg: []const u8 = undefined;
     if (try cbor.match(m.buf, .{ "log", tp.extract(&src), tp.extract(&msg) })) {
-        try self.set(msg, .info);
+        try self.set(msg, if (std.mem.startsWith(u8, msg, "[warning] ")) .warn else .info);
     } else if (try cbor.match(m.buf, .{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
         const err_stop = "error.Stop";
         if (std.mem.eql(u8, msg, err_stop))
@@ -165,7 +173,7 @@ fn process_message(self: *Self, m: tp.message) MessageFilter.Error!void {
 
 fn update_clear_timer(self: *Self) !void {
     self.msg_counter += 1;
-    const delay = std.time.us_per_s * @as(u64, if (self.level == .err) error_display_time_seconds else message_display_time_seconds);
+    const delay = std.time.us_per_s * @as(u64, if (self.level == .info) message_display_time_seconds else error_display_time_seconds);
     if (self.clear_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
