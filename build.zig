@@ -5,6 +5,7 @@ const optimize_deps: std.lang.Optimize = .fast;
 
 const ShaderLang = enum { glsl410, hlsl5 };
 var shader_sources_updated: std.EnumSet(ShaderLang) = .empty;
+var crlf2lf_tool: ?*std.Build.Step.Compile = null;
 
 pub const Renderer = enum { terminal, gui };
 
@@ -720,13 +721,28 @@ pub fn build_exe(
                         .slang = slang,
                         .format = .sokol_zig,
                     }) catch |e| std.debug.panic("sokol-shdc compile failed: {s}", .{@errorName(e)});
+                    const crlf2lf = crlf2lf_tool orelse tool: {
+                        const tool = b.addExecutable(.{
+                            .name = "crlf2lf",
+                            .root_module = b.createModule(.{
+                                .root_source_file = b.path("src/crlf2lf.zig"),
+                                .target = b.graph.host,
+                                .optimize = .debug,
+                            }),
+                        });
+                        crlf2lf_tool = tool;
+                        break :tool tool;
+                    };
+                    const normalize = b.addRunArtifact(crlf2lf);
+                    normalize.addFileArg(generated);
+                    const normalized = normalize.addOutputFileArg(b.fmt("builtin.{t}.zig", .{shader_lang}));
                     if (!shader_sources_updated.contains(shader_lang)) {
                         shader_sources_updated.insert(shader_lang);
                         const update = b.addUpdateSourceFiles();
-                        update.addCopyFileToSource(generated, shader_source);
+                        update.addCopyFileToSource(normalized, shader_source);
                         b.getInstallStep().dependOn(&update.step);
                     }
-                    break :shader generated;
+                    break :shader normalized;
                 } else b.path(shader_source);
                 const shader_mod = b.createModule(.{
                     .root_source_file = shader_path,
