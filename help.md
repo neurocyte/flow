@@ -482,3 +482,35 @@ keys to a shell that marks its prompt but does not ask for them.
 As every respectable terminal program, flow provide various invoking options
 that among others, will allow you to inspect various aspects of the running
 session. Feel free to run `flow --help` to explore them.
+
+## Using flow as a terminal
+
+flow-gui can run as a standalone terminal window. `flow-gui --terminal`
+opens a window with one maximized terminal that runs your default shell.
+`flow-gui -e CMD ARGS...` runs a command in it. The window closes when the
+terminal exits.
+
+These options work like the same options of other terminals:
+
+- `-e`, `--run-command`: run the rest of the command line as the command.
+  Without a command, `-e` is the same as `--terminal`. Use `--exec` to run
+  flow commands.
+- `--wait-after-command`: keep the window open after the command exits.
+- `--title NAME`: set the initial window title. A program in the terminal
+  can change it.
+- `--dir PATH`: start in PATH (the same as `--project`).
+- `--class NAME`: set the window class (Wayland app_id).
+
+Terminal mode always opens a new window, and `flow --terminal` starts
+flow-gui.
+
+To make flow-gui the default terminal on desktops that use
+`xdg-terminal-exec`, put this line at the top of
+`~/.config/xdg-terminals.list`:
+
+```
+flow-control.desktop:terminal
+```
+
+The `:terminal` part selects the "New Terminal" action of the Flow Control
+desktop entry. Without it, a plain terminal launch opens the editor.
