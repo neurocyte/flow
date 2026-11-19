@@ -1139,6 +1139,9 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.scroller.resize_overlay(pos);
+    var view = pos;
+    view.frame = .{};
+    self.scroller.set_view(view, &self.plane);
     self.vt.resize(pos);
 }
 
