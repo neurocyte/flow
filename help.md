@@ -495,7 +495,8 @@ These options work like the same options of other terminals:
 - `-e`, `--run-command`: run the rest of the command line as the command.
   Without a command, `-e` is the same as `--terminal`. Use `--exec` to run
   flow commands.
-- `--wait-after-command`: keep the window open after the command exits.
+- `-H`, `--hold`: keep the terminal open after the command exits.
+  `--wait-after-command` is the same.
 - `--title NAME`: set the initial window title. A program in the terminal
   can change it.
 - `--dir PATH`: start in PATH (the same as `--project`).

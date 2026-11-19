@@ -109,7 +109,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .exec = "Execute commands",
             .run_command = "Run remaining command line as a command in a terminal",
             .terminal = "Open a terminal (GUI) window",
-            .wait_after_command = "Keep terminal window open",
+            .hold = "Keep terminal window open",
+            .wait_after_command = "Same as --hold",
             .title = "Set the initial terminal window title",
             .exec_file = "Execute commands from a file",
             .literal = "Disable :LINE and +LINE syntax",
@@ -131,6 +132,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .trace_level = 't',
             .language = 'l',
             .run_command = 'e',
+            .hold = 'H',
             .literal = 'L',
             .scratch = 'S',
             .new_file = 'n',
@@ -176,6 +178,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         exec_file: ?[]const u8,
         run_command: bool,
         terminal: bool,
+        hold: bool,
         wait_after_command: bool,
         title: ?[]const u8,
         literal: bool,
@@ -223,8 +226,9 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         args.project = dir;
     }
     const terminal_mode = args.terminal or args.run_command;
-    if (args.wait_after_command and !terminal_mode) {
-        std.debug.print("--wait-after-command needs --terminal or -e/--run-command\n", .{});
+    if (args.wait_after_command) args.hold = true;
+    if (args.hold and !terminal_mode) {
+        std.debug.print("--hold needs --terminal or -e/--run-command\n", .{});
         exit(1);
     }
     if (args.title != null and !terminal_mode) {
@@ -580,7 +584,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
     if (terminal_mode) {
         const command_argv: []const []const u8 = if (args.run_command) args.positional.trailing else &.{};
-        const on_exit: enum { quit, wait } = if (args.wait_after_command) .wait else .quit;
+        const on_exit: enum { quit, wait } = if (args.hold) .wait else .quit;
         try main_proc.send(.{ "cmd", "start_terminal_mode", .{ command_argv, on_exit, args.title orelse "" } });
     }
 

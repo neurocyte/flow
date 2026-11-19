@@ -15,7 +15,7 @@ X-TerminalArgExec=-e
 X-TerminalArgAppId=--class
 X-TerminalArgTitle=--title
 X-TerminalArgDir=--dir
-X-TerminalArgHold=--wait-after-command
+X-TerminalArgHold=--hold
 
 [Desktop Action terminal]
 Name=New Terminal
