@@ -7,6 +7,7 @@ Keywords=editor;flow;terminal
 Exec=flow-gui %F
 Icon=flow-control
 Categories=TextEditor;Development;IDE;TerminalEmulator;
+MimeType=text/plain;text/x-chdr;text/x-csrc;text/x-c++hdr;text/x-c++src;text/x-java;text/x-dsrc;text/x-pascal;application/x-perl;text/x-python;application/x-php;application/xml;text/html;text/css;application/sql;text/x-patch;text/markdown;application/x-shellscript;application/json;application/yaml;application/toml;text/rust;text/x-go;
 StartupNotify=false
 Terminal=false
 Actions=terminal;
