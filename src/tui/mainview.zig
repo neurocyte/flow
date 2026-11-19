@@ -54,6 +54,7 @@ const keybind_view = @import("keybindview.zig");
 const terminal_view = @import("terminal_view.zig");
 const project_view_state = @import("project_view_state.zig");
 const PanelArea = @import("PanelArea.zig");
+const TabStrip = @import("TabStrip.zig");
 const panel_registry = @import("panel_registry.zig");
 const Panel = @import("Panel.zig");
 const Vt = @import("Vt.zig");
@@ -1905,6 +1906,15 @@ const cmds = struct {
         .icon = "",
     };
 
+    pub fn toggle_maximize_terminal(self: *Self, ctx: Ctx) Result {
+        try toggle_maximize_panel(self, ctx);
+        self.update_single_tab_strip();
+    }
+    pub const toggle_maximize_terminal_meta: Meta = .{
+        .description = "Toggle maximize panel and hide tab bar",
+        .icon = "",
+    };
+
     pub fn toggle_top_bar(self: *Self, _: Ctx) Result {
         self.top_bar_hidden = !self.top_bar_hidden;
         self.update_bars_visibility();
@@ -3717,6 +3727,15 @@ fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []con
     const vt = try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
     _ = try self.open_terminal_panel(vt, .{ .focus = true });
     self.bottom_area.set_maximized(true);
+    self.update_single_tab_strip();
+}
+
+fn update_single_tab_strip(self: *Self) void {
+    const g = self.bottom_area.focused_group() orelse return;
+    const single_tab: TabStrip.SingleTab = if (self.bottom_area.is_maximized()) .hide else .show;
+    if (g.strip.single_tab == single_tab) return;
+    g.strip.single_tab = single_tab;
+    tui.resize();
 }
 
 fn no_lsp_error() void {
