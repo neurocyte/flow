@@ -17,6 +17,7 @@ const Pty = if (builtin.os.tag == .windows) @import("PtyWindows.zig") else @impo
 const keybind = @import("keybind");
 const Panel = @import("Panel.zig");
 pub const Terminal = @import("Terminal");
+const ExitListener = @import("Buffer").Manager.Listener;
 pub const Profile = Terminal.Profile;
 const TerminalOnExit = @import("config").TerminalOnExit;
 
@@ -49,6 +50,7 @@ on_exit: TerminalOnExit,
 synthesize_marks: bool = false,
 started_at: i64 = 0,
 profile: ?Terminal.Profile = null,
+exit_listeners: std.ArrayList(ExitListener) = .empty,
 
 fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit, spawn: bool, working_directory: ?[]const u8) !*@This() {
     const home = env.get("HOME") orelse "/tmp";
@@ -116,6 +118,8 @@ fn respawn(self: *@This(), cmd_argv: []const []const u8, working_directory: ?[]c
 }
 
 pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+    for (self.exit_listeners.items) |l| _ = l.send(.{ "terminal", "closed" });
+    self.exit_listeners.deinit(allocator);
     self.unblock_output_render();
     self.cwd.deinit(allocator);
     self.title.deinit(allocator);
@@ -387,7 +391,13 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
     }
 }
 
+pub fn add_exit_listener(self: *@This(), listener: ExitListener) error{OutOfMemory}!void {
+    try self.exit_listeners.append(self.vt.allocator, listener);
+}
+
 fn handle_child_exit(self: *@This(), code: u8) void {
+    for (self.exit_listeners.items) |l| _ = l.send(.{ "terminal", "exited", code });
+    self.exit_listeners.clearRetainingCapacity();
     const ref = @intFromPtr(self);
     switch (self.on_exit) {
         .hold => self.show_exit_message(code),

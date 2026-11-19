@@ -16,6 +16,7 @@ pub const Error = error{ OutOfMemory, ThespianSpawnFailed };
 
 pub const Track = common.Track;
 pub const exit_failed = "remote_requests_failed";
+pub const exit_terminal_prefix = "terminal_exited:";
 
 pub const Options = struct {
     track: Track = .none,
@@ -132,6 +133,7 @@ const Process = struct {
     outstanding: std.AutoHashMapUnmanaged(u64, Request) = .empty,
     failed: usize = 0,
     discarded: usize = 0,
+    terminal_exit: u8 = 0,
     track: Track,
     verbose: bool,
     terminal: ?u64,
@@ -388,6 +390,8 @@ const Process = struct {
         } else args;
         if (origin == .user and std.mem.eql(u8, cmd, "create_buffer"))
             try self.creates.put(self.allocator, request_id, reply_to);
+        if (self.track != .none and std.mem.eql(u8, cmd, "open_terminal_argv"))
+            try self.tracked_requests.put(self.allocator, request_id, {});
         const m = tp.message.fmt(.{ "request", request_id, cmd, request_args });
         const hold = origin == .user and self.focus.state == .querying;
         if (!hold) if (self.server) |server| return server.send_raw(m);
@@ -553,8 +557,15 @@ const Process = struct {
         var old_path: []const u8 = "";
         var focus: TerminalFocus = .unfocused;
         var panel: PanelState = .normal;
+        var exit_code: u8 = 0;
         if (try cbor.match(payload.bytes, .{ "terminal_state", cbor.extract(&focus), cbor.extract(&panel) })) {
             try self.apply_terminal_state(focus, panel);
+        } else if (try cbor.match(payload.bytes, .{ "terminal", "exited", cbor.extract(&exit_code) })) {
+            if (self.tracked_requests.remove(request_id)) self.terminal_exit = exit_code;
+            self.log_verbose("terminal exited with code {d}", .{exit_code});
+        } else if (try cbor.match(payload.bytes, .{ "terminal", "closed" })) {
+            if (self.tracked_requests.remove(request_id)) self.terminal_exit = 1;
+            self.log_verbose("terminal closed", .{});
         } else if (try cbor.match(payload.bytes, .{ "navigation", "complete", .{ "BUFID", cbor.extract(&buffer_id) }, cbor.extract(&path) })) {
             _ = self.tracked_requests.remove(request_id);
             try self.tracked_buffers.put(self.allocator, buffer_id, {});
@@ -591,7 +602,10 @@ const Process = struct {
     }
 
     fn exit_done(self: *@This()) error{Exit} {
-        if (self.failed == 0 and self.discarded == 0) return tp.exit_normal();
+        if (self.failed == 0 and self.discarded == 0) {
+            if (self.terminal_exit != 0) return tp.exit_fmt(exit_terminal_prefix ++ "{d}", .{self.terminal_exit});
+            return tp.exit_normal();
+        }
         if (self.failed > 0) log.err("{d} remote request(s) failed", .{self.failed});
         return tp.exit(exit_failed);
     }

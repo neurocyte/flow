@@ -596,7 +596,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
     if (args.run_in_terminal) {
         const on_exit: enum { quit, wait } = if (args.hold) .wait else .quit;
-        const run_args = .{ args.positional.trailing, on_exit, args.title orelse "" };
+        const track: enum { none, full } = if (connect != null and !args.no_wait) .full else .none;
+        const run_args = .{ args.positional.trailing, on_exit, args.title orelse "", track };
         if (connect != null)
             try main_proc.send(.{ "request", "open_terminal_argv", run_args })
         else
@@ -730,6 +731,11 @@ fn load_script_file(allocator: std.mem.Allocator, file_name: []const u8) ScriptE
 }
 
 fn client_exit_status(_: void, msg: []const u8) void {
+    if (std.mem.startsWith(u8, msg, RcClient.exit_terminal_prefix)) {
+        print_exit_status({}, "normal");
+        final_exit_status = std.fmt.parseInt(u8, msg[RcClient.exit_terminal_prefix.len..], 10) catch 1;
+        return;
+    }
     if (!std.mem.eql(u8, msg, RcClient.exit_failed)) return print_exit_status({}, msg);
     print_exit_status({}, "normal");
     final_exit_status = 1;

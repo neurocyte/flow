@@ -3702,14 +3702,24 @@ const cmds = struct {
         var argv: []const u8 = undefined;
         var on_exit: TerminalModeExit = undefined;
         var title: []const u8 = undefined;
-        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title) }))
+        var track: BufferManager.Track = undefined;
+        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title), tp.extract(&track) }))
             return error.InvalidOpenTerminalArgvArgument;
+        const listener: ?BufferManager.Listener = if (ctx.reply) |reply|
+            if (track != .none) .{ .piid = reply.piid, .id = reply.id, .track = track } else null
+        else
+            null;
         const tv = if (try join_argv(self.allocator, argv)) |command_line| blk: {
             defer self.allocator.free(command_line);
             const terminal_on_exit: @import("config").TerminalOnExit = if (on_exit == .wait) .hold else tui.config().terminal_on_exit;
             break :blk try self.run_in_terminal(command.fmt(.{ command_line, terminal_on_exit }));
         } else try self.run_in_terminal(.empty());
-        if (title.len > 0) if (tv) |v| v.vt.set_title(title);
+        const v = tv orelse {
+            if (listener) |l| _ = l.send(.{ "terminal", "closed" });
+            return;
+        };
+        if (title.len > 0) v.vt.set_title(title);
+        if (listener) |l| try v.vt.add_exit_listener(l);
     }
     pub const open_terminal_argv_meta: Meta = .{};
 };

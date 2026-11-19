@@ -512,6 +512,10 @@ With `--connect`, or from inside a flow terminal, the command runs in a
 panel of that running instance. `-H`/`--hold` and `--title` also work with
 `-r`.
 
+With a running instance, flow waits until the command exits, and then exits
+with the exit code of the command. If the terminal closes first, the exit
+code is 1. Use `--no-wait` to return at once.
+
 To make flow-gui the default terminal on desktops that use
 `xdg-terminal-exec`, put this line at the top of
 `~/.config/xdg-terminals.list`:
