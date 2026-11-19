@@ -1624,6 +1624,10 @@ fn wioLoop() void {
         std.atomic.spinLoopHint();
         std.Thread.yield() catch break;
     }
+    if (gl_context) |ctx| {
+        ctx.destroy();
+        gl_context = null;
+    }
 
     tui_pid.send(.{"quit"}) catch {};
 }
@@ -2103,6 +2107,7 @@ pub fn renderActorShutdown() void {
         if (builtin.os.tag == .windows) ctx.swapchain.deinit();
         gpu.deinit();
         sg.shutdown();
+        if (builtin.os.tag != .windows) wio.glReleaseCurrentContext();
         render_ctx = null;
     }
     const io = root.get_io();
