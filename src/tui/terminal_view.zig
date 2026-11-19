@@ -1134,6 +1134,7 @@ fn byte_offset_for_col(col_at_byte: []const u16, col: u16) ?usize {
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.clear_selection();
     self.gap_px = pos.extra_y;
+    self.scroller.overlay_top_px = pos.extra_y;
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.scroller.resize_overlay(pos);

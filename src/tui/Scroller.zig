@@ -24,6 +24,7 @@ sticky_end: bool = false,
 pixel_offsets: bool = false,
 scrollbar: ?*scrollbar_v = null,
 overlay: ?Overlay = null,
+overlay_top_px: u16 = 0,
 synced_top: ?usize = null,
 
 pub const Axis = struct {
@@ -165,16 +166,17 @@ pub fn render_overlay(self: *Self, theme: *const Widget.Theme, owner: *const Pla
     overlay.in_use = in_use;
     if (!self.overlay_visible()) return false;
     const more = overlay.widget.render(theme);
-    if (overlay.layer) |layer| submit_overlay_layer(layer, owner);
+    if (overlay.layer) |layer| submit_overlay_layer(layer, owner, self.overlay_top_px);
     return more;
 }
 
 /// the bar over the last column of `owner`, above its content layer
-fn submit_overlay_layer(layer: *Layer, owner: *const Plane) void {
+fn submit_overlay_layer(layer: *Layer, owner: *const Plane, top_px: u16) void {
     const root_plane = tui.plane();
     const cw: i32 = root_plane.cell_x();
     const ch: i32 = root_plane.cell_y();
-    const ox, const oy = owner.global_origin_px();
+    const ox, const owner_y = owner.global_origin_px();
+    const oy = owner_y + top_px;
     const x = ox + (@as(i32, @intCast(owner.dim_x())) - 1) * cw;
     const content_z: i32 = if (owner.layer) |l| @backingInt(l.z_index) + 1 else @backingInt(Layer.Level.main);
     layer.clip = .{ .x = x, .y = oy, .w = cw, .h = @as(i32, @intCast(owner.dim_y())) * ch };
