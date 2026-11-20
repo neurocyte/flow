@@ -7348,7 +7348,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            const leading_ws = find_first_non_ws(root, cursel.cursor.row, self.metrics);
             try move_cursor_begin(root, &cursel.cursor, self.metrics);
             root = try self.insert(root, cursel, "\n", b.allocator);
             const row = cursel.cursor.row;
@@ -7384,7 +7384,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            const leading_ws = find_first_non_ws(root, cursel.cursor.row, self.metrics);
             const row = cursel.cursor.row;
             try move_cursor_end(root, &cursel.cursor, self.metrics);
             var sfa_buf: [512]u8 = undefined;
