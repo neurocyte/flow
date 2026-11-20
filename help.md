@@ -505,6 +505,21 @@ These options work like the same options of other terminals:
 Terminal mode always opens a new window, and `flow --terminal` starts
 flow-gui.
 
+A full window panel is a maximized panel without its tab strip. Press
+`shift+f11` (`Toggle full window panel`) to switch a panel to full window
+and back. Press `f11` to toggle fullscreen, also from inside a terminal.
+
+To start terminal mode with a full window panel, use `--full-window` or
+press `shift+f11` (also, press `f11` to toggle fullscreen). To make this the
+default, set this option:
+
+```conf
+terminal_mode_full_window true
+```
+
+To give `shift+f11` or `f11` back to the programs in your terminals, unbind
+them in the `terminal` mode of your keybindings.
+
 To run a command in a terminal panel without terminal mode, use
 `-r`/`--run-in-terminal CMD ARGS...`. It works in the TUI and in the GUI. It
 does not maximize the panel, and flow does not quit when the command exits.
