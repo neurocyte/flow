@@ -18,6 +18,12 @@ pub fn init(allocator: std.mem.Allocator, mode_name: []const u8) !Self {
     return .{ .mode = try keybind.mode(mode_name, allocator, .{ .insert_command = "do_nothing" }) };
 }
 
+pub fn set_mode(self: *Self, allocator: std.mem.Allocator, mode_name: []const u8) !void {
+    var mode = try keybind.mode(mode_name, allocator, .{ .insert_command = "do_nothing" });
+    std.mem.swap(keybind.Mode, &self.mode, &mode);
+    mode.deinit();
+}
+
 pub fn deinit(self: *Self, w: Widget) void {
     if (self.focused) tui.release_keyboard_focus(w);
     self.mode.deinit();

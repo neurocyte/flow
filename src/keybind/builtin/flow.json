@@ -872,6 +872,7 @@
         "on_match_failure": "nothing",
         "inherit_prefix": [["ctrl+alt+a", "project"]],
         "press": [
+            ["ctrl+alt+a ctrl+alt+a", "terminal_toggle_passthrough"],
             [{"os": "macos"}, "super+c", "terminal_copy_selection"],
             [{"os": "macos"}, "super+v", "system_paste"],
             [{"os": "macos"}, "super+t", "terminal_new"],
@@ -991,6 +992,12 @@
             [["ctrl+alt+enter", "Open new terminal (system)"], ["shell_execute_log", "xdg-terminal-exec", "--dir={{project}}"]],
             ["ctrl+alt+shift+r", "restart"],
             ["ctrl+alt+a ctrl+f2", "insert_command_name"]
+        ]
+    },
+    "terminal/passthrough": {
+        "on_match_failure": "nothing",
+        "press": [
+            ["ctrl+alt+a ctrl+alt+a", "terminal_toggle_passthrough"]
         ]
     }
 }

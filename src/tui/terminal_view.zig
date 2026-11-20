@@ -32,6 +32,7 @@ const Self = @This();
 allocator: Allocator,
 plane: Plane,
 panel_input: PanelInput,
+input_mode: InputMode = .terminal,
 scroller: Scroller = .{ .pixel_offsets = true },
 layer_box: *tui.WidgetLayerBox,
 scroll_layer: ScrollLayer = undefined,
@@ -93,6 +94,18 @@ const Selection = struct {
 };
 
 pub const panel_tag = "terminal";
+
+const InputMode = enum {
+    terminal,
+    passthrough,
+
+    fn mode_name(self: InputMode) []const u8 {
+        return switch (self) {
+            .terminal => "terminal",
+            .passthrough => "terminal/passthrough",
+        };
+    }
+};
 
 const close_confirm_ms = 3000;
 
@@ -1183,6 +1196,20 @@ const cmds = struct {
     const Ctx = command.Context;
     const Meta = command.Metadata;
     const Result = command.Result;
+
+    pub fn terminal_toggle_passthrough(self: *Self, _: Ctx) Result {
+        const next: InputMode = switch (self.input_mode) {
+            .terminal => .passthrough,
+            .passthrough => .terminal,
+        };
+        try self.panel_input.set_mode(self.allocator, next.mode_name());
+        self.input_mode = next;
+        switch (next) {
+            .passthrough => std.log.scoped(.terminal).warn("passthrough mode on", .{}),
+            .terminal => std.log.scoped(.terminal).warn("passthrough mode off", .{}),
+        }
+    }
+    pub const terminal_toggle_passthrough_meta: Meta = .{ .description = "Terminal: Toggle passthrough mode" };
 
     pub fn terminal_kill(self: *Self, _: Ctx) Result {
         self.vt.kill();
