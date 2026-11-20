@@ -3691,10 +3691,11 @@ const cmds = struct {
         var on_exit: TerminalModeExit = undefined;
         var title: []const u8 = undefined;
         var layout: TerminalModeLayout = undefined;
-        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title), tp.extract(&layout) }))
+        var input_mode: terminal_view.InputMode = undefined;
+        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title), tp.extract(&layout), tp.extract(&input_mode) }))
             return error.InvalidStartTerminalModeArgument;
         if (!conpty_downloader.allow_new_terminal()) return;
-        self.start_terminal_mode_terminal(argv, title, on_exit, layout) catch |e| {
+        self.start_terminal_mode_terminal(argv, title, on_exit, layout, input_mode) catch |e| {
             std.log.err("terminal mode: cannot start the terminal: {t}", .{e});
             self.block_quit_render();
             tui.post_on_ui_ready(.{ "cmd", "quit_confirmed" });
@@ -3747,7 +3748,7 @@ fn join_argv(allocator: std.mem.Allocator, argv_cbor: []const u8) !?[]u8 {
     return try Vt.Terminal.command_line.join(allocator, argv.items);
 }
 
-fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8, on_exit: TerminalModeExit, layout: TerminalModeLayout) !void {
+fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8, on_exit: TerminalModeExit, layout: TerminalModeLayout, input_mode: terminal_view.InputMode) !void {
     var profile = try Vt.Profile.get_default(self.allocator);
     defer profile.deinit(self.allocator);
     const have_command = if (try join_argv(self.allocator, argv_cbor)) |command_line| blk: {
@@ -3762,7 +3763,8 @@ fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []con
         profile.name = name;
     }
     const vt = try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
-    _ = try self.open_terminal_panel(vt, .{ .focus = true });
+    const tv = try self.open_terminal_panel(vt, .{ .focus = true });
+    if (input_mode == .passthrough) try tv.set_input_mode(.passthrough);
     if (layout == .full_window or tui.config().terminal_full_window)
         self.bottom_area.toggle_full_window()
     else

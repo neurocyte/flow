@@ -114,6 +114,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .wait_after_command = "Same as --hold",
             .title = "Set the initial terminal window title",
             .full_window = "Start terminal as a full window panel",
+            .passthrough = "Start terminal in passthrough mode",
             .exec_file = "Execute commands from a file",
             .literal = "Disable :LINE and +LINE syntax",
             .scratch = "Open a scratch (temporary) buffer on start",
@@ -186,6 +187,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         wait_after_command: bool,
         title: ?[]const u8,
         full_window: bool,
+        passthrough: bool,
         literal: bool,
         scratch: bool,
         new_file: bool,
@@ -201,6 +203,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     };
 
     const args_alloc = try init.minimal.args.toSlice(init.arena.allocator());
+    @setEvalBranchQuota(2000);
     var args = flags.parse(io, init.environ_map, args_alloc, "flow", Flags, .{});
 
     if (args.wait and args.no_wait) {
@@ -246,6 +249,10 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     }
     if (args.full_window and !terminal_mode) {
         std.debug.print("--full-window needs --terminal or -e/--run-command\n", .{});
+        exit(1);
+    }
+    if (args.passthrough and !terminal_mode) {
+        std.debug.print("--passthrough needs --terminal or -e/--run-command\n", .{});
         exit(1);
     }
     if (terminal_mode and args.connect != null) {
@@ -599,7 +606,8 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         const command_argv: []const []const u8 = if (args.run_command) args.positional.trailing else &.{};
         const on_exit: enum { quit, wait } = if (args.hold) .wait else .quit;
         const layout: enum { maximized, full_window } = if (args.full_window) .full_window else .maximized;
-        try main_proc.send(.{ "cmd", "start_terminal_mode", .{ command_argv, on_exit, args.title orelse "", layout } });
+        const input_mode: enum { terminal, passthrough } = if (args.passthrough) .passthrough else .terminal;
+        try main_proc.send(.{ "cmd", "start_terminal_mode", .{ command_argv, on_exit, args.title orelse "", layout, input_mode } });
     }
     if (args.run_in_terminal) {
         const on_exit: enum { quit, wait } = if (args.hold) .wait else .quit;

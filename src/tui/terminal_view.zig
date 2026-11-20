@@ -95,7 +95,7 @@ const Selection = struct {
 
 pub const panel_tag = "terminal";
 
-const InputMode = enum {
+pub const InputMode = enum {
     terminal,
     passthrough,
 
@@ -495,6 +495,15 @@ pub fn toggle_focus(self: *Self) void {
 
 pub fn get_title(self: *Self) []const u8 {
     return self.vt.get_title();
+}
+
+pub fn set_input_mode(self: *Self, mode: InputMode) !void {
+    try self.panel_input.set_mode(self.allocator, mode.mode_name());
+    self.input_mode = mode;
+    switch (mode) {
+        .passthrough => std.log.scoped(.terminal).warn("passthrough mode on", .{}),
+        .terminal => std.log.scoped(.terminal).warn("passthrough mode off", .{}),
+    }
 }
 
 pub fn focus(self: *Self) void {
@@ -1198,16 +1207,10 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn terminal_toggle_passthrough(self: *Self, _: Ctx) Result {
-        const next: InputMode = switch (self.input_mode) {
+        try self.set_input_mode(switch (self.input_mode) {
             .terminal => .passthrough,
             .passthrough => .terminal,
-        };
-        try self.panel_input.set_mode(self.allocator, next.mode_name());
-        self.input_mode = next;
-        switch (next) {
-            .passthrough => std.log.scoped(.terminal).warn("passthrough mode on", .{}),
-            .terminal => std.log.scoped(.terminal).warn("passthrough mode off", .{}),
-        }
+        });
     }
     pub const terminal_toggle_passthrough_meta: Meta = .{ .description = "Terminal: Toggle passthrough mode" };
 
