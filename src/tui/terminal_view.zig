@@ -338,17 +338,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             };
             // Forward to vt if terminal mouse reporting is active
             if (self.panel_input.focused and self.vt.vt.mode.mouse != .none) {
-                const cell = coord.to_cell(self.plane.mouse_geometry());
-                const mouse_event: vaxis.Mouse = .{
-                    .col = @intCast(cell.col),
-                    .row = @intCast(cell.row),
-                    .xoffset = cell.xoffset,
-                    .yoffset = cell.yoffset,
-                    .button = button,
-                    .mods = mods.to_vaxis(),
-                    .type = if (is_press) .press else .release,
-                };
-                self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
+                self.vt.vt.update(.{ .mouse = self.vt_mouse_event(coord, button, mods, if (is_press) .press else .release) }) catch {};
                 tui.need_render(@src());
                 return true;
             }
@@ -370,17 +360,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 return true;
             }
             if (self.panel_input.focused and self.vt.vt.mode.mouse != .none) {
-                const cell = coord.to_cell(self.plane.mouse_geometry());
-                const mouse_event: vaxis.Mouse = .{
-                    .col = @intCast(cell.col),
-                    .row = @intCast(cell.row),
-                    .xoffset = cell.xoffset,
-                    .yoffset = cell.yoffset,
-                    .button = btn.to_vaxis(),
-                    .mods = mods.to_vaxis(),
-                    .type = .drag,
-                };
-                self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
+                self.vt.vt.update(.{ .mouse = self.vt_mouse_event(coord, btn.to_vaxis(), mods, .drag) }) catch {};
                 tui.need_render(@src());
                 return true;
             }
@@ -394,16 +374,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             if (self.panel_input.focused and self.vt.vt.mode.mouse == .any_event and !(hover and self.vt.vt.isAltScreen())) {
                 self.hover_mods = .{};
                 self.reset_hover_pos();
-                const mouse_event: vaxis.Mouse = .{
-                    .col = @intCast(cell.col),
-                    .row = @intCast(cell.row),
-                    .xoffset = cell.xoffset,
-                    .yoffset = cell.yoffset,
-                    .button = .none,
-                    .mods = mods.to_vaxis(),
-                    .type = .motion,
-                };
-                self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
+                self.vt.vt.update(.{ .mouse = self.vt_mouse_event(coord, .none, mods, .motion) }) catch {};
                 tui.need_render(@src());
                 return true;
             }
@@ -929,6 +900,24 @@ fn want_selection(self: *Self, mods: MouseEvent.Modifiers) bool {
     return mods.shift or
         (self.vt.vt.back_screen == &self.vt.vt.back_screen_pri and
             self.vt.vt.mode.mouse == .none);
+}
+
+fn vt_mouse_event(self: *Self, coord: MouseEvent.Coord, button: vaxis.Mouse.Button, mods: MouseEvent.Modifiers, @"type": vaxis.Mouse.Type) vaxis.Mouse {
+    const screen = self.vt.vt.back_screen;
+    var geom = self.plane.mouse_geometry();
+    geom.origin_y += self.gap_px;
+    const cell = coord.to_cell(geom);
+    const row = std.math.clamp(cell.row, 0, @as(i32, screen.height) - 1);
+    const col = std.math.clamp(cell.col, 0, @as(i32, screen.width) - 1);
+    return .{
+        .col = @intCast(col),
+        .row = @intCast(row),
+        .xoffset = if (col == cell.col) cell.xoffset else 0,
+        .yoffset = if (row == cell.row) cell.yoffset else 0,
+        .button = button,
+        .mods = mods.to_vaxis(),
+        .type = @"type",
+    };
 }
 
 fn coord_to_position(self: *Self, coord: MouseEvent.Coord) Position {
