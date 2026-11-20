@@ -147,7 +147,11 @@ fn process_log(self: *Self, m: tp.message) MessageFilter.Error!void {
     var context: []const u8 = undefined;
     var msg: []const u8 = undefined;
     if (try cbor.match(m.buf, .{ "log", tp.extract(&src), tp.extract(&msg) })) {
-        try self.set(msg, if (std.mem.startsWith(u8, msg, "[warning] ")) .warn else .info);
+        const warning_prefix = "[warning] ";
+        if (std.mem.startsWith(u8, msg, warning_prefix))
+            try self.set(msg[warning_prefix.len..], .warn)
+        else
+            try self.set(msg, .info);
     } else if (try cbor.match(m.buf, .{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
         const err_stop = "error.Stop";
         if (std.mem.eql(u8, msg, err_stop))
