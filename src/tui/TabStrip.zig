@@ -31,6 +31,7 @@ pub const Source = struct {
     count: *const fn (ctx: *anyopaque) usize,
     info: *const fn (ctx: *anyopaque, n: usize) TabInfo,
     focused: *const fn (ctx: *anyopaque) bool,
+    hidden: *const fn (ctx: *anyopaque) bool,
     on_select: *const fn (ctx: *anyopaque, id: Id) void,
     on_close: *const fn (ctx: *anyopaque, id: Id) void,
     on_menu: *const fn (ctx: *anyopaque) void,
@@ -38,8 +39,6 @@ pub const Source = struct {
 };
 
 const Self = @This();
-
-pub const SingleTab = enum { show, hide };
 
 allocator: Allocator,
 list: *WidgetList,
@@ -49,7 +48,6 @@ source: Source,
 style: *const Tabs.Style,
 hash: u64 = 0,
 label_hash: u64 = 0,
-single_tab: SingleTab = .show,
 
 pub fn init(self: *Self, allocator: Allocator, parent: Plane, style: *const Tabs.Style, source: Source) error{OutOfMemory}!void {
     const list = try WidgetList.createH(allocator, parent, "tab_strip", .{ .static = 1 });
@@ -90,7 +88,7 @@ pub fn widget(self: *Self) Widget {
 
 fn layout_bar(ctx: ?*anyopaque, list: *WidgetList) Widget.Layout {
     const self: *Self = @ptrCast(@alignCast(ctx orelse return list.layout_));
-    return if (self.single_tab == .hide and self.source.count(self.source.ctx) == 1) .{ .static = 0 } else list.layout_;
+    return if (self.source.hidden(self.source.ctx)) .{ .static = 0 } else list.layout_;
 }
 
 pub fn sync(self: *Self) void {

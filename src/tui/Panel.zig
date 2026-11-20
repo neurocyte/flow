@@ -184,6 +184,7 @@ pub fn context_menu(comptime T: type) *const Menu {
         items = items ++ &[_]Menu.Item{
             .separator,
             .{ .command = .{ .command = "toggle_maximize_panel" } },
+            .{ .command = .{ .command = "toggle_fullwindow_panel" } },
             .{ .command = .{ .command = "panel_tab_move_next" } },
             .{ .command = .{ .command = "panel_tab_move_prev" } },
             .{ .command = .{ .command = "panel_split" } },

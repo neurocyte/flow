@@ -2042,6 +2042,23 @@ test "unbind blocks a binding inherited from the builtin fallback" {
     try std.testing.expectEqualStrings("toggle_input_mode", (try test_command_for(home, "f4")).?);
 }
 
+test "unbind frees a builtin terminal key for the terminal application" {
+    reset_namespaces_for_test();
+    const builtin_ns = try get_or_load_builtin_namespace("flow");
+    try std.testing.expectEqualStrings("toggle_fullscreen", (try test_command_for(builtin_ns.get_mode("terminal").?, "f11")).?);
+    reset_namespaces_for_test();
+    const custom = try load_test_namespace("flow",
+        \\{
+        \\  "settings": { "inherit": "<<builtin>>" },
+        \\  "terminal": { "press": [["f11", "unbind"]] }
+        \\}
+    );
+    const terminal = custom.get_mode("terminal").?;
+    try std.testing.expect((try test_command_for(terminal, "f11")) == null);
+    try std.testing.expect(terminal.on_match_failure == .nothing);
+    try std.testing.expectEqualStrings("toggle_fullwindow_panel", (try test_command_for(terminal, "shift+f11")).?);
+}
+
 const source_test_flow =
     \\{
     \\  "project": { "press": [["ctrl+p", "project_cmd"]] },

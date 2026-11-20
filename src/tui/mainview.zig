@@ -54,7 +54,6 @@ const keybind_view = @import("keybindview.zig");
 const terminal_view = @import("terminal_view.zig");
 const project_view_state = @import("project_view_state.zig");
 const PanelArea = @import("PanelArea.zig");
-const TabStrip = @import("TabStrip.zig");
 const panel_registry = @import("panel_registry.zig");
 const Panel = @import("Panel.zig");
 const Vt = @import("Vt.zig");
@@ -1906,14 +1905,20 @@ const cmds = struct {
         .icon = "",
     };
 
-    pub fn toggle_maximize_terminal(self: *Self, ctx: Ctx) Result {
-        try toggle_maximize_panel(self, ctx);
-        self.update_single_tab_strip();
+    pub fn toggle_fullwindow_panel(self: *Self, _: Ctx) Result {
+        self.bottom_area.toggle_full_window();
+        if (self.bottom_area.visible() and !self.bottom_area.is_maximized())
+            if (self.current_terminal()) |vt| if (self.is_panel_view_showing(terminal_view)) vt.unfocus();
     }
-    pub const toggle_maximize_terminal_meta: Meta = .{
-        .description = "Toggle maximize panel and hide tab bar",
+    pub const toggle_fullwindow_panel_meta: Meta = .{
+        .description = "Toggle full window panel",
         .icon = "",
     };
+
+    pub fn unset_fullwindow_panel(self: *Self, _: Ctx) Result {
+        self.bottom_area.unset_full_window();
+    }
+    pub const unset_fullwindow_panel_meta: Meta = .{};
 
     pub fn toggle_top_bar(self: *Self, _: Ctx) Result {
         self.top_bar_hidden = !self.top_bar_hidden;
@@ -3685,10 +3690,11 @@ const cmds = struct {
         var argv: []const u8 = undefined;
         var on_exit: TerminalModeExit = undefined;
         var title: []const u8 = undefined;
-        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title) }))
+        var layout: TerminalModeLayout = undefined;
+        if (!try ctx.args.match(.{ tp.extract_cbor(&argv), tp.extract(&on_exit), tp.extract(&title), tp.extract(&layout) }))
             return error.InvalidStartTerminalModeArgument;
         if (!conpty_downloader.allow_new_terminal()) return;
-        self.start_terminal_mode_terminal(argv, title, on_exit) catch |e| {
+        self.start_terminal_mode_terminal(argv, title, on_exit, layout) catch |e| {
             std.log.err("terminal mode: cannot start the terminal: {t}", .{e});
             self.block_quit_render();
             tui.post_on_ui_ready(.{ "cmd", "quit_confirmed" });
@@ -3725,6 +3731,7 @@ const cmds = struct {
 };
 
 const TerminalModeExit = enum { quit, wait };
+const TerminalModeLayout = enum { maximized, full_window };
 
 fn join_argv(allocator: std.mem.Allocator, argv_cbor: []const u8) !?[]u8 {
     var argv: std.ArrayList([]const u8) = .empty;
@@ -3740,7 +3747,7 @@ fn join_argv(allocator: std.mem.Allocator, argv_cbor: []const u8) !?[]u8 {
     return try Vt.Terminal.command_line.join(allocator, argv.items);
 }
 
-fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8, on_exit: TerminalModeExit) !void {
+fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []const u8, on_exit: TerminalModeExit, layout: TerminalModeLayout) !void {
     var profile = try Vt.Profile.get_default(self.allocator);
     defer profile.deinit(self.allocator);
     const have_command = if (try join_argv(self.allocator, argv_cbor)) |command_line| blk: {
@@ -3756,16 +3763,10 @@ fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []con
     }
     const vt = try Vt.run_new_profile(root.get_io(), self.allocator, profile, 24, 80);
     _ = try self.open_terminal_panel(vt, .{ .focus = true });
-    self.bottom_area.set_maximized(true);
-    self.update_single_tab_strip();
-}
-
-fn update_single_tab_strip(self: *Self) void {
-    const g = self.bottom_area.focused_group() orelse return;
-    const single_tab: TabStrip.SingleTab = if (self.bottom_area.is_maximized()) .hide else .show;
-    if (g.strip.single_tab == single_tab) return;
-    g.strip.single_tab = single_tab;
-    tui.resize();
+    if (layout == .full_window or tui.config().terminal_full_window)
+        self.bottom_area.toggle_full_window()
+    else
+        self.bottom_area.set_maximized(true);
 }
 
 fn no_lsp_error() void {

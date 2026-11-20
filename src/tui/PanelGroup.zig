@@ -25,10 +25,16 @@ deck: *WidgetDeck,
 panels: std.ArrayList(Panel) = .empty,
 on_focus: ?Callback = null,
 on_activate: ?Callback = null,
+strip_hidden: ?Query = null,
 
 pub const Callback = struct {
     ctx: *anyopaque,
     f: *const fn (ctx: *anyopaque, group: *Self) void,
+};
+
+pub const Query = struct {
+    ctx: *anyopaque,
+    f: *const fn (ctx: *anyopaque) bool,
 };
 
 pub fn create(allocator: Allocator, parent: Plane, widget_type: Widget.Type, style: *const Tabs.Style) error{OutOfMemory}!*Self {
@@ -52,6 +58,7 @@ pub fn create(allocator: Allocator, parent: Plane, widget_type: Widget.Type, sty
         .count = strip_count,
         .info = strip_info,
         .focused = strip_focused,
+        .hidden = strip_is_hidden,
         .on_select = strip_select,
         .on_close = strip_close,
         .on_menu = strip_menu,
@@ -231,6 +238,12 @@ fn strip_indicator(p: Panel, visibility: Panel.Visibility) TabStrip.Indicator {
 fn strip_focused(ctx: *anyopaque) bool {
     const self: *Self = @ptrCast(@alignCast(ctx));
     return self.is_focused();
+}
+
+fn strip_is_hidden(ctx: *anyopaque) bool {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    const q = self.strip_hidden orelse return false;
+    return q.f(q.ctx);
 }
 
 fn strip_select(ctx: *anyopaque, id: TabStrip.Id) void {

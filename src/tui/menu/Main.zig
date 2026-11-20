@@ -162,6 +162,7 @@ const tabs: Menu = .{ .label = "Tabs", .items = &.{
 const panel: Menu = .{ .label = "Panel", .items = &.{
     .{ .command = .{ .command = "toggle_panel" } },
     .{ .command = .{ .command = "toggle_maximize_panel" } },
+    .{ .command = .{ .command = "toggle_fullwindow_panel" } },
     .{ .command = .{ .command = "focus_panel" } },
     .{ .command = .{ .command = "panel_unfocus" } },
     .{ .command = .{ .command = "grow_panel" } },

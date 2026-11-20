@@ -100,6 +100,7 @@ pub fn load_entries(palette: *Type) !usize {
     longest_hint = @max(longest_hint, try add_palette_command(palette, "run_task", hints, "", .run));
     longest_hint = @max(longest_hint, try add_palette_command(palette, "toggle_panel_keyhints", hints, "", .run));
     longest_hint = @max(longest_hint, try add_palette_command(palette, "toggle_maximize_panel", hints, "", .run));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "toggle_fullwindow_panel", hints, "", .run));
     return longest_hint - @min(longest_hint, longest) + 3 + indicator_separator;
 }
 

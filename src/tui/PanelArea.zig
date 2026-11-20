@@ -58,6 +58,7 @@ height: ?usize = null,
 height_ratio: f32,
 maximized: bool = false,
 maximized_by_snap: bool = false,
+full_window: bool = false,
 snap_height: usize = 0,
 
 const height_ratio_max: f32 = 0.75;
@@ -118,6 +119,7 @@ pub fn unmaximize_hidden(self: *Self) void {
     if (self.attached) return;
     self.maximized = false;
     self.maximized_by_snap = false;
+    self.full_window = false;
 }
 
 pub fn hide(self: *Self) void {
@@ -151,6 +153,7 @@ fn add_group_at(self: *Self, n: usize) error{OutOfMemory}!*PanelGroup {
     errdefer g.widget().deinit(self.allocator);
     g.on_focus = .{ .ctx = self, .f = note_focused };
     g.on_activate = .{ .ctx = self, .f = note_activated };
+    g.strip_hidden = .{ .ctx = self, .f = tab_strip_hidden };
     try self.groups.insert(self.allocator, n, g);
     errdefer _ = self.groups.orderedRemove(n);
     try self.list.insert(n, g.widget());
@@ -489,7 +492,7 @@ fn persistable_count(g: *const PanelGroup) usize {
     return n;
 }
 
-// [location, visible, maximized, focused_group, groups: [[active_index, tabs: [[tag, state]]]], height]
+// [location, visible, maximized, focused_group, groups: [[active_index, tabs: [[tag, state]]]], height, full_window]
 pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void {
     var n_groups: usize = 0;
     var focused: ?usize = null;
@@ -497,7 +500,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void 
         if (self.last_focused == g) focused = n_groups;
         n_groups += 1;
     };
-    try cbor.writeArrayHeader(writer, 6);
+    try cbor.writeArrayHeader(writer, 7);
     try cbor.writeValue(writer, @tagName(self.location));
     try cbor.writeValue(writer, self.attached);
     try cbor.writeValue(writer, self.maximized);
@@ -522,6 +525,7 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) error{WriteFailed}!void 
         };
     }
     try cbor.writeValue(writer, self.get_height());
+    try cbor.writeValue(writer, self.full_window);
 }
 
 fn skip_values(iter: *[]const u8, n: usize) !void {
@@ -587,8 +591,11 @@ pub fn restore_state(self: *Self, state: []const u8, restore_panel: RestoreFn) !
         if (!try cbor.matchValue(&iter, cbor.extract(&height))) return error.InvalidPanelAreaState;
         self.height = height;
     }
-    try skip_values(&iter, fields -| 6);
+    var full_window: bool = false;
+    if (fields >= 7 and !try cbor.matchValue(&iter, cbor.extract(&full_window))) return error.InvalidPanelAreaState;
+    try skip_values(&iter, fields -| 7);
     self.maximized = maximized;
+    self.full_window = maximized and full_window;
     if (visible_) {
         self.show();
         if (self.maximized) self.focus_active();
@@ -660,6 +667,15 @@ pub fn is_maximized(self: *const Self) bool {
     return self.maximized;
 }
 
+pub fn is_full_window(self: *const Self) bool {
+    return self.maximized and self.full_window;
+}
+
+fn tab_strip_hidden(ctx: *anyopaque) bool {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    return self.is_full_window() and self.groups.items.len == 1 and self.groups.items[0].count() == 1;
+}
+
 fn ensure_visible(self: *Self) bool {
     if (!self.attached) {
         if (self.groups.items.len > 0)
@@ -707,6 +723,22 @@ pub fn toggle_maximize(self: *Self) void {
     self.set_maximized(self.maximized_by_snap or !self.maximized);
 }
 
+pub fn toggle_full_window(self: *Self) void {
+    if (!self.attached) {
+        if (!self.ensure_visible()) return;
+        self.maximized = false;
+    }
+    if (self.is_full_window()) return self.set_maximized(false);
+    self.full_window = true;
+    self.set_maximized(true);
+}
+
+pub fn unset_full_window(self: *Self) void {
+    if (!self.full_window) return;
+    self.full_window = false;
+    tui.resize();
+}
+
 pub fn set_maximized(self: *Self, maximized: bool) void {
     if (!self.attached) {
         if (!maximized) return;
@@ -733,6 +765,7 @@ pub fn set_maximized(self: *Self, maximized: bool) void {
 }
 
 fn notify_maximized(self: *Self) void {
+    if (!self.maximized) self.full_window = false;
     if (self.on_maximize) |cb| cb.f(cb.ctx, self.maximized and self.attached);
 }
 
