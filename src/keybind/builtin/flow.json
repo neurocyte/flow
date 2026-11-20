@@ -129,7 +129,6 @@
             ["ctrl+shift+g alt+c", "vcs_commit_all"],
             ["ctrl+alt+a alt+c", "vcs_commit_all"],
             ["ctrl+shift+g A", "vcs_amend"],
-            ["ctrl+alt+a ctrl+alt+a", "vcs_amend"],
             ["ctrl+shift+g F", "vcs_fetch"],
             ["ctrl+alt+a ctrl+alt+f", "vcs_fetch"],
             ["ctrl+shift+g P", "vcs_push"],
