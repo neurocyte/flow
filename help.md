@@ -514,11 +514,16 @@ press `shift+f11` (also, press `f11` to toggle fullscreen). To make this the
 default, set this option:
 
 ```conf
-terminal_mode_full_window true
+terminal_full_window true
 ```
 
 To give `shift+f11` or `f11` back to the programs in your terminals, unbind
 them in the `terminal` mode of your keybindings.
+
+In passthrough mode, flow sends all keys to the program in the terminal.
+Press `ctrl+alt+a ctrl+alt+a` to switch passthrough mode on and off in the
+focused terminal. To start terminal mode in passthrough mode, use
+`--passthrough`.
 
 To run a command in a terminal panel without terminal mode, use
 `-r`/`--run-in-terminal CMD ARGS...`. It works in the TUI and in the GUI. It
