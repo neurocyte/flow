@@ -1636,6 +1636,10 @@ pub fn current_key_event_sequence_long_fmt() KeyEventSequenceLongFmt {
     return .{ .key_events = globals.current_sequence.items };
 }
 
+pub fn key_event_sequence_pending() bool {
+    return globals.current_sequence.items.len > 0;
+}
+
 pub fn current_integer_argument() ?usize {
     return integer_argument;
 }

@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const command = @import("command");
+const keybind = @import("keybind");
 const vaxis = @import("renderer").vaxis;
 const root = @import("root");
 
@@ -412,8 +413,10 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return false;
 
     const divert_to_vt = input.is_modifier(keypress) and self.vt.vt.wantsAllKeys();
-    if (!divert_to_vt and try self.panel_input.mode.bindings.receive(from, m))
-        return true;
+    if (!divert_to_vt) {
+        if (try self.panel_input.mode.bindings.receive(from, m)) return true;
+        if (keybind.key_event_sequence_pending()) return true;
+    }
 
     switch (event) {
         input.event.press, input.event.repeat, input.event.release => {},
