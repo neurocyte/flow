@@ -838,7 +838,8 @@ const cmds = struct {
                 },
             });
         }
-        if (!build_options.gui) return quit_confirmed(self, ctx);
+        const confirm = if (build_options.gui) tui.config().confirm_quit_gui else tui.config().confirm_quit_tui;
+        if (!confirm) return quit_confirmed(self, ctx);
         return tui.open_confirm(.{
             .message = "Quit flow?",
             .choices = &.{.{ .label = "Quit", .action = .{ .bytes = cbor.fmt(&quit_buf, .{ "cmd", "quit_confirmed" }) }, .default = true }},
