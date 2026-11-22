@@ -426,6 +426,8 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     defer self.back_mutex.unlock(self.io);
 
     self.dropColdView();
+    const pri_state = self.back_screen_pri.appState();
+    const alt_state = self.back_screen_alt.appState();
     const width_unchanged = ws.cols == self.back_screen_pri.width;
     const fits = ws.rows <= self.back_screen_pri.buf.len / self.back_screen_pri.width;
     if (width_unchanged and fits) {
@@ -452,6 +454,8 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
         self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
         self.setScrollOffset(@min(self.scrollOffset(), self.back_screen_pri.historySize()));
     }
+    self.back_screen_pri.setAppState(pri_state);
+    self.back_screen_alt.setAppState(alt_state);
 
     _ = try self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent);
 

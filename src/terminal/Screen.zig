@@ -229,6 +229,32 @@ csi_u_depth: u8 = 0,
 
 pub const kitty_stack_max = 16;
 
+pub const AppState = struct {
+    csi_u_flags: vaxis.Key.KittyFlags,
+    csi_u_stack: [kitty_stack_max]vaxis.Key.KittyFlags,
+    csi_u_depth: u8,
+    cursor_style: vaxis.Style,
+    cursor_shape: vaxis.Cell.CursorShape,
+};
+
+pub fn appState(self: *const Screen) AppState {
+    return .{
+        .csi_u_flags = self.csi_u_flags,
+        .csi_u_stack = self.csi_u_stack,
+        .csi_u_depth = self.csi_u_depth,
+        .cursor_style = self.cursor.style,
+        .cursor_shape = self.cursor.shape,
+    };
+}
+
+pub fn setAppState(self: *Screen, state: AppState) void {
+    self.csi_u_flags = state.csi_u_flags;
+    self.csi_u_stack = state.csi_u_stack;
+    self.csi_u_depth = state.csi_u_depth;
+    self.cursor.style = state.cursor_style;
+    self.cursor.shape = state.cursor_shape;
+}
+
 /// CSI > flags u - push the given kitty keyboard flags, making them current.
 pub fn kittyPush(self: *Screen, flags: vaxis.Key.KittyFlags) void {
     if (self.csi_u_depth < self.csi_u_stack.len) {
