@@ -366,7 +366,10 @@ fn init(allocator: Allocator) InitError!*Self {
     try frame_clock.start();
     try self.commands.init(self);
     try keybind.init(self.config_.keybind_mode);
-    keybind.set_filter_options(.{ .os = self.config_.keybind_os, .ui = self.config_.keybind_ui });
+    keybind.set_filter_options(.{ .os = self.config_.keybind_os, .ui = if (build_options.gui)
+        self.config_.keybind_ui_gui
+    else
+        self.config_.keybind_ui_tui });
     @import("Vt.zig").register_profile_keybindings();
     errdefer self.deinit();
     switch (builtin.os.tag) {
@@ -1846,8 +1849,10 @@ fn reload_config(self: *Self) void {
         self.reload_theme(.light, conf.light_theme);
 
     const arena = self.config_arena() catch return;
-    if (conf.keybind_os != self.config_.keybind_os or conf.keybind_ui != self.config_.keybind_ui)
-        self.logger.print("keybind_os and keybind_ui changes apply after a restart", .{});
+    if (conf.keybind_os != self.config_.keybind_os or
+        conf.keybind_ui_tui != self.config_.keybind_ui_tui or
+        conf.keybind_ui_gui != self.config_.keybind_ui_gui)
+        self.logger.print("keybind_os and keybind_ui_* changes apply after a restart", .{});
 
     const T = @import("config");
     @setEvalBranchQuota(10_000);

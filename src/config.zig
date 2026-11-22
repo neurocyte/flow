@@ -165,7 +165,8 @@ lsp_output: enum { quiet, verbose } = .quiet,
 
 keybind_mode: KeybindMode = .normal,
 keybind_os: std.Target.Os.Tag = builtin.os.tag,
-keybind_ui: KeybindUi = if (build_options.gui) .gui else .tui,
+keybind_ui_tui: KeybindUi = .tui,
+keybind_ui_gui: KeybindUi = .gui,
 dropdown_keybinds: DropdownKeybindMode = .standard,
 dropdown_limit: usize = 12,
 
