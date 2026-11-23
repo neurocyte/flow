@@ -93,6 +93,8 @@ pub const Mode = struct {
     bracketed_paste: bool = false,
     /// DECSET 2031: send unsolicited color scheme reports (CSI ? 997 ; Ps n)
     color_scheme_updates: bool = false,
+    /// DECSET 2048: send unsolicited size reports (CSI 48 ; rows ; cols ; height_px ; width_px t)
+    in_band_resize: bool = false,
     /// IRM (SM/RM 4): printed characters shift existing cells right instead of overwriting
     insert: bool = false,
 };
@@ -418,7 +420,10 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     if (ws.cols == self.frames.front().width and
         ws.rows == self.frames.rows)
     {
-        if (pixels_changed) try self.pty.setSize(ws);
+        if (pixels_changed) {
+            try self.pty.setSize(ws);
+            if (self.mode.in_band_resize) self.reportSize() catch |e| log.warn("in band size report failed: {t}", .{e});
+        }
         return;
     }
 
@@ -460,6 +465,7 @@ pub fn resize(self: *Terminal, ws: Winsize, reflow: bool) !void {
     _ = try self.publishLocked(.now, @ptrCast(self), ignoreTerminalEvent);
 
     try self.pty.setSize(ws);
+    if (self.mode.in_band_resize) self.reportSize() catch |e| log.warn("in band size report failed: {t}", .{e});
 }
 
 fn ignoreTerminalEvent(_: *Event.HandlerContext, _: Event) error{TerminalHandlerFailed}!void {}
@@ -2209,6 +2215,7 @@ pub fn queryMode(self: *Terminal, mode: u16, private: bool) ModeState {
         2004 => modeState(self.mode.bracketed_paste),
         2026 => modeState(self.mode.sync),
         2031 => modeState(self.mode.color_scheme_updates),
+        2048 => modeState(self.mode.in_band_resize),
         1005, 1015 => .permanently_reset,
         else => .not_recognized,
     };
@@ -2270,6 +2277,10 @@ pub fn setMode(self: *Terminal, mode: u16, private: bool, val: bool) void {
             if (val) self.sync_deadline_ms = root.get_now().toMilliseconds() + sync_timeout_ms;
         },
         2031 => self.mode.color_scheme_updates = val,
+        2048 => {
+            self.mode.in_band_resize = val;
+            if (val) self.reportSize() catch |e| log.warn("in band size report failed: {t}", .{e});
+        },
         else => return,
     }
 }
@@ -2384,6 +2395,15 @@ fn reportColorScheme(self: *Terminal) !void {
     const pty_writer = self.reply_writer();
     defer pty_writer.flush() catch |e| log.warn("color scheme report flush failed: {t}", .{e});
     try pty_writer.print("\x1b[?997;{d}n", .{@backingInt(self.color_scheme)});
+}
+
+/// In band size report (CSI 48 ; rows ; cols ; height_px ; width_px t).
+/// See https://gist.github.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83
+fn reportSize(self: *Terminal) !void {
+    const ws = self.winsizeForScreen();
+    const pty_writer = self.reply_writer();
+    defer pty_writer.flush() catch |e| log.warn("in band size report flush failed: {t}", .{e});
+    try pty_writer.print("\x1b[48;{d};{d};{d};{d}t", .{ ws.rows, ws.cols, ws.y_pixel, ws.x_pixel });
 }
 
 pub fn setColorScheme(self: *Terminal, scheme: ColorScheme) void {
