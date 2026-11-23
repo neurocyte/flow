@@ -1711,6 +1711,8 @@ const cmds = struct {
             auto_save = true;
         } else if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
             return error.InvalidSaveBufferArgument;
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
 
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
 
