@@ -3492,6 +3492,19 @@ const cmds = struct {
     }
     pub const shell_execute_stream_output_complete_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
+    pub fn stdin_input_complete(self: *Self, ctx: Ctx) Result {
+        var buffer_ref: Buffer.Ref = undefined;
+        if (!try ctx.args.match(.{tp.extract(&buffer_ref)}))
+            return error.InvalidStdinInputCompleteArgument;
+        const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
+        if (!buffer.is_ephemeral()) return;
+        if (self.get_editor_for_buffer(buffer)) |editor|
+            return editor.forced_mark_clean(.empty_from(ctx));
+        buffer.mark_clean();
+        tui.need_render(@src());
+    }
+    pub const stdin_input_complete_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn adjust_fontsize(_: *Self, ctx: Ctx) Result {
         var amount: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&amount)}))

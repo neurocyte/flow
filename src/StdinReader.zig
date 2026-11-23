@@ -167,7 +167,6 @@ const Process = struct {
         } else if (try m.match(.{ "reply", tp.extract(&id), .{ "buffer", tp.extract(&buffer_ref) } })) {
             if (id != 1 or self.buffer_ref != null) return;
             self.buffer_ref = try self.allocator.dupe(u8, buffer_ref.bytes);
-            try self.buffer_created();
             return self.read_next();
         } else if (try m.match(.{ "reply", tp.extract(&id), "ok" })) {
             // create_buffer may be acked more than once if it waits for loads, so it starts on the buffer reply
@@ -197,7 +196,7 @@ const Process = struct {
         }
     }
 
-    fn buffer_created(self: *@This()) !void {
+    fn start_script(self: *@This()) !void {
         const script = self.script orelse return;
         self.script = null;
         try ScriptExecutor.create(self.allocator, self.target.ref(), script, if (self.then) |m| .{ .buf = m } else null);
@@ -245,6 +244,8 @@ const Process = struct {
 
     fn finish_input(self: *@This()) !void {
         if (self.partial_len > 0) try self.send_data(self.join_buf[0..self.partial_len]);
+        try self.send_command("stdin_input_complete", .{ .bytes = cbor.fmt(&self.args_buf, .{cbor.Raw{ .bytes = self.buffer_ref.? }}) });
+        try self.start_script();
         return self.finish();
     }
 
