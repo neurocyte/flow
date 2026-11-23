@@ -412,7 +412,7 @@ const Process = struct {
 
     fn handle_reply(self: *@This(), request_id: u64, payload: cbor.Raw) !void {
         if (try self.handle_screenshot(request_id, payload)) return;
-        if (self.output) |output| self.print_reply(output, request_id, payload);
+        if (self.output) |output| try self.print_reply(output, request_id, payload);
         if (self.creates.get(request_id)) |reply_to| return self.handle_create_reply(request_id, reply_to, payload);
         if (self.outstanding.get(request_id)) |pending_request| if (pending_request.reply_to) |reply_to| reply_to.send(payload);
         if (try self.handle_event(request_id, payload)) return self.disconnect_when_done();
@@ -478,7 +478,7 @@ const Process = struct {
             defer self.allocator.free(path);
             var buf: [std.fs.max_path_bytes + 32]u8 = undefined;
             const done: cbor.Raw = .{ .bytes = cbor.fmt(&buf, .{ "screenshot", path }) };
-            if (self.output) |output| self.print_reply(output, request_id, done) else log.info("screenshot saved to {s}", .{path});
+            if (self.output) |output| try self.print_reply(output, request_id, done) else log.info("screenshot saved to {s}", .{path});
             return true;
         }
         if (self.screenshot) |*s| if (s.request_id == request_id and try cbor.match(payload.bytes, .{ "error", cbor.any })) {
@@ -518,13 +518,16 @@ const Process = struct {
     }
 
     /// focus requests are internal and have no name, so they do not print
-    fn print_reply(self: *@This(), output: Output, request_id: u64, payload: cbor.Raw) void {
+    fn print_reply(self: *@This(), output: Output, request_id: u64, payload: cbor.Raw) error{Exit}!void {
         const cmd = self.names.get(request_id) orelse return;
         const result = switch (output.format) {
             .text => if (is_ack(payload) catch true) {} else output.write_raw(payload),
             .json, .cbor => output.write(self.allocator, .{ .id = request_id, .command = cmd, .reply = payload }),
         };
-        result catch |e| log.err("write reply {d} failed: {t}", .{ request_id, e });
+        result catch |e| {
+            self.shutdown();
+            return tp.exit_fmt("write reply {d} failed: {t}", .{ request_id, e });
+        };
     }
 
     /// a created buffer replies {"buffer", ref}, acks (maybe more than once) and then sends buffer events until it is closed
