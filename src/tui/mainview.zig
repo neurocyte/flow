@@ -1674,7 +1674,7 @@ const cmds = struct {
         var default_name: std.Io.Writer.Allocating = .init(self.allocator);
         defer default_name.deinit();
         const file_path = if (name) |name_| blk: {
-            const file_path = project_manager.normalize_file_path(name_, &file_path_buf);
+            const file_path = if (kind == .scratch) name_ else project_manager.normalize_file_path(name_, &file_path_buf);
             if (self.buffer_manager.get_buffer_for_file(file_path)) |_| return error.BufferAlreadyOpen;
             break :blk file_path;
         } else try self.unique_buffer_name(&default_name, kind);
@@ -1686,7 +1686,7 @@ const cmds = struct {
             command.fmt(.{ file_path, "" }));
         const editor = self.get_active_editor() orelse return error.Stop;
         const buffer = editor.buffer orelse return error.Stop;
-        if (name) |_| {
+        if (name != null and kind != .scratch) {
             buffer.file_exists = if (std.Io.Dir.cwd().access(ctx.io, file_path, .{})) |_| true else |_| false;
             self.buffer_manager.mark_not_ephemeral(buffer);
         } else {
@@ -4946,7 +4946,7 @@ pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.foreach_editor(ed.Editor.update_completion_triggers);
 }
 
-const BufferKind = enum { new_file, scratch, stdin };
+const BufferKind = enum { new_file, scratch, stdin, file };
 
 fn create_buffer_after_navigations(self: *Self, ctx: command.Context) error{ OutOfMemory, WriteFailed }!bool {
     if (self.pending_navigations == 0) return false;
@@ -4978,7 +4978,7 @@ fn unique_buffer_name(self: *Self, name: *std.Io.Writer.Allocating, kind: Buffer
     while (true) : (n += 1) {
         name.clearRetainingCapacity();
         switch (kind) {
-            .new_file => try name.writer.print("Untitled-{d}", .{n}),
+            .new_file, .file => try name.writer.print("Untitled-{d}", .{n}),
             .scratch, .stdin => if (n == 1)
                 try name.writer.print("*{t}*", .{kind})
             else

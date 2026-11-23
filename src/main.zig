@@ -542,7 +542,9 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .file => |*file| file.path = try std.fs.path.resolve(init.arena.allocator(), &.{ cwd, file.path }),
             else => {},
         };
-        if (file_name) |name| file_name = try std.fs.path.resolve(init.arena.allocator(), &.{ cwd, name });
+        if (file_name) |name| if (!args.scratch) {
+            file_name = try std.fs.path.resolve(init.arena.allocator(), &.{ cwd, name });
+        };
     }
 
     if (connect != null and args.project == null and links.items.len == 0 and script == null and
@@ -630,12 +632,16 @@ pub fn main(init: std.process.Init) anyerror!u8 {
     var exec_eh = thespian.make_exit_handler({}, ignore_exit_status);
     var disconnect_buf: [16]u8 = undefined;
     const then_disconnect: ?thespian.message = if (connect != null) try thespian.message.fmtbuf(&disconnect_buf, .{"disconnect"}) else null;
-    const kind: enum { new_file, scratch, stdin } = if (args.new_file)
+    const kind: enum { new_file, scratch, stdin, file } = if (args.new_file)
         .new_file
-    else if (args.scratch or stdin_input == null)
+    else if (args.scratch)
         .scratch
+    else if (stdin_input != null)
+        .stdin
+    else if (file_name != null)
+        .file
     else
-        .stdin;
+        .scratch;
     const language: ?[]const u8 = if (args.language) |language|
         language
     else if (args.new_file and stdin_input != null)
