@@ -1337,7 +1337,7 @@ const cmds = struct {
                     continue;
                 }
                 const l = f.line orelse 0;
-                const c = f.column orelse 0;
+                const c = (f.column orelse 1) -| 1;
                 tp.self_pid().send(.{ "FLS", stream, path, l, c, l, c, line.items }) catch {};
                 sent += 1;
             }
