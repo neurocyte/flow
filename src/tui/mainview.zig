@@ -2332,6 +2332,7 @@ const cmds = struct {
                 if (tv.panel_input.focused) .focused else .unfocused
             else
                 .unfocused;
+            const status = vt.status.root();
             try reply.send(.{
                 "terminal",
                 vt.id,
@@ -2341,10 +2342,51 @@ const cmds = struct {
                 vt.get_state(visibility),
                 visibility,
                 focus,
+                if (status) |r| r.state else null,
+                if (status) |r| r.kind else null,
+                if (status) |r| r.progress else null,
+                if (status) |r| vt.status.effective_app(r) else "",
+                vt.session.items,
             });
         }
     }
     pub const get_terminals_meta: Meta = .{};
+
+    /// ["status", terminal_id, record_id, state, kind, progress, app, title, msg] for each OSC 7501 record
+    /// of one terminal or of all terminals, root record first
+    pub fn get_terminal_status(_: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: u64 = 0;
+        if (try ctx.args.match(.{tp.extract(&id)})) {
+            const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+            return vt.send_all_status(reply);
+        }
+        if (!try ctx.args.match(.{})) return error.InvalidGetTerminalStatusArgument;
+        for (Vt.Manager.all()) |vt| try vt.send_all_status(reply);
+    }
+    pub const get_terminal_status_meta: Meta = .{ .arguments = &.{.integer} };
+
+    /// the records of a terminal like get_terminal_status
+    /// the subscription continues until the client disconnects
+    pub fn follow_terminal_status(_: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var id: u64 = 0;
+        if (!try ctx.args.match(.{tp.extract(&id)})) return error.InvalidFollowTerminalStatusArgument;
+        const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+        try vt.follow_status(reply);
+    }
+    pub const follow_terminal_status_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn set_terminal_session(_: *Self, ctx: Ctx) Result {
+        var id: u64 = 0;
+        var session: []const u8 = "";
+        if (!try ctx.args.match(.{ tp.extract(&id), tp.extract(&session) })) return error.InvalidSetTerminalSessionArgument;
+        if (session.len > max_terminal_session) return error.TerminalSessionTooLong;
+        for (session) |c| if (c < 0x20 or c == 0x7f) return error.InvalidTerminalSession;
+        const vt = Vt.Manager.by_id(id) orelse return error.TerminalNotFound;
+        try vt.set_session(session);
+    }
+    pub const set_terminal_session_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
     /// ["line", number, text] for each line of scrollback of a terminal (unwrapped)
     /// long lines (more than max_text_reply) are chunked with the same number
@@ -3911,6 +3953,7 @@ pub fn get_active_editor(self: *Self) ?*ed.Editor {
 }
 
 pub const max_text_reply = 16 * 1024;
+pub const max_terminal_session = 128;
 
 pub fn utf8_prefix(text: []const u8, max: usize) []const u8 {
     if (text.len <= max) return text;

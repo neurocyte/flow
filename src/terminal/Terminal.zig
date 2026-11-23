@@ -17,6 +17,7 @@ const Pty = if (is_windows) @import("ConPTY.zig") else @import("Pty.zig");
 pub const ConPTY = if (is_windows) Pty else void;
 const Winsize = vaxis.Winsize;
 pub const Screen = @import("Screen.zig");
+pub const ProgramStatus = @import("ProgramStatus.zig");
 pub const WtProfiles = @import("WtProfiles.zig");
 pub const Profile = @import("Profile.zig");
 pub const command_line = @import("command_line");
@@ -47,6 +48,8 @@ pub const Event = union(enum) {
     shell_state_change: Screen.ShellState,
     /// OSC 22 set: app requested a mouse pointer (cursor) shape.
     pointer_shape_change: vaxis.Mouse.Shape,
+    /// OSC 7501 program status report, and the OSC 133 A and RIS lifecycle points
+    program_status: ProgramStatus.Event,
 
     pub const Handler = *const fn (ctx: *HandlerContext, event: @This()) error{TerminalHandlerFailed}!void;
     pub const HandlerContext = anyopaque;
@@ -214,6 +217,8 @@ title: std.ArrayList(u8) = .empty,
 /// XTWINOPS 22/23 title save/restore stack (owns each entry)
 title_stack: std.ArrayList([]u8) = .empty,
 working_directory: std.ArrayList(u8) = .empty,
+program_status_text: ProgramStatus.DecodeBuffer = .{},
+osc_9_4_progress: enum { mapped, ignored } = .mapped,
 
 /// When the in-progress synchronized update (DECSET 2026) stops being honoured.
 sync_deadline_ms: i64 = 0,
@@ -1312,6 +1317,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         self.hardReset() catch |e| log.err("RIS reset failed: {}", .{e});
                         // Tell the widget the app colour overrides are gone.
                         try handle_event(context, .{ .color_change = .{ .fg = null, .bg = null, .cursor = null } });
+                        self.osc_9_4_progress = .mapped;
+                        try handle_event(context, .{ .program_status = .reset });
                     } else log.debug("unhandled escape: {s}", .{esc}),
                     else => log.debug("unhandled escape: {s}", .{esc}),
                 }
@@ -1821,7 +1828,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
             },
             .osc => |osc| {
                 const sep = std.mem.indexOfScalar(u8, osc, ';');
-                const ps = std.fmt.parseUnsigned(u8, osc[0 .. sep orelse osc.len], 10) catch {
+                const ps = std.fmt.parseUnsigned(u16, osc[0 .. sep orelse osc.len], 10) catch {
                     log.debug("unhandled osc: {s}", .{osc});
                     continue;
                 };
@@ -1901,8 +1908,22 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                         }
                     },
                     // OSC 9 ; 4 ; <state> ; <progress>
-                    // Progress notification. Silently ignored; we have no progress UI.
-                    9 => {},
+                    // ConEmu progress report, mapped to the root program status record
+                    // until the first OSC 7501 report. Other OSC 9 (notifications) are ignored.
+                    9 => if (self.osc_9_4_progress == .mapped and std.mem.startsWith(u8, rest, "4;")) {
+                        if (ProgramStatus.from_osc_9_4(rest[2..])) |report|
+                            try handle_event(context, .{ .program_status = .{ .report = report } });
+                    },
+                    // OSC 7501 ; key=value:key=value - program status report
+                    // OSC 7501 ; ? - feature query
+                    7501 => if (ProgramStatus.is_query(rest)) {
+                        const pty_writer = self.reply_writer();
+                        defer pty_writer.flush() catch {};
+                        try pty_writer.writeAll(ProgramStatus.feature_reply);
+                    } else if (ProgramStatus.parse(rest, &self.program_status_text)) |report| {
+                        self.osc_9_4_progress = .ignored;
+                        try handle_event(context, .{ .program_status = .{ .report = report } });
+                    },
                     // OSC 4 - set or query a palette colour.
                     // Payload is one or more `<index> ; <spec|?>` pairs. A "?"
                     // spec is a query, answered with the current entry; any
@@ -2076,6 +2097,8 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context
                                 }
                                 if (k == .prompt_start and secondary) continue;
                                 if (self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click)) {
+                                    if (k == .prompt_start)
+                                        try handle_event(context, .{ .program_status = .prompt });
                                     try handle_event(context, .{
                                         .shell_state_change = self.back_screen_pri.shellState(),
                                     });

@@ -231,6 +231,7 @@ fn render_indicator(plane: *@import("renderer").Plane, theme: *const Widget.Them
         .alt_screen => .alt_screen,
         .activity => .activity,
         .busy => .busy,
+        .blocked => .blocked,
         .bell => .bell,
         .exited => .exited,
         .exited_error => .exited_error,

@@ -215,6 +215,7 @@ pub fn panel_indicator(self: *Self, visibility: Panel.Visibility) Panel.Indicato
         .alt_screen => .alt_screen,
         .activity => .activity,
         .busy => .busy,
+        .blocked => .blocked,
         .bell => .bell,
         .exited => .exited,
         .exited_error => .exited_error,

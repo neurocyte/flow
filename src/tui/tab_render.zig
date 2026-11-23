@@ -22,6 +22,7 @@ pub const Indicator = enum {
     activity,
     bell,
     busy,
+    blocked,
     exited,
     exited_error,
 };

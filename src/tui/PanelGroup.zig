@@ -230,6 +230,7 @@ fn strip_indicator(p: Panel, visibility: Panel.Visibility) TabStrip.Indicator {
         .activity => .activity,
         .bell => .bell,
         .busy => .busy,
+        .blocked => .blocked,
         .exited => .exited,
         .exited_error => .exited_error,
     };

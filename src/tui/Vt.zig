@@ -23,6 +23,7 @@ const TerminalOnExit = @import("config").TerminalOnExit;
 
 pub const Screen = Terminal.Screen;
 pub const Event = Terminal.Event;
+pub const ProgramStatus = Terminal.ProgramStatus;
 pub const Manager = @import("VtManager.zig");
 
 const Vt = @This();
@@ -51,6 +52,9 @@ synthesize_marks: bool = false,
 started_at: i64 = 0,
 profile: ?Terminal.Profile = null,
 exit_listeners: std.ArrayList(ExitListener) = .empty,
+status: ProgramStatus.Records = .{},
+status_followers: std.ArrayList(command.Reply) = .empty,
+session: std.ArrayList(u8) = .empty,
 
 fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit, spawn: bool, working_directory: ?[]const u8) !*@This() {
     const home = env.get("HOME") orelse "/tmp";
@@ -123,6 +127,9 @@ pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
     self.unblock_output_render();
     self.cwd.deinit(allocator);
     self.title.deinit(allocator);
+    self.status.deinit(allocator);
+    self.status_followers.deinit(allocator);
+    self.session.deinit(allocator);
     if (self.last_cmd) |cmd| allocator.free(cmd.bytes);
     if (self.pty_pid) |pid| {
         pid.send(.{"quit"}) catch {};
@@ -264,13 +271,15 @@ pub fn get_title(self: *@This()) []const u8 {
     return self.get_command_name();
 }
 
-pub const State = enum { idle, alt_screen, activity, busy, bell, exited, exited_error };
+pub const State = enum { idle, alt_screen, activity, busy, blocked, bell, exited, exited_error };
 
 pub fn get_state(self: *const @This(), visibility: Panel.Visibility) State {
     if (self.process_exited)
         return if ((self.exit_code orelse 0) == 0) .exited else .exited_error;
+    const status: ?ProgramStatus.State = if (self.status.root()) |r| r.state else null;
+    if (status == .blocked) return .blocked;
     if (self.bell) return .bell;
-    if (self.is_busy()) return .busy;
+    if (self.is_busy() or status == .working) return .busy;
     if (self.activity and visibility == .hidden) return .activity;
     if (self.vt.isAltScreen()) return .alt_screen;
     return .idle;
@@ -333,6 +342,7 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
         .exited => |code| {
             self.process_exited = true;
             self.exit_code = code;
+            self.status.exited(self.vt.allocator, self);
             if (self.pty_pid) |pid| {
                 pid.deinit();
                 self.pty_pid = null;
@@ -388,7 +398,48 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
             self.pointer_shape = shape;
             tui.need_render(@src());
         },
+        .program_status => |status_event| {
+            try self.status.apply(self.vt.allocator, status_event, self);
+            tui.need_render(@src());
+        },
     }
+}
+
+/// ["status", terminal_id, record_id, state, kind, progress, app, title, msg]
+pub fn send_status(self: *const @This(), reply: command.Reply, change: ProgramStatus.Change) tp.result {
+    return switch (change) {
+        .set => |r| reply.send(.{ "status", self.id, r.id, r.state, r.kind, r.progress, self.status.effective_app(r), r.title, r.msg }),
+        .removed => |id| reply.send(.{ "status", self.id, id, ProgramStatus.State.clear, null, null, "", "", "" }),
+    };
+}
+
+pub fn send_all_status(self: *const @This(), reply: command.Reply) tp.result {
+    if (self.status.root()) |r| try self.send_status(reply, .{ .set = r });
+    for (self.status.items.items) |*r| if (r.id.len > 0) try self.send_status(reply, .{ .set = r });
+}
+
+pub fn follow_status(self: *@This(), reply: command.Reply) !void {
+    try self.send_all_status(reply);
+    try self.status_followers.append(self.vt.allocator, reply);
+}
+
+pub fn changed(self: *@This(), _: *const ProgramStatus.Records, change: ProgramStatus.Change) void {
+    var i: usize = 0;
+    while (i < self.status_followers.items.len) {
+        const follower = self.status_followers.items[i];
+        const pid = tp.pid.from_id(follower.piid) orelse {
+            _ = self.status_followers.swapRemove(i);
+            continue;
+        };
+        pid.deinit();
+        self.send_status(follower, change) catch {};
+        i += 1;
+    }
+}
+
+pub fn set_session(self: *@This(), session: []const u8) error{OutOfMemory}!void {
+    self.session.clearRetainingCapacity();
+    try self.session.appendSlice(self.vt.allocator, session);
 }
 
 pub fn add_exit_listener(self: *@This(), listener: ExitListener) error{OutOfMemory}!void {

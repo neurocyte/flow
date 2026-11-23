@@ -3,7 +3,7 @@ const Widget = @import("Widget.zig");
 const Menu = @import("Menu.zig");
 const keybind = @import("keybind");
 
-pub const Indicator = enum { none, alt_screen, activity, bell, busy, exited, exited_error };
+pub const Indicator = enum { none, alt_screen, activity, bell, busy, blocked, exited, exited_error };
 pub const Visibility = enum { visible, hidden };
 pub const CloseResult = enum { closed, vetoed };
 pub const Id = u32;
