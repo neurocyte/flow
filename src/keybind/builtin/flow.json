@@ -872,7 +872,7 @@
         "on_match_failure": "nothing",
         "inherit_prefix": [["ctrl+alt+a", "project"]],
         "press": [
-            ["ctrl+alt+a ctrl+alt+a", "terminal_toggle_passthrough"],
+            ["ctrl+alt+b", "terminal_toggle_passthrough"],
             [{"os": "macos"}, "super+c", "terminal_copy_selection"],
             [{"os": "macos"}, "super+v", "system_paste"],
             [{"os": "macos"}, "super+t", "terminal_new"],
@@ -997,7 +997,7 @@
     "terminal/passthrough": {
         "on_match_failure": "nothing",
         "press": [
-            ["ctrl+alt+a ctrl+alt+a", "terminal_toggle_passthrough"]
+            ["ctrl+alt+b", "terminal_toggle_passthrough"]
         ]
     }
 }
