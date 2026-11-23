@@ -98,6 +98,7 @@ next_filelist_stream: FileList.Stream = FileList.stream_first_dynamic,
 filelists: FileList.Manager = undefined,
 file_operations: std.AutoHashMapUnmanaged(usize, FileOperationRequest) = .empty,
 symbols: std.ArrayList(u8) = .empty,
+editor_followers: std.ArrayList(command.Reply) = .empty,
 symbols_complete: bool = true,
 closing_project: bool = false,
 lsp_info: LspInfo,
@@ -226,6 +227,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.commands.deinit();
     self.widgets.deinit(allocator);
     self.symbols.deinit(allocator);
+    self.editor_followers.deinit(allocator);
     self.floating_views.deinit();
     self.view_layer_ids.deinit(allocator);
     self.buffer_manager.deinit();
@@ -2496,6 +2498,17 @@ const cmds = struct {
     }
     pub const get_editors_meta: Meta = .{};
 
+    /// ["editor", BUFID, view_index, event] for every event of every editor, for example
+    /// ["E", "pos", lines, row, col] or ["E", "sel", begin_row, begin_col, end_row, end_col]
+    /// rows and columns in events are 0-based, columns are screen columns
+    /// the subscription continues until the client disconnects
+    pub fn follow_editors(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        if (!try ctx.args.match(.{})) return error.InvalidFollowEditorsArgument;
+        try self.editor_followers.append(self.allocator, reply);
+    }
+    pub const follow_editors_meta: Meta = .{};
+
     /// ["line", number, text] for each line, without the line ending
     /// long lines (more than max_text_reply) are chunked with the same number
     pub fn get_buffer_text(self: *Self, ctx: Ctx) Result {
@@ -3880,6 +3893,25 @@ fn start_terminal_mode_terminal(self: *Self, argv_cbor: []const u8, title: []con
         self.bottom_area.set_maximized(true);
 }
 
+fn send_to_editor_followers(self: *Self, editor: *ed.Editor, m: tp.message) void {
+    var i: usize = 0;
+    while (i < self.editor_followers.items.len) {
+        const follower = self.editor_followers.items[i];
+        const pid = tp.pid.from_id(follower.piid) orelse {
+            _ = self.editor_followers.swapRemove(i);
+            continue;
+        };
+        pid.deinit();
+        follower.send(.{
+            "editor",
+            if (editor.buffer) |buffer| buffer.id else null,
+            self.get_view_for_editor(editor),
+            cbor.Raw{ .bytes = m.buf },
+        }) catch {};
+        i += 1;
+    }
+}
+
 fn no_lsp_error() void {
     const logger = log.logger("editor");
     defer logger.deinit();
@@ -3888,6 +3920,7 @@ fn no_lsp_error() void {
 
 pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.result {
     var sel: ed.Selection = undefined;
+    self.send_to_editor_followers(editor, m);
 
     if (try m.match(.{ "E", "location", tp.more }))
         return self.location_update(editor, m);
