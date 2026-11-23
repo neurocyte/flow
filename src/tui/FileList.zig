@@ -8,7 +8,7 @@ pub const ActivateMode = enum { normal, alternate };
 pub const State = enum { idle, adding, done };
 
 pub const Id = usize;
-pub const Kind = enum { diagnostics, references, find_in_files, terminal_links };
+pub const Kind = enum { diagnostics, references, find_in_files, terminal_links, list };
 
 pub const Stream = usize;
 
@@ -52,6 +52,7 @@ pub fn icon_for(kind: Kind) []const u8 {
         .references => "",
         .find_in_files => "󰥨",
         .terminal_links => "",
+        .list => "󰉹",
     };
 }
 
@@ -61,6 +62,7 @@ fn label_for(kind: Kind) []const u8 {
         .references => "References",
         .find_in_files => "Find",
         .terminal_links => "Links",
+        .list => "List",
     };
 }
 
@@ -69,7 +71,7 @@ const SortOrder = enum { path_line_sorted, submit_order };
 fn sort_order_for(kind: Kind) SortOrder {
     return switch (kind) {
         .diagnostics, .references, .find_in_files => .path_line_sorted,
-        .terminal_links => .submit_order,
+        .terminal_links, .list => .submit_order,
     };
 }
 
@@ -262,6 +264,11 @@ pub const Manager = struct {
         return null;
     }
 
+    pub fn find_by_label(self: *Manager, kind: Kind, label: []const u8) ?*Self {
+        for (self.lists.items) |fl| if (fl.kind == kind and std.mem.eql(u8, fl.label, label)) return fl;
+        return null;
+    }
+
     pub fn get_or_create_singleton(self: *Manager, kind: Kind) !*Self {
         return self.find_by_kind(kind) orelse self.create(kind);
     }
@@ -353,7 +360,7 @@ pub const Manager = struct {
             if (!try cbor.matchValue(iter, cbor.extract(&list_id)) or
                 !try cbor.matchValue(iter, cbor.extract(&kind)) or
                 !try cbor.matchValue(iter, cbor.extract(&label)) or
-                kind > @backingInt(Kind.terminal_links))
+                kind > @backingInt(Kind.list))
                 return error.InvalidFileListEntry;
             const fl = try Self.init(self.allocator, list_id, @fromBackingInt(@intCast(kind)));
             errdefer fl.deinit();
