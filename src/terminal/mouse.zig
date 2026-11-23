@@ -42,7 +42,7 @@ pub fn encode(writer: *std.Io.Writer, m: vaxis.Mouse, sgr: bool, pixel: bool, ce
     if (m.type == .motion or m.type == .drag) cb |= 32;
 
     // SGR-Pixels (mode 1016): pixel coordinates in the same SGR framing.
-    if (pixel) {
+    if (pixel and cell_w > 0 and cell_h > 0) {
         const px: i32 = @as(i32, m.col) * @as(i32, cell_w) + @as(i32, m.xoffset) + 1;
         const py: i32 = @as(i32, m.row) * @as(i32, cell_h) + @as(i32, m.yoffset) + 1;
         if (px < 1 or py < 1) return;
@@ -56,7 +56,7 @@ pub fn encode(writer: *std.Io.Writer, m: vaxis.Mouse, sgr: bool, pixel: bool, ce
     const cy: i32 = m.row + 1;
     if (cx < 1 or cy < 1) return;
 
-    if (sgr) {
+    if (sgr or pixel) {
         // SGR encoding: press/motion/drag = 'M', release = 'm'
         const final: u8 = if (m.type == .release) 'm' else 'M';
         try writer.print("\x1b[<{d};{d};{d}{c}", .{ cb, cx, cy, final });
