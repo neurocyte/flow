@@ -6,6 +6,7 @@ const optimize_deps: std.lang.Optimize = .fast;
 const ShaderLang = enum { glsl410, hlsl5 };
 var shader_sources_updated: std.EnumSet(ShaderLang) = .empty;
 var crlf2lf_tool: ?*std.Build.Step.Compile = null;
+var gen_version_info_tool: ?*std.Build.Step.Compile = null;
 var lint_fmt_step: ?*std.Build.Step = null;
 
 pub const Renderer = enum { terminal, gui };
@@ -31,14 +32,7 @@ pub fn build(b: *std.Build) void {
         .lint_step = b.step("lint", "Run lints"),
     };
 
-    var version: std.Io.Writer.Allocating = .init(b.allocator);
-    defer version.deinit();
-    gen_version(b, &version.writer) catch |e| {
-        if (b.graph.release_mode != .off)
-            std.debug.panic("gen_version failed: {any}", .{e});
-        version.clearRetainingCapacity();
-        version.writer.writeAll("unknown") catch {};
-    };
+    const version_file = gen_version_file(b, "version", "version", &.{});
 
     const release = switch (b.graph.release_mode) {
         .off => false,
@@ -53,7 +47,7 @@ pub fn build(b: *std.Build) void {
         b,
         flow_steps,
         flow_options,
-        version.written(),
+        version_file,
     );
 }
 
@@ -81,7 +75,7 @@ fn build_development(
     b: *std.Build,
     flow_steps: FlowSteps,
     flow_options: FlowOptions,
-    version: []const u8,
+    version_file: std.Build.LazyPath,
 ) void {
     // The gui renderer links system GL/X11 libraries which are not available
     // via the musl sysroot, so use the native ABI when building it.
@@ -98,7 +92,7 @@ fn build_development(
         target,
         optimize,
         .{},
-        version,
+        version_file,
     );
 }
 
@@ -106,7 +100,7 @@ fn build_release(
     b: *std.Build,
     flow_steps: FlowSteps,
     flow_options: FlowOptions,
-    version: []const u8,
+    version_file: std.Build.LazyPath,
 ) void {
     const targets: []const struct { std.Target.Query, Renderer } = if (flow_options.all_targets) &.{
         .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .terminal },
@@ -170,8 +164,6 @@ fn build_release(
     };
     const optimize = b.standardOptimizeOption(.{});
 
-    const write_file_step = b.addWriteFiles();
-    const version_file = write_file_step.add("version", version);
     b.getInstallStep().dependOn(&b.addInstallFile(version_file, "version").step);
 
     for (targets) |t| {
@@ -191,7 +183,7 @@ fn build_release(
             target,
             optimize,
             .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
-            version,
+            version_file,
         );
     }
 }
@@ -213,7 +205,7 @@ pub fn build_exe(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     exe_install_options: std.Build.Step.InstallArtifact.Options,
-    version: []const u8,
+    version_file: std.Build.LazyPath,
 ) void {
     const run_step = flow_steps.run_step;
     const check_step = flow_steps.check_step;
@@ -248,18 +240,13 @@ pub fn build_exe(
         else => std.debug.panic("makeDir(\".cache/cdb\") failed: {any}", .{e}),
     };
 
-    var version_info: std.Io.Writer.Allocating = .init(b.allocator);
-    defer version_info.deinit();
-    gen_version_info(b, target, &version_info.writer, optimize, renderer) catch |e| {
-        if (b.graph.release_mode != .off)
-            std.debug.panic("gen_version_info failed: {any}", .{e});
-        version_info.clearRetainingCapacity();
-        version_info.writer.writeAll("unknown") catch {};
-    };
-
-    const wf = b.addWriteFiles();
-    const version_file = wf.add("version", version);
-    const version_info_file = wf.add("version_info", version_info.written());
+    const version_info_file = gen_version_file(b, "info", "version_info", &.{
+        target.result.zigTriple(b.allocator) catch @panic("OOM"),
+        @tagName(renderer),
+        @tagName(optimize),
+        builtin.zig_version_string,
+        @tagName(builtin.zig_backend),
+    });
 
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
@@ -1882,78 +1869,26 @@ fn lint_fmt(b: *std.Build, lint_step: *std.Build.Step) *std.Build.Step {
     return &lints.step;
 }
 
-fn git(b: *std.Build, argv: []const []const u8) ?[]const u8 {
-    return switch (b.runFallible(argv, .{ .stderr_behavior = .ignore })) {
-        .success => |stdout| std.mem.trimEnd(u8, stdout, "\r\n "),
-        else => null,
+fn gen_version_file(b: *std.Build, mode: []const u8, name: []const u8, args: []const []const u8) std.Build.LazyPath {
+    const tool = gen_version_info_tool orelse tool: {
+        const tool = b.addExecutable(.{
+            .name = "gen_version_info",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gen_version_info.zig"),
+                .target = b.graph.host,
+                .optimize = .debug,
+            }),
+        });
+        gen_version_info_tool = tool;
+        break :tool tool;
     };
-}
-
-fn gen_version_info(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    writer: *std.Io.Writer,
-    optimize: std.builtin.Optimize,
-    renderer: Renderer,
-) !void {
-    const version = git(b, &.{ "git", "describe", "--always", "--tags" }) orelse return error.GitFailure;
-    const date = git(b, &.{ "git", "show", "-s", "--format=%ci", "HEAD" }) orelse return error.GitFailure;
-    const branch = git(b, &.{ "git", "rev-parse", "--abbrev-ref", "HEAD" }) orelse return error.GitFailure;
-    const tracking_branch = git(b, &.{ "git", "rev-parse", "--abbrev-ref", try b.allocator.print("{s}@{{upstream}}", .{branch}) }) orelse "";
-    const tracking_remote = if (std.mem.findScalar(u8, tracking_branch, '/')) |pos|
-        git(b, &.{ "git", "config", try b.allocator.print("remote.{s}.url", .{tracking_branch[0..pos]}) }) orelse "(remote not found)"
-    else
-        "";
-    const remote = git(b, &.{ "git", "config", "remote.origin.url" }) orelse "(origin not found)";
-    const log = git(b, &.{ "git", "log", "--pretty=oneline", "@{u}..." }) orelse "";
-    const diff = git(b, &.{ "git", "diff", "--stat", "--patch", "HEAD" }) orelse "(git diff failed)";
-    const base_commit = git(b, &.{ "git", "merge-base", branch, tracking_branch }) orelse "";
-    const describe_base_commit = git(b, &.{ "git", "describe", "--always", "--tags", base_commit }) orelse "unknown";
-    const target_triple = try target.result.zigTriple(b.allocator);
-
-    try writer.print(
-        \\Flow Control: a programmer's text editor
-        \\
-        \\version: {s}{s}
-        \\committed: {s}
-        \\target: {s}
-        \\renderer: {t}
-        \\
-    ,
-        .{
-            version,
-            if (diff.len > 0) "-dirty" else "",
-            date,
-            target_triple,
-            renderer,
-        },
-    );
-
-    if (branch.len > 0) if (tracking_branch.len > 0)
-        try writer.print("branch: {s} tracking {s} at {s}\n", .{ branch, tracking_branch, tracking_remote })
-    else
-        try writer.print("branch: {s} at {s}\n", .{ branch, remote });
-
-    try writer.print("built-with: zig {s} ({t})\n", .{ builtin.zig_version_string, builtin.zig_backend });
-    try writer.print("build-mode: {t}\n", .{optimize});
-
-    if (log.len > 0)
-        try writer.print(
-            \\
-            \\branched off {s} @ {s} with the following diverging commits:
-            \\{s}
-            \\
-        , .{ tracking_branch, describe_base_commit, log });
-
-    if (diff.len > 0)
-        try writer.print("\nwith the following uncommitted changes:\n\n{s}\n", .{diff});
-}
-
-fn gen_version(b: *std.Build, writer: *std.Io.Writer) !void {
-    const version = git(b, &.{ "git", "describe", "--always", "--tags" }) orelse return error.GitFailure;
-    const diff = git(b, &.{ "git", "diff", "--stat", "--patch", "HEAD" }) orelse return error.GitFailure;
-    try writer.writeAll(version);
-    if (diff.len > 0) try writer.writeAll("-dirty");
+    const run = b.addRunArtifact(tool);
+    run.has_side_effects = true;
+    run.setCwd(b.path("."));
+    run.addArgs(&.{ mode, if (b.graph.release_mode != .off) "release" else "dev" });
+    const output = run.addOutputFileArg(name);
+    run.addArgs(args);
+    return output;
 }
 
 // Work around https://codeberg.org/ziglang/zig/issues/37250
