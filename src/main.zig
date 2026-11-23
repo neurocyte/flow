@@ -120,6 +120,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .scratch = "Open a scratch (temporary) buffer on start",
             .new_file = "Create a new untitled file on start",
             .file_name = "File name of buffer",
+            .hidden = "Create the buffer hidden",
             .dark = "Use dark color scheme",
             .light = "Use light color scheme",
             .version = "Show build version and exit",
@@ -192,6 +193,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         scratch: bool,
         new_file: bool,
         file_name: ?[]const u8,
+        hidden: bool,
         dark: bool,
         light: bool,
         version: bool,
@@ -560,7 +562,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             .track = if (args.no_wait) .none else .full,
             .verbose = args.log_stdout,
             .terminal = terminal,
-            .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else .auto,
+            .focus_mode = if (terminal == null or args.no_focus) .never else if (args.focus) .always else if (args.hidden) .never else .auto,
             .output = if (script != null) output orelse .{ .writer = stdout, .format = .text } else null,
             .when_done = if (args.keep_open) .keep_open else .disconnect,
             .io = io,
@@ -642,6 +644,7 @@ pub fn main(init: std.process.Init) anyerror!u8 {
         .file
     else
         .scratch;
+    const visibility: enum { shown, hidden } = if (args.hidden) .hidden else .shown;
     const language: ?[]const u8 = if (args.language) |language|
         language
     else if (args.new_file and stdin_input != null)
@@ -664,14 +667,15 @@ pub fn main(init: std.process.Init) anyerror!u8 {
             kind,
             file_name,
             language,
+            visibility,
         }), s, then_release);
         if (then_disconnect) |m| try main_proc.send_raw(m);
     } else {
         if (create_buffer) {
             if (connect != null)
-                try main_proc.send(.{ "request", "create_buffer", .{ kind, file_name, language } })
+                try main_proc.send(.{ "request", "create_buffer", .{ kind, file_name, language, visibility } })
             else
-                try main_proc.send(.{ "cmd", "create_buffer", .{ kind, file_name, language } });
+                try main_proc.send(.{ "cmd", "create_buffer", .{ kind, file_name, language, visibility } });
         }
         if (script) |s| {
             script = null;

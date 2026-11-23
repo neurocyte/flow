@@ -224,7 +224,7 @@ pub fn open_file(self: *Self, file_path: []const u8, now: std.Io.Timestamp) erro
 
 pub fn needs_load(self: *const Self, file_path: []const u8) bool {
     const buffer = self.get_buffer(file_path) orelse return true;
-    return !buffer.is_ephemeral() and buffer.hidden and buffer.file_state != .deleted_on_disk;
+    return !buffer.is_ephemeral() and buffer.hidden and !buffer.is_dirty() and buffer.file_state != .deleted_on_disk;
 }
 
 pub fn load(self: *Self, file_path: []const u8, options: LoadOptions) LoadError!void {
@@ -497,6 +497,17 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8, now
     buffer.hidden = false;
     if (buffer.ephemeral == .no) buffer.ephemeral = .generated;
     self.update_shown(buffer);
+    return buffer;
+}
+
+pub fn create_hidden(self: *Self, file_path: []const u8, now: std.Io.Timestamp) Buffer.LoadError!*Buffer {
+    var buffer = try Buffer.create(self.allocator, now);
+    errdefer buffer.deinit();
+    try buffer.load_from_string_and_update(file_path, "", now);
+    buffer.file_exists = true;
+    buffer.hidden = true;
+    buffer.ephemeral = .generated;
+    try self.add_buffer(buffer);
     return buffer;
 }
 

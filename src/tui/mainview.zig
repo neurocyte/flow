@@ -1665,7 +1665,9 @@ const cmds = struct {
         var kind: BufferKind = .scratch;
         var name: ?[]const u8 = null;
         var language: ?[]const u8 = null;
-        if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&name), tp.extract(&language) }))
+        var visibility: BufferVisibility = .shown;
+        if (!try ctx.args.match(.{ tp.extract(&kind), tp.extract(&name), tp.extract(&language), tp.extract(&visibility) }) and
+            !try ctx.args.match(.{ tp.extract(&kind), tp.extract(&name), tp.extract(&language) }))
             return error.InvalidCreateBufferArgument;
         if (kind == .new_file and language == null) language = tui.config().new_file_default_file_type;
 
@@ -1679,13 +1681,25 @@ const cmds = struct {
             break :blk file_path;
         } else try self.unique_buffer_name(&default_name, kind);
 
-        try self.create_editor(ctx.now);
-        try command.executeName("open_scratch_buffer", if (language) |lang|
-            command.fmt(.{ file_path, "", lang })
-        else
-            command.fmt(.{ file_path, "" }));
-        const editor = self.get_active_editor() orelse return error.Stop;
-        const buffer = editor.buffer orelse return error.Stop;
+        const buffer = switch (visibility) {
+            .shown => blk: {
+                try self.create_editor(ctx.now);
+                try command.executeName("open_scratch_buffer", if (language) |lang|
+                    command.fmt(.{ file_path, "", lang })
+                else
+                    command.fmt(.{ file_path, "" }));
+                const editor = self.get_active_editor() orelse return error.Stop;
+                break :blk editor.buffer orelse return error.Stop;
+            },
+            .hidden => blk: {
+                const buffer = try self.buffer_manager.create_hidden(file_path, ctx.now);
+                const file_type = if (language) |lang| try file_type_config.get(lang) else file_type_config.guess_file_type(file_path, "");
+                buffer.file_type_name = if (file_type) |ft| ft.name else file_type_config.default.name;
+                buffer.file_type_icon = if (file_type) |ft| ft.icon orelse file_type_config.default.icon else file_type_config.default.icon;
+                buffer.file_type_color = if (file_type) |ft| ft.color orelse file_type_config.default.color else file_type_config.default.color;
+                break :blk buffer;
+            },
+        };
         if (name != null and kind != .scratch) {
             buffer.file_exists = if (std.Io.Dir.cwd().access(ctx.io, file_path, .{})) |_| true else |_| false;
             self.buffer_manager.mark_not_ephemeral(buffer);
@@ -1693,16 +1707,18 @@ const cmds = struct {
             self.buffer_manager.mark_user_created(buffer);
         }
         buffer.mark_dirty();
-        tui.need_render(@src());
-        self.location_update_from_editor();
+        if (visibility == .shown) {
+            tui.need_render(@src());
+            self.location_update_from_editor();
+        }
         if (ctx.reply) |reply| {
             try self.buffer_manager.add_listener(buffer, .{ .piid = reply.piid, .id = reply.id, .track = .full });
             try reply.send(.{ "buffer", buffer.to_ref() });
         }
-        if (kind == .new_file and language == null)
+        if (kind == .new_file and language == null and visibility == .shown)
             try command.executeName("change_file_type", .empty_from(ctx));
     }
-    pub const create_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
+    pub const create_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string, .string } };
 
     pub fn save_buffer(self: *Self, ctx: Ctx) Result {
         var auto_save: bool = false;
@@ -3455,7 +3471,7 @@ const cmds = struct {
         const metrics = self.plane.metrics(1);
         cursor.move_buffer_end(buffer.root, metrics);
         var root_ = buffer.root;
-        _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, output, self.allocator, metrics);
+        _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, output, buffer.allocator, metrics);
         buffer.store_undo(&[_]u8{}) catch {};
         buffer.update(root_, root.get_now());
         tui.need_render(@src());
@@ -4947,6 +4963,7 @@ pub fn trigger_characters_update(self: *Self, m: tp.message) void {
 }
 
 const BufferKind = enum { new_file, scratch, stdin, file };
+const BufferVisibility = enum { shown, hidden };
 
 fn create_buffer_after_navigations(self: *Self, ctx: command.Context) error{ OutOfMemory, WriteFailed }!bool {
     if (self.pending_navigations == 0) return false;
