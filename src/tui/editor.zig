@@ -491,7 +491,7 @@ pub const Editor = struct {
     info_box_layer: ?*tui.WidgetLayerBox = null,
     info_box_state: ?struct {
         range: Match,
-        view: View,
+        visible: bool,
     } = null,
     hover_request: ?Cursor = null,
     diagnostic_hover_pending: ?Cursor = null,
@@ -1648,7 +1648,8 @@ pub const Editor = struct {
         const cache: *StyleCache = &self.style_cache.?;
         self.update_file_link_highlight();
         self.render_screen(theme, cache, focused, now);
-        const info_box_more = if (self.info_box_layer) |layer| layer.widget().render(theme) else false;
+        const info_box_visible = if (self.info_box_state) |state| state.visible else false;
+        const info_box_more = if (self.info_box_layer) |layer| if (info_box_visible) layer.widget().render(theme) else false else false;
         return self.scroll_anim.animating() or self.hscroll_anim.animating() or self.syntax_refresh_full or info_box_more;
     }
 
@@ -2800,7 +2801,7 @@ pub const Editor = struct {
             try self.send_editor_selection_removed();
 
         if (lines != self.last.lines or !self.view.eql(self.last.view)) {
-            self.maybe_clear_info_box();
+            self.refresh_info_box();
             try self.send_editor_view(lines, self.view);
         }
 
@@ -2912,7 +2913,7 @@ pub const Editor = struct {
             const cursor = self.get_primary().cursor;
             var sel = state.range.to_selection();
             sel.end.col += 1;
-            if (cursor.within(sel) and self.view.row == state.view.row)
+            if (cursor.within(sel))
                 return;
         }
         return self.clear_info_box();
@@ -2949,24 +2950,21 @@ pub const Editor = struct {
     }
 
     pub fn refresh_info_box(self: *Self) void {
-        const state = self.info_box_state orelse return;
-        self.place_info_box(state.range.begin);
+        if (self.info_box_state) |*state| state.visible = self.place_info_box(state.range.begin);
     }
 
-    fn place_info_box(self: *Self, cursor: Cursor) void {
-        const layer = self.info_box_layer orelse return;
-        const info = self.get_info_box() catch return;
-        const pos = self.screen_cursor(&cursor) orelse {
-            self.clear_info_box();
-            return;
-        };
+    fn place_info_box(self: *Self, cursor: Cursor) bool {
+        const layer = self.info_box_layer orelse return false;
+        const info = self.get_info_box() catch return false;
+        const pos = self.screen_cursor(&cursor) orelse return false;
         const top: usize = @intCast(@max(0, self.plane.abs_y()));
         const y = top + pos.row;
         const x = @as(usize, @intCast(@max(0, self.plane.abs_x()))) + pos.col;
         const bottom = top + self.plane.dim_y();
         const rows: info_view.BoxRows = .{ .start = y + 1, .below = bottom -| (y + 1), .above_end = y, .above = y -| top };
         if (tui.mainview()) |mv| info.link_line_area = mv.editor_area_of(self.plane);
-        _ = info.place_box(layer, .{ .before = x, .after = x + 1, .side_rows = rows, .fallback_x = x + 1, .fallback_rows = rows }) catch return;
+        _ = info.place_box(layer, .{ .before = x, .after = x + 1, .side_rows = rows, .fallback_x = x + 1, .fallback_rows = rows }) catch {};
+        return true;
     }
 
     fn update_file_link_highlight(self: *Self) void {
@@ -3015,10 +3013,9 @@ pub const Editor = struct {
         info.clear();
         info.scroller.jump_left_to(0);
         try self.append_hover_info(info, kind, content);
-        self.place_info_box(box_range.begin);
         self.info_box_state = .{
             .range = box_range,
-            .view = self.view,
+            .visible = self.place_info_box(box_range.begin),
         };
     }
 
