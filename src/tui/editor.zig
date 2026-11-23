@@ -2928,7 +2928,7 @@ pub const Editor = struct {
     }
 
     const info_box_widget_type: Widget.Type = .info_box;
-    fn show_info_box(self: *Self) !*info_view {
+    fn get_info_box(self: *Self) !*info_view {
         const layer = self.info_box_layer orelse blk: {
             const new_layer = try tui.WidgetLayerBox.create(self.allocator, self.plane, .{ .name = "editor_info.layer" });
             new_layer.blend = .src_over_blur;
@@ -2944,7 +2944,7 @@ pub const Editor = struct {
         };
         const w = layer.widget();
         const info_ = if (w.get(@typeName(info_view))) |w_| w_.dynamic_cast(info_view) orelse null else null;
-        const info = info_ orelse @panic("Editor.show_info_box");
+        const info = info_ orelse @panic("Editor.get_info_box");
         return info;
     }
 
@@ -2955,7 +2955,7 @@ pub const Editor = struct {
 
     fn place_info_box(self: *Self, cursor: Cursor) void {
         const layer = self.info_box_layer orelse return;
-        const info = self.show_info_box() catch return;
+        const info = self.get_info_box() catch return;
         const pos = self.screen_cursor(&cursor) orelse {
             self.clear_info_box();
             return;
@@ -3011,7 +3011,7 @@ pub const Editor = struct {
             self.clear_info_box();
             return;
         }
-        const info = try self.show_info_box();
+        const info = try self.get_info_box();
         info.clear();
         info.scroller.jump_left_to(0);
         try self.append_hover_info(info, kind, content);
@@ -9270,6 +9270,22 @@ pub const Editor = struct {
         if (self.show_hover_diagnostics(pos)) self.need_render();
     }
     pub const show_diagnostic_hover_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
+    pub fn show_info_box(self: *Self, ctx: Context) Result {
+        var file_path: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&file_path)}))
+            return error.InvalidShowInfoBoxArgument;
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse
+            self.buffer_manager.get_buffer_for_file(project_manager.normalize_file_path(file_path, &file_path_buf)) orelse
+            return error.BufferNotFound;
+        const primary = self.get_primary();
+        var sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
+        sel.normalize();
+        try self.set_hover_content(.from_selection(sel), .markdown, buffer.store_to_string_cached(buffer.root, .lf));
+        self.need_render();
+    }
+    pub const show_info_box_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn run_trigger(_: *Self, ctx: Context) Result {
         var cmd: command.ID = undefined;
