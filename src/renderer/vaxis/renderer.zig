@@ -555,7 +555,20 @@ pub fn sigwinch(self: *Self) !void {
 fn resize(self: *Self, ws: vaxis.Winsize) error{ TtyWriteError, OutOfMemory, WriteFailed }!void {
     self.vx.resize(self.allocator, self.tty.writer(), ws) catch return error.TtyWriteError;
     self.vx.queueRefresh();
+    try self.sync_pixel_mouse();
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
+}
+
+fn sync_pixel_mouse(self: *Self) error{TtyWriteError}!void {
+    if (!self.vx.state.mouse or !self.vx.caps.sgr_pixels) return;
+    const pixels = self.vx.screen.width_pix > 0 and self.vx.screen.height_pix > 0;
+    if (pixels == self.vx.state.pixel_mouse) return;
+    self.vx.state.pixel_mouse = pixels;
+    self.logger.print("mouse mode: {s} coordinates", .{if (pixels) "pixel" else "cell"});
+    const tty = self.tty.writer();
+    tty.writeAll(vaxis.ctlseqs.mouse_reset) catch return error.TtyWriteError;
+    tty.writeAll(if (pixels) vaxis.ctlseqs.mouse_set_pixels else vaxis.ctlseqs.mouse_set) catch return error.TtyWriteError;
+    tty.flush() catch return error.TtyWriteError;
 }
 
 pub fn stop(self: *Self) void {
@@ -718,6 +731,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             self.queries_done = true;
             self.vx.enableDetectedFeatures(self.tty.writer()) catch |e| self.logger.err("enable features", e);
             self.vx.setMouseMode(self.tty.writer(), true) catch return error.TtyWriteError;
+            try self.sync_pixel_mouse();
             self.logger.print("capability queries complete", .{});
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"capability_detection_complete"}));
         },
