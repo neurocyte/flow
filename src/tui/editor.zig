@@ -4619,7 +4619,9 @@ pub const Editor = struct {
                 }
                 const l = f.line orelse 0;
                 const c = (f.column orelse 1) -| 1;
-                tp.self_pid().send(.{ "FLS", stream, path, l, c, l, c, text }) catch {};
+                const end_l = f.end_line orelse l;
+                const end_c = if (f.end_column) |end_column| end_column -| 1 else c;
+                tp.self_pid().send(.{ "FLS", stream, path, l, c, end_l, end_c, text }) catch {};
                 sent += 1;
             }
         }
