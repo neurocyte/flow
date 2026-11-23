@@ -380,7 +380,7 @@ fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end 
     const sel_ = fl.selected orelse 0;
     const sel = switch (dir) {
         .up => if (sel_ > 0) sel_ - 1 else fl.entries.items.len - 1,
-        .down => if (sel_ < fl.entries.items.len - 1) sel_ + 1 else 0,
+        .down => if (fl.selected == null) 0 else if (sel_ < fl.entries.items.len - 1) sel_ + 1 else 0,
         .page_up => sel_ -| self.view_rows,
         .page_down => @min(sel_ + self.view_rows, fl.entries.items.len - 1),
         .home => 0,
