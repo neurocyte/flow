@@ -2519,6 +2519,40 @@ const cmds = struct {
     }
     pub const get_filelists_meta: Meta = .{};
 
+    /// ["item", index, path, begin_line, begin_col, end_line, end_col, severity, text] for each entry
+    /// index is 0-based, FIRST and LAST are indexes and LAST is included
+    /// lines and columns are 1-based, columns are bytes and end_col is exclusive
+    /// text longer than max_text_reply is cut
+    pub fn get_filelist(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var list_id: FileList.Id = undefined;
+        var first: usize = 0;
+        var last: usize = std.math.maxInt(usize);
+        if (!(try ctx.args.match(.{tp.extract(&list_id)}) or
+            try ctx.args.match(.{ tp.extract(&list_id), tp.extract(&first), tp.extract(&last) })))
+            return error.InvalidGetFilelistArgument;
+        const fl = self.filelists.get(list_id) orelse return error.FileListNotFound;
+        for (fl.entries.items, 0..) |*entry, idx| {
+            if (idx < first) continue;
+            if (idx > last) break;
+            try send_filelist_item(reply, idx, entry).check();
+        }
+    }
+    pub const get_filelist_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer } };
+
+    /// the "item" reply of get_filelist for one entry
+    pub fn get_filelist_item(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var list_id: FileList.Id = undefined;
+        var idx: usize = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&list_id), tp.extract(&idx) }))
+            return error.InvalidGetFilelistItemArgument;
+        const fl = self.filelists.get(list_id) orelse return error.FileListNotFound;
+        if (idx >= fl.entries.items.len) return error.FileListItemNotFound;
+        try send_filelist_item(reply, idx, &fl.entries.items[idx]).check();
+    }
+    pub const get_filelist_item_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
     /// ["filelist", id, "selected", index] when the selection changes
     /// index is 0-based or null, the first reply gives the current selection
     /// ["filelist", id, "changed"] when the entries change
