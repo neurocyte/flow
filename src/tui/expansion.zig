@@ -47,7 +47,7 @@ pub fn expand_vars(allocator: Allocator, arg: []const u8, vars: []const Var) Err
         }
 
         if (std.mem.startsWith(u8, var_name, env_prefix)) {
-            if (root.get_init().environ_map.get(var_name[env_prefix.len..])) |value|
+            if (get_child_env_var(var_name[env_prefix.len..])) |value|
                 try result.writer.writeAll(value)
             else {
                 std.log.info("expansion of variable '{s}' failed: env var not found", .{var_name});
@@ -69,6 +69,14 @@ pub fn expand_vars(allocator: Allocator, arg: []const u8, vars: []const Var) Err
         try result.writer.writeAll(text);
     }
     return try result.toOwnedSlice();
+}
+
+fn get_child_env_var(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "FLOW_SOCKET")) {
+        const rc_socket = tp.env.get().str("rc-socket");
+        if (rc_socket.len > 0) return rc_socket;
+    }
+    return root.get_init().environ_map.get(name);
 }
 
 fn find_var(vars: []const Var, name: []const u8) ?[]const u8 {
