@@ -668,10 +668,10 @@ fn send_command_result(self: *Self, cmd: []const u8, reply: command.Reply, resul
     need_render(@src());
     if (result) |_| {
         if (async_response) return;
-        reply.send("ok") catch {};
+        _ = reply.send("ok");
     } else |e| {
         const msg: tp.message = if (e == error.Exit) .{ .buf = tp.error_message() } else tp.exit_message(e, null);
-        reply.send(.{ "error", cbor.Raw{ .bytes = msg.buf } }) catch {};
+        _ = reply.send(.{ "error", cbor.Raw{ .bytes = msg.buf } });
         self.logger.err(cmd, e);
     }
 }
@@ -2553,7 +2553,7 @@ const cmds = struct {
         const new_mode = std.meta.stringToEnum(HintMode, name) orelse
             return error.InvalidSetKeybindHintsModeArgument;
         const previous = self.set_hint_mode(new_mode);
-        if (ctx.reply) |reply| try reply.send(.{ "keybind_hints_mode", previous, new_mode });
+        if (ctx.reply) |reply| try reply.send(.{ "keybind_hints_mode", previous, new_mode }).check();
     }
     pub const set_keybind_hints_mode_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -2791,7 +2791,7 @@ const cmds = struct {
             if (!try cbor.matchValue(&iter, cbor.extract(&project_directory))) return error.InvalidOpenProjectsReply;
             if (!std.mem.eql(u8, project_directory, project)) try background.append(self.allocator, project_directory);
         }
-        try reply.send(.{ "instance_info", root.get_pid(), project, background.items });
+        try reply.send(.{ "instance_info", root.get_pid(), project, background.items }).check();
     }
     pub const get_instance_info_meta: Meta = .{};
 
@@ -2803,7 +2803,7 @@ const cmds = struct {
         if (!(try ctx.args.match(.{}) or try ctx.args.match(.{tp.extract(&count)})))
             return error.InvalidGetLogArgument;
         const log_entries = logview.entries();
-        for (log_entries[log_entries.len -| count..]) |entry| try send_log_entry(reply, entry);
+        try send_log_entries(reply, log_entries[log_entries.len -| count..]).check();
     }
     pub const get_log_meta: Meta = .{ .arguments = &.{.integer} };
 
@@ -2815,7 +2815,7 @@ const cmds = struct {
         if (!(try ctx.args.match(.{}) or try ctx.args.match(.{tp.extract(&count)})))
             return error.InvalidFollowLogArgument;
         const log_entries = logview.entries();
-        for (log_entries[log_entries.len -| count..]) |entry| try send_log_entry(reply, entry);
+        try send_log_entries(reply, log_entries[log_entries.len -| count..]).check();
         try self.log_followers.append(self.allocator, reply);
     }
     pub const follow_log_meta: Meta = .{ .arguments = &.{.integer} };
@@ -2854,11 +2854,11 @@ const cmds = struct {
         }
         const frame = self.rdr_.last_frame();
         const frame_screen = frame.screen;
-        try reply.send(.{ "screen", frame_screen.width, frame_screen.height });
+        try reply.send(.{ "screen", frame_screen.width, frame_screen.height }).check();
         if (frame.cursor) |cursor|
-            try reply.send(.{ "cursor", cursor.row + 1, cursor.col + 1, true, cursor.shape })
+            try reply.send(.{ "cursor", cursor.row + 1, cursor.col + 1, true, cursor.shape }).check()
         else
-            try reply.send(.{ "cursor", null, null, false, null });
+            try reply.send(.{ "cursor", null, null, false, null }).check();
         var line: std.ArrayList(u8) = .empty;
         defer line.deinit(self.allocator);
         for (0..frame_screen.height) |row| {
@@ -2867,7 +2867,7 @@ const cmds = struct {
                 if (cell.skipped) continue;
                 try line.appendSlice(self.allocator, if (cell.char.items.len > 0) cell.char.items else " ");
             }
-            try reply.send(.{ "line", row + 1, std.mem.trimEnd(u8, line.items, " ") });
+            try reply.send(.{ "line", row + 1, std.mem.trimEnd(u8, line.items, " ") }).check();
         }
     }
     pub const get_screen_meta: Meta = .{};
@@ -2878,7 +2878,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{})) return error.InvalidGetActorsArgument;
         const instances = try tp.live_instances(self.allocator);
         defer tp.free_instances(self.allocator, instances);
-        for (instances) |instance| try reply.send(.{ "actor", instance.id, instance.name });
+        for (instances) |instance| try reply.send(.{ "actor", instance.id, instance.name }).check();
     }
     pub const get_actors_meta: Meta = .{};
 
@@ -2887,7 +2887,7 @@ const cmds = struct {
         const hints = if (self.input_mode_) |*mode| mode.keybind_hints else null;
         for (command.commands.items) |cmd_| if (cmd_) |cmd| {
             const hint = if (hints) |h| h.get(cmd.name) orelse "" else "";
-            try reply.send(.{ "command", cmd.name, cmd.meta.description, cmd.meta.arguments, hint });
+            try reply.send(.{ "command", cmd.name, cmd.meta.description, cmd.meta.arguments, hint }).check();
         };
     }
     pub const get_commands_meta: Meta = .{};
@@ -3523,8 +3523,19 @@ pub fn rdr() *renderer {
     return &current().rdr_;
 }
 
-fn send_log_entry(reply: command.Reply, entry: logview.Entry) tp.result {
-    return reply.send(.{ "log", entry.time, entry.level, entry.src, MainView.utf8_prefix(entry.msg, MainView.max_text_reply) });
+fn send_log_entries(reply: command.Reply, entries: []const logview.Entry) command.Reply.State {
+    for (entries) |entry|
+        switch (reply.send(.{
+            "log",
+            entry.time,
+            entry.level,
+            entry.src,
+            MainView.utf8_prefix(entry.msg, MainView.max_text_reply),
+        })) {
+            .live => {},
+            .dead => return .dead,
+        };
+    return .live;
 }
 
 const TraceFollower = struct {
@@ -3557,16 +3568,11 @@ fn send_to_trace_followers(self: *Self, m: tp.message) void {
             i += 1;
             continue;
         }
-        const pid = tp.pid.from_id(follower.reply.piid) orelse {
-            self.remove_trace_follower(i);
-            continue;
-        };
-        pid.deinit();
-        (if (msg.bytes.len > MainView.max_text_reply)
+        const state = if (msg.bytes.len > MainView.max_text_reply)
             follower.reply.send(.{ "trace", direction, peer, peer_name, .{ "too_large", msg.bytes.len } })
         else
-            follower.reply.send(.{ "trace", direction, peer, peer_name, msg })) catch {};
-        if (exited) self.remove_trace_follower(i) else i += 1;
+            follower.reply.send(.{ "trace", direction, peer, peer_name, msg });
+        if (exited or state == .dead) self.remove_trace_follower(i) else i += 1;
     }
 }
 
@@ -3580,14 +3586,10 @@ fn send_to_log_followers(self: *Self, new_entries: []const logview.Entry) void {
     if (new_entries.len == 0) return;
     var i: usize = 0;
     while (i < self.log_followers.items.len) {
-        const follower = self.log_followers.items[i];
-        const pid = tp.pid.from_id(follower.piid) orelse {
-            _ = self.log_followers.swapRemove(i);
-            continue;
-        };
-        pid.deinit();
-        for (new_entries) |entry| send_log_entry(follower, entry) catch {};
-        i += 1;
+        switch (send_log_entries(self.log_followers.items[i], new_entries)) {
+            .live => i += 1,
+            .dead => _ = self.log_followers.swapRemove(i),
+        }
     }
 }
 

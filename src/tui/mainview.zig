@@ -1716,7 +1716,7 @@ const cmds = struct {
         }
         if (ctx.reply) |reply| {
             try self.buffer_manager.add_listener(buffer, .{ .piid = reply.piid, .id = reply.id, .track = .full });
-            try reply.send(.{ "buffer", buffer.to_ref() });
+            try reply.send(.{ "buffer", buffer.to_ref() }).check();
         }
         if (kind == .new_file and language == null and visibility == .shown)
             try command.executeName("change_file_type", .empty_from(ctx));
@@ -2339,7 +2339,7 @@ const cmds = struct {
         else
             .unfocused;
         const panel: enum { maximized, normal } = if (self.bottom_area.is_maximized()) .maximized else .normal;
-        try reply.send(.{ "terminal_state", focus, panel });
+        try reply.send(.{ "terminal_state", focus, panel }).check();
     }
     pub const get_terminal_state_meta: Meta = .{ .arguments = &.{.integer} };
 
@@ -2366,7 +2366,7 @@ const cmds = struct {
                 if (status) |r| r.progress else null,
                 if (status) |r| vt.status.effective_app(r) else "",
                 vt.session.items,
-            });
+            }).check();
         }
     }
     pub const get_terminals_meta: Meta = .{};
@@ -2437,7 +2437,7 @@ const cmds = struct {
         var text: std.ArrayList(u8) = .empty;
         defer text.deinit(self.allocator);
         const range = try vt.extract_last_command_output(self.allocator, &text) orelse return;
-        try reply.send(.{ "command_output", range.exit_code, range.state });
+        try reply.send(.{ "command_output", range.exit_code, range.state }).check();
         const output = std.mem.trimEnd(u8, text.items, "\n");
         if (output.len > 0) try send_lines(reply, output, 1, std.math.maxInt(usize));
     }
@@ -2447,19 +2447,19 @@ const cmds = struct {
         const reply = ctx.reply orelse return;
         const mode = if (tui.input_mode()) |m| m.mode else "";
         if (tui.mini_mode() != null)
-            return reply.send(.{ "focus", "mini_mode", mode, null, mode });
+            return reply.send(.{ "focus", "mini_mode", mode, null, mode }).check();
         if (tui.input_mode_outer() != null)
-            return reply.send(.{ "focus", "overlay", mode, null, mode });
+            return reply.send(.{ "focus", "overlay", mode, null, mode }).check();
         if (self.focused_panel()) |panel| {
             const panel_mode = if (panel.mode()) |m| m.mode else mode;
             const id: ?u64 = if (panel.cast(terminal_view)) |tv| tv.vt.id else null;
-            return reply.send(.{ "focus", "panel", panel.tag(), id, panel_mode });
+            return reply.send(.{ "focus", "panel", panel.tag(), id, panel_mode }).check();
         }
         if (self.get_active_editor()) |editor| {
-            const buffer = editor.buffer orelse return reply.send(.{ "focus", "editor", null, null, mode });
-            return reply.send(.{ "focus", "editor", buffer.get_file_path(), buffer.id, mode });
+            const buffer = editor.buffer orelse return reply.send(.{ "focus", "editor", null, null, mode }).check();
+            return reply.send(.{ "focus", "editor", buffer.get_file_path(), buffer.id, mode }).check();
         }
-        return reply.send(.{ "focus", "home", null, null, mode });
+        return reply.send(.{ "focus", "home", null, null, mode }).check();
     }
     pub const get_focus_meta: Meta = .{};
 
@@ -2476,7 +2476,7 @@ const cmds = struct {
             buffer.ephemeral,
             buffer.file_type_name,
             buffer.root.lines(),
-        });
+        }).check();
     }
     pub const get_buffers_meta: Meta = .{};
 
@@ -2493,7 +2493,7 @@ const cmds = struct {
                 n,
                 n == self.active_view,
                 cbor.Raw{ .bytes = cursors.written() },
-            });
+            }).check();
         }
     }
     pub const get_editors_meta: Meta = .{};
@@ -2515,7 +2515,7 @@ const cmds = struct {
         const reply = ctx.reply orelse return;
         if (!try ctx.args.match(.{})) return error.InvalidGetFilelistsArgument;
         for (self.filelists.lists.items) |fl|
-            try reply.send(.{ "filelist", fl.list_id, @tagName(fl.kind), fl.label, fl.len(), fl.selected });
+            try reply.send(.{ "filelist", fl.list_id, @tagName(fl.kind), fl.label, fl.len(), fl.selected }).check();
     }
     pub const get_filelists_meta: Meta = .{};
 
@@ -2572,7 +2572,7 @@ const cmds = struct {
                     diag.source,
                     diag.code,
                     diag.message,
-                });
+                }).check();
             }
         }
     }
@@ -2603,7 +2603,7 @@ const cmds = struct {
             var rest: []const u8 = text;
             while (true) {
                 const piece = utf8_prefix(rest, max_text_reply);
-                try reply.send(.{ "selection", number, piece });
+                try reply.send(.{ "selection", number, piece }).check();
                 rest = rest[piece.len..];
                 if (rest.len == 0) break;
             }
@@ -2621,7 +2621,7 @@ const cmds = struct {
             var rest = line_text;
             while (true) {
                 const piece = utf8_prefix(rest, max_text_reply);
-                try reply.send(.{ "line", line, piece });
+                try reply.send(.{ "line", line, piece }).check();
                 rest = rest[piece.len..];
                 if (rest.len == 0) break;
             }
@@ -3360,7 +3360,7 @@ const cmds = struct {
         }
         self.end_filelist_ingest(fl.list_id, true);
         if (fl.is_empty()) return self.close_filelist_by_id(fl.list_id);
-        if (ctx.reply) |reply| try reply.send(.{ "filelist", fl.list_id });
+        if (ctx.reply) |reply| try reply.send(.{ "filelist", fl.list_id }).check();
     }
     pub const open_filelist_meta: Meta = .{ .arguments = &.{ .any, .string, .string } };
 
@@ -3934,18 +3934,15 @@ fn send_to_editor_followers(self: *Self, editor: *ed.Editor, m: tp.message) void
     var i: usize = 0;
     while (i < self.editor_followers.items.len) {
         const follower = self.editor_followers.items[i];
-        const pid = tp.pid.from_id(follower.piid) orelse {
-            _ = self.editor_followers.swapRemove(i);
-            continue;
-        };
-        pid.deinit();
-        follower.send(.{
+        switch (follower.send(.{
             "editor",
             if (editor.buffer) |buffer| buffer.id else null,
             self.get_view_for_editor(editor),
             cbor.Raw{ .bytes = m.buf },
-        }) catch {};
-        i += 1;
+        })) {
+            .live => i += 1,
+            .dead => _ = self.editor_followers.swapRemove(i),
+        }
     }
 }
 
@@ -4088,6 +4085,20 @@ pub fn get_active_editor(self: *Self) ?*ed.Editor {
 
 pub const max_text_reply = 16 * 1024;
 pub const max_terminal_session = 128;
+
+fn send_filelist_item(reply: command.Reply, idx: usize, entry: *const FileList.Entry) command.Reply.State {
+    return reply.send(.{
+        "item",
+        idx,
+        entry.path,
+        entry.begin_line + 1,
+        entry.begin_pos + 1,
+        entry.end_line + 1,
+        entry.end_pos + 1,
+        @tagName(entry.severity),
+        utf8_prefix(entry.lines, max_text_reply),
+    });
+}
 
 pub fn utf8_prefix(text: []const u8, max: usize) []const u8 {
     if (text.len <= max) return text;
@@ -5132,7 +5143,7 @@ fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.Appl
     if (reply.len == 0 or (cbor.match(reply, cbor.null_) catch false)) return;
     var remote: command.Reply = undefined;
     if (cbor.match(reply, .{ "remote_reply", cbor.extract(&remote.piid), cbor.extract(&remote.id) }) catch false) {
-        (switch (result) {
+        _ = switch (result) {
             .applied => remote.send("ok"),
             .failed => blk: {
                 var buf: [std.fs.max_path_bytes + 256]u8 = undefined;
@@ -5142,7 +5153,7 @@ fn workspace_edit_done(_: *Self, reply: []const u8, result: project_manager.Appl
                     std.fmt.bufPrint(&buf, "failed to apply edit: {s}", .{reason}) catch reason;
                 break :blk remote.send(.{ "error", .{ "exit", text } });
             },
-        }) catch {};
+        };
         return;
     }
     project_manager.workspace_edit_done(.{ .bytes = reply }, result, reason) catch |e|

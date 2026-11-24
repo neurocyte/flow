@@ -1,6 +1,5 @@
 const std = @import("std");
 const cbor = @import("cbor");
-const tp = @import("thespian");
 const command = @import("command");
 const editor = @import("editor.zig");
 
@@ -131,22 +130,19 @@ pub fn select(self: *Self, idx: ?usize) void {
     self.send_to_followers(.{ "selected", idx });
 }
 
-pub fn follow(self: *Self, reply: command.Reply) !void {
+pub fn follow(self: *Self, reply: command.Reply) (command.Reply.Error || error{OutOfMemory})!void {
+    try reply.send(.{ "filelist", self.list_id, "selected", self.selected }).check();
     try self.followers.append(self.allocator, reply);
-    reply.send(.{ "filelist", self.list_id, "selected", self.selected }) catch {};
 }
 
 fn send_to_followers(self: *Self, event: anytype) void {
     var i: usize = 0;
     while (i < self.followers.items.len) {
         const follower = self.followers.items[i];
-        const pid = tp.pid.from_id(follower.piid) orelse {
-            _ = self.followers.swapRemove(i);
-            continue;
-        };
-        pid.deinit();
-        follower.send(.{ "filelist", self.list_id } ++ event) catch {};
-        i += 1;
+        switch (follower.send(.{ "filelist", self.list_id } ++ event)) {
+            .live => i += 1,
+            .dead => _ = self.followers.swapRemove(i),
+        }
     }
 }
 

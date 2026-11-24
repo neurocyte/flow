@@ -406,19 +406,19 @@ pub fn process_event(self: *@This(), event: Terminal.Event) !void {
 }
 
 /// ["status", terminal_id, record_id, state, kind, progress, app, title, msg]
-pub fn send_status(self: *const @This(), reply: command.Reply, change: ProgramStatus.Change) tp.result {
+fn send_status(self: *const @This(), reply: command.Reply, change: ProgramStatus.Change) command.Reply.State {
     return switch (change) {
         .set => |r| reply.send(.{ "status", self.id, r.id, r.state, r.kind, r.progress, self.status.effective_app(r), r.title, r.msg }),
         .removed => |id| reply.send(.{ "status", self.id, id, ProgramStatus.State.clear, null, null, "", "", "" }),
     };
 }
 
-pub fn send_all_status(self: *const @This(), reply: command.Reply) tp.result {
-    if (self.status.root()) |r| try self.send_status(reply, .{ .set = r });
-    for (self.status.items.items) |*r| if (r.id.len > 0) try self.send_status(reply, .{ .set = r });
+pub fn send_all_status(self: *const @This(), reply: command.Reply) command.Reply.Error!void {
+    if (self.status.root()) |r| try self.send_status(reply, .{ .set = r }).check();
+    for (self.status.items.items) |*r| if (r.id.len > 0) try self.send_status(reply, .{ .set = r }).check();
 }
 
-pub fn follow_status(self: *@This(), reply: command.Reply) !void {
+pub fn follow_status(self: *@This(), reply: command.Reply) (command.Reply.Error || error{OutOfMemory})!void {
     try self.send_all_status(reply);
     try self.status_followers.append(self.vt.allocator, reply);
 }
@@ -426,14 +426,10 @@ pub fn follow_status(self: *@This(), reply: command.Reply) !void {
 pub fn changed(self: *@This(), _: *const ProgramStatus.Records, change: ProgramStatus.Change) void {
     var i: usize = 0;
     while (i < self.status_followers.items.len) {
-        const follower = self.status_followers.items[i];
-        const pid = tp.pid.from_id(follower.piid) orelse {
-            _ = self.status_followers.swapRemove(i);
-            continue;
-        };
-        pid.deinit();
-        self.send_status(follower, change) catch {};
-        i += 1;
+        switch (self.send_status(self.status_followers.items[i], change)) {
+            .live => i += 1,
+            .dead => _ = self.status_followers.swapRemove(i),
+        }
     }
 }
 

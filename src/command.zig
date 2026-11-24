@@ -16,10 +16,24 @@ pub const Reply = struct {
     piid: tp.piid,
     id: u64,
 
-    pub fn send(self: Reply, payload: anytype) tp.result {
-        const pid = tp.pid.from_id(self.piid) orelse return;
+    pub const State = enum {
+        live,
+        dead,
+
+        pub fn check(self: @This()) Error!void {
+            return switch (self) {
+                .live => {},
+                .dead => Error.Dead,
+            };
+        }
+    };
+    pub const Error = error{Dead};
+
+    pub fn send(self: Reply, payload: anytype) State {
+        const pid = tp.pid.from_id(self.piid) orelse return .dead;
         defer pid.deinit();
-        return pid.send(.{ "reply", self.id, payload });
+        pid.send(.{ "reply", self.id, payload }) catch return .dead;
+        return .live;
     }
 };
 
