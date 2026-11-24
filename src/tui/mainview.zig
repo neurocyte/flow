@@ -402,6 +402,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const widgets_more = self.widgets.render(theme);
     if (self.link_line) |line|
         self.link_line_overlay.render(self.allocator, theme, line.area, .right, line.text, theme.statusbar) catch {};
+    self.filelists.send_changed();
     if (self.find_in_hidden_bar(Minilog)) |minilog| _ = minilog.render(theme);
     if (self.find_in_hidden_bar(Filestate.ButtonType)) |filestate| _ = filestate.render(theme);
     self.render_mini_mode_overlay(theme);
@@ -2553,9 +2554,70 @@ const cmds = struct {
     }
     pub const get_filelist_item_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 
+    pub fn set_filelist_item(self: *Self, ctx: Ctx) Result {
+        var list_id: FileList.Id = undefined;
+        var idx: usize = undefined;
+        var path: []const u8 = undefined;
+        var begin_line: usize = undefined;
+        var begin_col: usize = undefined;
+        var end_line: usize = undefined;
+        var end_col: usize = undefined;
+        var severity: ed.Diagnostic.Severity = undefined;
+        var text: []const u8 = undefined;
+        if (!try ctx.args.match(.{
+            tp.extract(&list_id),
+            tp.extract(&idx),
+            tp.extract(&path),
+            tp.extract(&begin_line),
+            tp.extract(&begin_col),
+            tp.extract(&end_line),
+            tp.extract(&end_col),
+            tp.extract(&severity),
+            tp.extract(&text),
+        })) return error.InvalidSetFilelistItemArgument;
+        const fl = self.filelists.get(list_id) orelse return error.FileListNotFound;
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        try fl.set(idx, .{
+            .path = project_manager.normalize_file_path(path, &path_buf),
+            .begin_line = begin_line -| 1,
+            .begin_pos = begin_col -| 1,
+            .end_line = end_line -| 1,
+            .end_pos = end_col -| 1,
+            .lines = text,
+            .severity = severity,
+            .pos_type = .byte,
+        });
+        self.filelist_changed(list_id);
+    }
+    pub const set_filelist_item_meta: Meta = .{ .arguments = &.{ .integer, .integer, .string, .integer, .integer, .integer, .integer, .string, .string } };
+
+    pub fn delete_filelist_item(self: *Self, ctx: Ctx) Result {
+        var list_id: FileList.Id = undefined;
+        var idx: usize = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&list_id), tp.extract(&idx) }))
+            return error.InvalidDeleteFilelistItemArgument;
+        const fl = self.filelists.get(list_id) orelse return error.FileListNotFound;
+        try fl.delete(idx);
+        if (fl.is_empty()) return self.close_filelist_by_id(list_id);
+        self.filelist_changed(list_id);
+    }
+    pub const delete_filelist_item_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
+    pub fn select_filelist_item(self: *Self, ctx: Ctx) Result {
+        var list_id: FileList.Id = undefined;
+        var idx: usize = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&list_id), tp.extract(&idx) }))
+            return error.InvalidSelectFilelistItemArgument;
+        const fl = self.filelists.get(list_id) orelse return error.FileListNotFound;
+        if (idx >= fl.entries.items.len) return error.FileListItemNotFound;
+        const flv = try self.open_filelist_panel(list_id, .{});
+        flv.select_and_activate(idx);
+    }
+    pub const select_filelist_item_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
     /// ["filelist", id, "selected", index] when the selection changes
     /// index is 0-based or null, the first reply gives the current selection
-    /// ["filelist", id, "changed"] when the entries change
+    /// ["filelist", id, "changed"] once per frame in which the entries changed
     /// ["filelist", id, "closed"] when the list closes
     pub fn follow_filelist(self: *Self, ctx: Ctx) Result {
         const reply = ctx.reply orelse return;
@@ -3357,14 +3419,13 @@ const cmds = struct {
     pub fn open_filelist(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
         var buffer_name: []const u8 = undefined;
-        var kind_name: []const u8 = "list";
+        var kind: FileList.Kind = .list;
         var list_id: FileList.Id = undefined;
         const fl = if (try ctx.args.match(.{ tp.extract(&list_id), tp.extract(&buffer_name) }))
             self.filelists.get(list_id) orelse return error.FileListNotFound
         else if (try ctx.args.match(.{ tp.extract(&name), tp.extract(&buffer_name) }) or
-            try ctx.args.match(.{ tp.extract(&name), tp.extract(&buffer_name), tp.extract(&kind_name) }))
+            try ctx.args.match(.{ tp.extract(&name), tp.extract(&buffer_name), tp.extract(&kind) }))
         blk: {
-            const kind = std.meta.stringToEnum(FileList.Kind, kind_name) orelse return error.InvalidFileListKind;
             const fl = self.filelists.find_by_label(kind, name) orelse try self.filelists.create(kind);
             self.set_filelist_label(fl.list_id, name);
             break :blk fl;
@@ -4863,6 +4924,11 @@ fn forget_filelist_streams(self: *Self, list_id: FileList.Id) void {
 fn end_filelist_ingest(self: *Self, list_id: FileList.Id, clear_if_empty: bool) void {
     self.filelists.end_ingest(list_id, clear_if_empty);
     if (self.filelist_view_for(list_id)) |flv| flv.refresh();
+}
+
+fn filelist_changed(self: *Self, list_id: FileList.Id) void {
+    if (self.filelist_view_for(list_id)) |flv| flv.refresh();
+    tui.need_render(@src());
 }
 
 fn close_filelist_by_id(self: *Self, list_id: FileList.Id) void {

@@ -45,6 +45,7 @@ state: State = .done,
 next_command: ?[]const u8 = null,
 prev_command: ?[]const u8 = null,
 followers: std.ArrayList(command.Reply) = .empty,
+changed: bool = false,
 
 const default_icon = "";
 
@@ -121,6 +122,7 @@ pub fn reset(self: *Self) void {
     self.entries.clearRetainingCapacity();
     self.view_pos = 0;
     self.select(null);
+    self.changed = true;
     self.state = .done;
 }
 
@@ -162,6 +164,40 @@ pub fn add(self: *Self, entry_: Entry) !void {
     entry.* = entry_;
     entry.path = path;
     entry.lines = lines;
+    self.sort();
+    self.changed = true;
+}
+
+pub fn set(self: *Self, idx: usize, entry_: Entry) !void {
+    if (idx == self.entries.items.len) return self.add(entry_);
+    if (idx > self.entries.items.len) return error.FileListItemNotFound;
+    const path = try self.allocator.dupe(u8, entry_.path);
+    errdefer self.allocator.free(path);
+    const lines = try self.allocator.dupe(u8, entry_.lines);
+    errdefer self.allocator.free(lines);
+    const entry = &self.entries.items[idx];
+    self.allocator.free(entry.path);
+    self.allocator.free(entry.lines);
+    entry.* = entry_;
+    entry.path = path;
+    entry.lines = lines;
+    self.sort();
+    self.changed = true;
+}
+
+pub fn delete(self: *Self, idx: usize) !void {
+    if (idx >= self.entries.items.len) return error.FileListItemNotFound;
+    const entry = self.entries.orderedRemove(idx);
+    self.allocator.free(entry.path);
+    self.allocator.free(entry.lines);
+    if (self.selected) |sel| {
+        if (sel == idx) self.select(null) else if (sel > idx) self.select(sel - 1);
+    }
+    self.view_pos = @min(self.view_pos, self.entries.items.len -| 1);
+    self.changed = true;
+}
+
+fn sort(self: *Self) void {
     switch (sort_order_for(self.kind)) {
         .path_line_sorted => std.mem.sort(Entry, self.entries.items, {}, entry_less_than),
         .submit_order => {},
@@ -295,6 +331,14 @@ pub const Manager = struct {
         return null;
     }
 
+    /// sends one "changed" event for each list that changed since the last call
+    pub fn send_changed(self: *Manager) void {
+        for (self.lists.items) |fl| if (fl.changed) {
+            fl.changed = false;
+            fl.send_to_followers(.{"changed"});
+        };
+    }
+
     pub fn get_or_create_singleton(self: *Manager, kind: Kind) !*Self {
         return self.find_by_kind(kind) orelse self.create(kind);
     }
@@ -307,7 +351,6 @@ pub const Manager = struct {
     pub fn clear(self: *Manager, list_id: Id) void {
         const fl = self.get(list_id) orelse return;
         fl.reset();
-        fl.send_to_followers(.{"changed"});
     }
 
     pub fn clear_all(self: *Manager) void {
@@ -348,7 +391,6 @@ pub const Manager = struct {
         const fl = self.get(list_id) orelse return;
         if (clear_if_empty and fl.state == .idle) fl.reset();
         fl.state = .done;
-        fl.send_to_followers(.{"changed"});
     }
 
     pub fn write_state(self: *Manager, writer: *std.Io.Writer) !void {

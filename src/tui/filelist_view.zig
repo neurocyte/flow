@@ -398,6 +398,16 @@ fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end 
     self.update_selected();
 }
 
+pub fn select_and_activate(self: *Self, idx: usize) void {
+    const fl = self.list() orelse return;
+    if (idx >= fl.entries.items.len) return;
+    const rows = @max(1, self.scroller.view_rows());
+    const top = self.scroller.dest();
+    self.scroller.jump_to(if (idx < top) idx else if (idx >= top + rows) idx + 1 - rows else top);
+    fl.view_pos = self.scroller.top();
+    self.activate_entry(idx);
+}
+
 fn activate_selected(self: *Self) void {
     const fl = self.list() orelse return;
     self.activate_entry(fl.selected orelse return);
