@@ -2950,18 +2950,25 @@ pub const Editor = struct {
     }
 
     pub fn refresh_info_box(self: *Self) void {
-        if (self.info_box_state) |*state| state.visible = self.place_info_box(state.range.begin);
+        if (self.info_box_state) |*state| state.visible = self.place_info_box(state.range);
     }
 
-    fn place_info_box(self: *Self, cursor: Cursor) bool {
+    fn place_info_box(self: *Self, range: Match) bool {
         const layer = self.info_box_layer orelse return false;
         const info = self.get_info_box() catch return false;
-        const pos = self.screen_cursor(&cursor) orelse return false;
+        const begin = range.begin;
+        const end_row = if (range.end.row > begin.row and range.end.col == 0) range.end.row - 1 else range.end.row;
+        const view_end = self.view.row + self.view.rows;
+        if (self.view.rows == 0 or end_row < self.view.row or begin.row >= view_end) return false;
+        if (begin.col < self.view.col or begin.col >= self.view.col + self.view.cols) return false;
         const top: usize = @intCast(@max(0, self.plane.abs_y()));
-        const y = top + pos.row;
-        const x = @as(usize, @intCast(@max(0, self.plane.abs_x()))) + pos.col;
         const bottom = top + self.plane.dim_y();
-        const rows: info_view.BoxRows = .{ .start = y + 1, .below = bottom -| (y + 1), .above_end = y, .above = y -| top };
+        const x = @as(usize, @intCast(@max(0, self.plane.abs_x()))) + begin.col - self.view.col;
+        const above_end = top + (begin.row -| self.view.row);
+        const start = if (end_row < view_end) top + end_row - self.view.row + 1 else bottom;
+        var rows: info_view.BoxRows = .{ .start = start, .below = bottom -| start, .above_end = above_end, .above = above_end -| top };
+        if (rows.below == 0 and rows.above == 0)
+            rows = .{ .start = above_end + 1, .below = bottom -| (above_end + 1), .above_end = above_end, .above = 0 };
         if (tui.mainview()) |mv| info.link_line_area = mv.editor_area_of(self.plane);
         _ = info.place_box(layer, .{ .before = x, .after = x + 1, .side_rows = rows, .fallback_x = x + 1, .fallback_rows = rows }) catch {};
         return true;
@@ -3015,7 +3022,7 @@ pub const Editor = struct {
         try self.append_hover_info(info, kind, content);
         self.info_box_state = .{
             .range = box_range,
-            .visible = self.place_info_box(box_range.begin),
+            .visible = self.place_info_box(box_range),
         };
     }
 
