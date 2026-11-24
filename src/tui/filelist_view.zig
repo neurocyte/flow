@@ -344,7 +344,7 @@ fn handle_list_box_action(list_box: **ListBoxType, button: *ButtonType, _: Widge
 fn activate_entry(self: *Self, idx: usize) void {
     const fl = self.list() orelse return;
     if (idx >= fl.entries.items.len) return;
-    fl.selected = idx;
+    fl.select(idx);
     self.update_selected();
     const entry = &fl.entries.items[idx];
 
@@ -386,7 +386,7 @@ fn select_next(self: *Self, dir: enum { up, down, page_up, page_down, home, end 
         .home => 0,
         .end => fl.entries.items.len - 1,
     };
-    fl.selected = sel;
+    fl.select(sel);
     const rows = @max(1, self.scroller.view_rows());
     const top = self.scroller.dest();
     const new_top = if (sel < top) sel else if (sel >= top + rows) sel + 1 - rows else top;

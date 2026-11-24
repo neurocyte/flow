@@ -2509,6 +2509,29 @@ const cmds = struct {
     }
     pub const follow_editors_meta: Meta = .{};
 
+    /// ["filelist", id, kind, label, count, selected] for each file list
+    /// selected is a 0-based index or null
+    pub fn get_filelists(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        if (!try ctx.args.match(.{})) return error.InvalidGetFilelistsArgument;
+        for (self.filelists.lists.items) |fl|
+            try reply.send(.{ "filelist", fl.list_id, @tagName(fl.kind), fl.label, fl.len(), fl.selected });
+    }
+    pub const get_filelists_meta: Meta = .{};
+
+    /// ["filelist", id, "selected", index] when the selection changes
+    /// index is 0-based or null, the first reply gives the current selection
+    /// ["filelist", id, "changed"] when the entries change
+    /// ["filelist", id, "closed"] when the list closes
+    pub fn follow_filelist(self: *Self, ctx: Ctx) Result {
+        const reply = ctx.reply orelse return;
+        var list_id: FileList.Id = undefined;
+        if (!try ctx.args.match(.{tp.extract(&list_id)})) return error.InvalidFollowFilelistArgument;
+        const fl = self.filelists.get(list_id) orelse return error.FileListNotFound;
+        try fl.follow(reply);
+    }
+    pub const follow_filelist_meta: Meta = .{ .arguments = &.{.integer} };
+
     /// ["line", number, text] for each line, without the line ending
     /// long lines (more than max_text_reply) are chunked with the same number
     pub fn get_buffer_text(self: *Self, ctx: Ctx) Result {
@@ -3293,17 +3316,30 @@ const cmds = struct {
     }
     pub const show_diagnostics_meta: Meta = .{ .description = "Show diagnostics panel" };
 
+    /// open_filelist NAME BUFFER [KIND] replaces the entries of the KIND list named NAME, or creates it
+    /// open_filelist ID BUFFER replaces the entries of the list ID
+    /// KIND is a FileList.Kind name, the default is "list"
+    /// replies ["filelist", id], a list with no entries closes and gives no reply
     pub fn open_filelist(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
         var buffer_name: []const u8 = undefined;
-        if (!try ctx.args.match(.{ tp.extract(&name), tp.extract(&buffer_name) }))
-            return error.InvalidOpenFilelistArgument;
+        var kind_name: []const u8 = "list";
+        var list_id: FileList.Id = undefined;
+        const fl = if (try ctx.args.match(.{ tp.extract(&list_id), tp.extract(&buffer_name) }))
+            self.filelists.get(list_id) orelse return error.FileListNotFound
+        else if (try ctx.args.match(.{ tp.extract(&name), tp.extract(&buffer_name) }) or
+            try ctx.args.match(.{ tp.extract(&name), tp.extract(&buffer_name), tp.extract(&kind_name) }))
+        blk: {
+            const kind = std.meta.stringToEnum(FileList.Kind, kind_name) orelse return error.InvalidFileListKind;
+            const fl = self.filelists.find_by_label(kind, name) orelse try self.filelists.create(kind);
+            self.set_filelist_label(fl.list_id, name);
+            break :blk fl;
+        } else return error.InvalidOpenFilelistArgument;
+        errdefer if (fl.is_empty()) self.close_filelist_by_id(fl.list_id);
         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         const buffer = self.buffer_manager.get_buffer_for_file(buffer_name) orelse
             self.buffer_manager.get_buffer_for_file(project_manager.normalize_file_path(buffer_name, &file_path_buf)) orelse
             return error.BufferNotFound;
-        const fl = self.filelists.find_by_label(.list, name) orelse try self.filelists.create(.list);
-        self.set_filelist_label(fl.list_id, name);
         self.filelists.begin_ingest(fl.list_id);
         var lines = std.mem.splitScalar(u8, buffer.store_to_string_cached(buffer.root, .lf), '\n');
         while (lines.next()) |line| {
@@ -3323,9 +3359,10 @@ const cmds = struct {
             try self.add_filelist_entry(fl.list_id, path, l, c, end_l, end_c, if (description.len > 0) description else line, .Information, .foreground);
         }
         self.end_filelist_ingest(fl.list_id, true);
-        if (fl.is_empty()) self.close_filelist_by_id(fl.list_id);
+        if (fl.is_empty()) return self.close_filelist_by_id(fl.list_id);
+        if (ctx.reply) |reply| try reply.send(.{ "filelist", fl.list_id });
     }
-    pub const open_filelist_meta: Meta = .{ .arguments = &.{ .string, .string } };
+    pub const open_filelist_meta: Meta = .{ .arguments = &.{ .any, .string, .string } };
 
     pub fn open_previous_file(self: *Self, _: Ctx) Result {
         self.show_file_async(self.get_next_mru_buffer(.all) orelse return error.Stop);

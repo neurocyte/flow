@@ -1,5 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
+const tp = @import("thespian");
+const command = @import("command");
 const editor = @import("editor.zig");
 
 const Self = @This();
@@ -43,6 +45,7 @@ selected: ?usize = null,
 state: State = .done,
 next_command: ?[]const u8 = null,
 prev_command: ?[]const u8 = null,
+followers: std.ArrayList(command.Reply) = .empty,
 
 const default_icon = "";
 
@@ -92,6 +95,8 @@ pub fn init(allocator: std.mem.Allocator, list_id: Id, kind: Kind) !*Self {
 }
 
 pub fn deinit(self: *Self) void {
+    self.send_to_followers(.{"closed"});
+    self.followers.deinit(self.allocator);
     self.free_entries();
     self.entries.deinit(self.allocator);
     self.allocator.free(self.label);
@@ -116,8 +121,33 @@ pub fn reset(self: *Self) void {
     self.free_entries();
     self.entries.clearRetainingCapacity();
     self.view_pos = 0;
-    self.selected = null;
+    self.select(null);
     self.state = .done;
+}
+
+pub fn select(self: *Self, idx: ?usize) void {
+    if (self.selected == idx) return;
+    self.selected = idx;
+    self.send_to_followers(.{ "selected", idx });
+}
+
+pub fn follow(self: *Self, reply: command.Reply) !void {
+    try self.followers.append(self.allocator, reply);
+    reply.send(.{ "filelist", self.list_id, "selected", self.selected }) catch {};
+}
+
+fn send_to_followers(self: *Self, event: anytype) void {
+    var i: usize = 0;
+    while (i < self.followers.items.len) {
+        const follower = self.followers.items[i];
+        const pid = tp.pid.from_id(follower.piid) orelse {
+            _ = self.followers.swapRemove(i);
+            continue;
+        };
+        pid.deinit();
+        follower.send(.{ "filelist", self.list_id } ++ event) catch {};
+        i += 1;
+    }
 }
 
 fn entry_less_than(_: void, a: Entry, b: Entry) bool {
@@ -279,7 +309,9 @@ pub const Manager = struct {
     }
 
     pub fn clear(self: *Manager, list_id: Id) void {
-        if (self.get(list_id)) |fl| fl.reset();
+        const fl = self.get(list_id) orelse return;
+        fl.reset();
+        fl.send_to_followers(.{"changed"});
     }
 
     pub fn clear_all(self: *Manager) void {
@@ -320,6 +352,7 @@ pub const Manager = struct {
         const fl = self.get(list_id) orelse return;
         if (clear_if_empty and fl.state == .idle) fl.reset();
         fl.state = .done;
+        fl.send_to_followers(.{"changed"});
     }
 
     pub fn write_state(self: *Manager, writer: *std.Io.Writer) !void {
