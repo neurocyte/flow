@@ -196,6 +196,7 @@ pub const Mode = struct {
 
     pub fn current_bindings(self: *const Mode, allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
         const bindings = try self.bindings.get_bindings(allocator, select_mode, .all);
+        if (!self.bindings.global_bindings) return bindings;
         return with_global_bindings(allocator, bindings, null, select_mode);
     }
 
@@ -206,6 +207,7 @@ pub const Mode = struct {
     pub fn current_key_event_sequence_bindings(self: *const Mode, allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
         if (globals.current_sequence.items.len == 0) return &.{};
         const bindings = try self.bindings.get_matches_for_key_event_sequence(allocator, globals.current_sequence.items, select_mode);
+        if (!self.bindings.global_bindings) return bindings;
         return with_global_bindings(allocator, bindings, globals.current_sequence.items, select_mode);
     }
 };
@@ -851,6 +853,7 @@ const BindingSet = struct {
     release: std.ArrayList(Binding) = .empty,
     syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
+    global_bindings: bool = true,
     name: []const u8,
     config_section: []const u8,
     line_numbers: LineNumbers = .inherit,
@@ -874,6 +877,7 @@ const BindingSet = struct {
             release: []const []const std.json.Value = &[_][]std.json.Value{},
             syntax: ?KeySyntax = null,
             on_match_failure: ?OnMatchFailure = null,
+            global_bindings: ?bool = null,
             name: ?[]const u8 = null,
             line_numbers: ?LineNumbers = null,
             cursor: ?CursorShape = null,
@@ -892,6 +896,7 @@ const BindingSet = struct {
         const inh: ?*const BindingSet = if (namespace.inherit_settings) fallback else null;
         self.syntax = parsed.value.syntax orelse if (inh) |f| f.syntax else .flow;
         self.on_match_failure = parsed.value.on_match_failure orelse if (inh) |f| f.on_match_failure else .insert;
+        self.global_bindings = parsed.value.global_bindings orelse if (inh) |f| f.global_bindings else true;
         self.name = try allocator.dupe(u8, parsed.value.name orelse if (inh) |f| f.name else namespace_name);
         self.line_numbers = parsed.value.line_numbers orelse if (inh) |f| f.line_numbers else .inherit;
         self.cursor_shape = parsed.value.cursor orelse if (inh) |f| f.cursor_shape else null;
@@ -1129,6 +1134,7 @@ const BindingSet = struct {
     fn copy(allocator: std.mem.Allocator, config_section: []const u8, fallback: *const BindingSet) error{OutOfMemory}!@This() {
         var self: @This() = .{ .name = fallback.name, .config_section = config_section, .selection_style = fallback.selection_style };
         self.on_match_failure = fallback.on_match_failure;
+        self.global_bindings = fallback.global_bindings;
         self.line_numbers = fallback.line_numbers;
         self.cursor_shape = fallback.cursor_shape;
         self.init_command = fallback.init_command;
@@ -1341,7 +1347,7 @@ const BindingSet = struct {
         if (!all_matches_impossible) return null;
 
         var global_impossible = true;
-        for (globals.global_bindings.items) |global| {
+        if (self.global_bindings) for (globals.global_bindings.items) |global| {
             switch (global.binding.match(globals.current_sequence.items)) {
                 .matched => return &global.binding,
                 .match_possible => {
@@ -1349,7 +1355,7 @@ const BindingSet = struct {
                 },
                 .match_impossible => {},
             }
-        }
+        };
         if (global_impossible) {
             try self.terminate_sequence(.match_impossible);
         }
