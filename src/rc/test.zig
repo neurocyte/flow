@@ -191,7 +191,10 @@ const ClientTest = struct {
 
         if (try m.match(.{"synced"})) {
             self.client = try RcClient.create(self.allocator, self.path, .{ .track = if (self.scenario == .track or self.scenario == .track_discard) .full else .none });
-            try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
+            if (self.scenario == .relay_then_server_shutdown)
+                try self.client.?.pid.?.send(.{ "cmd", "navigate", .{ .file = "foo.zig", .line = 3 }, .{ "reply", tp.self_pid().instance_id(), 1 } })
+            else
+                try self.client.?.navigate(.{ .file = "foo.zig", .line = 3 });
             if (self.scenario != .relay_then_server_shutdown and self.scenario != .client_shutdown) try self.client.?.disconnect();
         } else if (try m.match(.{ "cmd", "navigate", tp.extract(&args), .{ "reply", tp.extract(&reply_piid), tp.extract(&reply_id) } })) {
             if (self.scenario == .track or self.scenario == .track_discard) {
@@ -210,11 +213,13 @@ const ClientTest = struct {
             try send_reply(reply_piid, reply_id, "ok");
             self.navigated = true;
             switch (self.scenario) {
-                .relay_then_server_shutdown => self.server.?.pid.?.send(.{"shutdown"}) catch {},
+                .relay_then_server_shutdown => {},
                 .client_shutdown => self.client.?.pid.?.send(.{"shutdown"}) catch {},
                 .connect_failure => return tp.unexpected(m),
                 .no_wait, .track, .track_discard => {},
             }
+        } else if (self.scenario == .relay_then_server_shutdown and try m.match(.{ "reply", 1, "ok" })) {
+            self.server.?.pid.?.send(.{"shutdown"}) catch {};
         } else if (try m.match(.{ "exit", tp.extract(&reason) }) or try m.match(.{ "exit", tp.extract(&reason), tp.more })) {
             if (self.client) |c| if (c.pid) |p| if (p.instance_id() == from.instance_id()) {
                 self.client_exited = true;
