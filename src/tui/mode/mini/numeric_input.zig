@@ -48,6 +48,7 @@ pub fn Create(options: type) type {
             };
             mini_editor.on_change = .bind(self, on_input_change);
             try self.commands.init(self);
+            errdefer self.commands.deinit();
             var mode = try keybind.mode("mini/numeric", allocator, .{
                 .insert_command = "mini_mode_insert_bytes",
             });

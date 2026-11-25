@@ -60,6 +60,7 @@ pub fn Create(options: type) type {
                 .entries = .empty,
             };
             try self.commands.init(self);
+            errdefer self.commands.deinit();
             try tui.message_filters().add(MessageFilter.bind(self, receive_path_entry));
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))

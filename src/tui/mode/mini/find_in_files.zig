@@ -42,6 +42,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .filter = tui.config().find_in_files_filter,
     };
     try self.commands.init(self);
+    errdefer self.commands.deinit();
     var query: []const u8 = undefined;
     var list_id: FileList.Id = undefined;
     if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&self.filter), cbor.extract(&query), cbor.extract(&list_id) }) catch false) {

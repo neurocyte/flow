@@ -47,6 +47,7 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .editor = editor,
     };
     try self.commands.init(self);
+    errdefer self.commands.deinit();
     var query: []const u8 = undefined;
     if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&query) }) catch false) {
         editor.find_mode = self.find_mode;

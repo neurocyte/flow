@@ -49,8 +49,8 @@ pub const defaultValue: ValueType = .{};
 var max_description: usize = 0;
 
 pub fn init(self: *Type) error{ Stop, OutOfMemory }!void {
-    try self.value.commands.init(self);
     self.value.editor = tui.get_active_editor() orelse return error.Stop;
+    try self.value.commands.init(self);
     self.value.view = self.value.editor.view;
     self.value.editor.cursor_focus_override = true;
 }

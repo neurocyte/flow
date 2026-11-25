@@ -120,6 +120,7 @@ pub fn Create(options: type) type {
             self.list_box_layer.set(self.list_box.container_widget);
             if (self.scroller.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             if (@hasDecl(options, "init")) try options.init(self);
+            errdefer if (@hasDecl(options, "deinit")) options.deinit(self);
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
                 try options.load_entries_with_args(self, ctx)
             else

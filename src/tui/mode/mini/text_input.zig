@@ -29,6 +29,7 @@ pub fn Create(options: type) type {
                 .mini_editor = mini_editor,
             };
             try self.commands.init(self);
+            errdefer self.commands.deinit();
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             var mode = try keybind.mode("mini/text_input", allocator, .{
