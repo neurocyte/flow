@@ -62,6 +62,7 @@ pub fn Create(options: type) type {
             try self.commands.init(self);
             errdefer self.commands.deinit();
             try tui.message_filters().add(MessageFilter.bind(self, receive_path_entry));
+            errdefer tui.message_filters().remove_ptr(self);
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
