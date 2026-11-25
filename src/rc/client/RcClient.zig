@@ -298,11 +298,15 @@ const Process = struct {
     }
 
     fn connected(self: *@This(), conn_id: tp.piid) !void {
-        const conn = tp.pid.from_id(conn_id) orelse return tp.exit("connection_lost");
+        const conn = tp.pid.from_id(conn_id) orelse return self.closed_before_handshake();
         self.connection = conn;
-        try conn.link();
+        conn.link() catch return self.closed_before_handshake();
         const self_id: remote.protocol.lpiid = .fromInt(tp.self_pid().instance_id().toInt());
-        try conn.send(.{ "send", self_id, common.service_name, .{ "hello", common.build_version } });
+        conn.send(.{ "send", self_id, common.service_name, .{ "hello", common.build_version } }) catch return self.closed_before_handshake();
+    }
+
+    fn closed_before_handshake(self: *@This()) error{Exit} {
+        return tp.exit_fmt("connection to {s} closed before the handshake", .{self.path});
     }
 
     fn hello(self: *@This(), from: tp.pid_ref, server_version: []const u8) !void {
@@ -625,8 +629,7 @@ const Process = struct {
             connection.deinit();
             self.connection = null;
             if (!std.mem.eql(u8, reason, "peer_closed")) return tp.exit(reason);
-            if (self.server == null)
-                return tp.exit_fmt("connection to {s} closed before the handshake", .{self.path});
+            if (self.server == null) return self.closed_before_handshake();
             if (self.outstanding.count() > 0 or self.pending.items.len > 0 or self.held.items.len > 0)
                 return tp.exit_fmt("connection to {s} closed before all replies arrived", .{self.path});
             return self.exit_done();
