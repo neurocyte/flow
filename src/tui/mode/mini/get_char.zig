@@ -37,6 +37,7 @@ pub fn Create(options: type) type {
                 .ctx = .{ .io = ctx.io, .now = ctx.now, .args = try ctx.args.clone(allocator) },
                 .value = if (@hasDecl(options, "start")) options.start(self) else {},
             };
+            errdefer allocator.free(self.ctx.args.buf);
             errdefer if (self.mini_editor) |mini_editor| mini_editor.destroy();
             if (@hasDecl(options, "show_input"))
                 self.mini_editor = try tui.MiniEditor.create(allocator);

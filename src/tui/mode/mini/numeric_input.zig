@@ -39,6 +39,7 @@ pub fn Create(options: type) type {
                 .ctx = .{ .io = ctx.io, .now = ctx.now, .args = try ctx.args.clone(allocator) },
                 .start = if (@hasDecl(options, "ValueType")) ValueType{} else 0,
             };
+            errdefer allocator.free(self.ctx.args.buf);
             self.start = options.start(self);
             if (!@hasDecl(options, "ValueType")) if (self.input) |value| {
                 var buf: [32]u8 = undefined;
