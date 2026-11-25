@@ -624,8 +624,12 @@ const Process = struct {
         if (self.connection) |connection| if (id == connection.instance_id()) {
             connection.deinit();
             self.connection = null;
-            if (std.mem.eql(u8, reason, "peer_closed")) return self.exit_done();
-            return tp.exit(reason);
+            if (!std.mem.eql(u8, reason, "peer_closed")) return tp.exit(reason);
+            if (self.server == null)
+                return tp.exit_fmt("connection to {s} closed before the handshake", .{self.path});
+            if (self.outstanding.count() > 0 or self.pending.items.len > 0 or self.held.items.len > 0)
+                return tp.exit_fmt("connection to {s} closed before all replies arrived", .{self.path});
+            return self.exit_done();
         };
     }
 
