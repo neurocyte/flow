@@ -7432,17 +7432,8 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            if (cursel.selection) |*sel| {
-                const chars_begin, const chars_end = if (sel.is_reversed())
-                    .{ chars_right, chars_left }
-                else
-                    .{ chars_left, chars_right };
-                var begin: CurSel = .{ .cursor = sel.begin };
-                root = try self.insert(root, &begin, chars_begin, b.allocator);
-                const inside = cursel.*;
-                var end: CurSel = .{ .cursor = sel.end };
-                root = try self.insert(root, &end, chars_end, b.allocator);
-                if (inside.is_cursor_only()) cursel.* = inside;
+            if (cursel.selection) |_| {
+                root = try insert_pair_around_selection(self, root, cursel, chars_left, chars_right, b.allocator);
             } else blk: {
                 const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
                     root = try self.insert(root, cursel, chars_left, b.allocator);
@@ -7472,20 +7463,8 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            if (cursel.selection) |*sel| {
-                const chars_begin, const chars_end = if (sel.is_reversed())
-                    .{ chars_right, chars_left }
-                else
-                    .{ chars_left, chars_right };
-                var begin: CurSel = .{ .cursor = sel.begin };
-                root = try self.insert(root, &begin, chars_begin, b.allocator);
-                const end_pos = sel.end;
-                var end: CurSel = .{ .cursor = sel.end };
-                root = try self.insert(root, &end, chars_end, b.allocator);
-                if (sel.end.eql(end_pos)) {
-                    if (cursel.cursor.eql(end_pos)) cursel.cursor = end.cursor;
-                    sel.end = end.cursor;
-                }
+            if (cursel.selection) |_| {
+                root = try insert_pair_around_selection_close(self, root, cursel, chars_left, chars_right, b.allocator);
                 cursel.disable_selection(root, self.metrics);
             } else blk: {
                 const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
@@ -7505,6 +7484,37 @@ pub const Editor = struct {
         self.clamp(ctx.now);
     }
     pub const smart_insert_pair_close_meta: Meta = .{ .arguments = &.{ .string, .string } };
+
+    fn insert_pair_at_selection_edges(inserter: anytype, root: Buffer.Root, cursel: *CurSel, chars_left: []const u8, chars_right: []const u8, allocator: Allocator) !struct { Buffer.Root, CurSel, Cursor } {
+        const sel = &(cursel.selection orelse return error.Stop);
+        const chars_begin, const chars_end = if (sel.is_reversed())
+            .{ chars_right, chars_left }
+        else
+            .{ chars_left, chars_right };
+        var begin: CurSel = .{ .cursor = sel.begin };
+        var root_ = try inserter.insert(root, &begin, chars_begin, allocator);
+        const inside = cursel.*;
+        var end: CurSel = .{ .cursor = sel.end };
+        root_ = try inserter.insert(root_, &end, chars_end, allocator);
+        return .{ root_, inside, end.cursor };
+    }
+
+    pub fn insert_pair_around_selection(inserter: anytype, root: Buffer.Root, cursel: *CurSel, chars_left: []const u8, chars_right: []const u8, allocator: Allocator) !Buffer.Root {
+        const root_, const inside, _ = try insert_pair_at_selection_edges(inserter, root, cursel, chars_left, chars_right, allocator);
+        if (inside.is_cursor_only()) cursel.* = inside;
+        return root_;
+    }
+
+    pub fn insert_pair_around_selection_close(inserter: anytype, root: Buffer.Root, cursel: *CurSel, chars_left: []const u8, chars_right: []const u8, allocator: Allocator) !Buffer.Root {
+        const root_, const inside, const after_end = try insert_pair_at_selection_edges(inserter, root, cursel, chars_left, chars_right, allocator);
+        const end_pos = (inside.selection orelse return root_).end;
+        const sel = &(cursel.selection orelse return root_);
+        if (sel.end.eql(end_pos)) {
+            if (cursel.cursor.eql(end_pos)) cursel.cursor = after_end;
+            sel.end = after_end;
+        }
+        return root_;
+    }
 
     fn update_syntax(self: *Self, now: std.Io.Timestamp) !void {
         const buffer = self.buffer orelse return error.Stop;
