@@ -51,6 +51,7 @@ pub const exports = struct {
     pub const MiniBuffer = @import("MiniBuffer.zig");
     pub const ScrollAnimation = @import("ScrollAnimation.zig");
     pub const info_box_placement = @import("info_box_placement.zig");
+    pub const info_history = @import("info_history.zig");
     pub const link_dispatch = @import("link_dispatch.zig");
 };
 

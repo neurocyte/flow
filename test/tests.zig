@@ -4,6 +4,7 @@ pub const color = @import("tests_color.zig");
 pub const file_link = @import("tests_file_link.zig");
 pub const helix = @import("tests_helix.zig");
 pub const info_box_placement = @import("tests_info_box_placement.zig");
+pub const info_history = @import("tests_info_history.zig");
 pub const insert_pair = @import("tests_insert_pair.zig");
 pub const link_dispatch = @import("tests_link_dispatch.zig");
 pub const jump_labels = @import("tests_jump_labels.zig");

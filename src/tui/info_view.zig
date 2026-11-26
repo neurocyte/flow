@@ -332,6 +332,12 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ MouseEvent.Type.motion, tp.any, tp.extract(&coord), tp.extract(&mods) })) {
         self.show_links(mods.ctrl);
         self.hover_link(coord);
+    } else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.button_8, tp.any, tp.any })) {
+        if (self.panel_input != null) if (tui.mainview()) |mv| mv.info_jump(self, .back);
+        return true;
+    } else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.button_9, tp.any, tp.any })) {
+        if (self.panel_input != null) if (tui.mainview()) |mv| mv.info_jump(self, .forward);
+        return true;
     } else if (try m.match(.{ MouseEvent.Type.press, MouseEvent.Button.left, tp.extract(&coord), tp.any })) {
         self.link_pressed = self.link_hover != null and self.link_under(coord) != null;
     } else if (try m.match(.{ MouseEvent.Type.release, MouseEvent.Button.left, tp.extract(&coord), tp.extract(&mods) })) {
@@ -785,8 +791,16 @@ fn open_link(self: *Self, href: []const u8, click: link_dispatch.Click) void {
     var arena: std.heap.ArenaAllocator = .init(self.allocator);
     defer arena.deinit();
     const action = link_dispatch.classify(arena.allocator(), href, .{ .base_dir = self.base_dir() }) catch return;
+    const mv = if (self.panel_input != null) tui.mainview() else null;
     switch (action) {
-        .anchor => |anchor| _ = self.scroll_to_heading(anchor),
+        .anchor => |anchor| {
+            const from = if (mv) |v| v.info_history_entry(self) else null;
+            if (self.scroll_to_heading(anchor)) if (mv) |v| if (from) |f| v.info_history_record(f);
+        },
+        .markdown => {
+            if (click == .normal) if (mv) |v| if (v.info_history_entry(self)) |f| v.info_history_record(f);
+            link_dispatch.dispatch(action, click);
+        },
         else => link_dispatch.dispatch(action, click),
     }
 }

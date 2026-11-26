@@ -819,6 +819,8 @@
             ["ctrl+d", "panel_scroll_half_page_down"],
             ["q", "panel_tab_close"],
             ["e", "info_open_in_editor"],
+            ["alt+left", "info_jump_back"],
+            ["alt+right", "info_jump_forward"],
             ["x", "panel_toggle_centered_view"],
             ["-", "panel_shrink_centered_view"],
             ["=", "panel_expand_centered_view"],

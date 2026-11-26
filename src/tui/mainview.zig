@@ -50,6 +50,7 @@ const Filestate = @import("status/filestate.zig");
 const Modestate = @import("status/modestate.zig");
 const MiniModeOverlay = @import("MiniModeOverlay.zig");
 const info_view = @import("info_view.zig");
+const info_history = @import("info_history.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
 const terminal_view = @import("terminal_view.zig");
@@ -92,6 +93,7 @@ mini_mode_overlay: MiniModeOverlay = .{},
 vcs_commits: std.StringHashMapUnmanaged([]const u8) = .empty,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
+info_history_: info_history,
 buffer_manager: Buffer.Manager,
 filelist_streams: std.array_hash_map.Auto(FileList.Stream, StreamInfo) = .empty,
 next_filelist_stream: FileList.Stream = FileList.stream_first_dynamic,
@@ -124,6 +126,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .widgets_widget = undefined,
         .floating_views = WidgetStack.init(allocator),
         .location_history_ = try location_history.create(),
+        .info_history_ = .init(allocator),
         .views = undefined,
         .views_widget = undefined,
         .panes = undefined,
@@ -223,6 +226,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     }
     self.vcs_commits.deinit(allocator);
     self.location_history_.deinit();
+    self.info_history_.deinit();
     terminal_view.shutdown_all();
     self.commands.deinit();
     self.widgets.deinit(allocator);
@@ -949,6 +953,7 @@ const cmds = struct {
             try self.project_view_states.store(old_project, state);
             logger.print("stored project state for: {s} ({d} bytes)", .{ old_project, state.len });
         }
+        self.info_history_.reset();
 
         {
             const buffers = try self.buffer_manager.list_unordered(self.allocator);
@@ -1251,21 +1256,7 @@ const cmds = struct {
         var line: usize = 0;
         if (!try ctx.args.match(.{ tp.extract(&path), tp.extract(&anchor), tp.extract(&line) }))
             return error.InvalidMarkdownPreviewOpenArgument;
-        const was_hidden = !self.bottom_area.visible();
-        const preview = try self.show_preview(path);
-        preview.set_heading_anchor(if (anchor.len > 0) anchor else null);
-        if (line > 0) preview.scroll_to_source(.{ .row = line - 1 });
-        if (self.buffer_manager.get_buffer_for_file(path)) |buffer| {
-            try self.refresh_preview(preview, buffer);
-            preview.resolve_heading_anchor();
-        } else {
-            var then: std.Io.Writer.Allocating = .init(self.allocator);
-            defer then.deinit();
-            try cbor.writeValue(&then.writer, .{ "cmd", "markdown_preview_loaded", .{path} });
-            try self.buffer_manager.load(path, .{ .then = .{ .bytes = then.written() } });
-        }
-        if (was_hidden) self.bottom_area.set_maximized(true);
-        tui.need_render(@src());
+        try self.open_preview_at(path, if (anchor.len > 0) anchor else null, if (line > 0) .{ .row = line - 1 } else null);
     }
     pub const markdown_preview_open_meta: Meta = .{ .arguments = &.{ .string, .string, .integer } };
 
@@ -2820,6 +2811,18 @@ const cmds = struct {
         try self.location_history_.forward(if (same_file) self.get_active_file_path() else null, location_jump);
     }
     pub const jump_forward_meta: Meta = .{ .description = "Go forward to next location" };
+
+    pub fn info_jump_back(self: *Self, _: Ctx) Result {
+        const info = (self.focused_panel() orelse return).cast(info_view) orelse return;
+        self.info_jump(info, .back);
+    }
+    pub const info_jump_back_meta: Meta = .{ .description = "Go back to previous location (info view)" };
+
+    pub fn info_jump_forward(self: *Self, _: Ctx) Result {
+        const info = (self.focused_panel() orelse return).cast(info_view) orelse return;
+        self.info_jump(info, .forward);
+    }
+    pub const info_jump_forward_meta: Meta = .{ .description = "Go forward to next location (info view)" };
 
     pub fn show_home(self: *Self, _: Ctx) Result {
         if (self.quit_on_document_close and self.quit_if_idle()) return;
@@ -4542,6 +4545,8 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     try cbor.writeArrayHeader(writer, 2);
     try cbor.writeValue(writer, self.top_bar_hidden);
     try cbor.writeValue(writer, self.bottom_bar_hidden);
+
+    try self.info_history_.write_state(writer);
 }
 
 fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp, file_name: []const u8, color_scheme: tui.RestoreColorScheme) !void {
@@ -4653,6 +4658,10 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     if (iter.len > 0)
         self.extract_bars_state(iter) catch |e|
             logger.print_err("mainview", "failed to restore bars: {}", .{e});
+
+    if (iter.len > 0)
+        self.info_history_.extract_state(iter) catch |e|
+            logger.print_err("mainview", "failed to restore info view history: {}", .{e});
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
@@ -5019,6 +5028,75 @@ fn sync_preview_disk(self: *Self, preview: *info_view) void {
     tui.need_render(@src());
 }
 
+fn open_preview_at(self: *Self, path: []const u8, anchor: ?[]const u8, position: ?info_view.SourceAnchor) !void {
+    const was_hidden = !self.bottom_area.visible();
+    const preview = try self.show_preview(path);
+    preview.set_heading_anchor(anchor);
+    if (position) |p| preview.scroll_to_source(p);
+    if (self.buffer_manager.get_buffer_for_file(path)) |buffer| {
+        try self.refresh_preview(preview, buffer);
+        preview.resolve_heading_anchor();
+    } else {
+        var then: std.Io.Writer.Allocating = .init(self.allocator);
+        defer then.deinit();
+        try cbor.writeValue(&then.writer, .{ "cmd", "markdown_preview_loaded", .{path} });
+        try self.buffer_manager.load(path, .{ .then = .{ .bytes = then.written() } });
+    }
+    if (was_hidden) self.bottom_area.set_maximized(true);
+    tui.need_render(@src());
+}
+
+pub fn info_history_entry(self: *Self, info: *info_view) ?info_history.Entry {
+    const view: info_history.View = if (info.source) |source|
+        .{ .preview = source }
+    else
+        .{ .panel = self.info_panel_id(info) orelse return null };
+    const position = info.source_position() orelse return .{ .view = view };
+    return .{ .view = view, .row = position.row, .offset = position.offset };
+}
+
+pub fn info_history_record(self: *Self, from: info_history.Entry) void {
+    self.info_history_.record(from) catch |e| std.log.err("info history: {t}", .{e});
+}
+
+pub fn info_jump(self: *Self, info: *info_view, direction: info_history.Direction) void {
+    self.info_jump_to(info, direction) catch |e| std.log.err("info history jump: {t}", .{e});
+}
+
+fn info_jump_to(self: *Self, info: *info_view, direction: info_history.Direction) !void {
+    const current = self.info_history_entry(info) orelse return;
+    const target = try self.info_history_.jump(direction, current, self, info_view_exists) orelse return;
+    defer target.deinit(self.allocator);
+    const position: info_view.SourceAnchor = .{ .row = target.row, .offset = target.offset };
+    switch (target.view) {
+        .preview => |path| try self.open_preview_at(path, null, position),
+        .panel => |id| {
+            const f = self.bottom_area.find_by_id(id) orelse return;
+            self.bottom_area.activate(id);
+            (f.panel.cast(info_view) orelse return).scroll_to_source(position);
+            tui.need_render(@src());
+        },
+    }
+}
+
+fn info_view_exists(self: *Self, view: info_history.View) bool {
+    return switch (view) {
+        .preview => true,
+        .panel => |id| self.bottom_area.find_by_id(id) != null,
+    };
+}
+
+fn info_panel_id(self: *Self, info: *info_view) ?Panel.Id {
+    const f = self.bottom_area.find_panel_where(info_view, info, is_same_info_view) orelse
+        self.bottom_area.find_tagged_where(info_view, info_view.preview_tag, info, is_same_info_view) orelse
+        return null;
+    return f.panel.id;
+}
+
+fn is_same_info_view(a: *info_view, b: *info_view) bool {
+    return a == b;
+}
+
 fn show_preview(self: *Self, source: []const u8) !*info_view {
     if (self.bottom_area.find_tagged_where(info_view, info_view.preview_tag, source, info_view.is_preview_of)) |f| {
         self.bottom_area.activate(f.panel.id);
@@ -5078,6 +5156,7 @@ pub fn show_info_panel(self: *Self) !*info_view {
 pub fn set_info_content(self: *Self, kind: info_view.Kind, content: []const u8, mode: enum { replace, append }) tp.result {
     if (content.len == 0) return;
     const info = self.show_info_panel() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    if (mode == .replace) if (self.info_panel_id(info)) |id| self.info_history_.remove_panel(id);
     switch (mode) {
         .replace => info.set_content(kind, content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
         .append => info.append_content(kind, content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
