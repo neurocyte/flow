@@ -7430,7 +7430,6 @@ pub const Editor = struct {
         if (!try ctx.args.match(.{ tp.extract(&chars_left), tp.extract(&chars_right) }))
             return error.InvalidSmartInsertPairArguments;
         const b = try self.buf_for_update();
-        var move: enum { left, right } = .left;
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |*sel| {
@@ -7440,25 +7439,24 @@ pub const Editor = struct {
                     .{ chars_left, chars_right };
                 var begin: CurSel = .{ .cursor = sel.begin };
                 root = try self.insert(root, &begin, chars_begin, b.allocator);
+                const inside = cursel.*;
                 var end: CurSel = .{ .cursor = sel.end };
                 root = try self.insert(root, &end, chars_end, b.allocator);
-                sel.end.move_left(root, self.metrics) catch {};
+                if (inside.is_cursor_only()) cursel.* = inside;
             } else blk: {
                 const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
                     root = try self.insert(root, cursel, chars_left, b.allocator);
                     root = try self.insert(root, cursel, chars_right, b.allocator);
+                    cursel.cursor.move_left(root, self.metrics) catch {};
                     break :blk;
                 };
                 if (std.mem.eql(u8, egc, chars_left)) {
-                    move = .right;
+                    cursel.cursor.move_right(root, self.metrics) catch {};
                 } else {
                     root = try self.insert(root, cursel, chars_left, b.allocator);
                     root = try self.insert(root, cursel, chars_right, b.allocator);
+                    cursel.cursor.move_left(root, self.metrics) catch {};
                 }
-            }
-            switch (move) {
-                .left => cursel.cursor.move_left(root, self.metrics) catch {},
-                .right => cursel.cursor.move_right(root, self.metrics) catch {},
             }
         };
         try self.update_buf(root, ctx.now);
@@ -7481,8 +7479,13 @@ pub const Editor = struct {
                     .{ chars_left, chars_right };
                 var begin: CurSel = .{ .cursor = sel.begin };
                 root = try self.insert(root, &begin, chars_begin, b.allocator);
+                const end_pos = sel.end;
                 var end: CurSel = .{ .cursor = sel.end };
                 root = try self.insert(root, &end, chars_end, b.allocator);
+                if (sel.end.eql(end_pos)) {
+                    if (cursel.cursor.eql(end_pos)) cursel.cursor = end.cursor;
+                    sel.end = end.cursor;
+                }
                 cursel.disable_selection(root, self.metrics);
             } else blk: {
                 const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
