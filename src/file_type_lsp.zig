@@ -166,7 +166,7 @@ pub const kdl = .{
 
 pub const latex = .{
     .language_server = .{"texlab"},
-    .formatter = .{ "tex-fmt", "--stdin" },
+    .formatter = .{ "tex-fmt", "--stdin", "--tabsize", "{{indent_size}}", "--wraplen", "{{reflow_width}}" },
 };
 
 pub const lua = .{
