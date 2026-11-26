@@ -6924,6 +6924,7 @@ pub const Editor = struct {
                 const ts_begin_pos = cursor_pos + placeholder.begin.@"0";
                 const ts_begin = root.byte_offset_to_line_and_col(ts_begin_pos, self.metrics, eol_mode);
                 const ts_end = if (placeholder.end) |end| blk: {
+                    if (end.@"0" == placeholder.begin.@"0") break :blk null;
                     const ts_end_pos = cursor_pos + end.@"0";
                     break :blk root.byte_offset_to_line_and_col(ts_end_pos, self.metrics, eol_mode);
                 } else null;
