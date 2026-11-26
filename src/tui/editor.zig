@@ -9817,6 +9817,19 @@ pub const Editor = struct {
     // exports for unittests
     pub const test_internal = struct {
         pub const compute_jump_labels = private.compute_jump_labels;
+
+        pub const CurSelsInserter = struct {
+            cursels: []?CurSel,
+            metrics: Buffer.Metrics,
+
+            pub fn insert(self: CurSelsInserter, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+                const begin = cursel.cursor;
+                cursel.cursor.row, cursel.cursor.col, const root_ = try root.insert_chars(begin.row, begin.col, s, allocator, self.metrics);
+                cursel.cursor.target = cursel.cursor.col;
+                nudge_insert_cursels(self.cursels, .insert(.{ .begin = begin, .end = cursel.cursor }, root, root_, self.metrics), cursel);
+                return root_;
+            }
+        };
     };
 };
 
