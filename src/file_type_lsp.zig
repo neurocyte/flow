@@ -6,7 +6,7 @@ pub const @"asm" = .{
 
 pub const astro = .{
     .language_server = .{ "astro-ls", "--stdio" },
-    .formatter = .{ "prettier", "--plugin", "prettier-plugin-astro", "--parser", "astro" },
+    .formatter = .{ "prettier", "--plugin", "prettier-plugin-astro", "--parser", "astro", "--tab-width", "{{indent_size}}" },
 };
 
 pub const awk = .{
@@ -20,7 +20,7 @@ pub const bash = .{
 
 pub const bibtex = .{
     .language_server = .{"texlab"},
-    .formatter = .{ "bibtex-tidy", "--curly", "--trailing-commas" },
+    .formatter = .{ "bibtex-tidy", "--curly", "--trailing-commas", "--space={{indent_size}}", "--wrap={{reflow_width}}" },
 };
 
 pub const c = .{
@@ -47,7 +47,7 @@ pub const cpp = .{
 
 pub const css = .{
     .language_server = .{ "vscode-css-language-server", "--stdio" },
-    .formatter = .{ "prettier", "--parser", "css" },
+    .formatter = .{ "prettier", "--parser", "css", "--tab-width", "{{indent_size}}" },
 };
 
 pub const devicetree = .{
@@ -143,12 +143,12 @@ pub const java = .{
 
 pub const javascript = .{
     .language_server = .{ "typescript-language-server", "--stdio" },
-    .formatter = .{ "prettier", "--parser", "typescript" },
+    .formatter = .{ "prettier", "--parser", "typescript", "--tab-width", "{{indent_size}}" },
 };
 
 pub const json = .{
     .language_server = .{ "vscode-json-language-server", "--stdio" },
-    .formatter = .{ "prettier", "--parser", "json" },
+    .formatter = .{ "prettier", "--parser", "json", "--tab-width", "{{indent_size}}" },
 };
 
 pub const julia = .{
@@ -166,7 +166,7 @@ pub const kdl = .{
 
 pub const latex = .{
     .language_server = .{"texlab"},
-    .formatter = .{ "tex-fmt", "--stdin" },
+    .formatter = .{ "tex-fmt", "--stdin", "--tabsize", "{{indent_size}}", "--wraplen", "{{reflow_width}}" },
 };
 
 pub const lua = .{
@@ -292,7 +292,7 @@ pub const scheme = .{
 
 pub const scss = .{
     .language_server = .{ "vscode-css-language-server", "--stdio" },
-    .formatter = .{ "prettier", "--parser", "scss" },
+    .formatter = .{ "prettier", "--parser", "scss", "--tab-width", "{{indent_size}}" },
 };
 
 pub const sql = .{};
@@ -301,7 +301,7 @@ pub const @"ssh-config" = .{};
 
 pub const svelte = .{
     .language_server = .{ "svelteserver", "--stdio" },
-    .formatter = .{ "prettier", "--parser", "svelte" },
+    .formatter = .{ "prettier", "--parser", "svelte", "--tab-width", "{{indent_size}}" },
 };
 
 pub const svg = .{
@@ -327,17 +327,17 @@ pub const toml = .{
 pub const tsx = .{
     .language_server = .{ "typescript-language-server", "--stdio" },
     .language_id = "typescriptreact",
-    .formatter = .{ "prettier", "--parser", "typescript" },
+    .formatter = .{ "prettier", "--parser", "typescript", "--tab-width", "{{indent_size}}" },
 };
 
 pub const typescript = .{
     .language_server = .{ "typescript-language-server", "--stdio" },
-    .formatter = .{ "prettier", "--parser", "typescript" },
+    .formatter = .{ "prettier", "--parser", "typescript", "--tab-width", "{{indent_size}}" },
 };
 
 pub const typst = .{
     .language_server = .{"tinymist"},
-    .formatter = .{"typstyle"},
+    .formatter = .{ "typstyle", "--tab-width", "{{indent_size}}", "--line-width", "{{reflow_width}}", "--wrap-text=fill" },
 };
 
 pub const uxntal = .{};
@@ -371,7 +371,7 @@ pub const xml = .{
 
 pub const yaml = .{
     .language_server = .{ "yaml-language-server", "--stdio" },
-    .formatter = .{ "prettier", "--parser", "yaml" },
+    .formatter = .{ "prettier", "--parser", "yaml", "--tab-width", "{{indent_size}}" },
 };
 
 pub const zig = .{
