@@ -8529,6 +8529,8 @@ pub const Editor = struct {
         else
             (view_height / 2) - (range_height / 2);
         self.update_scroll_dest_abs(first_row -| offset, now);
+        // Palettes preview with this, so render before the next input.
+        tui.need_render(@src());
     }
 
     pub fn focus_on_lines(self: *Self, ctx: Context) Result {

@@ -60,6 +60,7 @@ const edit: Menu = .{ .label = "Edit", .items = &.{
     .separator,
     .{ .command = .{ .command = "find" } },
     .{ .command = .{ .command = "find_in_files" } },
+    .{ .command = .{ .command = "search_lines" } },
     .{ .command = .{ .command = "find_word_at_cursor" } },
     .separator,
     .{ .command = .{ .command = "toggle_comment" } },
