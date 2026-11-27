@@ -1306,10 +1306,23 @@ const BindingSet = struct {
             input.key.left_super, input.key.right_super => 0,
             input.key.iso_level_3_shift, input.key.iso_level_5_shift => 0,
             else => switch (mode_flag) {
-                .ignore_alt_text_modifiers => if (text.len == 0 or std.mem.eql(u8, text, codepoint))
-                    key_event.modifiers
-                else
-                    key_event.modifiers & ~input.mod.alt,
+                .ignore_alt_text_modifiers => blk: {
+                    // Alternate-layout text can also be the shifted codepoint
+                    // (e.g. Option+Shift+8 produces '{' on a Finnish Mac).
+                    // Compare with the underlying key, allowing ordinary ASCII
+                    // letter shifting so Alt+Shift shortcuts still work
+                    // (e.g. Alt+Shift+x producing 'X' must keep Alt).
+                    var base_key = key_event.key_unshifted;
+                    if (key_event.modifiers & input.mod.shift != 0 and base_key >= 'a' and base_key <= 'z')
+                        base_key -= 'a' - 'A';
+                    var base_buf: [6]u8 = undefined;
+                    var new_mods = key_event.modifiers;
+                    if (input.ucs32_to_utf8(&[_]u32{base_key}, &base_buf)) |len| {
+                        if (text.len > 0 and !std.mem.eql(u8, text, base_buf[0..len]))
+                            new_mods &= ~input.mod.alt;
+                    } else |_| {}
+                    break :blk new_mods;
+                },
                 .normal => key_event.modifiers,
             },
         };
@@ -1785,6 +1798,48 @@ fn feed(bs: *const BindingSet, keys: []const u8) !?[]const u8 {
         }
     }
     return last;
+}
+
+test "Option text handling" {
+    var bs = try test_bindings(
+        \\  "normal": { "syntax": "flow", "on_match_failure": "ignore", "press": [
+        \\    ["{", "text"], ["}", "text"], ["8", "text"], ["9", "text"],
+        \\    ["alt+{", "alt"], ["alt+}", "alt"], ["alt+8", "alt"], ["alt+9", "alt"],
+        \\    ["alt+x", "alt"], ["alt+X", "alt"]
+        \\  ]}
+    );
+    reset_global_bindings_for_test();
+    defer reset_global_bindings_for_test();
+    const previous_mode = mode_flag;
+    defer mode_flag = previous_mode;
+
+    const Case = struct { event: KeyEvent, inserted: []const u8 = "" };
+    const cases = [_]Case{
+        // Exact key press fields captured with the Finnish macOS layout.
+        .{ .event = KeyEvent.from_message(1, 56, 123, "{", 3), .inserted = "{" },
+        .{ .event = KeyEvent.from_message(1, 57, 125, "}", 3), .inserted = "}" },
+        .{ .event = KeyEvent.from_message(1, 56, 56, "[", 2), .inserted = "[" },
+        .{ .event = KeyEvent.from_message(1, 57, 57, "]", 2), .inserted = "]" },
+        .{ .event = KeyEvent.from_message(1, 'x', 'x', "x", input.mod.alt) },
+        .{ .event = KeyEvent.from_message(1, 'x', 'X', "X", input.mod.alt | input.mod.shift) },
+        .{ .event = KeyEvent.from_message(1, 'x', 'x', "", input.mod.alt) },
+        .{ .event = KeyEvent.from_message(3, 56, 56, "", 2) },
+    };
+    for ([_]KeybindMode{ .normal, .ignore_alt_text_modifiers }) |bind_mode| {
+        mode_flag = bind_mode;
+        for (cases) |case| {
+            reset_global_bindings_for_test();
+            const text = if (bind_mode == .ignore_alt_text_modifiers) case.inserted else "";
+            const binding = try bs.process_key_event(case.event);
+            if (case.event.event == input.event.release) {
+                try std.testing.expect(binding == null);
+                try std.testing.expectEqual(@as(usize, 0), globals.current_sequence.items.len);
+            } else {
+                try std.testing.expectEqualStrings(if (text.len > 0) "text" else "alt", binding.?.commands[0].command);
+            }
+            try std.testing.expectEqualStrings(text, globals.current_sequence_egc.items);
+        }
+    }
 }
 
 test "global keybind fires when the mode has no match" {
